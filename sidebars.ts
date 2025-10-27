@@ -16,6 +16,15 @@ const sidebars: SidebarsConfig = {
         'data-routing/circuit-breakers',
       ],
     },
+    {
+      type: 'category',
+      label: 'Data Security',
+      collapsible: true,
+      collapsed: false,
+      items: [
+        'data-security/encryption-patterns',
+      ],
+    },
   ],
 };
 
