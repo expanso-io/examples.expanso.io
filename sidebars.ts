@@ -13,7 +13,11 @@ const sidebars: SidebarsConfig = {
       collapsible: true,
       collapsed: false,
       items: [
+        'data-routing/content-routing',
         'data-routing/circuit-breakers',
+        'data-routing/priority-queues',
+        'data-routing/fan-out-pattern',
+        'data-routing/content-splitting',
       ],
     },
     {
@@ -23,6 +27,9 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         'data-security/encryption-patterns',
+        'data-security/encrypt-data',
+        'data-security/remove-pii',
+        'data-security/enforce-schema',
       ],
     },
     {
@@ -32,6 +39,10 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         'data-transformation/aggregate-time-windows',
+        'data-transformation/deduplicate-events',
+        'data-transformation/normalize-timestamps',
+        'data-transformation/parse-logs',
+        'data-transformation/transform-formats',
       ],
     },
     {
@@ -40,6 +51,8 @@ const sidebars: SidebarsConfig = {
       collapsible: true,
       collapsed: false,
       items: [
+        'log-processing/filter-severity',
+        'log-processing/enrich-export',
         'log-processing/production-pipeline',
       ],
     },

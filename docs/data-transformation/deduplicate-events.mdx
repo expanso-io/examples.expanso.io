@@ -1,0 +1,492 @@
+---
+title: Deduplicate Events
+sidebar_label: Deduplicate Events
+sidebar_position: 4
+description: Prevent duplicate events using cache-based deduplication with fingerprinting
+keywords: [deduplication, idempotency, cache, fingerprinting, exactly-once, at-least-once]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../examples/data-transformation/deduplicate-events.yaml';
+
+
+# Deduplicate Events
+
+At-least-once delivery guarantees in distributed systems create duplicate events that can skew analytics, trigger duplicate actions, and waste downstream processing. This guide shows how to build deduplication pipelines using cache-based fingerprinting to ensure each unique event is processed exactly once.
+
+## Complete Examples
+
+For full working configurations with all variations, see:
+- [Deduplicate Events Examples](https://github.com/expanso-io/docs.expanso.io/tree/main/examples/data-transformation/deduplicate-events)
+
+Includes: Hash-based deduplication (exact duplicates), fingerprint-based (semantic duplicates), and ID-based (unique IDs).
+
+## When to Use
+
+**Use deduplication when:**
+- Your data source uses at-least-once delivery (Kafka, RabbitMQ, SQS)
+- Network retries create duplicate events
+- Load balancers may send same request to multiple backends
+- You need exactly-once processing semantics
+
+**Example:** Webhook endpoint receiving user signups may get duplicates from network retries or load balancer failovers.
+
+## Duplicate Scenarios
+
+### Scenario 1: Network Retry (Exact Duplicate)
+```
+1. App server sends event → Network timeout
+2. App server retries → Same event sent twice
+3. Result: Two identical events with same event_id
+```
+
+**Solution:** Hash-based or ID-based deduplication
+
+### Scenario 2: Load Balancer Duplication (Semantic Duplicate)
+```
+1. Load balancer receives request
+2. Timeout waiting for response
+3. Load balancer retries to different backend
+4. Both backends process the same signup
+5. Result: Two events, different event_ids, same user signup
+```
+
+**Solution:** Fingerprint-based deduplication (extract user fields)
+
+### Scenario 3: Eventual Consistency (Delayed Duplicate)
+```
+1. User clicks signup button
+2. Event sent, confirmed, processed
+3. 5 minutes later: database sync triggers duplicate event
+4. Result: Duplicate event arrives after original processing
+```
+
+**Solution:** Fingerprint-based with long TTL (6+ hours)
+
+## Deduplication Strategies
+
+### 1. Hash-Based (Exact Duplicates)
+
+Generate SHA-256 hash of entire event content, store in cache, reject matching hashes.
+
+**Use case:** Network retries with identical content
+
+**Configuration:**
+
+<CodeBlock language="yaml" title="deduplicate-events.yaml" showLineNumbers>
+  {pipelineYaml}
+</CodeBlock>
+
+<a
+  href="/files/data-transformation/deduplicate-events.yaml"
+  download
+  className="button button--primary button--lg margin-top--md"
+>
+  📥 Download Pipeline
+</a>
+
+---
+
+
+**Input:**
+```json
+{
+  "event_id": "evt_abc123",
+  "event_type": "user_signup",
+  "timestamp": "2025-10-20T14:23:45.123Z",
+  "user": {
+    "id": "user_456",
+    "email": "alice@example.com"
+  }
+}
+```
+
+**Processing:**
+```
+Event 1 (14:23:45): Hash = "a1b2c3..." → Not in cache → ACCEPT
+Event 2 (14:23:46): Hash = "a1b2c3..." → In cache → REJECT
+```
+
+**Pros:**
+- Simple and fast
+- Catches exact duplicates reliably
+- Low CPU overhead
+
+**Cons:**
+- Doesn't catch semantic duplicates
+- Sensitive to field order changes
+
+### 2. Fingerprint-Based (Semantic Duplicates)
+
+Extract semantically important fields only (exclude `event_id`, `timestamp`), generate fingerprint hash, store in cache.
+
+**Use case:** Load balancer retries with different IDs but same user action
+
+**Configuration:**
+
+```yaml
+config:
+  cache_resources:
+    - label: dedup_cache
+      memory:
+        default_ttl: 6h  # Longer for eventual consistency
+        cap: 500000
+        eviction_policy: lru
+
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /webhooks/signup
+
+  pipeline:
+    processors:
+      - json_documents:
+          parts: []
+
+      # Generate semantic fingerprint
+      - mapping: |
+          root = this
+
+          # Include only fields that define uniqueness
+          # Exclude: event_id (different for each retry)
+          # Exclude: timestamp (different for each retry)
+          # Include: user data (defines the actual event)
+          let fingerprint_data = {
+            "event_type": this.event_type,
+            "user_id": this.user.id,
+            "user_email": this.user.email,
+            "source_server": this.source.server.or("unknown")
+          }
+
+          root.dedup_fingerprint = fingerprint_data.json_format().hash("sha256")
+          root.dedup_metadata = {
+            "original_event_id": this.event_id,
+            "original_timestamp": this.timestamp,
+            "fingerprint_fields": fingerprint_data
+          }
+
+      # Check cache for fingerprint
+      - cache:
+          resource: dedup_cache
+          operator: get
+          key: ${! this.dedup_fingerprint }
+
+      # Handle duplicates (similar to hash-based)
+      - mapping: |
+          root = this
+          let is_duplicate = meta("cache").exists()
+
+          root = if is_duplicate {
+            meta is_duplicate = true
+            this
+          } else {
+            _ = cache_set("dedup_cache", this.dedup_fingerprint, now(), "6h")
+            this
+          }
+
+      # Drop duplicates
+      - mapping: |
+          root = if meta("is_duplicate") == true {
+            deleted()
+          } else {
+            this
+          }
+
+  output:
+    http_client:
+      url: "${ANALYTICS_ENDPOINT}/events"
+      verb: POST
+```
+
+**Input: Two events with different IDs, same user**
+```json
+// Event 1 (from app-server-01)
+{
+  "event_id": "evt_abc123",
+  "timestamp": "2025-10-20T14:23:45.123Z",
+  "user": {"id": "user_456", "email": "alice@example.com"}
+}
+
+// Event 2 (from app-server-02)
+{
+  "event_id": "evt_xyz789",  // Different!
+  "timestamp": "2025-10-20T14:23:47.456Z",  // Different!
+  "user": {"id": "user_456", "email": "alice@example.com"}  // Same!
+}
+```
+
+**Processing:**
+```
+Event 1: Fingerprint = "user_456|alice@example.com" → ACCEPT
+Event 2: Fingerprint = "user_456|alice@example.com" → REJECT (same user)
+```
+
+**Pros:**
+- Catches semantic duplicates
+- Handles load balancer retries
+- Configurable fingerprint fields
+
+**Cons:**
+- Requires knowing which fields define uniqueness
+- Slightly higher CPU overhead
+
+### 3. ID-Based (Unique IDs)
+
+Use existing `event_id` field, store in cache, reject matching IDs.
+
+**Use case:** Events with reliable unique IDs (Kafka offsets, UUIDs)
+
+**Configuration:**
+
+```yaml
+config:
+  cache_resources:
+    - label: dedup_cache
+      memory:
+        default_ttl: 30m  # Shorter TTL (IDs are reliable)
+        cap: 1000000
+        eviction_policy: lru
+
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /webhooks/signup
+
+  pipeline:
+    processors:
+      - json_documents:
+          parts: []
+
+      # Validate event has ID
+      - mapping: |
+          root = this
+
+          # Ensure event_id exists
+          root = if !this.event_id.exists() || this.event_id == "" {
+            throw("Missing or empty event_id - cannot deduplicate")
+          } else {
+            this
+          }
+
+      # Check cache for event ID
+      - cache:
+          resource: dedup_cache
+          operator: get
+          key: ${! this.event_id }
+
+      # Handle duplicates
+      - mapping: |
+          root = this
+          let is_duplicate = meta("cache").exists()
+
+          root = if is_duplicate {
+            meta is_duplicate = true
+            this
+          } else {
+            _ = cache_set("dedup_cache", this.event_id, now(), "30m")
+            this
+          }
+
+      # Drop duplicates
+      - mapping: |
+          root = if meta("is_duplicate") == true {
+            deleted()
+          } else {
+            this
+          }
+
+  output:
+    http_client:
+      url: "${ANALYTICS_ENDPOINT}/events"
+      verb: POST
+```
+
+**Pros:**
+- Fastest (simple ID lookup)
+- Lowest memory usage
+- Reliable when IDs are truly unique
+
+**Cons:**
+- Requires events to have IDs
+- Doesn't catch semantic duplicates
+
+## Production Considerations
+
+### Memory Management
+
+Cache memory usage: `avg_event_rate × TTL × bytes_per_entry`
+
+**Example (1000 events/sec, 1-hour TTL):**
+```
+1000 events/sec × 3600 seconds × 1KB = 3.6GB
+```
+
+**Configure cache limits:**
+```yaml
+cache_resources:
+  - label: dedup_cache
+    memory:
+      default_ttl: 1h
+      cap: 100000  # Limit cached items
+      eviction_policy: lru
+```
+
+**Monitor cache usage:**
+```bash
+curl http://localhost:8080/metrics | grep cache_items
+# expanso_cache_items{cache="dedup_cache"} 95000
+```
+
+If approaching cap, duplicates may slip through when old entries are evicted.
+
+### Cache Eviction
+
+**Problem:** Cache fills up, old entries evicted, duplicates not detected.
+
+**Solutions:**
+1. Increase cache cap (if memory allows)
+2. Reduce TTL (accept more duplicates)
+3. Scale horizontally (distribute load across nodes)
+
+### Clock Skew
+
+**Problem:** Timestamps differ due to clock skew, but events are duplicates.
+
+**Solution: Exclude timestamps from hash**
+```bloblang
+# Hash only stable fields
+let hash_data = {
+  "event_type": this.event_type,
+  "user": this.user
+  # Don't include timestamp
+}
+root.dedup_hash = hash_data.json_format().hash("sha256")
+```
+
+### Field Order Changes
+
+**Problem:** JSON field order changes between duplicates.
+
+**Solution: Use json_format() for stable sorting**
+```bloblang
+# json_format() sorts keys alphabetically
+root.dedup_hash = this.json_format().hash("sha256")
+```
+
+### Distributed Deduplication
+
+**Problem:** Events arrive at different edge nodes, duplicates not detected across nodes.
+
+**Solutions:**
+
+**Option A: Consistent hashing (route same event to same node)**
+```bloblang
+# Route by user_id
+let node_index = this.user.id.hash("xxhash64") % env("TOTAL_NODES").number()
+meta target_node = "edge-node-" + node_index.string()
+```
+
+**Option B: Shared cache (Redis)**
+```yaml
+cache_resources:
+  - label: dedup_cache
+    redis:
+      url: "redis://redis-cluster:6379"
+      key_prefix: "dedup:"
+      default_ttl: 1h
+```
+
+**Option C: Cloud-side deduplication** (accept duplicates at edge, deduplicate centrally)
+
+## Monitoring
+
+### Check Deduplication Metrics
+
+```bash
+# Total events received
+curl http://localhost:8080/metrics | grep input_received
+
+# Duplicates rejected
+curl http://localhost:8080/metrics | grep deduplicate_dropped
+
+# Cache size
+curl http://localhost:8080/metrics | grep cache_items
+```
+
+### Expected Output
+
+```
+expanso_input_received{input="http_server"} 10000
+expanso_processor_deduplicate_dropped{processor="dedup"} 1500
+expanso_cache_items{cache="dedup_cache"} 8500
+```
+
+**Duplicate rate:** 1500 / 10000 = 15%
+
+## Troubleshooting
+
+### Duplicates Not Being Detected
+
+**Check cache is working:**
+```bash
+# Send same event twice
+curl -X POST http://localhost:8080/webhooks/signup \
+  -H "Content-Type: application/json" \
+  -d '{"event_id":"test1","user":{"id":"user1"}}'
+
+curl -X POST http://localhost:8080/webhooks/signup \
+  -H "Content-Type: application/json" \
+  -d '{"event_id":"test1","user":{"id":"user1"}}'
+
+# Check metrics
+curl http://localhost:8080/metrics | grep deduplicate_dropped
+# Should show 1 duplicate dropped
+```
+
+**Common causes:**
+- TTL too short (cache expired between duplicates)
+- Cache cap reached (old entries evicted)
+- Inconsistent hashing (field order changes)
+
+### Too Many False Positives
+
+**Problem:** Legitimate different events marked as duplicates.
+
+**Solution: Use more specific fingerprint fields**
+```bloblang
+# Include more fields to distinguish events
+let fingerprint_data = {
+  "user_id": this.user.id,
+  "event_type": this.event_type,
+  "action": this.action,
+  "resource_id": this.resource_id
+}
+```
+
+### Memory Exhaustion
+
+**Check cache size:**
+```bash
+curl http://localhost:8080/metrics | grep cache_items
+```
+
+**Solutions:**
+- Reduce TTL: `default_ttl: 15m` (instead of 1h)
+- Reduce cap: `cap: 50000` (instead of 100k)
+- Use ID-based (smallest memory footprint)
+
+## Strategy Selection Guide
+
+| Scenario | Strategy | TTL | Memory | CPU |
+|----------|----------|-----|--------|-----|
+| Network retries | Hash-based | 1h | Medium | Low |
+| Load balancer duplication | Fingerprint | 6h | High | Medium |
+| Reliable event IDs | ID-based | 30m | Low | Lowest |
+| Mixed scenarios | Fingerprint | 6h | High | Medium |
+| Memory constrained | ID-based | 15m | Lowest | Lowest |
+
+## See Also
+
+- [Cache Processor](https://docs.expanso.io/components/processors/cache) - Cache configuration reference
+- [Mapping Processor](https://docs.expanso.io/components/processors/mapping) - Bloblang transformations
+- [Bloblang Functions](https://docs.expanso.io/guides/bloblang) - Hashing and transformation functions

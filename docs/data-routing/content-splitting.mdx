@@ -1,0 +1,681 @@
+---
+title: How to Implement Content-Based Splitting
+sidebar_label: Content Splitting
+sidebar_position: 4
+description: Split messages into multiple parts based on content structure
+keywords: [splitting, unarchive, array processing, batch processing, message splitting]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../examples/data-routing/content-splitting.yaml';
+
+
+# How to Implement Content-Based Splitting
+
+When working with data pipelines, you'll often receive messages containing multiple logical events bundled together. A single HTTP request might carry an array of 100 sensor readings, a batch file might contain thousands of transactions, or a log stream might deliver multiline stack traces. Processing these as single messages creates problems: you can't route individual items differently, you can't apply per-item transformations, and you can't track individual event metrics.
+
+Content-based splitting solves this by taking messages containing multiple items and expanding them into separate messages—one per item. This enables granular routing, per-event processing, and accurate observability.
+
+## Problem Statement
+
+Consider these common scenarios where splitting is essential:
+
+**IoT Sensor Arrays**: Your edge device collects 1,000 temperature readings per minute and sends them as a JSON array. You need to:
+- Send readings above 80°C to an immediate alert system
+- Store readings between 70-80°C in a warm storage tier
+- Batch readings below 70°C for historical analysis
+- Track per-sensor metrics and failure rates
+
+**Batch Transaction Files**: Your payment processor delivers CSV files containing thousands of transactions. You need to:
+- Route international transactions to compliance checking
+- Send high-value transactions (>$10,000) to fraud detection
+- Batch low-value domestic transactions to standard processing
+- Generate per-transaction audit trails
+
+**Multiline Log Aggregation**: Application logs arrive as multiline entries (stack traces, JSON objects). You need to:
+- Parse each complete log entry independently
+- Route ERROR logs to alerting while INFO goes to archive
+- Extract structured data from each log entry
+
+## Prerequisites
+
+Before starting this guide, ensure you have:
+
+- An Expanso edge node running and connected to the orchestrator
+- Access credentials for your destination services
+
+For background on Bloblang expressions used in splitting logic, see the [Bloblang Guide](https://docs.expanso.io/guides/bloblang).
+
+## Solution Overview
+
+Expanso provides multiple approaches to splitting messages based on your data format:
+
+```
+                   ┌─→ Message 1 ──┐
+Single Message     ├─→ Message 2 ──┤
+(Array or Batch) ──┼─→ Message 3 ──┼─→ Content Routing → Destinations
+                   ├─→ Message 4 ──┤
+                   └─→ Message N ──┘
+```
+
+Key splitting mechanisms:
+
+- **unarchive processor**: Splits messages based on format (JSON array, CSV lines, multiline delimited)
+- **split processor**: Evaluates a Bloblang expression to extract items from complex structures
+- **workflow branches**: Process split items through different pipeline branches
+- **Edge-first splitting**: Split at the edge before cloud upload to enable per-item routing
+
+The general pattern:
+1. Receive bundled message (array, batch file, archive)
+2. Split into individual messages using appropriate processor
+3. Apply per-item transformations and enrichment
+4. Route each item based on its content
+5. Batch again if needed for efficient destination delivery
+
+## Step-by-Step Implementation
+
+### Step 1: Split JSON Arrays
+
+The most common splitting scenario involves JSON arrays. Let's start with sensor data delivered as an array:
+
+```json title="Input: Sensor array"
+{
+  "device_id": "sensor-001",
+  "timestamp": "2025-10-20T10:00:00Z",
+  "readings": [
+    {"sensor": "temp-1", "value": 72.5, "unit": "F"},
+    {"sensor": "temp-2", "value": 85.3, "unit": "F"},
+    {"sensor": "temp-3", "value": 68.1, "unit": "F"}
+  ]
+}
+```
+
+We need to split this into three separate messages, one per reading, while preserving device context:
+
+<CodeBlock language="yaml" title="array-splitting-pipeline.yaml" showLineNumbers>
+  {pipelineYaml}
+</CodeBlock>
+
+<a
+  href="/files/data-routing/content-splitting.yaml"
+  download
+  className="button button--primary button--lg margin-top--md"
+>
+  📥 Download Pipeline
+</a>
+
+---
+
+
+**Critical Pattern**: The parent message context (device_id, timestamp) must be preserved. Store it in metadata *before* the unarchive processor runs:
+
+```yaml
+# CORRECT ORDER:
+pipeline:
+  processors:
+    # 1. Store parent context in metadata FIRST
+    - mapping: |
+        meta device_id = this.device_id
+        meta batch_timestamp = this.timestamp
+        root = this
+
+    # 2. THEN split the array
+    - unarchive:
+        format: json_array
+        field: readings
+
+    # 3. THEN restore context to each split message
+    - mapping: |
+        root = this
+        root.device_id = meta("device_id")
+        root.batch_timestamp = meta("batch_timestamp")
+```
+
+Test this pipeline:
+
+```bash title="Send test data"
+curl -X POST http://localhost:8080/sensors/bulk \
+  -H "Content-Type: application/json" \
+  -d '{
+    "device_id": "sensor-001",
+    "timestamp": "2025-10-20T10:00:00Z",
+    "readings": [
+      {"sensor": "temp-1", "value": 72.5, "unit": "F"},
+      {"sensor": "temp-2", "value": 85.3, "unit": "F"},
+      {"sensor": "temp-3", "value": 68.1, "unit": "F"}
+    ]
+  }'
+```
+
+Expected result: Three separate messages routed to different destinations based on temperature value.
+
+### Step 2: Split CSV Batches
+
+CSV files are another common batch format. Let's split a CSV file of transactions:
+
+```csv title="Input: CSV transactions"
+transaction_id,timestamp,amount,currency,country
+txn-001,2025-10-20T10:00:00Z,150.00,USD,US
+txn-002,2025-10-20T10:01:00Z,12500.00,EUR,DE
+txn-003,2025-10-20T10:02:00Z,75.50,GBP,UK
+```
+
+Split this into individual transaction messages:
+
+```yaml title="csv-splitting-pipeline.yaml"
+name: split-csv-transactions
+description: Split CSV transaction batches into individual messages
+type: pipeline
+namespace: production
+
+config:
+  input:
+    file:
+      paths:
+        - /var/expanso/incoming/transactions-*.csv
+      scanner:
+        lines: {}
+      codec: lines
+
+  pipeline:
+    processors:
+      # Step 1: Skip CSV header row
+      - mapping: |
+          if this.string().has_prefix("transaction_id") {
+            root = deleted()
+          } else {
+            root = this
+          }
+
+      # Step 2: Parse CSV line into structured JSON
+      - mapping: |
+          let fields = this.string().split(",")
+
+          root.transaction_id = $fields.index(0)
+          root.timestamp = $fields.index(1)
+          root.amount = $fields.index(2).number()
+          root.currency = $fields.index(3)
+          root.country = $fields.index(4)
+          root.processed_at = now()
+
+          # Classify transaction size
+          root.transaction_size = match {
+            this.amount >= 10000 => "large"
+            this.amount >= 1000 => "medium"
+            _ => "small"
+          }
+
+          root.is_international = this.country != "US"
+
+  output:
+    switch:
+      cases:
+        # Large transactions to fraud detection
+        - check: this.transaction_size == "large"
+          output:
+            broker:
+              pattern: fan_out
+              outputs:
+                - http_client:
+                    url: ${FRAUD_DETECTION_URL}/analyze
+                    verb: POST
+                    timeout: 5s
+
+                - kafka:
+                    addresses: ["${KAFKA_BROKERS}"]
+                    topic: large-transactions
+                    idempotent_write: true
+
+        # International transactions to compliance
+        - check: this.is_international == true
+          output:
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: international-transactions
+              batching:
+                count: 100
+                period: 30s
+
+        # Standard domestic transactions
+        - output:
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: domestic-transactions
+              batching:
+                count: 500
+                period: 1m
+```
+
+**Key Pattern for CSV**: Each line becomes a message. Use `mapping` to parse CSV fields with `split()`. The scanner reads line-by-line automatically.
+
+### Step 3: Split Nested Structures
+
+For complex nested JSON structures, use the `unarchive` processor with field extraction:
+
+```json title="Input: Nested order structure"
+{
+  "order_id": "order-12345",
+  "customer": "customer-001",
+  "items": [
+    {"sku": "WIDGET-A", "quantity": 5, "price": 19.99, "warehouse": "US-EAST"},
+    {"sku": "GADGET-B", "quantity": 2, "price": 49.99, "warehouse": "EU-WEST"}
+  ],
+  "shipping": {
+    "address": "123 Main St",
+    "country": "US"
+  }
+}
+```
+
+Split into individual line items while preserving order and shipping context:
+
+```yaml title="nested-structure-splitting-pipeline.yaml"
+name: split-order-items
+description: Split order items into individual fulfillment messages
+type: pipeline
+namespace: production
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /orders
+      timeout: 5s
+
+  pipeline:
+    processors:
+      # Step 1: Validate order structure
+      - mapping: |
+          if !this.items.exists() || this.items.type() != "array" {
+            throw("Order must contain items array")
+          }
+          root = this
+
+      # Step 2: Store order context in metadata
+      - mapping: |
+          meta order_id = this.order_id
+          meta customer = this.customer
+          meta shipping_address = this.shipping.address
+          meta shipping_country = this.shipping.country
+          root = this
+
+      # Step 3: Split items array
+      - unarchive:
+          format: json_array
+          field: items
+
+      # Step 4: Reconstruct complete message for each item
+      - mapping: |
+          root = this
+          root.order_id = meta("order_id")
+          root.customer = meta("customer")
+          root.shipping_address = meta("shipping_address")
+          root.shipping_country = meta("shipping_country")
+          root.line_total = this.quantity * this.price
+          root.processed_at = now()
+
+  output:
+    switch:
+      cases:
+        # Route by warehouse location
+        - check: this.warehouse == "US-EAST"
+          output:
+            kafka:
+              addresses: [us-east-kafka.example.com:9092]
+              topic: fulfillment-us-east
+              batching:
+                count: 100
+                period: 5s
+
+        - check: this.warehouse == "EU-WEST"
+          output:
+            kafka:
+              addresses: [eu-kafka.example.com:9092]
+              topic: fulfillment-eu-west
+              batching:
+                count: 100
+                period: 5s
+
+        # Unknown warehouse
+        - output:
+            file:
+              path: /var/log/expanso/unknown-warehouse.jsonl
+              codec: lines
+```
+
+**Pattern for Nested Structures**:
+1. Extract the array field you want to split
+2. Store parent context in metadata before splitting
+3. Use `unarchive` with `format: json_array` and `field: items`
+4. Restore parent context after splitting
+5. Route individual items based on their properties
+
+### Step 4: Split and Re-batch
+
+After splitting for granular routing, you often want to re-batch for efficient destination delivery:
+
+```yaml title="split-rebatch-pipeline.yaml"
+name: split-and-rebatch
+description: Split messages for routing, then re-batch for efficiency
+type: pipeline
+namespace: production
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events/bulk
+      timeout: 5s
+
+  pipeline:
+    processors:
+      # Step 1: Store batch metadata
+      - mapping: |
+          meta batch_id = uuid_v4()
+          meta batch_received_at = now()
+          meta batch_size = this.events.length()
+          root = this
+
+      # Step 2: Split events array
+      - unarchive:
+          format: json_array
+          field: events
+
+      # Step 3: Enrich each event
+      - mapping: |
+          root = this
+          root.batch_id = meta("batch_id")
+          root.batch_received_at = meta("batch_received_at")
+          root.original_batch_size = meta("batch_size")
+
+          # Classify event
+          root.priority = match {
+            this.severity == "CRITICAL" => "high"
+            this.severity == "ERROR" => "medium"
+            _ => "low"
+          }
+
+  output:
+    switch:
+      cases:
+        # High priority: Small batches, fast delivery
+        - check: this.priority == "high"
+          output:
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: high-priority-events
+              batching:
+                count: 10
+                period: 1s
+
+        # Medium priority: Moderate batching
+        - check: this.priority == "medium"
+          output:
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: medium-priority-events
+              batching:
+                count: 100
+                period: 10s
+
+        # Low priority: Large batches, deferred delivery
+        - check: this.priority == "low"
+          output:
+            file:
+              path: /var/expanso/low-priority/events-${!timestamp_unix_date("2006-01-02-15")}.jsonl
+              codec: lines
+              batching:
+                count: 10000
+                period: 1h
+```
+
+**Re-batching Strategy**:
+- **Split first** to enable per-item routing decisions
+- **Route based on item properties** (priority, destination, etc.)
+- **Re-batch at output** with settings appropriate to each route
+- High priority: small batches (10 items, 1 second)
+- Low priority: large batches (10,000 items, 1 hour)
+
+This pattern gives you the flexibility of per-item routing with the efficiency of batched delivery.
+
+## Production Considerations
+
+### Message Ordering After Splitting
+
+**Important**: Splitting breaks message ordering within the original batch. If order matters, you have options:
+
+**Option 1: Preserve order with sequence numbers**
+```yaml
+processors:
+  # Before splitting, add index
+  - mapping: |
+      meta batch_id = uuid_v4()
+      root = this
+
+  - unarchive:
+      format: json_array
+      field: events
+
+  # After splitting, add sequence
+  - mapping: |
+      root = this
+      root.batch_id = meta("batch_id")
+      root.sequence = count("sequence_" + meta("batch_id"))
+```
+
+**Option 2: Use Kafka partition keys**
+```yaml
+output:
+  kafka:
+    topic: events
+    # All messages from same batch to same partition (ordered)
+    key: ${!json("batch_id")}
+```
+
+### Split Limits and Memory Usage
+
+Splitting large arrays can consume significant memory. Set limits:
+
+```yaml
+processors:
+  # Validate array size before splitting
+  - mapping: |
+      let max_items = 10000
+
+      if this.events.length() > $max_items {
+        throw("Batch too large: " + this.events.length().string() + " items (max: " + $max_items.string() + ")")
+      }
+      root = this
+
+  - unarchive:
+      format: json_array
+      field: events
+```
+
+**Memory Impact**:
+- 1,000 items × 1KB each = 1MB in memory (acceptable)
+- 100,000 items × 1KB each = 100MB in memory (problematic on edge)
+- 1,000,000 items × 1KB each = 1GB in memory (will likely crash)
+
+### Edge Context: Split Before Upload
+
+Splitting at the edge (before cloud upload) provides powerful benefits:
+
+**Before (split in cloud)**:
+```
+Edge: Collect 1GB of sensor arrays
+      ↓ Upload entire 1GB to cloud
+Cloud: Split arrays, route individual items
+
+Bandwidth: 1GB upload
+Latency: High (all data must reach cloud first)
+```
+
+**After (split at edge)**:
+```
+Edge: Collect 1GB of sensor arrays
+      Split into individual readings
+      Route: 50MB critical → Cloud (immediate)
+             100MB warnings → Cloud (batched)
+             850MB routine → Local storage
+
+Bandwidth: 150MB upload (85% reduction)
+Latency: Low (critical data routed immediately)
+```
+
+**Bandwidth savings**: 85% reduction while maintaining real-time alerting on critical data.
+
+### Handling Split Failures
+
+What happens if a split operation fails midway through?
+
+```yaml
+# Atomic split with error handling
+processors:
+  - mapping: |
+      # Store original message before split
+      meta original_message = this.encode("json")
+      root = this
+
+  - try:
+      # Attempt split
+      - unarchive:
+          format: json_array
+          field: events
+
+  - catch:
+      # If split fails, send original to DLQ
+      - mapping: |
+          root = meta("original_message").decode("json")
+          root.error = "Failed to split message"
+          root.error_time = now()
+
+output:
+  file:
+    path: /var/log/expanso/split-failures-${!timestamp_unix()}.jsonl
+```
+
+### Combining Splitting with Filtering
+
+After splitting, you often want to filter out unwanted items:
+
+```yaml
+pipeline:
+  processors:
+    # Step 1: Split array
+    - unarchive:
+        format: json_array
+        field: events
+
+    # Step 2: Filter out items we don't want
+    - mapping: |
+        # Keep only ERROR and CRITICAL severity
+        if this.severity == "ERROR" || this.severity == "CRITICAL" {
+          root = this
+        } else {
+          root = deleted()
+        }
+```
+
+**Example**: Input 1,000-item array (800 INFO, 150 WARNING, 50 ERROR) → After split + filter: 50 messages (only ERROR) → 95% reduction
+
+## Troubleshooting
+
+### Problem: Parent Context Lost After Splitting
+
+**Symptom**: Split messages missing device_id, batch_id, or other parent context.
+
+**Cause**: Parent context not stored in metadata before splitting.
+
+**Solution**:
+
+```yaml
+# WRONG: Context lost
+processors:
+  - unarchive:
+      format: json_array
+      field: events
+  - mapping: |
+      root.device_id = this.device_id  # Doesn't exist!
+
+# CORRECT: Store in metadata first
+processors:
+  - mapping: |
+      meta device_id = this.device_id
+      root = this
+  - unarchive:
+      format: json_array
+      field: events
+  - mapping: |
+      root = this
+      root.device_id = meta("device_id")
+```
+
+### Problem: CSV Splitting Includes Header Row
+
+**Symptom**: First CSV row (header) processed as data, causing errors.
+
+**Solution**:
+
+```yaml
+processors:
+  # Filter out header row
+  - mapping: |
+      if this.string().has_prefix("id,") ||
+         this.string().has_prefix("transaction_id,") {
+        root = deleted()
+      } else {
+        root = this
+      }
+```
+
+### Problem: Out of Memory When Splitting Large Arrays
+
+**Symptom**: Pipeline crashes when processing large batches.
+
+**Solution**:
+
+```yaml
+# Add size validation
+processors:
+  - mapping: |
+      let max_items = 10000
+      let item_count = this.events.length()
+
+      if $item_count > $max_items {
+        throw("Batch size " + $item_count.string() + " exceeds maximum")
+      }
+      root = this
+```
+
+### Problem: Split Messages Not Routing Correctly
+
+**Symptom**: All split messages go to default route instead of specific routes.
+
+**Cause**: Routing conditions check fields that don't exist on split messages.
+
+**Solution**:
+
+```yaml title="Wrong: Field might not exist"
+- check: this.severity == "CRITICAL"
+  output: critical_destination
+```
+
+```yaml title="Correct: Check existence first"
+- check: this.severity.exists() && this.severity == "CRITICAL"
+  output: critical_destination
+```
+
+```yaml title="Better: Set defaults during enrichment"
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        root.severity = this.severity.or("INFO")
+```
+
+## See Also
+
+- [Content Routing](/examples/data-routing/content-routing) - Route split messages to destinations
+- [Fan-Out Pattern](/examples/data-routing/fan-out-pattern) - Send to multiple destinations
+- [Bloblang Guide](https://docs.expanso.io/guides/bloblang) - Transformation language reference

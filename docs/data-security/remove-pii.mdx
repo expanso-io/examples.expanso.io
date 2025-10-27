@@ -1,0 +1,968 @@
+---
+title: How to Remove PII from Data Streams
+sidebar_label: Remove PII
+sidebar_position: 1
+description: Hash, anonymize, and remove personally identifiable information
+keywords: [pii, gdpr, ccpa, compliance, privacy, anonymization, hashing]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../examples/data-security/remove-pii.yaml';
+
+
+# How to Remove PII from Data Streams
+
+Personally identifiable information (PII) in data streams creates legal liability and compliance risks under regulations like GDPR and CCPA. This guide shows you how to build a data pipeline that identifies, hashes, anonymizes, and removes PII from streaming data while preserving data utility for analytics.
+
+You'll learn to handle the most common PII types: IP addresses, email addresses, user names, credit card numbers, and location data. The pipeline processes PII at the edge before transmitting to cloud systems, reducing compliance scope and transmission of sensitive data.
+
+## Why Remove PII at the Edge?
+
+Processing PII at the edge provides several advantages:
+
+**Compliance Benefits:**
+- Reduces data subject to GDPR/CCPA (less data classified as PII)
+- Minimizes cross-border data transfer requirements
+- Simplifies data retention and deletion requests
+- Creates audit trails close to data sources
+
+**Technical Benefits:**
+- Lower bandwidth costs (anonymized data is often smaller)
+- Reduced centralized processing requirements
+- Data remains useful for analytics without exposing individuals
+- Faster compliance with deletion requests (PII never stored centrally)
+
+**Security Benefits:**
+- Smaller attack surface (PII not stored in multiple locations)
+- Reduced breach impact (anonymized data less valuable to attackers)
+- Defense in depth (multiple anonymization points)
+
+## Prerequisites
+
+Before starting this guide, you'll need:
+
+- **Expanso installed and running** - Complete [Getting Started](https://docs.expanso.io/getting-started) first
+- **An edge node connected** to your orchestrator
+- **Sample data containing PII** to test with
+- **Basic understanding of data compliance** requirements (GDPR, CCPA)
+
+## Problem Statement
+
+Consider a typical user activity event from a web application:
+
+```json
+{
+  "event_id": "evt_12345",
+  "timestamp": "2025-10-20T14:23:45.123Z",
+  "event_type": "page_view",
+  "user_name": "Sarah Johnson",
+  "email": "sarah.johnson@example.com",
+  "ip_address": "203.0.113.45",
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)...",
+  "location": {
+    "city": "San Francisco",
+    "country": "US",
+    "latitude": 37.7749,
+    "longitude": -122.4194,
+    "postal_code": "94102"
+  },
+  "page": "/products/premium-widgets",
+  "referrer": "https://google.com/search?q=widgets",
+  "session_id": "sess_abc123xyz",
+  "payment_method": {
+    "type": "credit_card",
+    "last_four": "4242",
+    "full_number": "4242-4242-4242-4242",
+    "expiry": "12/25"
+  },
+  "device_id": "dev_789",
+  "metadata": {
+    "campaign": "summer_sale_2025",
+    "ab_test_group": "variant_b"
+  }
+}
+```
+
+**PII Elements Present:**
+- `user_name` - Direct identifier
+- `email` - Direct identifier
+- `ip_address` - Indirect identifier (GDPR considers this PII)
+- `location.latitude/longitude` - Precise location (high-risk PII)
+- `location.postal_code` - Can identify individuals in small areas
+- `payment_method.full_number` - Highly sensitive PII (PCI-DSS)
+
+**Data We Need to Preserve:**
+- Event type and page (analytics)
+- Timestamp (time-series analysis)
+- Campaign and A/B test data (marketing analytics)
+- General location (city/country for regional trends)
+- Session correlation (user journey analysis)
+
+The challenge is removing/anonymizing PII while keeping data useful for business analytics.
+
+## Solution Overview
+
+This guide implements a multi-layered PII removal strategy:
+
+1. **Delete** credit card numbers and precise coordinates (high-risk, no analytics value)
+2. **Hash** IP addresses and emails (preserve uniqueness for counting, prevent identification)
+3. **Generalize** location data (keep city/country, remove precise coordinates and postal codes)
+4. **Pseudonymize** user names (replace with consistent IDs)
+5. **Validate** the output contains no PII (schema enforcement)
+6. **Audit** all PII operations (compliance trail)
+
+Let's build the pipeline step by step.
+
+## Step 1: Create the PII Removal Pipeline
+
+Create a file called `pii-removal-pipeline.yaml`:
+
+<CodeBlock language="yaml" title="pii-removal-pipeline.yaml" showLineNumbers>
+  {pipelineYaml}
+</CodeBlock>
+
+<a
+  href="/files/data-security/remove-pii.yaml"
+  download
+  className="button button--primary button--lg margin-top--md"
+>
+  📥 Download Pipeline
+</a>
+
+---
+
+
+This pipeline implements comprehensive PII removal in 11 processing steps:
+
+**Steps 1-2:** Input validation
+**Steps 3:** Pre-processing audit trail
+**Step 4:** Delete high-risk PII (credit cards, precise coordinates)
+**Steps 5-7:** Hash identifiers (IP, email, names)
+**Step 8:** Generalize location data
+**Step 9:** Add anonymization metadata
+**Step 10:** Validate no PII remains
+**Step 11:** Post-processing audit trail
+
+## Step 2: Set Up Environment Variables
+
+Configure the salt values used for hashing. These should be kept secret and rotated periodically:
+
+```bash title="Set environment variables for hashing salts"
+# Generate secure random salts (do this once, store securely)
+export IP_SALT=$(openssl rand -hex 32)
+export EMAIL_SALT=$(openssl rand -hex 32)
+export USER_SALT=$(openssl rand -hex 32)
+
+# Analytics endpoint
+export ANALYTICS_ENDPOINT="http://analytics-service:8080/events"
+
+# Node metadata (set by Expanso automatically)
+export NODE_ID="edge-node-001"
+```
+
+:::danger Protect Your Salts
+The salt values are cryptographic secrets. If an attacker obtains them, they can reverse-engineer hashed values through rainbow table attacks. Store salts in a secret management system (HashiCorp Vault, AWS Secrets Manager, etc.) and rotate them periodically.
+:::
+
+**Salt Rotation Strategy:**
+
+When rotating salts, you'll generate new hash values for the same inputs. Plan for this:
+
+```bash
+# Option 1: Dual-hash during transition period
+# Hash with both old and new salts for 30 days
+# Allows matching users across the transition
+
+# Option 2: Accept hash break
+# New salt = new hashes, users appear as "new"
+# Acceptable if you don't need cross-period user tracking
+```
+
+## Step 3: Deploy the Pipeline
+
+Deploy the PII removal pipeline to your edge nodes:
+
+```bash
+expanso job deploy pii-removal-pipeline.yaml
+```
+
+You'll see:
+
+```
+✓ Job 'pii-removal-pipeline' created
+✓ Evaluation triggered
+✓ Scheduling to matching nodes...
+✓ Deployed to 3 nodes (edge-node-001, edge-node-002, edge-node-003)
+```
+
+**Verify the deployment:**
+
+```bash
+expanso job status pii-removal-pipeline
+```
+
+Expected output:
+
+```
+Job: pii-removal-pipeline
+Status: running
+Type: pipeline
+Executions:
+  - Node: edge-node-001
+    State: running
+    Since: 10 seconds ago
+    Health: healthy
+  - Node: edge-node-002
+    State: running
+    Since: 8 seconds ago
+    Health: healthy
+  - Node: edge-node-003
+    State: running
+    Since: 6 seconds ago
+    Health: healthy
+```
+
+## Step 4: Test with Sample Data
+
+Send the original PII-containing event from our problem statement:
+
+```bash title="Send test event with PII"
+curl -X POST http://localhost:8080/events/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id": "evt_12345",
+    "timestamp": "2025-10-20T14:23:45.123Z",
+    "event_type": "page_view",
+    "user_name": "Sarah Johnson",
+    "email": "sarah.johnson@example.com",
+    "ip_address": "203.0.113.45",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)...",
+    "location": {
+      "city": "San Francisco",
+      "country": "US",
+      "latitude": 37.7749,
+      "longitude": -122.4194,
+      "postal_code": "94102"
+    },
+    "page": "/products/premium-widgets",
+    "referrer": "https://google.com/search?q=widgets",
+    "session_id": "sess_abc123xyz",
+    "payment_method": {
+      "type": "credit_card",
+      "last_four": "4242",
+      "full_number": "4242-4242-4242-4242",
+      "expiry": "12/25"
+    },
+    "device_id": "dev_789",
+    "metadata": {
+      "campaign": "summer_sale_2025",
+      "ab_test_group": "variant_b"
+    }
+  }'
+```
+
+You should receive `200 OK` response.
+
+## Step 5: Verify PII Removal
+
+The processed event sent to your analytics system will look like this:
+
+```json title="Output: Anonymized event (PII removed)"
+{
+  "event_id": "evt_12345",
+  "timestamp": "2025-10-20T14:23:45.123Z",
+  "event_type": "page_view",
+
+  # PII REMOVED - Replaced with hashes
+  "user_id": "user_8f3e7a9c2d1b",
+  "email_hash": "a4c2f1e9b3d7c5e8",
+  "email_domain": "example.com",
+  "ip_address_hash": "7b9d4e2f1c8a6e3b",
+
+  # PII REMOVED - Generalized
+  "location": {
+    "city": "San Francisco",
+    "country": "US",
+    "region": "US"
+  },
+
+  # PII REMOVED - Deleted entirely
+  # "payment_method.full_number" - DELETED
+  # "location.latitude" - DELETED
+  # "location.longitude" - DELETED
+  # "location.postal_code" - DELETED
+
+  # Safe fields preserved
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)...",
+  "page": "/products/premium-widgets",
+  "referrer": "https://google.com/search?q=widgets",
+  "session_id": "sess_abc123xyz",
+  "payment_method": {
+    "type": "credit_card",
+    "last_four": "4242"
+  },
+  "device_id": "dev_789",
+  "metadata": {
+    "campaign": "summer_sale_2025",
+    "ab_test_group": "variant_b"
+  },
+
+  # Anonymization metadata
+  "pii_metadata": {
+    "anonymized": true,
+    "anonymization_timestamp": "2025-10-20T14:23:45.234Z",
+    "anonymization_version": "1.0",
+    "node_id": "edge-node-001",
+    "pipeline": "pii-removal-pipeline",
+    "fields_removed": [
+      "user_name",
+      "email",
+      "ip_address",
+      "payment_method.full_number",
+      "location.latitude",
+      "location.longitude"
+    ],
+    "fields_hashed": [
+      "ip_address_hash",
+      "email_hash",
+      "user_id"
+    ]
+  }
+}
+```
+
+**Compare Before and After:**
+
+| Field | Before (PII) | After (Anonymized) | Technique |
+|-------|--------------|-------------------|-----------|
+| `user_name` | "Sarah Johnson" | "user_8f3e7a9c2d1b" | Pseudonymization (hash) |
+| `email` | "sarah.johnson@example.com" | "a4c2f1e9b3d7c5e8" + domain | Hash + domain extraction |
+| `ip_address` | "203.0.113.45" | "7b9d4e2f1c8a6e3b" | SHA-256 hash |
+| `location.latitude` | 37.7749 | (deleted) | Deletion |
+| `location.longitude` | -122.4194 | (deleted) | Deletion |
+| `location.postal_code` | "94102" | (deleted) | Deletion |
+| `payment_method.full_number` | "4242-4242-4242-4242" | (deleted) | Deletion |
+
+**What's Preserved for Analytics:**
+
+✅ Event type and page URLs (user behavior)
+✅ Timestamps (time-series analysis)
+✅ Campaign and A/B test groups (marketing analytics)
+✅ City and country (regional trends)
+✅ Session IDs (user journey tracking)
+✅ Hashed user IDs (unique user counting)
+✅ Email domains (organizational analysis)
+✅ User agent (device/browser analysis)
+
+**What's Removed (PII):**
+
+❌ Personal names
+❌ Email addresses (but domain preserved)
+❌ IP addresses (but hash preserved for abuse detection)
+❌ Precise locations
+❌ Payment card numbers
+
+## Step 6: Verify Hash Consistency
+
+Hash functions are deterministic - the same input always produces the same hash. This preserves user uniqueness for counting:
+
+```bash title="Send another event from the same user"
+curl -X POST http://localhost:8080/events/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id": "evt_12346",
+    "timestamp": "2025-10-20T14:25:10.000Z",
+    "event_type": "add_to_cart",
+    "user_name": "Sarah Johnson",
+    "email": "sarah.johnson@example.com",
+    "ip_address": "203.0.113.45",
+    "location": {
+      "city": "San Francisco",
+      "country": "US"
+    },
+    "page": "/cart",
+    "session_id": "sess_abc123xyz"
+  }'
+```
+
+The output will have **the same hash values**:
+
+```json
+{
+  "event_id": "evt_12346",
+  "user_id": "user_8f3e7a9c2d1b",     // SAME as evt_12345
+  "email_hash": "a4c2f1e9b3d7c5e8",  // SAME as evt_12345
+  "ip_address_hash": "7b9d4e2f1c8a6e3b"  // SAME as evt_12345
+}
+```
+
+This allows your analytics system to:
+- Count unique users (by `user_id`)
+- Track user journeys (same `user_id` across events)
+- Detect fraud patterns (same `ip_address_hash`)
+- Segment by email provider (by `email_domain`)
+
+**Without** being able to identify who the actual person is.
+
+## Step 7: Verify Audit Trail
+
+Check the audit log to ensure PII operations are being tracked:
+
+```bash title="View audit trail"
+cat /var/log/expanso/pii-audit-*.jsonl | jq .
+```
+
+You'll see audit entries like:
+
+```json
+{
+  "event_id": "evt_12345",
+  "timestamp": "2025-10-20T14:23:45.234Z",
+  "action": "pii_removed",
+  "status": "success",
+  "fields_processed": 9
+}
+```
+
+This audit trail proves:
+- When PII was processed
+- Which event was anonymized
+- How many fields were modified
+- Success or failure status
+
+**Compliance Value:**
+
+GDPR Article 30 requires maintaining records of processing activities. This audit log satisfies that requirement by documenting:
+
+1. **What data was processed** (event_id)
+2. **When it was processed** (timestamp)
+3. **What operations were performed** (fields_removed, fields_hashed)
+4. **Who performed it** (node_id, pipeline version)
+
+Store audit logs for the duration required by your data retention policy (typically 3-7 years).
+
+## Step 8: Test Validation Failures
+
+Let's verify the pipeline rejects events that fail PII validation. Create a processor that "forgets" to remove PII:
+
+```bash title="Send an event designed to fail validation"
+# This would only fail if we modify the pipeline to skip a removal step
+# For testing, we can check the DLQ for any actual failures
+
+# View dead letter queue
+cat /var/log/expanso/pii-dlq-*.jsonl | jq .
+```
+
+In production, validation failures might occur due to:
+- Schema changes (new PII fields added upstream)
+- Processor bugs (removal logic fails)
+- Unexpected data formats (PII in unexpected fields)
+
+Failed events go to the dead letter queue for manual review:
+
+```json
+{
+  "event_id": "evt_99999",
+  "error": "PII validation failed: found user_name, email",
+  "timestamp": "2025-10-20T14:30:00.000Z",
+  "original_event": {...}
+}
+```
+
+:::caution Review DLQ Regularly
+The dead letter queue may contain actual PII from failed validations. Access should be restricted to compliance officers, and the DLQ should be purged after investigation.
+:::
+
+## Production Considerations
+
+### 1. Hash Salt Management
+
+**Problem:** Salts are cryptographic secrets that must be protected and rotated.
+
+**Solution:** Use a secret management system:
+
+```yaml title="Integration with HashiCorp Vault"
+# In your pipeline config
+config:
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+
+          # Fetch salt from Vault at runtime
+          let ip_salt = env("VAULT_IP_SALT").or(
+            throw("Missing IP_SALT from Vault")
+          )
+
+          root.ip_address_hash = (this.ip_address + ip_salt).hash("sha256").slice(0, 16)
+```
+
+**Rotation Strategy:**
+
+```bash
+# 1. Generate new salt
+NEW_SALT=$(openssl rand -hex 32)
+
+# 2. Update Vault
+vault kv put secret/pii-pipeline/salts ip_salt=$NEW_SALT
+
+# 3. Restart pipelines to pick up new salt
+expanso job restart pii-removal-pipeline
+```
+
+During rotation, you can temporarily dual-hash:
+
+```yaml
+# Hash with both old and new salts during transition
+- mapping: |
+    root = this
+    root.ip_address_hash_v1 = (this.ip_address + env("OLD_SALT")).hash("sha256").slice(0, 16)
+    root.ip_address_hash_v2 = (this.ip_address + env("NEW_SALT")).hash("sha256").slice(0, 16)
+```
+
+After 30 days (or your chosen transition period), drop the old hash.
+
+### 2. Schema Enforcement
+
+**Problem:** New PII fields might be added upstream without updating the pipeline.
+
+**Solution:** Use JSON Schema validation:
+
+```yaml
+# Add before the first processor
+- json_schema:
+    schema: |
+      {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "event_id": {"type": "string"},
+          "timestamp": {"type": "string", "format": "date-time"},
+          "event_type": {"type": "string"}
+        },
+        "required": ["event_id", "timestamp", "event_type"],
+        # IMPORTANT: Explicitly disallow PII fields
+        "not": {
+          "anyOf": [
+            {"required": ["ssn"]},
+            {"required": ["credit_card"]},
+            {"required": ["passport_number"]}
+          ]
+        }
+      }
+```
+
+This fails fast if prohibited PII fields are present.
+
+### 3. Performance Optimization
+
+**Problem:** Hashing is CPU-intensive and can become a bottleneck.
+
+**Current throughput:** ~1000 events/sec/core for SHA-256 hashing
+
+**Optimization strategies:**
+
+```yaml
+# Strategy 1: Use faster hash functions for non-cryptographic use cases
+- mapping: |
+    # xxHash is 10x faster than SHA-256 for non-cryptographic hashing
+    root.user_id = "user_" + this.user_name.hash("xxhash64").slice(0, 12)
+```
+
+:::caution Hash Function Selection
+Use SHA-256 for PII that requires cryptographic security (GDPR compliance). Use faster hashes (xxHash) for internal IDs where reversibility is not a concern.
+:::
+
+```yaml
+# Strategy 2: Batch hashing operations
+- mapping: |
+    # Hash all fields in one operation
+    let salt = env("HASH_SALT")
+    let hash_input = this.email + this.ip_address + this.user_name + salt
+    let combined_hash = hash_input.hash("sha256")
+
+    root.email_hash = combined_hash.slice(0, 16)
+    root.ip_hash = combined_hash.slice(16, 32)
+    root.user_hash = combined_hash.slice(32, 48)
+```
+
+### 4. Compliance Documentation
+
+**Problem:** Auditors need proof that PII removal works correctly.
+
+**Solution:** Generate compliance reports from audit logs:
+
+```bash title="Generate monthly PII processing report"
+#!/bin/bash
+
+# Extract audit logs for the month
+MONTH="2025-10"
+cat /var/log/expanso/pii-audit-*.jsonl | \
+  grep "$MONTH" | \
+  jq -s '{
+    period: "'$MONTH'",
+    total_events_processed: length,
+    successful_anonymizations: map(select(.status == "success")) | length,
+    failed_validations: map(select(.status == "error")) | length,
+    pii_fields_processed: map(.fields_processed) | add,
+    processing_nodes: map(.node_id) | unique
+  }' > pii-report-$MONTH.json
+```
+
+Output:
+
+```json
+{
+  "period": "2025-10",
+  "total_events_processed": 12450000,
+  "successful_anonymizations": 12449950,
+  "failed_validations": 50,
+  "pii_fields_processed": 89550000,
+  "processing_nodes": ["edge-node-001", "edge-node-002", "edge-node-003"]
+}
+```
+
+Provide this report to auditors to demonstrate GDPR Article 30 compliance.
+
+### 5. Data Retention and Deletion
+
+**Problem:** GDPR "Right to be Forgotten" requires deleting user data on request.
+
+**Solution:** Since PII is removed at the edge, you only need to delete:
+
+1. **Audit logs** (contain event IDs but no PII)
+2. **Dead letter queue** (may contain failed events with PII)
+
+```bash title="Handle deletion request"
+#!/bin/bash
+
+USER_EMAIL="sarah.johnson@example.com"
+EMAIL_HASH=$(echo -n "${USER_EMAIL}${EMAIL_SALT}" | sha256sum | cut -d' ' -f1 | cut -c1-16)
+
+# 1. Remove from audit logs
+grep -v "$EMAIL_HASH" /var/log/expanso/pii-audit-*.jsonl > /tmp/cleaned-audit.jsonl
+mv /tmp/cleaned-audit.jsonl /var/log/expanso/pii-audit-cleaned.jsonl
+
+# 2. Purge from DLQ (may contain actual PII)
+grep -v "$USER_EMAIL" /var/log/expanso/pii-dlq-*.jsonl > /tmp/cleaned-dlq.jsonl
+mv /tmp/cleaned-dlq.jsonl /var/log/expanso/pii-dlq-cleaned.jsonl
+
+# 3. Analytics data already anonymized - no action needed!
+echo "Deletion complete: $USER_EMAIL (hash: $EMAIL_HASH)"
+```
+
+**Key advantage:** Since analytics data contains only hashes, it's not subject to deletion requests under GDPR (anonymized data is outside GDPR scope).
+
+## Edge Processing Context
+
+This pipeline is designed specifically for edge deployment. Here's why edge processing is critical for PII removal:
+
+### Bandwidth Savings
+
+**Before (PII transmitted to cloud):**
+```
+Average event size: 2.5 KB (with PII)
+Events per second: 1000
+Daily bandwidth: 2.5 KB × 1000 × 86400 = 216 GB/day
+Monthly cost (at $0.09/GB): $583/month
+```
+
+**After (PII removed at edge):**
+```
+Average event size: 1.8 KB (PII removed)
+Events per second: 1000
+Daily bandwidth: 1.8 KB × 1000 × 86400 = 155 GB/day
+Monthly cost (at $0.09/GB): $420/month
+
+Savings: $163/month (28% reduction)
+```
+
+### Compliance Scope Reduction
+
+**Before:**
+- PII exists in: edge devices, network transit, cloud storage, analytics DB
+- GDPR scope: All components
+- Encryption required: End-to-end
+- Deletion requests affect: All storage systems
+
+**After:**
+- PII exists in: edge devices only (removed before transmission)
+- GDPR scope: Edge devices only
+- Encryption required: Edge to first hop
+- Deletion requests affect: Edge devices only
+
+### Latency Benefits
+
+**Cloud PII removal:**
+```
+1. Edge → Cloud: 50ms
+2. Cloud processing: 10ms
+3. Cloud → Analytics: 20ms
+Total: 80ms
+```
+
+**Edge PII removal:**
+```
+1. Edge processing: 5ms
+2. Edge → Analytics: 45ms
+Total: 50ms
+
+Latency reduction: 37%
+```
+
+### Regional Compliance
+
+Different regions have different PII regulations:
+
+```yaml title="Region-specific PII rules"
+# Deploy to EU nodes with stricter rules
+selector:
+  match_labels:
+    region: eu-west
+
+config:
+  pipeline:
+    processors:
+      # EU: Remove IP addresses entirely (no hashing)
+      - mapping: |
+          root = this.without("ip_address")
+
+      # EU: Remove all location data (GDPR Article 9)
+      - mapping: |
+          root = this.without("location")
+```
+
+```yaml title="US nodes can preserve more data"
+selector:
+  match_labels:
+    region: us-west
+
+config:
+  pipeline:
+    processors:
+      # US: Hash IP addresses (allowed under CCPA)
+      - mapping: |
+          root.ip_hash = this.ip_address.hash("sha256")
+
+      # US: Keep city/state (allowed under CCPA)
+      - mapping: |
+          root.location = {
+            "city": this.location.city,
+            "state": this.location.state
+          }
+```
+
+This allows **region-specific compliance** without modifying your central analytics systems.
+
+## Verification
+
+Verify the pipeline is working correctly:
+
+### 1. Test PII Removal
+
+```bash title="Verify all PII types are removed"
+# Send test event with all PII types
+curl -X POST http://localhost:8080/events/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id": "test_001",
+    "timestamp": "2025-10-20T10:00:00Z",
+    "event_type": "test",
+    "user_name": "Test User",
+    "email": "test@example.com",
+    "ip_address": "192.0.2.1",
+    "location": {
+      "latitude": 37.7749,
+      "longitude": -122.4194,
+      "postal_code": "94102"
+    },
+    "payment_method": {
+      "full_number": "4111-1111-1111-1111"
+    }
+  }'
+
+# Check the output contains no PII
+# Expected: 200 OK
+# Output should have hashes, not original values
+```
+
+### 2. Verify Hash Consistency
+
+```bash title="Verify same input produces same hash"
+# Send same user twice
+for i in 1 2; do
+  curl -X POST http://localhost:8080/events/ingest \
+    -H "Content-Type: application/json" \
+    -d '{
+      "event_id": "test_'$i'",
+      "timestamp": "2025-10-20T10:00:00Z",
+      "event_type": "test",
+      "email": "same@example.com"
+    }'
+done
+
+# Both events should have the same email_hash
+```
+
+### 3. Monitor Metrics
+
+```bash title="Check PII removal metrics"
+curl http://localhost:8080/metrics | grep pipeline
+```
+
+Expected metrics:
+
+```
+pipeline_input_received{input="http_server"} 1000
+pipeline_processor_error_total{processor="mapping"} 5  # Validation failures
+pipeline_output_sent_total{output="analytics"} 995     # Successful anonymizations
+pipeline_output_sent_total{output="audit_trail"} 995
+pipeline_output_sent_total{output="dlq"} 5             # Failed validations
+```
+
+**Key metrics:**
+- **pipeline_processor_error_total** - Events that failed validation (sent to DLQ)
+- **`pipeline_output_sent_total{output="analytics"}`** - Successfully anonymized events
+- **`pipeline_output_sent_total{output="dlq"}`** - Failed events requiring investigation
+
+### 4. Audit Log Verification
+
+```bash title="Verify audit trail is being created"
+# Check audit log exists and has entries
+ls -lh /var/log/expanso/pii-audit-*.jsonl
+
+# Verify audit log structure
+cat /var/log/expanso/pii-audit-*.jsonl | head -1 | jq .
+```
+
+Expected output:
+
+```json
+{
+  "event_id": "evt_12345",
+  "timestamp": "2025-10-20T14:23:45.234Z",
+  "action": "pii_removed",
+  "status": "success",
+  "fields_processed": 9
+}
+```
+
+## Troubleshooting
+
+### Problem: Hashes are different for the same input
+
+**Cause:** Salt value changed between requests
+
+**Solution:**
+
+```bash
+# Check current salt value
+echo $EMAIL_SALT
+
+# Verify salt is consistent across edge nodes
+expanso job env pii-removal-pipeline | grep SALT
+
+# If salt changed, restore the original value or accept the hash break
+```
+
+### Problem: Events failing validation
+
+**Cause:** New PII fields added upstream
+
+**Solution:**
+
+```bash
+# Check DLQ for failed events
+cat /var/log/expanso/pii-dlq-*.jsonl | jq .
+
+# Identify the offending field
+cat /var/log/expanso/pii-dlq-*.jsonl | jq '.error'
+
+# Update pipeline to handle the new field
+# Add to the deletion or hashing section
+```
+
+### Problem: High CPU usage
+
+**Cause:** SHA-256 hashing is CPU-intensive
+
+**Solution:**
+
+```bash
+# Check CPU usage
+expanso job stats pii-removal-pipeline
+
+# Option 1: Use faster hash for non-crypto use cases
+# Replace SHA-256 with xxHash in the pipeline config
+
+# Option 2: Scale horizontally
+# Deploy to more edge nodes
+expanso job scale pii-removal-pipeline --replicas 5
+
+# Option 3: Batch events before processing
+# Add batching in the input section
+```
+
+### Problem: Audit logs growing too large
+
+**Cause:** High event volume creates large audit files
+
+**Solution:**
+
+```bash
+# Rotate audit logs daily
+cat > /etc/logrotate.d/pii-audit <<EOF
+/var/log/expanso/pii-audit-*.jsonl {
+    daily
+    rotate 90
+    compress
+    delaycompress
+    notifempty
+    create 0640 expanso expanso
+}
+EOF
+
+# Compress old logs
+gzip /var/log/expanso/pii-audit-*.jsonl
+
+# Archive to S3 for long-term compliance storage
+aws s3 sync /var/log/expanso/ s3://compliance-logs/pii-audit/ \
+  --exclude "*" --include "pii-audit-*.jsonl.gz"
+```
+
+### Problem: Need to identify a specific user from hash
+
+**Cause:** Support request requires linking hash back to user
+
+**Solution:**
+
+:::danger Cannot Reverse Hashes
+This is by design! Hashing is one-way. You cannot recover the original value from a hash. This is a feature, not a bug - it's what makes the data GDPR-compliant.
+:::
+
+**Workaround for legitimate use cases:**
+
+```bash
+# If you have the user's email (from support ticket)
+USER_EMAIL="sarah.johnson@example.com"
+
+# Compute their hash
+EMAIL_HASH=$(echo -n "${USER_EMAIL}${EMAIL_SALT}" | \
+  openssl dgst -sha256 | cut -d' ' -f2 | cut -c1-16)
+
+# Search analytics for this hash
+curl -X GET "http://analytics-api:8080/events?email_hash=$EMAIL_HASH"
+```
+
+You can go from email → hash, but never hash → email.
+
+## See Also
+
+**Related How-To Guides:**
+- [How to Enforce Data Schema Validation](/examples/data-security/enforce-schema) - Validate data against JSON Schema
+- [How to Encrypt Sensitive Data](/examples/data-security/encrypt-data) - Field-level encryption for additional security
+
+**Reference Documentation:**
+- [Mapping Processor Reference](https://docs.expanso.io/components/processors/mapping) - Bloblang mapping syntax
+- [Output Broker Reference](https://docs.expanso.io/components/outputs/broker) - Fan-out pattern configuration
+- [Bloblang Guide](https://docs.expanso.io/guides/bloblang) - Transformation language reference
