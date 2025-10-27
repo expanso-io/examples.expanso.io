@@ -1,0 +1,68 @@
+config:
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /sensors/readings
+
+  pipeline:
+    processors:
+      # Parse JSON input
+      - json_documents:
+          parts: []
+
+      # Assign time bucket (round to minute)
+      - mapping: |
+          root = this
+          root.time_bucket = this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00")
+                                            .ts_round("1m")
+                                            .ts_format("2006-01-02T15:04:05Z07:00")
+          root.group_key = this.sensor_id + "|" + root.time_bucket
+
+      # Cache events in 1-minute windows
+      - cache:
+          resource: window_cache
+          operator: add
+          key: ${! this.group_key }
+          value: ${! this }
+          ttl: "60s"
+
+      # Aggregate when window closes
+      - group_by:
+          - check: this.group_key != ""
+            processors:
+              - cache:
+                  resource: window_cache
+                  operator: get
+                  key: ${! this.group_key }
+
+              - mapping: |
+                  let events = this
+                  let first = events.index(0)
+
+                  root.sensor_id = first.sensor_id
+                  root.time_bucket = first.time_bucket
+                  root.window_start = first.time_bucket
+                  root.window_end = first.time_bucket.ts_parse("2006-01-02T15:04:05Z07:00")
+                                                      .ts_add("1m")
+                                                      .ts_format("2006-01-02T15:04:05Z07:00")
+
+                  # Aggregations
+                  root.event_count = events.length()
+                  root.temperature_avg = events.map_each(e -> e.temperature).mean()
+                  root.temperature_min = events.map_each(e -> e.temperature).min()
+                  root.temperature_max = events.map_each(e -> e.temperature).max()
+
+  resources:
+    caches:
+      window_cache:
+        memory:
+          default_ttl: "60s"
+          compaction_interval: "10s"
+
+  output:
+    http_client:
+      url: "${ANALYTICS_ENDPOINT}/metrics/aggregated"
+      verb: POST
+      batching:
+        count: 50
+        period: 10s
