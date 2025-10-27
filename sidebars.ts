@@ -7,6 +7,15 @@ const sidebars: SidebarsConfig = {
       id: 'index',
       label: '🏠 Home',
     },
+    {
+      type: 'category',
+      label: 'Data Routing',
+      collapsible: true,
+      collapsed: false,
+      items: [
+        'data-routing/circuit-breakers',
+      ],
+    },
   ],
 };
 

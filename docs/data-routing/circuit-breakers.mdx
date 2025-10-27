@@ -1,0 +1,702 @@
+---
+title: How to Implement Circuit Breakers for Downstream Systems
+sidebar_label: Circuit Breakers
+sidebar_position: 4
+description: Protect your edge pipelines from cascading failures with circuit breaker patterns
+keywords: [circuit-breaker, retry, failure-handling, fallback, reliability, downstream]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../examples/data-routing/circuit-breakers.yaml';
+
+
+# How to Implement Circuit Breakers for Downstream Systems
+
+When your edge pipeline depends on downstream systems like databases, HTTP APIs, or cloud services, those systems will eventually fail. A single unresponsive endpoint can cause your entire pipeline to grind to a halt, consuming resources while waiting for operations that will never succeed. Circuit breakers prevent these cascading failures by detecting when downstream systems are unhealthy and temporarily stopping requests until they recover.
+
+You'll learn to implement the circuit breaker pattern using Expanso's retry processors with maximum retry limits, timeout configurations, and fallback strategies. This protects your edge resources, prevents thundering herd problems during recovery, and ensures graceful degradation when critical services are unavailable.
+
+## Problem Statement
+
+Consider an edge pipeline that enriches sensor data by calling a cloud API for additional metadata. Your requirements might include:
+
+- **Continuous operation**: Edge devices continue collecting data even when the cloud API is down
+- **Fast failure detection**: Don't wait 60 seconds for every failed API call
+- **Prevent resource exhaustion**: Don't accumulate thousands of pending HTTP requests
+- **Automatic recovery**: Resume API calls when the service recovers
+- **Graceful degradation**: Process data without enrichment when the API is unavailable
+
+**What happens without circuit breakers:**
+
+```
+Sensor → Pipeline → Cloud API (down)
+                    ↓
+               [30s timeout per request]
+                    ↓
+            Pipeline backs up → Out of memory → Crash
+```
+
+When the cloud API goes down, the pipeline continues making requests. Each request waits for the full timeout period (30-60 seconds) before failing. With hundreds of sensors generating data, you quickly accumulate thousands of pending HTTP requests, exhausting memory and CPU. The pipeline crashes, taking all data collection offline.
+
+## Prerequisites
+
+Before starting, ensure you have:
+
+- **An Expanso edge node** running and connected to the orchestrator
+- **Basic familiarity** with Expanso pipeline configuration
+- **A downstream system** to protect (HTTP API, database, message queue, etc.)
+
+## Solution Overview
+
+Expanso implements circuit breaker behavior through built-in features:
+
+### Circuit Breaker States
+
+```
+[Closed] → All requests pass through
+    ↓ (failure threshold exceeded)
+[Open] → Requests fail immediately
+    ↓ (timeout period elapsed)
+[Half-Open] → Limited test requests
+    ↓ (success)
+[Closed] → Normal operation resumes
+```
+
+### Key Components
+
+**1. Retry Processors with Max Retries**
+
+<CodeBlock language="yaml" title="circuit-breakers.yaml" showLineNumbers>
+  {pipelineYaml}
+</CodeBlock>
+
+<a
+  href="/files/data-routing/circuit-breakers.yaml"
+  download
+  className="button button--primary button--lg margin-top--md"
+>
+  📥 Download Pipeline
+</a>
+
+---
+
+
+**2. Timeout Configuration**
+
+Quick timeouts enable fast failure detection:
+
+| System Type | Recommended Timeout |
+|-------------|---------------------|
+| Internal HTTP API | 5-10s |
+| External HTTP API | 10-30s |
+| Database query | 3-5s |
+| Cache lookup (Redis) | 1-2s |
+| Message queue publish | 5-10s |
+
+**3. Fallback Outputs**
+
+```yaml
+output:
+  fallback:
+    - # Primary destination
+    - # Fallback destination
+```
+
+## Step-by-Step Implementation
+
+### Step 1: HTTP Client with Circuit Breaker
+
+```yaml title="circuit-breaker-http.yaml"
+name: circuit-breaker-http
+description: HTTP enrichment with circuit breaker protection
+type: pipeline
+namespace: production
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /sensor-data
+      timeout: 5s
+
+  pipeline:
+    processors:
+      # Validate incoming data
+      - mapping: |
+          root = this
+          if !this.sensor_id.exists() {
+            throw("missing required field: sensor_id")
+          }
+
+      # Call external API with circuit breaker
+      - http:
+          url: https://api.example.com/metadata/${!this.sensor_id}
+          verb: GET
+
+          # Circuit breaker configuration
+          timeout: 5s
+          retries: 3
+          retry_period: 1s
+          max_retry_backoff: 30s
+
+          # Headers
+          headers:
+            Authorization: Bearer ${!env("API_TOKEN")}
+
+          # Rate limiting
+          rate_limit: "100/s"
+
+      # Merge enrichment data
+      - mapping: |
+          root = this
+          root.metadata = content().parse_json()
+          root.enriched = true
+          root.enriched_at = now()
+
+  # Output with fallback
+  output:
+    fallback:
+      # Primary: Enriched data
+      - kafka:
+          addresses: [kafka.example.com:9092]
+          topic: enriched-sensor-data
+          batching:
+            count: 50
+            period: 10s
+          compression: snappy
+
+      # Fallback: Unenriched data
+      - processors:
+          - mapping: |
+              root = this
+              root.enriched = false
+              root.fallback_reason = "enrichment_failed"
+
+        kafka:
+          addresses: [kafka.example.com:9092]
+          topic: unenriched-sensor-data
+          compression: snappy
+```
+
+**Behavior:**
+1. First call fails (5s timeout) → Wait 1s → Retry #1
+2. Retry #1 fails → Wait 2s → Retry #2
+3. Retry #2 fails → Wait 4s → Retry #3
+4. Retry #3 fails → Send to fallback (~15s total)
+
+### Step 2: Database Circuit Breaker
+
+```yaml title="circuit-breaker-database.yaml"
+name: circuit-breaker-database
+description: Database lookups with circuit breaker protection
+type: pipeline
+namespace: production
+
+config:
+  input:
+    kafka:
+      addresses: [kafka.example.com:9092]
+      topics: [user-events]
+      consumer_group: database-enrichment
+
+  pipeline:
+    processors:
+      # Database lookup with circuit breaker
+      - sql_select:
+          driver: postgres
+          data_source_name: postgres://user:pass@db.example.com:5432/analytics?sslmode=require
+
+          query: |
+            SELECT user_name, user_tier, account_type
+            FROM users
+            WHERE user_id = $1
+
+          args_mapping: |
+            root = [ this.user_id ]
+
+          timeout: 3s
+          max_open_connections: 10
+          max_idle_connections: 5
+
+      # Process results
+      - mapping: |
+          root = this
+          if this.user_name.exists() {
+            root.user = {
+              "name": this.user_name,
+              "tier": this.user_tier,
+              "account_type": this.account_type
+            }
+            root.enriched_from_db = true
+          } else {
+            root.enriched_from_db = false
+          }
+
+      # Error handling
+      - try:
+          - mapping: |
+              root = this
+              root.processed_at = now()
+
+        catch:
+          - mapping: |
+              root = this
+              root.db_error = true
+              root.enriched_from_db = false
+
+          - log:
+              level: WARN
+              message: "Database enrichment failed for user_id: ${!this.user_id}"
+
+  output:
+    switch:
+      cases:
+        - check: this.enriched_from_db == true
+          output:
+            kafka:
+              addresses: [kafka.example.com:9092]
+              topic: enriched-events
+
+        - output:
+            kafka:
+              addresses: [kafka.example.com:9092]
+              topic: unenriched-events
+```
+
+### Step 3: Multi-Level Fallback with Dead Letter Queue
+
+```yaml title="circuit-breaker-with-dlq.yaml"
+name: circuit-breaker-with-dlq
+description: Circuit breaker with comprehensive error handling
+type: pipeline
+namespace: production
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+
+  pipeline:
+    processors:
+      # Track retries
+      - mapping: |
+          root = this
+          root.retry_count = 0
+          root.first_attempt_at = now()
+
+      # Call downstream API
+      - http:
+          url: https://api.example.com/process
+          verb: POST
+          timeout: 5s
+          retries: 5
+          retry_period: 2s
+
+  # Multi-level fallback
+  output:
+    fallback:
+      # Level 1: Primary destination
+      - kafka:
+          addresses: [kafka.example.com:9092]
+          topic: processed-events
+
+      # Level 2: Retry queue
+      - processors:
+          - mapping: |
+              root = this
+              root.fallback_level = "retry_queue"
+              root.failed_at = now()
+
+        kafka:
+          addresses: [kafka.example.com:9092]
+          topic: retry-queue
+          max_retries: 0
+
+      # Level 3: Dead letter queue
+      - processors:
+          - mapping: |
+              root = this
+              root.fallback_level = "dead_letter"
+              root.dead_letter_at = now()
+
+          - log:
+              level: ERROR
+              message: "Sending to DLQ: ${!this.id}"
+
+        file:
+          path: /var/expanso/dead-letter/${!timestamp_unix_date("2006-01-02")}/dlq-${!count("files")}.jsonl
+          codec: lines
+
+      # Level 4: Final fallback (drop with alert)
+      - processors:
+          - log:
+              level: FATAL
+              message: "CRITICAL: Message dropped: ${!this.id}"
+
+        drop: {}
+```
+
+## Production Considerations
+
+### Tuning Circuit Breaker Thresholds
+
+**Failure threshold calculation:**
+
+```
+Threshold = Expected_Error_Rate × Safety_Margin
+
+Example:
+- API has 1% error rate normally
+- Tolerate 10x normal = 10% failure rate
+- Set retries: 3-5 for balanced behavior
+```
+
+**Retry strategies:**
+
+```yaml
+# Conservative (fast failure)
+retries: 3
+timeout: 5s
+retry_period: 1s
+
+# Balanced (tolerate transient issues)
+retries: 5
+timeout: 10s
+retry_period: 2s
+
+# Aggressive (only open on sustained failures)
+retries: 10
+timeout: 30s
+retry_period: 5s
+```
+
+### Monitoring Circuit Breaker State
+
+Track circuit breaker behavior with metrics:
+
+```yaml
+processors:
+  # Track attempts
+  - metric:
+      type: counter
+      name: downstream_requests_total
+      labels:
+        status: attempt
+
+  # Track successes
+  - try:
+      - http:
+          url: https://api.example.com/endpoint
+          timeout: 5s
+          retries: 3
+
+      processors:
+        - metric:
+            type: counter
+            name: downstream_requests_total
+            labels:
+              status: success
+
+    # Track failures
+    catch:
+      - metric:
+          type: counter
+          name: downstream_requests_total
+          labels:
+            status: failure
+
+      - metric:
+          type: counter
+          name: circuit_breaker_opened_total
+```
+
+**Key metrics:**
+
+| Metric | Alert Threshold |
+|--------|-----------------|
+| `downstream_requests_total{status="failure"}` | > 10/min |
+| `circuit_breaker_opened_total` | > 5/hour |
+| `messages_sent_to_fallback_total` | > 100/min |
+
+### Edge-Specific Patterns
+
+**Intermittent Connectivity**
+
+```yaml
+processors:
+  - http:
+      url: https://cloud-api.example.com/endpoint
+
+      # Longer timeout for slow networks
+      timeout: 30s
+
+      # More retries for transient issues
+      retries: 10
+      retry_period: 5s
+
+output:
+  fallback:
+    # Try cloud
+    - http_client:
+        url: https://cloud-api.example.com/process
+
+    # Fallback to local processing
+    - processors:
+        - mapping: |
+            root = this
+            root.processed_locally = true
+
+      file:
+        path: /var/expanso/local-processed/${!timestamp_unix_date("2006-01-02")}/data.jsonl
+```
+
+**Resource-Constrained Devices**
+
+```yaml
+processors:
+  - http:
+      url: https://api.example.com/endpoint
+
+      # Fast timeout on limited resources
+      timeout: 3s
+      retries: 2
+      retry_period: 1s
+
+      # Limit concurrent requests
+      rate_limit: "10/s"
+      max_idle_connections: 2
+```
+
+**Local Caching to Reduce Failures**
+
+```yaml
+cache_resources:
+  - label: api_cache
+    memory:
+      cap: 1000
+      default_ttl: 5m
+
+pipeline:
+  processors:
+    # Try cache first
+    - cache:
+        resource: api_cache
+        operator: get
+        key: ${!this.lookup_key}
+
+    # Only call API on cache miss
+    - switch:
+        cases:
+          - check: this.cached_data.exists()
+            processors:
+              - mapping: |
+                  root = this
+                  root.from_cache = true
+
+          - processors:
+              - http:
+                  url: https://api.example.com/lookup
+                  timeout: 5s
+                  retries: 3
+
+              # Cache result
+              - cache:
+                  resource: api_cache
+                  operator: set
+                  key: ${!this.lookup_key}
+                  value: ${!content()}
+```
+
+## Troubleshooting
+
+### Circuit Opens Too Frequently
+
+**Cause:** Timeout too aggressive or retry threshold too low.
+
+**Solution:** Increase timeout and retries:
+
+```yaml
+processors:
+  - http:
+      timeout: 10s  # was: 5s
+      retries: 5    # was: 3
+      retry_period: 2s
+```
+
+### Circuit Never Opens
+
+**Cause:** Infinite retries or missing fallback.
+
+**Solution:** Ensure finite retries and fallback:
+
+```yaml
+processors:
+  - http:
+      retries: 5  # NOT: retries: -1
+
+output:
+  fallback:
+    - # primary
+    - # fallback (required!)
+```
+
+### Fallback Path Failing
+
+**Cause:** Fallback output also experiencing failures.
+
+**Solution:** Add multiple fallback levels:
+
+```yaml
+output:
+  fallback:
+    - # Primary
+    - # Secondary service
+    - # Local disk (should always work)
+      file:
+        path: /var/expanso/fallback/data.jsonl
+```
+
+### High CPU During Circuit Activation
+
+**Cause:** Tight retry loops with short backoff.
+
+**Solution:** Increase retry period:
+
+```yaml
+processors:
+  - http:
+      retry_period: 5s  # was: 1s
+      max_retry_backoff: 2m
+```
+
+## Complete Working Example
+
+```yaml title="production-circuit-breaker.yaml"
+name: production-circuit-breaker
+description: Multi-system circuit breaker with monitoring
+type: pipeline
+namespace: production
+
+config:
+  cache_resources:
+    - label: api_cache
+      memory:
+        cap: 5000
+        default_ttl: 5m
+
+  input:
+    kafka:
+      addresses: [kafka.example.com:9092]
+      topics: [user-events]
+      consumer_group: event-processor
+
+  pipeline:
+    processors:
+      # User database lookup with circuit breaker
+      - cache:
+          resource: api_cache
+          operator: get
+          key: user_${!this.user_id}
+
+      - switch:
+          cases:
+            # Cache hit
+            - check: this.cached_data.exists()
+              processors:
+                - mapping: |
+                    root = this
+                    root.user = this.cached_data.parse_json()
+
+            # Cache miss - query with circuit breaker
+            - processors:
+                - try:
+                    - sql_select:
+                        driver: postgres
+                        data_source_name: ${DB_CONNECTION_STRING}
+                        query: SELECT * FROM users WHERE user_id = $1
+                        args_mapping: root = [this.user_id]
+                        timeout: 3s
+
+                    # Cache result
+                    - cache:
+                        resource: api_cache
+                        operator: set
+                        key: user_${!this.user_id}
+                        value: ${!this.user.format_json()}
+
+                  # Fallback on DB failure
+                  catch:
+                    - mapping: |
+                        root = this
+                        root.user = null
+                        root.user_lookup_failed = true
+
+                    - metric:
+                        type: counter
+                        name: circuit_breaker_triggered_total
+                        labels:
+                          system: database
+
+      # API enrichment with circuit breaker
+      - try:
+          - http:
+              url: https://api.example.com/metadata
+              timeout: 5s
+              retries: 3
+              retry_period: 1s
+
+          - mapping: |
+              root = this
+              root.metadata = content().parse_json()
+
+        catch:
+          - mapping: |
+              root = this
+              root.metadata = null
+              root.api_enrichment_failed = true
+
+          - metric:
+              type: counter
+              name: circuit_breaker_triggered_total
+              labels:
+                system: api
+
+  # Multi-level fallback output
+  output:
+    fallback:
+      # Primary: Elasticsearch
+      - elasticsearch:
+          urls: [https://es.example.com:9200]
+          index: events-${!timestamp_unix_date("2006.01.02")}
+          timeout: 10s
+          max_retries: 3
+          batching:
+            count: 100
+            period: 10s
+
+      # Secondary: Kafka fallback topic
+      - processors:
+          - mapping: |
+              root = this
+              root.fallback_reason = "elasticsearch_unavailable"
+
+        kafka:
+          addresses: [kafka.example.com:9092]
+          topic: events-fallback
+
+      # Tertiary: Local disk buffer
+      - file:
+          path: /var/expanso/buffers/fallback-${!timestamp_unix_date("2006-01-02")}.jsonl
+```
+
+## See Also
+
+**Related Guides:**
+- [Route Data Based on Content](/examples/data-routing/content-routing) - Conditional routing
+- [Send Data to Multiple Destinations](/examples/data-routing/fan-out-pattern) - Fan-out patterns
+
+**Component Reference:**
+- [HTTP Processor](https://docs.expanso.io/components/processors/http) - HTTP configuration
+- [Fallback Output](https://docs.expanso.io/components/outputs/fallback) - Fallback chains
+- [Cache Resources](https://docs.expanso.io/components/caches) - Caching configuration
