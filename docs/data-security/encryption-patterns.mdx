@@ -1,0 +1,459 @@
+---
+title: Field-Level Encryption Patterns
+sidebar_label: Encryption Patterns
+sidebar_position: 4
+description: Reusable encryption patterns for credit cards, PII, and sensitive data
+keywords: [encryption, patterns, bloblang, aes, reference]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../examples/data-security/encryption-patterns.yaml';
+
+
+# Field-Level Encryption Patterns
+
+Common encryption patterns for protecting sensitive data at the edge. These patterns use AES-256-GCM authenticated encryption with Bloblang mapping processors.
+
+## Quick Reference
+
+| Pattern | Use Case | Compliance |
+|---------|----------|------------|
+| [Credit Card Encryption](#credit-card-encryption) | PCI-DSS cardholder data | PCI-DSS 3.2.1 |
+| [SSN Encryption](#ssn-encryption) | Social security numbers | PII protection |
+| [Email Encryption](#email-encryption) | Email addresses with domain preservation | GDPR, CCPA |
+| [Phone Encryption](#phone-encryption) | Phone numbers with area code preservation | PII protection |
+| [Address Encryption](#address-encryption) | Street addresses and zip codes | PII protection |
+| [Date Encryption](#date-encryption) | Dates of birth, sensitive timestamps | HIPAA, PII |
+| [Multi-Key Encryption](#multi-key-encryption) | Different keys for different data types | Security best practice |
+| [Key Rotation](#key-rotation) | Periodic key updates | Security best practice |
+
+## Credit Card Encryption
+
+Encrypt credit card numbers while preserving last 4 digits and card brand for analytics (PCI-DSS compliant).
+
+<CodeBlock language="yaml" title="Encrypt credit card with brand detection" showLineNumbers>
+  {pipelineYaml}
+</CodeBlock>
+
+<a
+  href="/files/data-security/encryption-patterns.yaml"
+  download
+  className="button button--primary button--lg margin-top--md"
+>
+  📥 Download Pipeline
+</a>
+
+---
+
+
+**What's preserved:**
+- ✅ Last 4 digits (`card_last_four`)
+- ✅ Card brand (`visa`, `mastercard`, etc.)
+- ✅ Expiration date (not sensitive per PCI-DSS)
+
+**What's encrypted:**
+- ❌ Full card number
+- ❌ CVV code
+- ❌ Cardholder name
+
+## SSN Encryption
+
+Encrypt Social Security Numbers while preserving last 4 digits for customer service.
+
+```yaml title="Encrypt SSN with last 4 preservation"
+- mapping: |
+    root = this
+
+    # Encrypt SSN with PII key
+    root.customer.ssn_encrypted = if this.customer.ssn.exists() {
+      this.customer.ssn.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
+    }
+
+    # Keep SSN last 4 for customer service (common practice)
+    root.customer.ssn_last_four = if this.customer.ssn.exists() {
+      this.customer.ssn.re_replace_all("[^0-9]", "").slice(-4)
+    }
+
+    # Remove plaintext SSN
+    root.customer.ssn = deleted()
+```
+
+**Input:** `"123-45-6789"`
+**Output:**
+- `ssn_encrypted`: `"AES256GCM:v1:c3NuZGF0YWhlcmU=:7e6d5c4b3a2g1h0f"`
+- `ssn_last_four`: `"6789"`
+
+## Email Encryption
+
+Encrypt email addresses while preserving domain for organizational analysis.
+
+```yaml title="Encrypt email with domain preservation"
+- mapping: |
+    root = this
+
+    # Encrypt email address
+    root.customer.email_encrypted = if this.customer.email.exists() {
+      this.customer.email.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
+    }
+
+    # Keep email domain for analytics (not PII)
+    root.customer.email_domain = if this.customer.email.exists() {
+      this.customer.email.split("@").index(1).lowercase()
+    }
+
+    # Remove plaintext email
+    root.customer.email = deleted()
+```
+
+**Input:** `"sarah.johnson@example.com"`
+**Output:**
+- `email_encrypted`: `"AES256GCM:v1:ZW1haWxkYXRh..."`
+- `email_domain`: `"example.com"`
+
+## Phone Encryption
+
+Encrypt phone numbers while preserving area code for regional analytics.
+
+```yaml title="Encrypt phone with area code preservation"
+- mapping: |
+    root = this
+
+    # Encrypt phone number
+    root.customer.phone_encrypted = if this.customer.phone.exists() {
+      this.customer.phone.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
+    }
+
+    # Keep phone area code for regional analytics (not PII)
+    root.customer.phone_area_code = if this.customer.phone.exists() {
+      this.customer.phone.re_replace_all("[^0-9]", "").slice(0, 3)
+    }
+
+    # Keep country code for international analytics
+    root.customer.phone_country_code = if this.customer.phone.exists() &&
+                                          this.customer.phone.re_match("^\\+") {
+      this.customer.phone.re_replace_all("[^0-9+]", "").split("")[0:2].join("")
+    }
+
+    # Remove plaintext phone
+    root.customer.phone = deleted()
+```
+
+**Input:** `"+1-415-555-0123"`
+**Output:**
+- `phone_encrypted`: `"AES256GCM:v1:cGhvbmVkYXRh..."`
+- `phone_area_code`: `"415"`
+- `phone_country_code`: `"+1"`
+
+## Address Encryption
+
+Encrypt street addresses and detailed zip codes while preserving city/state/country.
+
+```yaml title="Encrypt address with geographic preservation"
+- mapping: |
+    root = this
+
+    # Encrypt full street address
+    root.billing_address.street_encrypted = if this.billing_address.street.exists() {
+      this.billing_address.street.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
+    }
+
+    # Encrypt detailed zip code
+    root.billing_address.zip_encrypted = if this.billing_address.zip.exists() {
+      this.billing_address.zip.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
+    }
+
+    # Keep 3-digit zip prefix for regional analysis (less sensitive)
+    root.billing_address.zip_prefix = if this.billing_address.zip.exists() {
+      this.billing_address.zip.re_replace_all("[^0-9]", "").slice(0, 3)
+    }
+
+    # Keep city, state, country for regional analytics (less sensitive)
+    # root.billing_address.city - keep plaintext
+    # root.billing_address.state - keep plaintext
+    # root.billing_address.country - keep plaintext
+
+    # Remove plaintext street and detailed zip
+    root.billing_address = this.billing_address.without("street", "zip")
+```
+
+**Input:**
+```json
+{
+  "street": "123 Main St, Apt 4B",
+  "city": "San Francisco",
+  "state": "CA",
+  "zip": "94102-1234",
+  "country": "US"
+}
+```
+
+**Output:**
+```json
+{
+  "street_encrypted": "AES256GCM:v1:c3RyZWV0ZGF0YQ==:3a2g1h0f9e8d7c6b",
+  "zip_encrypted": "AES256GCM:v1:emlwZGF0YWhlcmU=:2g1h0f9e8d7c6b5a",
+  "zip_prefix": "941",
+  "city": "San Francisco",
+  "state": "CA",
+  "country": "US"
+}
+```
+
+## Date Encryption
+
+Encrypt dates of birth while preserving year for age cohort analysis.
+
+```yaml title="Encrypt date with year preservation"
+- mapping: |
+    root = this
+
+    # Encrypt date of birth
+    root.customer.date_of_birth_encrypted = if this.customer.date_of_birth.exists() {
+      this.customer.date_of_birth.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
+    }
+
+    # Keep birth year for age-based analytics (not PII)
+    root.customer.birth_year = if this.customer.date_of_birth.exists() {
+      this.customer.date_of_birth.split("-").index(0).number()
+    }
+
+    # Calculate age range (even less specific)
+    root.customer.age_range = if this.customer.date_of_birth.exists() {
+      let birth_year = this.customer.date_of_birth.split("-").index(0).number()
+      let current_year = now().ts_format("2006").number()
+      let age = current_year - birth_year
+
+      match {
+        age < 18 => "under-18"
+        age < 25 => "18-24"
+        age < 35 => "25-34"
+        age < 45 => "35-44"
+        age < 55 => "45-54"
+        age < 65 => "55-64"
+        _ => "65-plus"
+      }
+    }
+
+    # Remove plaintext date
+    root.customer.date_of_birth = deleted()
+```
+
+## Multi-Key Encryption
+
+Use different encryption keys for different data sensitivity levels (security best practice).
+
+```yaml title="Multi-key encryption strategy"
+- mapping: |
+    root = this
+
+    # High-sensitivity: Credit card data (rotate every 90 days)
+    root.payment.card_number_encrypted = if this.payment.card_number.exists() {
+      this.payment.card_number.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
+    }
+
+    # Medium-sensitivity: PII data (rotate every 180 days)
+    root.customer.ssn_encrypted = if this.customer.ssn.exists() {
+      this.customer.ssn.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
+    }
+
+    # Low-sensitivity: Address data (rotate every 365 days)
+    root.billing_address.street_encrypted = if this.billing_address.street.exists() {
+      this.billing_address.street.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
+    }
+
+    # Track which key version was used for each field
+    root.encryption_metadata = {
+      "card_key_version": env("CARD_KEY_VERSION"),
+      "pii_key_version": env("PII_KEY_VERSION"),
+      "address_key_version": env("ADDRESS_KEY_VERSION")
+    }
+```
+
+**Benefits:**
+- ✅ Breach containment (one key compromise doesn't expose all data)
+- ✅ Flexible rotation schedules (high-risk keys rotate more often)
+- ✅ Granular access control (different services get different keys)
+- ✅ Compliance alignment (PCI vs HIPAA vs GDPR key separation)
+
+## Key Rotation
+
+Implement key versioning for seamless rotation without downtime.
+
+```yaml title="Key rotation with versioning"
+- mapping: |
+    root = this
+
+    # Get current key version from environment
+    let key_version = env("KEY_VERSION").or("v1")
+
+    # Encrypt with current key version
+    root.payment.card_number_encrypted = if this.payment.card_number.exists() {
+      this.payment.card_number.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
+    }
+
+    # Track key version for decryption
+    root.encryption_metadata = {
+      "encrypted": true,
+      "key_version": key_version,
+      "encryption_timestamp": now(),
+      "algorithm": "AES-256-GCM"
+    }
+```
+
+**Key rotation workflow:**
+
+```bash title="Generate and rotate to new key"
+# 1. Generate new key
+NEW_KEY=$(openssl rand -hex 32)
+NEW_VERSION="v2_20251120"
+
+# 2. Store new key in key management system
+vault kv put secret/expanso/encryption/card \
+  key=$NEW_KEY \
+  version=$NEW_VERSION \
+  created=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# 3. Update edge node environment (keep old key for decryption)
+export CARD_ENCRYPTION_KEY=$NEW_KEY
+export KEY_VERSION=$NEW_VERSION
+export CARD_ENCRYPTION_KEY_V1="old-key-here"  # Keep for decrypting old data
+
+# 4. Deploy updated pipeline
+expanso job deploy field-encryption-pipeline.yaml
+
+# 5. After all old data is re-encrypted, remove old key
+```
+
+## Encryption Metadata Pattern
+
+Track encryption operations for audit compliance and troubleshooting.
+
+```yaml title="Comprehensive encryption metadata"
+- mapping: |
+    root = this
+
+    # Add encryption metadata after all encryption steps
+    root.encryption_metadata = {
+      "encrypted": true,
+      "encryption_timestamp": now(),
+      "encryption_version": "1.0",
+      "key_version": env("KEY_VERSION").or("unknown"),
+      "algorithm": "AES-256-GCM",
+      "node_id": env("NODE_ID").or("unknown"),
+      "pipeline": "payment-field-encryption",
+
+      # List encrypted fields for decryption reference
+      "encrypted_fields": [
+        "payment.card_number_encrypted",
+        "payment.cvv_encrypted",
+        "customer.ssn_encrypted",
+        "customer.email_encrypted"
+      ],
+
+      # List preserved fields for analytics
+      "plaintext_fields": [
+        "transaction_id",
+        "timestamp",
+        "amount",
+        "payment.card_last_four",
+        "customer.email_domain"
+      ]
+    }
+```
+
+## Validation Pattern
+
+Verify encryption completed successfully before sending data downstream.
+
+```yaml title="Post-encryption validation"
+- mapping: |
+    root = this
+
+    # Verify no plaintext sensitive data remains
+    let sensitive_fields_found = [
+      if this.payment.card_number.exists() { "payment.card_number" },
+      if this.payment.cvv.exists() { "payment.cvv" },
+      if this.customer.ssn.exists() && !this.customer.ssn_last_four.exists() { "customer.ssn" },
+      if this.customer.email.exists() && !this.customer.email_domain.exists() { "customer.email" }
+    ].filter(v -> v != null)
+
+    # Fail if plaintext sensitive data found
+    root = if sensitive_fields_found.length() > 0 {
+      throw("Encryption validation failed: plaintext sensitive data found: " +
+            sensitive_fields_found.join(", "))
+    } else {
+      this
+    }
+```
+
+## Decryption Pattern
+
+Decrypt fields in authorized services (payment processing, customer service).
+
+```yaml title="Selective field decryption"
+- mapping: |
+    root = this
+
+    # Decrypt only if service is authorized (check metadata, API key, etc.)
+    let authorized = env("SERVICE_ROLE") == "payment-processor"
+
+    # Decrypt credit card number for payment processing
+    root.payment.card_number = if authorized && this.payment.card_number_encrypted.exists() {
+      this.payment.card_number_encrypted.decrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
+    }
+
+    # Remove encrypted fields after decryption
+    root.payment = if authorized {
+      this.payment.without("card_number_encrypted")
+    } else {
+      this.payment
+    }
+```
+
+## Audit Logging Pattern
+
+Log encryption operations for compliance audits.
+
+```yaml title="Encryption audit trail"
+- mapping: |
+    root = this
+
+    # Create audit entry
+    meta audit_log = {
+      "transaction_id": this.transaction_id,
+      "timestamp": now(),
+      "action": "encryption_completed",
+      "status": "success",
+      "node_id": env("NODE_ID"),
+      "key_version": env("KEY_VERSION"),
+      "fields_encrypted": this.encryption_metadata.encrypted_fields.length()
+    }
+```
+
+Then capture audit logs in a separate output:
+
+```yaml title="Audit log output"
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      - label: audit_trail
+        processors:
+          - mapping: |
+              root = meta("audit_log")
+
+        file:
+          path: "/var/log/expanso/encryption-audit-${!timestamp_unix()}.jsonl"
+          codec: lines
+```
+
+## See Also
+
+**Related Guides:**
+- [How to Encrypt Sensitive Data](/examples/data-security/encrypt-data) - Complete encryption implementation guide
+- [How to Remove PII](/examples/data-security/remove-pii) - Alternative to encryption using hashing
+- [Bloblang Guide](https://docs.expanso.io/guides/bloblang) - Transformation language reference
+
+**Reference Documentation:**
+- [Mapping Processor](https://docs.expanso.io/components/processors/mapping) - Bloblang mapping processor
+- [Encrypt AES Function](https://docs.expanso.io/guides/bloblang#encrypt_aes) - AES encryption function reference
