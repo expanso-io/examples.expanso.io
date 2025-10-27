@@ -1,0 +1,70 @@
+name: json-log-parser
+description: Parse and normalize JSON application logs
+type: pipeline
+namespace: default
+
+config:
+  input:
+    file:
+      paths:
+        - /var/log/app/*.jsonl
+      codec: lines
+
+  pipeline:
+    processors:
+      # Parse JSON
+      - json_documents:
+          parts: []
+
+      # Parse and normalize timestamp
+      - mapping: |
+          root = this
+          root.timestamp_unix = this.timestamp.parse_timestamp("2006-01-02T15:04:05.999Z07:00").ts_unix()
+          root.timestamp_iso = this.timestamp
+
+      # Normalize log level
+      - mapping: |
+          root = this
+          root.level = this.level.uppercase()
+
+      # Extract error details
+      - mapping: |
+          root = this
+          root.error_details = if this.error.exists() {
+            {
+              "message": this.error,
+              "stack_trace": this.stack_trace.or(""),
+              "error_code": this.error_code.or(""),
+              "timestamp": this.timestamp_unix
+            }
+          }
+
+      # Add metadata
+      - mapping: |
+          root = this
+          root.metadata = {
+            "parsed_by": "json-parser",
+            "parsed_at": now().ts_unix(),
+            "source_node": env("NODE_ID").or("unknown")
+          }
+
+      # Remove debug fields
+      - mapping: |
+          root = this.without("debug_info", "internal_state", "raw_request")
+
+      # Filter by log level (only WARN, ERROR, FATAL)
+      - mapping: |
+          root = if this.level.or("INFO") in ["WARN", "ERROR", "FATAL"] {
+            this
+          } else {
+            deleted()
+          }
+
+  output:
+    http_client:
+      url: "${LOG_ENDPOINT}/logs"
+      verb: POST
+      batching:
+        count: 100
+        period: 10s
+      max_retries: 3

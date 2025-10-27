@@ -1,0 +1,47 @@
+input:
+  generate:
+    interval: 2s
+    mapping: |
+      root.id = uuid_v4()
+      root.timestamp = now()
+      root.level = "INFO"
+      root.service = "demo-service"
+      root.message = "Demo log message from edge"
+      root.user_id = "user_123"
+      root.request_id = uuid_v4()
+
+pipeline:
+  processors:
+    # Add lineage metadata
+    - mapping: |
+        root = this
+        root.lineage_node_id = env("NODE_ID").or("edge-node-demo")
+        root.lineage_pipeline = "log-enrichment-s3-demo"
+        root.lineage_timestamp = now()
+
+    # Transform to structured format
+    - mapping: |
+        root.event = {
+          "id": this.id,
+          "timestamp": this.timestamp,
+          "level": this.level,
+          "service": this.service,
+          "message": this.message,
+          "user_id": this.user_id,
+          "request_id": this.request_id
+        }
+        root.metadata = {
+          "node_id": this.lineage_node_id,
+          "pipeline": this.lineage_pipeline,
+          "processed_at": this.lineage_timestamp
+        }
+
+output:
+  aws_s3:
+    bucket: expanso-demo-logs
+    path: logs/demo_${!timestamp_unix()}.jsonl
+    batching:
+      count: 10
+      period: 10s
+    credentials:
+      profile: expanso-demo
