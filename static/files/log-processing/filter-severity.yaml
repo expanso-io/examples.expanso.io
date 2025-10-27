@@ -1,0 +1,40 @@
+input:
+  file:
+    paths:
+      - /var/log/app/*.log
+    codec: lines
+
+pipeline:
+  processors:
+    # Parse JSON logs and add metadata
+    - mapping: |
+        root = this
+
+        # Parse JSON logs
+        let parsed = this.parse_json()
+        root = if parsed.exists() { parsed } else { this }
+
+        # Add processing metadata
+        root.processed_at = now()
+        root.node_id = env("NODE_ID").or("unknown")
+
+    # Filter to only errors and warnings
+    - mapping: |
+        root = if this.level == "ERROR" || this.level == "WARN" {
+          this
+        } else {
+          deleted()
+        }
+
+output:
+  switch:
+    cases:
+      - check: this.level == "ERROR"
+        output:
+          file:
+            path: /var/log/expanso/errors.json
+            codec: lines
+
+      - output:
+          stdout:
+            codec: lines

@@ -1,0 +1,420 @@
+---
+title: Normalize Timestamps
+description: Parse, convert, and standardize timestamps from different time zones
+sidebar_position: 2
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../examples/data-transformation/normalize-timestamps.yaml';
+
+
+# Normalize Timestamps
+
+Convert timestamps from different formats and time zones to consistent UTC representation. Handle ISO8601, Unix epochs, custom formats, and timezone conversion at the edge.
+
+## Timestamp Formats
+
+The pipeline detects and parses multiple formats:
+
+### ISO8601
+```json
+{"timestamp": "2025-10-20T14:23:45.123Z"}              // UTC
+{"timestamp": "2025-10-20T14:23:45.123+01:00"}         // With offset
+{"timestamp": "2025-10-20T14:23:45.123"}               // No TZ (assume UTC)
+```
+
+### Unix Timestamps
+```json
+{"timestamp": 1729450425}                              // Seconds since epoch
+{"timestamp": 1729450425123}                           // Milliseconds (auto-detected)
+```
+
+### Custom Formats
+```json
+{"timestamp": "2025-10-20 14:23:45", "timezone": "America/New_York"}
+{"timestamp": "10/20/2025 14:23:45", "timezone": "America/New_York"}
+{"timestamp": "20251020"}                              // YYYYMMDD
+{"timestamp": "20251020142345"}                        // YYYYMMDDHHmmss
+```
+
+## Timestamp Normalization Pipeline
+
+<CodeBlock language="yaml" title="timestamp-normalization.yaml" showLineNumbers>
+  {pipelineYaml}
+</CodeBlock>
+
+<a
+  href="/files/data-transformation/normalize-timestamps.yaml"
+  download
+  className="button button--primary button--lg margin-top--md"
+>
+  📥 Download Pipeline
+</a>
+
+---
+
+
+## Example Transformations
+
+### Input: ISO8601 with Timezone
+
+**Input (London):**
+```json
+{
+  "event_id": "evt_001",
+  "event_type": "user_login",
+  "timestamp": "2025-10-20T19:23:45.123+01:00",
+  "user_id": "user_12345"
+}
+```
+
+**Output:**
+```json
+{
+  "event_id": "evt_001",
+  "event_type": "user_login",
+  "timestamp": "2025-10-20T18:23:45.123Z",
+  "user_id": "user_12345",
+  "timestamp_original": "2025-10-20T19:23:45.123+01:00",
+  "original_timezone": "+01:00",
+  "time_metadata": {
+    "year": "2025",
+    "month": "10",
+    "day": "20",
+    "hour": "18",
+    "day_of_week": "Mon",
+    "quarter": "Q4",
+    "is_business_hours": false,
+    "is_weekend": false,
+    "unix": 1729450425
+  }
+}
+```
+
+### Input: Unix Timestamp
+
+**Input (Tokyo):**
+```json
+{
+  "event_id": "evt_002",
+  "event_type": "user_login",
+  "timestamp": 1729450425,
+  "user_id": "user_12345"
+}
+```
+
+**Output:**
+```json
+{
+  "event_id": "evt_002",
+  "event_type": "user_login",
+  "timestamp": "2025-10-20T18:23:45.000Z",
+  "user_id": "user_12345",
+  "timestamp_original": 1729450425,
+  "original_timezone": "unknown",
+  "time_metadata": {
+    "year": "2025",
+    "month": "10",
+    "hour": "18",
+    "unix": 1729450425
+  }
+}
+```
+
+### Input: Custom Format with Timezone
+
+**Input (New York):**
+```json
+{
+  "event_id": "evt_003",
+  "event_type": "user_login",
+  "timestamp": "2025-10-20 14:23:45",
+  "timezone": "America/New_York",
+  "user_id": "user_12345"
+}
+```
+
+**Output:**
+```json
+{
+  "event_id": "evt_003",
+  "event_type": "user_login",
+  "timestamp": "2025-10-20T18:23:45.000Z",
+  "user_id": "user_12345",
+  "timestamp_original": "2025-10-20 14:23:45",
+  "original_timezone": "America/New_York",
+  "time_metadata": {
+    "year": "2025",
+    "hour": "18",
+    "unix": 1729450425
+  }
+}
+```
+
+**Note:** All three events normalize to the same UTC timestamp: `2025-10-20T18:23:45Z`
+
+## Time Metadata Enrichment
+
+The pipeline adds useful time components for analytics:
+
+```json
+{
+  "time_metadata": {
+    "year": "2025",
+    "month": "10",
+    "day": "25",
+    "hour": "22",
+    "day_of_week": "Sat",
+    "quarter": "Q4",
+    "is_business_hours": false,  // 22:00 is outside 9-17
+    "is_weekend": true,
+    "unix": 1729892100
+  }
+}
+```
+
+### Analytics Queries
+
+Time metadata enables simple queries without timezone math:
+
+```sql
+-- Weekend traffic
+SELECT COUNT(*) FROM events
+WHERE time_metadata.is_weekend = true
+
+-- Business hours vs after-hours
+SELECT time_metadata.is_business_hours, COUNT(*)
+FROM events
+GROUP BY time_metadata.is_business_hours
+
+-- Hourly patterns
+SELECT time_metadata.hour, COUNT(*)
+FROM events
+GROUP BY time_metadata.hour
+ORDER BY time_metadata.hour
+
+-- Quarterly revenue
+SELECT time_metadata.quarter, SUM(revenue)
+FROM events
+WHERE event_type = 'purchase'
+GROUP BY time_metadata.quarter
+```
+
+## Common Timestamp Format Patterns
+
+Go layout strings for parsing:
+
+| Format | Example | Go Layout |
+|--------|---------|-----------|
+| ISO8601 | 2025-10-20T14:23:45.123Z | 2006-01-02T15:04:05.999Z07:00 |
+| Apache | 20/Oct/2025:14:23:45 +0000 | 02/Jan/2006:15:04:05 -0700 |
+| Syslog | Oct 20 14:23:45 | Jan 02 15:04:05 |
+| SQL | 2025-10-20 14:23:45 | 2006-01-02 15:04:05 |
+| US | 10/20/2025 14:23:45 | 01/02/2006 15:04:05 |
+| Compact | 20251020142345 | 20060102150405 |
+
+## Production Considerations
+
+### Clock Skew Detection
+
+Adjust validation bounds based on use case:
+
+```yaml
+# Real-time: Strict bounds
+- mapping: |
+    let diff = event_ts.timestamp_unix() - now().timestamp_unix()
+    root = if diff.abs() > 300 {  # 5 minutes
+      throw("Clock skew detected")
+    } else {
+      this
+    }
+
+# Batch processing: Relaxed bounds
+- mapping: |
+    let diff = event_ts.timestamp_unix() - now().timestamp_unix()
+    root = if diff > 3600 || diff < -7776000 {  # 1 hour / 90 days
+      throw("Timestamp out of range")
+    } else {
+      this
+    }
+```
+
+### Timezone Database Updates
+
+Keep timezone data current:
+
+```bash
+# Update timezone database
+apt-get update && apt-get install -y tzdata  # Debian/Ubuntu
+apk add tzdata                               # Alpine
+yum update tzdata                            # RHEL/CentOS
+
+# Check version
+zdump -v America/New_York | head -1
+```
+
+### Performance
+
+Throughput: ~10,000 events/sec/core
+
+Optimize with batching:
+
+```yaml
+batching:
+  count: 100
+  period: 100ms
+  processors:
+    # Timestamp normalization on batches
+```
+
+### DST Handling
+
+The pipeline handles DST transitions automatically. During "fall back" when 1:00am-1:59am occur twice, the pipeline prefers the DST interpretation (standard behavior).
+
+### Monitoring
+
+Key metrics:
+
+```promql
+# Events per second
+rate(pipeline_input_received_total[1m])
+
+# Processing latency (95th percentile)
+histogram_quantile(0.95, rate(pipeline_processor_latency_seconds_bucket[5m]))
+
+# Validation failures
+rate(pipeline_processor_error_total[5m])
+
+# Format distribution
+sum by (format) (pipeline_output_sent_total)
+```
+
+Alerts:
+
+```yaml
+- alert: TimestampValidationFailures
+  expr: rate(pipeline_processor_error_total[5m]) > 0.1
+  annotations:
+    summary: "High timestamp validation failure rate"
+
+- alert: ClockSkewDetected
+  expr: abs(avg(processing_latency_ms)) > 5000
+  annotations:
+    summary: "Significant clock skew detected"
+```
+
+## Troubleshooting
+
+### Wrong UTC Time
+
+Check for missing timezone field:
+
+```bash
+# View DLQ
+cat /var/log/expanso/timestamp-dlq.jsonl | jq .
+
+# Missing timezone causes pipeline to assume UTC
+{
+  "timestamp": "2025-10-20 14:23:45"
+  // Add: "timezone": "America/New_York"
+}
+```
+
+### Timestamps in Future
+
+Clock skew on edge nodes:
+
+```bash
+# Check node time
+ssh edge-node "date -u"
+
+# Sync with NTP
+ssh edge-node "ntpdate -s time.nist.gov"
+ssh edge-node "timedatectl set-ntp true"
+```
+
+### Unsupported Format
+
+Add new format to pipeline:
+
+```yaml
+- mapping: |
+    # European DD/MM/YYYY
+    } else if ts.contains("/") && ts.split("/").index(0).number() > 12 {
+      ts.parse_timestamp("02/01/2006 15:04:05")
+```
+
+### Millisecond Precision Lost
+
+Verify format preserves milliseconds:
+
+```yaml
+- mapping: |
+    # Unix milliseconds detection
+    root.parsed = if ts > 10000000000 {
+      ts.timestamp_unix_milli()  # Preserve milliseconds
+    } else {
+      ts.timestamp_unix()
+    }
+
+    # Format with milliseconds
+    root.timestamp = this.parsed.format_timestamp_iso8601()
+    # Output: "2025-10-20T18:23:45.123Z"
+```
+
+## Variations
+
+### Preserve Local Timezone
+
+Keep both UTC and local time:
+
+```yaml
+- mapping: |
+    root = this
+    root.timestamp_utc = this.timestamp
+    root.timestamp_local = if this.original_timezone != "unknown" {
+      this.timestamp_utc.format_timestamp("2006-01-02T15:04:05", this.original_timezone)
+    }
+```
+
+### Nanosecond Precision
+
+For high-precision applications:
+
+```yaml
+- mapping: |
+    root.timestamp_nanos = this.timestamp.timestamp_unix_nano()
+    root.timestamp = this.timestamp.format_timestamp("2006-01-02T15:04:05.000000000Z", "UTC")
+```
+
+### Business Calendar
+
+Add holiday detection:
+
+```yaml
+- mapping: |
+    let month = this.timestamp.parse_timestamp_iso8601().format_timestamp("01", "UTC").number()
+    let day = this.timestamp.parse_timestamp_iso8601().format_timestamp("02", "UTC").number()
+
+    root.is_holiday = if (month == 12 && day == 25) ||  # Christmas
+                         (month == 7 && day == 4) ||     # July 4th
+                         (month == 1 && day == 1) {      # New Year
+      true
+    } else {
+      false
+    }
+
+    root.is_business_day = !this.time_metadata.is_weekend && !this.is_holiday
+```
+
+## Complete Examples
+
+For full working configurations with all variations, see:
+- [Normalize Timestamps Examples](https://github.com/expanso-io/docs.expanso.io/tree/main/examples/data-transformation/normalize-timestamps)
+
+Includes: Basic normalization, with enrichment, and production-ready configurations.
+
+## See Also
+
+- [Parse Structured Logs](/examples/data-transformation/parse-logs) - Extract timestamps from logs
+- [Bloblang Guide](https://docs.expanso.io/guides/bloblang) - Transformation language reference

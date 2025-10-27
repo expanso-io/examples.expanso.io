@@ -1,0 +1,278 @@
+name: pii-removal-pipeline
+description: Remove and anonymize PII from user activity streams
+type: pipeline
+namespace: default
+labels:
+  environment: production
+  purpose: pii-compliance
+  data-classification: high-sensitivity
+priority: 150  # Higher priority for compliance workloads
+
+# Deploy to edge nodes that handle user data
+selector:
+  match_labels:
+    role: user-data-processor
+    compliance: gdpr-ccpa
+
+# Deployment strategy
+deployment:
+  strategy: rolling
+  max_parallel: 2
+  health_check:
+    type: http
+    endpoint: /ping
+    interval: 30s
+  auto_rollback: true
+
+# Pipeline configuration
+config:
+  # Accept user activity events
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /events/ingest
+      allowed_verbs:
+        - POST
+      timeout: 10s
+      rate_limit: "500/1s"
+
+  # Processing pipeline
+  pipeline:
+    processors:
+      # Step 1: Parse JSON input
+      - json_documents:
+          parts: []
+
+      # Step 2: Validate input structure
+      - mapping: |
+          # Ensure required fields exist
+          root = if this.event_id.exists() &&
+                    this.timestamp.exists() &&
+                    this.event_type.exists() {
+            this
+          } else {
+            throw("Missing required fields: event_id, timestamp, or event_type")
+          }
+
+      # Step 3: Audit - Log that we received PII
+      - mapping: |
+          root = this
+
+          # Log PII processing event (before removal)
+          meta audit_log = {
+            "event_id": this.event_id,
+            "timestamp": now(),
+            "action": "pii_received",
+            "pii_fields_present": [
+              if this.user_name.exists() { "user_name" },
+              if this.email.exists() { "email" },
+              if this.ip_address.exists() { "ip_address" },
+              if this.payment_method.full_number.exists() { "credit_card" },
+              if this.location.latitude.exists() { "precise_location" }
+            ].filter(v -> v != null)
+          }
+
+      # Step 4: DELETE high-risk PII with no analytics value
+      - mapping: |
+          root = this
+
+          # Remove credit card numbers (PCI-DSS compliance)
+          root.payment_method = this.payment_method.without(
+            "full_number",
+            "expiry",
+            "cvv"
+          )
+
+          # Remove precise location coordinates
+          root.location = this.location.without(
+            "latitude",
+            "longitude",
+            "postal_code"
+          )
+
+          # Remove any other high-risk fields
+          root = this.without(
+            "ssn",
+            "tax_id",
+            "passport_number",
+            "driver_license"
+          )
+
+      # Step 5: HASH IP addresses (preserve uniqueness, prevent identification)
+      - mapping: |
+          root = this
+
+          # Hash IP address with SHA-256
+          # Add salt from environment for additional security
+          root.ip_address_hash = if this.ip_address.exists() {
+            (this.ip_address + env("IP_SALT").or("default_salt")).hash("sha256").slice(0, 16)
+          }
+
+          # Remove original IP
+          root = this.without("ip_address")
+
+      # Step 6: HASH email addresses (preserve uniqueness for user counting)
+      - mapping: |
+          root = this
+
+          # Extract email domain for analytics (allowed under GDPR)
+          root.email_domain = if this.email.exists() {
+            this.email.split("@").index(1).lowercase()
+          }
+
+          # Hash email address
+          root.email_hash = if this.email.exists() {
+            (this.email.lowercase() + env("EMAIL_SALT").or("default_salt")).hash("sha256").slice(0, 16)
+          }
+
+          # Remove original email
+          root = this.without("email")
+
+      # Step 7: PSEUDONYMIZE user names (replace with consistent IDs)
+      - mapping: |
+          root = this
+
+          # Create consistent user ID from name (same name = same ID)
+          root.user_id = if this.user_name.exists() {
+            "user_" + (this.user_name.lowercase() + env("USER_SALT").or("default_salt")).hash("sha256").slice(0, 12)
+          }
+
+          # Remove original name
+          root = this.without("user_name")
+
+      # Step 8: GENERALIZE location (keep city/country, remove specifics)
+      - mapping: |
+          root = this
+
+          # Keep general location for regional analytics
+          root.location = if this.location.exists() {
+            {
+              "city": this.location.city,
+              "country": this.location.country,
+              # Add general region if needed
+              "region": this.location.country.or("unknown")
+            }
+          }
+
+      # Step 9: Add anonymization metadata
+      - mapping: |
+          root = this
+
+          # Track anonymization process
+          root.pii_metadata = {
+            "anonymized": true,
+            "anonymization_timestamp": now(),
+            "anonymization_version": "1.0",
+            "node_id": env("NODE_ID").or("unknown"),
+            "pipeline": "pii-removal-pipeline",
+            "fields_removed": [
+              "user_name",
+              "email",
+              "ip_address",
+              "payment_method.full_number",
+              "location.latitude",
+              "location.longitude"
+            ],
+            "fields_hashed": [
+              "ip_address_hash",
+              "email_hash",
+              "user_id"
+            ]
+          }
+
+      # Step 10: Validate no PII remains (schema enforcement)
+      - mapping: |
+          root = this
+
+          # Fail if any PII fields still exist
+          let pii_found = [
+            if this.user_name.exists() { "user_name" },
+            if this.email.exists() && !this.email_hash.exists() { "email" },
+            if this.ip_address.exists() && !this.ip_address_hash.exists() { "ip_address" },
+            if this.payment_method.full_number.exists() { "credit_card" },
+            if this.location.latitude.exists() { "latitude" },
+            if this.location.longitude.exists() { "longitude" },
+            if this.ssn.exists() { "ssn" }
+          ].filter(v -> v != null)
+
+          root = if pii_found.length() > 0 {
+            throw("PII validation failed: found " + pii_found.join(", "))
+          } else {
+            this
+          }
+
+      # Step 11: Audit - Log successful anonymization
+      - mapping: |
+          root = this
+
+          # Create audit log entry
+          meta audit_log_success = {
+            "event_id": this.event_id,
+            "timestamp": now(),
+            "action": "pii_removed",
+            "status": "success",
+            "fields_processed": this.pii_metadata.fields_removed.length() + this.pii_metadata.fields_hashed.length()
+          }
+
+  # Output to multiple destinations
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # Destination 1: Analytics system (anonymized data)
+        - label: analytics
+          http_client:
+            url: "${ANALYTICS_ENDPOINT:http://analytics-api:8080}/events"
+            verb: POST
+            headers:
+              Content-Type: application/json
+            batching:
+              count: 100
+              period: 5s
+            retry_as_batch: false
+            max_retries: 3
+            backoff:
+              initial_interval: 1s
+              max_interval: 30s
+
+        # Destination 2: Audit log (for compliance)
+        - label: audit_trail
+          processors:
+            # Extract audit metadata
+            - mapping: |
+                root = meta("audit_log_success")
+
+          file:
+            path: "/var/log/expanso/pii-audit-${!timestamp_unix()}.jsonl"
+            codec: lines
+            batching:
+              count: 50
+              period: 10s
+
+        # Destination 3: Dead letter queue (validation failures)
+        - label: dlq
+          switch:
+            # Only send failed validations to DLQ
+            - check: errored()
+              output:
+                file:
+                  path: "/var/log/expanso/pii-dlq-${!timestamp_unix()}.jsonl"
+                  codec: lines
+            # Otherwise, drop (success case)
+            - output:
+                drop: {}
+
+# Logging configuration
+logger:
+  level: INFO
+  format: json
+  add_timestamp: true
+
+# Metrics
+metrics:
+  prometheus:
+    path: /metrics
+  mapping: |
+    root = this
+    meta pipeline = "pii-removal"
+    meta compliance = "gdpr-ccpa"

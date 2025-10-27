@@ -1,0 +1,1185 @@
+---
+title: How to Enforce Data Schema Validation
+sidebar_label: Enforce Schema
+sidebar_position: 2
+description: Validate data structure with JSON Schema and route failures
+keywords: [schema, validation, json schema, data quality, dead letter queue]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../examples/data-security/enforce-schema.yaml';
+
+
+# How to Enforce Data Schema Validation
+
+Invalid or malformed data breaks downstream systems, corrupts analytics, and creates security vulnerabilities. When edge devices produce inconsistent data structures, your cloud systems spend cycles handling errors instead of processing insights. A single missing field, wrong data type, or unexpected format can cascade through your entire data pipeline, causing dashboards to fail, alerts to misfire, and compliance reports to become unreliable.
+
+This guide shows you how to enforce strict data schema validation at the edge using JSON Schema, route validation failures to a dead letter queue for investigation, and monitor data quality metrics in real-time. You'll learn to catch data problems before they reach your cloud infrastructure, reducing debugging time and improving system reliability.
+
+## Why Validate at the Edge?
+
+Processing schema validation at the edge provides critical advantages over cloud-side validation:
+
+**Operational Benefits:**
+- Catch data errors close to the source (easier debugging)
+- Reduce cloud ingestion costs (reject bad data before transmission)
+- Prevent downstream system failures (analytics, alerting, ML pipelines)
+- Faster feedback loops (edge devices get immediate error signals)
+
+**Cost Benefits:**
+- No bandwidth wasted transmitting invalid data
+- No cloud processing cycles spent on malformed messages
+- No storage costs for data that will be rejected anyway
+- Reduced debugging costs (error context preserved at source)
+
+**Reliability Benefits:**
+- Downstream systems only receive valid data (no defensive parsing needed)
+- Schema changes can be validated before deployment (fail fast)
+- Data contracts enforced automatically (no manual checks)
+- Graceful degradation (validation failures don't crash pipelines)
+
+**Security Benefits:**
+- Malicious payloads rejected at the edge (before entering your network)
+- Schema acts as a security boundary (unexpected fields flagged)
+- Audit trail of validation failures (compliance evidence)
+- Protection against injection attacks (strict type checking)
+
+## Prerequisites
+
+Before starting this guide, you'll need:
+
+- **Expanso installed and running** - Complete the Getting Started tutorial first
+- **An edge node connected** to your orchestrator
+- **Basic understanding of JSON Schema** - Familiarity with JSON Schema draft-07 syntax
+- **Sample data to validate** - Test messages with both valid and invalid structures
+
+:::tip New to JSON Schema?
+JSON Schema is a vocabulary that allows you to annotate and validate JSON documents. If you're new to JSON Schema, review the [JSON Schema documentation](https://json-schema.org/) before proceeding.
+:::
+
+## Problem Statement
+
+Consider a sensor data collection system where IoT devices send temperature and humidity readings to the cloud. Your downstream analytics system expects this exact structure:
+
+```json title="Valid sensor reading"
+{
+  "sensor_id": "sensor-42",
+  "timestamp": "2025-10-20T14:30:00Z",
+  "location": {
+    "building": "warehouse-3",
+    "floor": 2,
+    "zone": "A"
+  },
+  "readings": {
+    "temperature_celsius": 23.5,
+    "humidity_percent": 45.2
+  },
+  "metadata": {
+    "firmware_version": "2.1.0",
+    "battery_percent": 87
+  }
+}
+```
+
+**What can go wrong:**
+
+```json title="Example 1: Missing required fields"
+{
+  "sensor_id": "sensor-99",
+  "timestamp": "2025-10-20T14:30:00Z"
+  // Missing: location, readings, metadata
+  // Result: Analytics dashboard crashes with null pointer exception
+}
+```
+
+```json title="Example 2: Wrong data types"
+{
+  "sensor_id": "sensor-42",
+  "timestamp": "2025-10-20T14:30:00Z",
+  "location": {
+    "building": "warehouse-3",
+    "floor": "second floor",  // String instead of number
+    "zone": "A"
+  },
+  "readings": {
+    "temperature_celsius": "twenty-three point five",  // String instead of number
+    "humidity_percent": 45.2
+  },
+  "metadata": {
+    "firmware_version": "2.1.0",
+    "battery_percent": 87
+  }
+}
+```
+
+```json title="Example 3: Invalid values"
+{
+  "sensor_id": "sensor-42",
+  "timestamp": "not-a-valid-timestamp",  // Invalid ISO 8601 format
+  "location": {
+    "building": "warehouse-3",
+    "floor": 2,
+    "zone": "A"
+  },
+  "readings": {
+    "temperature_celsius": -500,  // Physically impossible temperature
+    "humidity_percent": 150  // Humidity cannot exceed 100%
+  },
+  "metadata": {
+    "firmware_version": "2.1.0",
+    "battery_percent": 87
+  }
+}
+```
+
+```json title="Example 4: Malicious payload"
+{
+  "sensor_id": "sensor-42",
+  "timestamp": "2025-10-20T14:30:00Z",
+  "location": {
+    "building": "warehouse-3",
+    "floor": 2,
+    "zone": "A"
+  },
+  "readings": {
+    "temperature_celsius": 23.5,
+    "humidity_percent": 45.2
+  },
+  "metadata": {
+    "firmware_version": "2.1.0",
+    "battery_percent": 87
+  },
+  // Unexpected field - potential injection attack
+  "admin_override": {
+    "command": "shutdown_all_systems"
+  }
+}
+```
+
+Without schema validation, all these invalid messages reach your cloud systems, causing:
+
+- **Analytics failures** - Dashboards break on null values or type mismatches
+- **Alert misconfigurations** - Impossible values trigger false alerts
+- **Data corruption** - Invalid data pollutes time-series databases
+- **Security vulnerabilities** - Malicious payloads processed by downstream systems
+- **Debugging nightmares** - Hours spent tracing data quality issues back to sources
+
+The solution: enforce strict schema validation at the edge before data enters your cloud infrastructure.
+
+## Solution Overview
+
+This guide implements a comprehensive schema validation strategy with four components:
+
+1. **Define JSON Schema** - Create a strict schema that describes valid data structure
+2. **Configure Validator** - Use `json_schema` processor to validate messages
+3. **Route Failures to DLQ** - Use `catch` processor to route invalid messages to dead letter queue
+4. **Monitor Quality Metrics** - Track validation success/failure rates in real-time
+
+Let's build the complete solution step by step.
+
+## Step 1: Define the JSON Schema
+
+Create a JSON Schema file that precisely describes valid sensor data:
+
+```json title="sensor-schema-v1.0.0.json"
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/sensor-reading-v1.0.0.json",
+  "title": "Sensor Reading",
+  "description": "Schema for IoT sensor temperature and humidity readings",
+  "type": "object",
+
+  "required": [
+    "sensor_id",
+    "timestamp",
+    "location",
+    "readings",
+    "metadata"
+  ],
+
+  "properties": {
+    "sensor_id": {
+      "type": "string",
+      "description": "Unique sensor identifier",
+      "pattern": "^sensor-[0-9]+$",
+      "examples": ["sensor-42", "sensor-100"]
+    },
+
+    "timestamp": {
+      "type": "string",
+      "description": "ISO 8601 timestamp when reading was taken",
+      "format": "date-time",
+      "examples": ["2025-10-20T14:30:00Z"]
+    },
+
+    "location": {
+      "type": "object",
+      "description": "Physical location of the sensor",
+      "required": ["building", "floor", "zone"],
+      "properties": {
+        "building": {
+          "type": "string",
+          "description": "Building identifier",
+          "pattern": "^warehouse-[0-9]+$"
+        },
+        "floor": {
+          "type": "integer",
+          "description": "Floor number",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "zone": {
+          "type": "string",
+          "description": "Zone within the floor",
+          "pattern": "^[A-Z]$"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "readings": {
+      "type": "object",
+      "description": "Sensor measurements",
+      "required": ["temperature_celsius", "humidity_percent"],
+      "properties": {
+        "temperature_celsius": {
+          "type": "number",
+          "description": "Temperature reading in Celsius",
+          "minimum": -50,
+          "maximum": 100,
+          "examples": [23.5, 18.2, 30.0]
+        },
+        "humidity_percent": {
+          "type": "number",
+          "description": "Relative humidity percentage",
+          "minimum": 0,
+          "maximum": 100,
+          "examples": [45.2, 60.0, 33.8]
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "metadata": {
+      "type": "object",
+      "description": "Device metadata",
+      "required": ["firmware_version", "battery_percent"],
+      "properties": {
+        "firmware_version": {
+          "type": "string",
+          "description": "Firmware version of the sensor",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "examples": ["2.1.0", "1.0.5"]
+        },
+        "battery_percent": {
+          "type": "integer",
+          "description": "Battery level percentage",
+          "minimum": 0,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+
+  "additionalProperties": false
+}
+```
+
+**Key schema features:**
+
+- **Required fields enforcement** - Missing fields cause validation to fail
+- **Type checking** - Strings, numbers, integers, objects must match exactly
+- **Range validation** - Temperature, humidity, battery have realistic min/max values
+- **Format validation** - Timestamps must be valid ISO 8601, patterns enforce ID formats
+- **Additional properties blocked** - Unexpected fields (like malicious payloads) are rejected
+- **Nested object validation** - Location, readings, metadata all have strict structures
+
+Store this schema file in your edge node's configuration directory:
+
+```bash title="Store schema file on edge node"
+# Create schema directory
+mkdir -p /etc/expanso/schemas
+
+# Copy schema file
+cp sensor-schema-v1.0.0.json /etc/expanso/schemas/
+
+# Verify file exists
+ls -lh /etc/expanso/schemas/sensor-schema-v1.0.0.json
+```
+
+## Step 2: Create the Validation Pipeline
+
+Create a pipeline that validates incoming sensor data against the schema:
+
+<CodeBlock language="yaml" title="schema-validation-pipeline.yaml" showLineNumbers>
+  {pipelineYaml}
+</CodeBlock>
+
+<a
+  href="/files/data-security/enforce-schema.yaml"
+  download
+  className="button button--primary button--lg margin-top--md"
+>
+  📥 Download Pipeline
+</a>
+
+---
+
+
+This pipeline implements complete schema validation with three-way routing:
+
+**Valid messages** → Analytics system for processing
+**Invalid messages** → Dead letter queue for investigation
+**All messages** → Metrics collector for monitoring
+
+## Step 3: Deploy the Pipeline
+
+Deploy the validation pipeline to your edge nodes:
+
+```bash title="Deploy schema validation pipeline"
+# Deploy the pipeline
+expanso job deploy schema-validation-pipeline.yaml
+
+# Verify deployment
+expanso job status sensor-schema-validation
+```
+
+You should see output confirming deployment:
+
+```
+Job: sensor-schema-validation
+Status: running
+Type: pipeline
+Executions:
+  - Node: edge-sensor-001
+    State: running
+    Since: 5 seconds ago
+    Health: healthy
+  - Node: edge-sensor-002
+    State: running
+    Since: 3 seconds ago
+    Health: healthy
+```
+
+## Step 4: Test with Valid Data
+
+Send a valid sensor reading to verify it passes validation:
+
+```bash title="Send valid sensor reading"
+curl -X POST http://localhost:8080/sensor/readings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sensor_id": "sensor-42",
+    "timestamp": "2025-10-20T14:30:00Z",
+    "location": {
+      "building": "warehouse-3",
+      "floor": 2,
+      "zone": "A"
+    },
+    "readings": {
+      "temperature_celsius": 23.5,
+      "humidity_percent": 45.2
+    },
+    "metadata": {
+      "firmware_version": "2.1.0",
+      "battery_percent": 87
+    }
+  }'
+```
+
+**Expected result:**
+
+- HTTP `200 OK` response
+- Message forwarded to analytics endpoint
+- No entry in dead letter queue
+- Validation metrics show `validation_status: passed`
+
+## Step 5: Test with Invalid Data
+
+Send several invalid messages to verify they're caught and routed to the DLQ:
+
+```bash title="Test 1: Missing required field"
+curl -X POST http://localhost:8080/sensor/readings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sensor_id": "sensor-99",
+    "timestamp": "2025-10-20T14:30:00Z"
+  }'
+```
+
+```bash title="Test 2: Wrong data type"
+curl -X POST http://localhost:8080/sensor/readings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sensor_id": "sensor-42",
+    "timestamp": "2025-10-20T14:30:00Z",
+    "location": {
+      "building": "warehouse-3",
+      "floor": "second floor",
+      "zone": "A"
+    },
+    "readings": {
+      "temperature_celsius": "twenty-three",
+      "humidity_percent": 45.2
+    },
+    "metadata": {
+      "firmware_version": "2.1.0",
+      "battery_percent": 87
+    }
+  }'
+```
+
+```bash title="Test 3: Value out of range"
+curl -X POST http://localhost:8080/sensor/readings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sensor_id": "sensor-42",
+    "timestamp": "2025-10-20T14:30:00Z",
+    "location": {
+      "building": "warehouse-3",
+      "floor": 2,
+      "zone": "A"
+    },
+    "readings": {
+      "temperature_celsius": -500,
+      "humidity_percent": 150
+    },
+    "metadata": {
+      "firmware_version": "2.1.0",
+      "battery_percent": 87
+    }
+  }'
+```
+
+```bash title="Test 4: Additional unexpected properties"
+curl -X POST http://localhost:8080/sensor/readings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sensor_id": "sensor-42",
+    "timestamp": "2025-10-20T14:30:00Z",
+    "location": {
+      "building": "warehouse-3",
+      "floor": 2,
+      "zone": "A"
+    },
+    "readings": {
+      "temperature_celsius": 23.5,
+      "humidity_percent": 45.2
+    },
+    "metadata": {
+      "firmware_version": "2.1.0",
+      "battery_percent": 87
+    },
+    "malicious_payload": {
+      "command": "shutdown"
+    }
+  }'
+```
+
+**Expected results for all invalid messages:**
+
+- HTTP `200 OK` response (pipeline accepted message but rejected during validation)
+- Message NOT forwarded to analytics endpoint
+- Entry added to dead letter queue at `/var/log/expanso/schema-validation-dlq-*.jsonl`
+- Validation metrics show `validation_status: failed`
+
+## Step 6: Inspect the Dead Letter Queue
+
+Check the DLQ to see captured validation failures:
+
+```bash title="View DLQ entries"
+cat /var/log/expanso/schema-validation-dlq-*.jsonl | jq .
+```
+
+You'll see detailed failure information:
+
+```json title="Example DLQ entry"
+{
+  "sensor_id": "sensor-99",
+  "timestamp": "2025-10-20T14:30:00Z",
+
+  "pipeline_metadata": {
+    "received_at": "2025-10-20T14:30:01.123Z",
+    "node_id": "edge-sensor-001",
+    "pipeline_version": "1.0.0"
+  },
+
+  "validation": {
+    "status": "failed",
+    "schema_version": "1.0.0",
+    "validated_at": "2025-10-20T14:30:01.125Z",
+    "error": "validation failed: missing required properties: location, readings, metadata",
+    "error_type": "schema_validation_failed"
+  },
+
+  "data_quality": {
+    "validated": true,
+    "validation_passed": false,
+    "quality_score": 0
+  }
+}
+```
+
+**DLQ entry contains:**
+
+- **Original message** - Complete data that failed validation
+- **Pipeline metadata** - When and where message was received
+- **Validation details** - Exact schema error explaining the failure
+- **Data quality score** - Quantified quality metric (0 for failures)
+
+This information enables you to:
+- Debug data quality issues at the source
+- Identify problematic sensors or systems
+- Update schemas based on real-world data patterns
+- Communicate validation requirements to data producers
+
+## Step 7: Monitor Validation Metrics
+
+Check pipeline metrics to track validation success/failure rates:
+
+```bash title="View validation metrics"
+curl http://localhost:8080/metrics | grep pipeline
+```
+
+Expected metrics:
+
+```
+# Total messages received
+pipeline_input_received{input="http_server"} 1000
+
+# Messages that passed validation
+pipeline_output_sent_total{output="analytics"} 950
+
+# Messages that failed validation
+pipeline_output_sent_total{output="dead_letter_queue"} 50
+
+# Validation success rate: 95%
+```
+
+**Key metrics to monitor:**
+
+- **pipeline_input_received** - Total messages received
+- **`pipeline_output_sent_total{output="analytics"}`** - Valid messages sent to analytics
+- **`pipeline_output_sent_total{output="dead_letter_queue"}`** - Invalid messages in DLQ
+- **pipeline_processor_error_total** - Processing errors (schema validation failures)
+
+Calculate validation success rate:
+
+```
+Success Rate = (analytics / input_received) × 100
+             = (950 / 1000) × 100
+             = 95%
+```
+
+## Production Considerations
+
+### 1. Schema Versioning Strategy
+
+**Problem:** Schemas evolve over time as requirements change.
+
+**Solution:** Implement semantic versioning for schemas:
+
+```json title="sensor-schema-v1.1.0.json (backward compatible change)"
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/sensor-reading-v1.1.0.json",
+  "title": "Sensor Reading v1.1.0",
+
+  "properties": {
+    // ... existing v1.0.0 properties
+
+    // New optional field (backward compatible)
+    "calibration": {
+      "type": "object",
+      "description": "Calibration information (optional)",
+      "properties": {
+        "last_calibrated": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "calibration_offset": {
+          "type": "number"
+        }
+      }
+    }
+  }
+}
+```
+
+**Versioning rules:**
+
+- **Patch version (1.0.0 → 1.0.1)** - Bug fixes in schema documentation only
+- **Minor version (1.0.0 → 1.1.0)** - Add optional fields (backward compatible)
+- **Major version (1.0.0 → 2.0.0)** - Breaking changes (remove fields, change required fields, change types)
+
+**Deploy multiple schema versions simultaneously:**
+
+```yaml title="Multi-version validation pipeline"
+pipeline:
+  processors:
+    - try:
+        # Try latest schema first (v1.1.0)
+        - json_schema:
+            schema_path: "file:///etc/expanso/schemas/sensor-schema-v1.1.0.json"
+        - mapping: |
+            root = this
+            root.validation.schema_version = "1.1.0"
+      catch:
+        # Fallback to older schema (v1.0.0)
+        - try:
+            - json_schema:
+                schema_path: "file:///etc/expanso/schemas/sensor-schema-v1.0.0.json"
+            - mapping: |
+                root = this
+                root.validation.schema_version = "1.0.0"
+                root.validation.deprecated = true
+          catch:
+            # Both schemas failed - send to DLQ
+            - mapping: |
+                root = this
+                root.validation = {
+                  "status": "failed",
+                  "error": error(),
+                  "attempted_schemas": ["1.1.0", "1.0.0"]
+                }
+                meta validation_status = "failed"
+```
+
+This allows gradual migration: old sensors continue working with v1.0.0 while new sensors use v1.1.0.
+
+### 2. Validation Failure Monitoring and Alerting
+
+**Problem:** You need to know when validation failure rates spike.
+
+**Solution:** Set up Prometheus alerts based on validation metrics:
+
+```yaml title="prometheus-alerts-validation.yaml"
+groups:
+  - name: schema_validation
+    interval: 30s
+    rules:
+      # Alert when validation failure rate exceeds 5%
+      - alert: HighSchemaValidationFailureRate
+        expr: |
+          (
+            rate(pipeline_output_sent_total{output="dead_letter_queue"}[5m]) /
+            rate(pipeline_input_received[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: schema-validation
+        annotations:
+          summary: "Schema validation failure rate above 5%"
+          description: "{{ $value | humanizePercentage }} of messages failing schema validation on {{ $labels.node_id }}"
+
+      # Alert when validation failures spike suddenly
+      - alert: SchemaValidationFailureSpike
+        expr: |
+          rate(pipeline_output_sent_total{output="dead_letter_queue"}[1m]) >
+          rate(pipeline_output_sent_total{output="dead_letter_queue"}[1h]) * 3
+        for: 2m
+        labels:
+          severity: critical
+          component: schema-validation
+        annotations:
+          summary: "Sudden spike in schema validation failures"
+          description: "Validation failures increased 3x in the last minute on {{ $labels.node_id }}"
+
+      # Alert when specific sensor has high failure rate
+      - alert: SensorDataQualityIssue
+        expr: |
+          sum by (sensor_id) (
+            rate(pipeline_output_sent_total{output="dead_letter_queue"}[10m])
+          ) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: data-quality
+        annotations:
+          summary: "Sensor {{ $labels.sensor_id }} sending invalid data"
+          description: "Sensor {{ $labels.sensor_id }} has sent {{ $value }} invalid messages in 10 minutes"
+```
+
+**Alert notification workflow:**
+
+1. Prometheus detects validation failure spike
+2. Alert sent to PagerDuty/Slack/email
+3. On-call engineer investigates DLQ
+4. Root cause identified (schema mismatch, sensor firmware bug, malicious traffic)
+5. Remediation: update schema, fix sensor, block source
+
+### 3. Dead Letter Queue Management
+
+**Problem:** DLQ files accumulate over time and consume disk space.
+
+**Solution:** Implement DLQ retention and processing policies:
+
+```yaml title="DLQ with automatic rotation"
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      - label: dead_letter_queue
+        switch:
+          - check: 'meta("validation_status") == "failed"'
+            output:
+              # Write to date-partitioned files
+              file:
+                path: "/var/log/expanso/dlq/${!timestamp_unix_date('2006/01/02')}/validation-failures-${!timestamp_unix()}.jsonl"
+                codec: lines
+                batching:
+                  count: 100
+                  period: 30s
+          - output:
+              drop: {}
+```
+
+**DLQ cleanup script:**
+
+```bash title="dlq-cleanup.sh"
+#!/bin/bash
+
+# Retention policy: keep DLQ files for 30 days
+RETENTION_DAYS=30
+DLQ_DIR="/var/log/expanso/dlq"
+
+# Find and delete old DLQ files
+find "$DLQ_DIR" -type f -name "*.jsonl" -mtime +$RETENTION_DAYS -delete
+
+# Archive to S3 for long-term compliance
+find "$DLQ_DIR" -type f -name "*.jsonl" -mtime +7 -mtime -$RETENTION_DAYS \
+  -exec gzip {} \; \
+  -exec aws s3 cp {}.gz s3://compliance-dlq-archive/ \; \
+  -exec rm {}.gz \;
+
+echo "DLQ cleanup complete: files older than $RETENTION_DAYS days removed"
+```
+
+**Schedule with cron:**
+
+```bash
+# Run DLQ cleanup daily at 2 AM
+0 2 * * * /usr/local/bin/dlq-cleanup.sh
+```
+
+### 4. Schema Evolution Testing
+
+**Problem:** Schema changes might break existing data producers.
+
+**Solution:** Test schema changes against production data before deployment:
+
+```bash title="test-schema-change.sh"
+#!/bin/bash
+
+NEW_SCHEMA="sensor-schema-v2.0.0.json"
+SAMPLE_DATA_DIR="/var/log/expanso/sample-messages"
+
+# Extract sample of recent valid messages
+tail -1000 /var/log/expanso/analytics/*.jsonl > "$SAMPLE_DATA_DIR/recent-messages.jsonl"
+
+# Validate samples against new schema
+echo "Testing new schema against production data samples..."
+
+FAILURES=0
+TOTAL=0
+
+while IFS= read -r message; do
+  TOTAL=$((TOTAL + 1))
+
+  # Validate message against new schema
+  if ! echo "$message" | jq -e --schema-file "$NEW_SCHEMA" > /dev/null 2>&1; then
+    FAILURES=$((FAILURES + 1))
+    echo "FAIL: $message"
+  fi
+done < "$SAMPLE_DATA_DIR/recent-messages.jsonl"
+
+SUCCESS_RATE=$(echo "scale=2; (($TOTAL - $FAILURES) / $TOTAL) * 100" | bc)
+
+echo ""
+echo "Schema validation test results:"
+echo "  Total messages tested: $TOTAL"
+echo "  Failures: $FAILURES"
+echo "  Success rate: $SUCCESS_RATE%"
+
+# Require 99% success rate before deployment
+if (( $(echo "$SUCCESS_RATE < 99" | bc -l) )); then
+  echo "ERROR: Schema change would break existing data producers!"
+  echo "Success rate ($SUCCESS_RATE%) below required threshold (99%)"
+  exit 1
+else
+  echo "SUCCESS: Schema change is backward compatible"
+  exit 0
+fi
+```
+
+**Integration with CI/CD:**
+
+```yaml title=".github/workflows/schema-validation.yaml"
+name: Schema Validation Test
+
+on:
+  pull_request:
+    paths:
+      - 'schemas/**/*.json'
+
+jobs:
+  test-schema-changes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download production data samples
+        run: |
+          aws s3 sync s3://prod-message-samples/ ./samples/
+
+      - name: Test schema against production data
+        run: |
+          ./scripts/test-schema-change.sh
+
+      - name: Comment on PR with results
+        if: always()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const results = fs.readFileSync('schema-test-results.txt', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Schema Validation Results\n\n\`\`\`\n${results}\n\`\`\``
+            });
+```
+
+## Edge Context: Why Edge Validation Matters
+
+Schema validation at the edge provides unique advantages in edge computing scenarios:
+
+### Bandwidth Savings
+
+**Cloud validation:**
+```
+Edge → Cloud: 1000 messages/sec × 2 KB = 2 MB/sec
+Cloud validation: Reject 10% (100 invalid messages)
+Wasted bandwidth: 200 KB/sec = 17 GB/day = 518 GB/month
+
+Monthly bandwidth cost (at $0.09/GB): $46.62
+```
+
+**Edge validation:**
+```
+Edge validation: Reject 10% before transmission
+Edge → Cloud: 900 messages/sec × 2 KB = 1.8 MB/sec
+Wasted bandwidth: 0 KB/sec
+
+Monthly bandwidth savings: $46.62 per edge node
+With 100 edge nodes: $4,662/month savings
+```
+
+### Cloud Processing Cost Reduction
+
+**Cloud validation:**
+```
+Cloud CPU time per message: 2ms validation + 5ms processing = 7ms
+Invalid messages: 1ms validation + 0ms processing (rejected) = 1ms
+Total CPU: (900 × 7ms) + (100 × 1ms) = 6400ms/sec
+
+Monthly cloud compute cost (at $0.10/vCPU-hour): $432
+```
+
+**Edge validation:**
+```
+Edge CPU time per message: 2ms validation
+Cloud CPU time per valid message: 5ms processing only
+Total cloud CPU: 900 × 5ms = 4500ms/sec
+
+Monthly cloud compute cost: $300
+Monthly savings: $132 per 1000 messages/sec
+```
+
+### Faster Debugging and Error Context
+
+**Cloud validation:**
+```
+1. Invalid message sent from edge device
+2. Transmitted to cloud (50ms latency)
+3. Validation fails in cloud
+4. Error logged in cloud system
+5. Engineer investigates cloud logs
+6. Engineer traces back to edge device (30 min investigation time)
+7. Engineer connects to edge device to check source
+8. Root cause identified (1 hour total)
+```
+
+**Edge validation:**
+```
+1. Invalid message generated at edge
+2. Validation fails immediately (5ms latency)
+3. Error logged locally with full context
+4. Alert includes edge device ID and local state
+5. Engineer investigates edge logs directly
+6. Root cause identified (5 min total)
+
+Time savings: 55 minutes per debugging session
+```
+
+### Network Resilience
+
+**Cloud validation problem:**
+```
+Edge device disconnected from cloud for 2 hours
+Invalid messages buffered locally (1000 messages)
+Connection restored
+2000 invalid messages transmitted to cloud
+Cloud system overwhelmed validating backlog
+Valid messages delayed while processing invalid backlog
+```
+
+**Edge validation solution:**
+```
+Edge device disconnected from cloud for 2 hours
+Invalid messages rejected locally and logged to DLQ
+Only valid messages buffered (900 messages)
+Connection restored
+900 valid messages transmitted to cloud
+Cloud system processes messages immediately
+No backlog, no delays
+```
+
+## Verification
+
+### 1. Verify Schema File Location
+
+```bash title="Check schema file is accessible"
+# Verify schema file exists
+ls -lh /etc/expanso/schemas/sensor-schema-v1.0.0.json
+
+# Verify schema is valid JSON
+jq empty /etc/expanso/schemas/sensor-schema-v1.0.0.json && echo "Valid JSON" || echo "Invalid JSON"
+
+# Verify schema validates against JSON Schema meta-schema
+cat /etc/expanso/schemas/sensor-schema-v1.0.0.json | \
+  jq -e '."$schema" == "http://json-schema.org/draft-07/schema#"'
+```
+
+### 2. Verify Pipeline is Running
+
+```bash title="Check pipeline health"
+# Check pipeline status
+expanso job status sensor-schema-validation
+
+# Check pipeline metrics endpoint
+curl http://localhost:8080/metrics
+
+# Check pipeline health endpoint
+curl http://localhost:8080/ping
+```
+
+Expected output:
+```
+Status: running
+Health: healthy
+Uptime: 2h 15m 30s
+```
+
+### 3. Verify Valid Messages Reach Analytics
+
+```bash title="Send valid message and verify routing"
+# Send valid message
+curl -X POST http://localhost:8080/sensor/readings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sensor_id": "sensor-test",
+    "timestamp": "2025-10-20T10:00:00Z",
+    "location": {"building": "warehouse-1", "floor": 1, "zone": "A"},
+    "readings": {"temperature_celsius": 20.0, "humidity_percent": 50.0},
+    "metadata": {"firmware_version": "1.0.0", "battery_percent": 100}
+  }'
+
+# Check analytics endpoint received message
+# (This depends on your analytics system)
+curl http://analytics-api:8080/recent | grep "sensor-test"
+```
+
+### 4. Verify Invalid Messages Reach DLQ
+
+```bash title="Send invalid message and verify DLQ routing"
+# Send invalid message (missing required fields)
+curl -X POST http://localhost:8080/sensor/readings \
+  -H "Content-Type: application/json" \
+  -d '{"sensor_id": "sensor-invalid"}'
+
+# Check DLQ contains the message
+cat /var/log/expanso/schema-validation-dlq-*.jsonl | grep "sensor-invalid"
+```
+
+Expected: DLQ entry with validation error details
+
+### 5. Calculate Validation Success Rate
+
+```bash title="Calculate validation metrics"
+# Get metrics
+METRICS=$(curl -s http://localhost:8080/metrics)
+
+# Extract counts
+TOTAL=$(echo "$METRICS" | grep 'pipeline_input_received{' | awk '{print $2}')
+VALID=$(echo "$METRICS" | grep 'pipeline_output_sent_total{.*output="analytics"' | awk '{print $2}')
+INVALID=$(echo "$METRICS" | grep 'pipeline_output_sent_total{.*output="dead_letter_queue"' | awk '{print $2}')
+
+# Calculate success rate
+SUCCESS_RATE=$(echo "scale=2; ($VALID / $TOTAL) * 100" | bc)
+
+echo "Validation Statistics:"
+echo "  Total messages: $TOTAL"
+echo "  Valid messages: $VALID"
+echo "  Invalid messages: $INVALID"
+echo "  Success rate: $SUCCESS_RATE%"
+```
+
+## Troubleshooting
+
+### Problem: All Messages Failing Validation
+
+**Symptom:** Every message is routed to DLQ, even ones that should be valid.
+
+**Possible causes:**
+
+1. **Schema file path incorrect**
+2. **Schema file permissions deny access**
+3. **Schema syntax error**
+
+**Solution:**
+
+```bash
+# Check schema file exists and is readable
+ls -l /etc/expanso/schemas/sensor-schema-v1.0.0.json
+
+# Verify schema is valid JSON
+jq empty /etc/expanso/schemas/sensor-schema-v1.0.0.json
+
+# Test schema against a known-valid message
+echo '{
+  "sensor_id": "sensor-42",
+  "timestamp": "2025-10-20T14:30:00Z",
+  "location": {"building": "warehouse-3", "floor": 2, "zone": "A"},
+  "readings": {"temperature_celsius": 23.5, "humidity_percent": 45.2},
+  "metadata": {"firmware_version": "2.1.0", "battery_percent": 87}
+}' | jq -e --schema-file /etc/expanso/schemas/sensor-schema-v1.0.0.json
+
+# Check pipeline logs for specific error
+expanso job logs sensor-schema-validation --tail 100 | grep "schema"
+```
+
+### Problem: Schema Validation is Slow
+
+**Symptom:** Pipeline throughput is low, high CPU usage.
+
+**Cause:** JSON Schema validation is CPU-intensive.
+
+**Solution:**
+
+```yaml
+# Option 1: Validate only a sample of messages
+pipeline:
+  processors:
+    - switch:
+        # Validate 10% of messages
+        - check: 'random() < 0.1'
+          processors:
+            - json_schema:
+                schema_path: "file:///etc/expanso/schemas/sensor-schema-v1.0.0.json"
+
+        # Skip validation for remaining 90%
+        - processors:
+            - mapping: 'root = this'
+
+# Option 2: Use simpler field-level validation for performance
+pipeline:
+  processors:
+    # Fast validation: check required fields exist
+    - mapping: |
+        if !this.sensor_id.exists() { throw("missing sensor_id") }
+        if !this.timestamp.exists() { throw("missing timestamp") }
+        if !this.readings.exists() { throw("missing readings") }
+        root = this
+
+    # Only deep-validate suspicious messages
+    - switch:
+        - check: 'this.sensor_id.re_match("^suspicious-.*")'
+          processors:
+            - json_schema:
+                schema_path: "file:///etc/expanso/schemas/sensor-schema-v1.0.0.json"
+
+# Option 3: Scale horizontally
+# Deploy pipeline to more edge nodes to distribute load
+```
+
+### Problem: DLQ Growing Too Fast
+
+**Symptom:** DLQ files consuming excessive disk space.
+
+**Cause:** High validation failure rate.
+
+**Solution:**
+
+```bash
+# Identify top sources of invalid data
+cat /var/log/expanso/schema-validation-dlq-*.jsonl | \
+  jq -r '.sensor_id' | \
+  sort | \
+  uniq -c | \
+  sort -rn | \
+  head -10
+
+# Analyze validation error patterns
+cat /var/log/expanso/schema-validation-dlq-*.jsonl | \
+  jq -r '.validation.error' | \
+  sort | \
+  uniq -c | \
+  sort -rn
+
+# Actions:
+# 1. Fix problematic sensors (firmware updates)
+# 2. Relax schema if requirements are too strict
+# 3. Block malicious sources (if attack detected)
+# 4. Implement DLQ rotation (see Production Considerations)
+```
+
+### Problem: Schema Changes Break Existing Sensors
+
+**Symptom:** After schema update, previously valid messages now fail.
+
+**Cause:** Breaking change in schema (removed field, changed type, added required field).
+
+**Solution:**
+
+```bash
+# Rollback to previous schema version
+cp /etc/expanso/schemas/sensor-schema-v1.0.0.json \
+   /etc/expanso/schemas/sensor-schema-v1.1.0.json
+
+# Restart pipeline to pick up old schema
+expanso job restart sensor-schema-validation
+
+# Implement multi-version validation (see Production Considerations)
+# Or make schema change backward compatible:
+# - Don't remove existing fields
+# - Don't change types of existing fields
+# - Don't add new required fields (make them optional)
+```
+
+## See Also
+
+**Related How-To Guides:**
+- [How to Remove PII from Data Streams](/examples/data-security/remove-pii) - Anonymize sensitive data before validation
+
+**Reference Documentation:**
+- [Mapping Processor Reference](https://docs.expanso.io/components/processors/mapping) - Bloblang mapping syntax
+- [Bloblang Guide](https://docs.expanso.io/guides/bloblang) - Transformation language reference
+
+**External Resources:**
+- [JSON Schema Documentation](https://json-schema.org/) - Official JSON Schema reference
+- [Understanding JSON Schema](https://json-schema.org/understanding-json-schema/) - Complete guide to JSON Schema
+- [JSON Schema Validator](https://www.jsonschemavalidator.net/) - Online schema testing tool
