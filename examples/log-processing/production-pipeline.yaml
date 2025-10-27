@@ -1,0 +1,203 @@
+name: log-processing-pipeline
+description: Production log processing with enrichment and multi-destination routing
+type: pipeline
+namespace: default
+labels:
+  environment: production
+  purpose: log-aggregation
+  data-flow: edge-to-cloud
+priority: 100
+
+# Where to deploy this pipeline
+selector:
+  match_labels:
+    region: us-west
+    role: log-collector
+
+# Deployment strategy
+deployment:
+  strategy: rolling
+  max_parallel: 3
+  health_check:
+    type: http
+    endpoint: /ping
+    interval: 30s
+  auto_rollback: true
+
+# Pipeline configuration
+config:
+  # Step 1: Accept logs via HTTP
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /logs/ingest
+      allowed_verbs:
+        - POST
+      timeout: 10s
+      rate_limit: "1000/1s"
+
+  # Step 2: Processing pipeline
+  pipeline:
+    processors:
+      # Parse and validate JSON
+      - json_documents:
+          parts: []
+
+      # Validate required fields
+      - mapping: |
+          # Ensure required fields exist
+          root = if this.timestamp.exists() &&
+                    this.level.exists() &&
+                    this.service.exists() &&
+                    this.message.exists() {
+            this
+          } else {
+            throw("Missing required fields: timestamp, level, service, or message")
+          }
+
+      # Add enrichment metadata
+      - mapping: |
+          root = this
+
+          # Add node and pipeline context
+          root.metadata = {
+            "node_id": env("NODE_ID").or("unknown"),
+            "node_region": env("NODE_REGION").or("unknown"),
+            "pipeline_name": "log-processing-pipeline",
+            "processed_at": now(),
+            "pipeline_version": "1.0"
+          }
+
+          # Normalize timestamp to RFC3339
+          root.timestamp_normalized = this.timestamp.parse_timestamp_strptime("%Y-%m-%dT%H:%M:%S%.fZ").format_timestamp("2006-01-02T15:04:05Z07:00")
+
+      # Calculate severity score
+      - mapping: |
+          root = this
+
+          # Assign numeric severity for easier filtering/sorting
+          root.severity_score = match this.level.uppercase() {
+            "DEBUG" => 1,
+            "INFO" => 2,
+            "WARN" => 3,
+            "ERROR" => 4,
+            "FATAL" => 5,
+            _ => 0
+          }
+
+          # Flag high-priority logs
+          root.is_high_priority = this.severity_score >= 4
+
+      # Filter out debug logs for production
+      - mapping: |
+          # Drop DEBUG and TRACE logs
+          root = if this.level.uppercase() == "DEBUG" {
+            deleted()
+          } else {
+            this
+          }
+
+      # Redact sensitive information
+      - mapping: |
+          root = this
+
+          # Hash IP addresses for privacy
+          root.ip_address = if this.ip_address.exists() {
+            this.ip_address.hash("sha256").slice(0, 16)
+          }
+
+          # Remove any password fields if they sneak in
+          root = this.without("password", "secret", "token", "api_key")
+
+      # Add computed fields
+      - mapping: |
+          root = this
+
+          # Extract hour for time-based analysis
+          root.hour = this.timestamp_normalized.parse_timestamp("2006-01-02T15:04:05Z07:00").format_timestamp("15")
+
+          # Add day of week
+          root.day_of_week = this.timestamp_normalized.parse_timestamp("2006-01-02T15:04:05Z07:00").format_timestamp("Monday")
+
+          # Calculate response time category
+          root.latency_category = if this.duration_ms.exists() {
+            match {
+              this.duration_ms < 100 => "fast",
+              this.duration_ms < 500 => "normal",
+              this.duration_ms < 2000 => "slow",
+              _ => "very_slow"
+            }
+          }
+
+  # Step 3: Send to multiple destinations (fan-out)
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # Destination 1: Elasticsearch for search
+        - label: elasticsearch
+          processors:
+            # Only send INFO and above to Elasticsearch
+            - mapping: |
+                root = if this.severity_score >= 2 { this } else { deleted() }
+
+          elasticsearch:
+            urls:
+              - "${ELASTICSEARCH_URL:http://elasticsearch:9200}"
+            index: "logs-${!timestamp_unix()}"
+            id: "${!json(\"request_id\")}"
+            batching:
+              count: 100
+              period: 5s
+            retry_as_batch: true
+            max_retries: 3
+            backoff:
+              initial_interval: 1s
+              max_interval: 30s
+
+        # Destination 2: S3 for archival
+        - label: s3_archive
+          processors:
+            # Add archive metadata
+            - mapping: |
+                root = this
+                root.archived_at = now()
+
+          aws_s3:
+            bucket: "${S3_BUCKET:my-log-archive}"
+            path: "logs/${!timestamp_unix_nano()}/logs.jsonl"
+            batching:
+              count: 1000
+              period: 1m
+              byte_size: 10485760  # 10MB batches
+            compression: gzip
+            content_type: "application/x-ndjson"
+            storage_class: STANDARD_IA
+            credentials:
+              profile: "${AWS_PROFILE:default}"
+              region: "${AWS_REGION:us-west-2}"
+            retry_as_batch: true
+            max_retries: 5
+
+        # Destination 3: Local backup (always succeeds)
+        - label: local_backup
+          file:
+            path: "/var/log/expanso/logs-${!timestamp_unix()}.jsonl"
+            codec: lines
+            batching:
+              count: 100
+              period: 10s
+
+# Error handling
+logger:
+  level: INFO
+  format: json
+  add_timestamp: true
+
+# Metrics
+metrics:
+  prometheus:
+    path: /metrics
+  mapping: |
+    root = this
+    meta pipeline = "log-processing"

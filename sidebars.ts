@@ -34,6 +34,15 @@ const sidebars: SidebarsConfig = {
         'data-transformation/aggregate-time-windows',
       ],
     },
+    {
+      type: 'category',
+      label: 'Log Processing',
+      collapsible: true,
+      collapsed: false,
+      items: [
+        'log-processing/production-pipeline',
+      ],
+    },
   ],
 };
 
