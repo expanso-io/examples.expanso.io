@@ -25,6 +25,15 @@ const sidebars: SidebarsConfig = {
         'data-security/encryption-patterns',
       ],
     },
+    {
+      type: 'category',
+      label: 'Data Transformation',
+      collapsible: true,
+      collapsed: false,
+      items: [
+        'data-transformation/aggregate-time-windows',
+      ],
+    },
   ],
 };
 
