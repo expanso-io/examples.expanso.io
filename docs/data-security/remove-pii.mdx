@@ -8,110 +8,67 @@ keywords: [pii, gdpr, ccpa, compliance, privacy, anonymization, hashing]
 
 import CodeBlock from '@theme/CodeBlock';
 import pipelineYaml from '!!raw-loader!../../examples/data-security/remove-pii.yaml';
+import ProgressivePipelineExplorer from '@site/src/components/ProgressivePipelineExplorer';
+import { piiRemovalStages, piiSampleInput } from './remove-pii.stages';
 
 
 # How to Remove PII from Data Streams
 
-Personally identifiable information (PII) in data streams creates legal liability and compliance risks under regulations like GDPR and CCPA. This guide shows you how to build a data pipeline that identifies, hashes, anonymizes, and removes PII from streaming data while preserving data utility for analytics.
+Build a pipeline that removes PII from streaming data at the edge—before it reaches your cloud systems. This reduces compliance scope, protects user privacy, and maintains data utility for analytics.
 
-You'll learn to handle the most common PII types: IP addresses, email addresses, user names, credit card numbers, and location data. The pipeline processes PII at the edge before transmitting to cloud systems, reducing compliance scope and transmission of sensitive data.
+## Why Process at the Edge?
 
-## Why Remove PII at the Edge?
+**Compliance:** Less data subject to GDPR/CCPA, simplified deletion requests
+**Security:** Smaller attack surface, reduced breach impact
+**Cost:** Lower bandwidth, less centralized processing
 
-Processing PII at the edge provides several advantages:
+## The Problem
 
-**Compliance Benefits:**
-- Reduces data subject to GDPR/CCPA (less data classified as PII)
-- Minimizes cross-border data transfer requirements
-- Simplifies data retention and deletion requests
-- Creates audit trails close to data sources
-
-**Technical Benefits:**
-- Lower bandwidth costs (anonymized data is often smaller)
-- Reduced centralized processing requirements
-- Data remains useful for analytics without exposing individuals
-- Faster compliance with deletion requests (PII never stored centrally)
-
-**Security Benefits:**
-- Smaller attack surface (PII not stored in multiple locations)
-- Reduced breach impact (anonymized data less valuable to attackers)
-- Defense in depth (multiple anonymization points)
-
-## Prerequisites
-
-Before starting this guide, you'll need:
-
-- **Expanso installed and running** - Complete [Getting Started](https://docs.expanso.io/getting-started) first
-- **An edge node connected** to your orchestrator
-- **Sample data containing PII** to test with
-- **Basic understanding of data compliance** requirements (GDPR, CCPA)
-
-## Problem Statement
-
-Consider a typical user activity event from a web application:
+User events contain PII that creates compliance risk under GDPR/CCPA:
 
 ```json
 {
-  "event_id": "evt_12345",
-  "timestamp": "2025-10-20T14:23:45.123Z",
-  "event_type": "page_view",
-  "user_name": "Sarah Johnson",
-  "email": "sarah.johnson@example.com",
-  "ip_address": "203.0.113.45",
-  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)...",
-  "location": {
-    "city": "San Francisco",
-    "country": "US",
-    "latitude": 37.7749,
-    "longitude": -122.4194,
-    "postal_code": "94102"
-  },
-  "page": "/products/premium-widgets",
-  "referrer": "https://google.com/search?q=widgets",
-  "session_id": "sess_abc123xyz",
+  "event_type": "purchase",
+  "user_name": "Sarah Johnson",        // ❌ Direct PII
+  "email": "sarah@example.com",        // ❌ Direct PII
+  "ip_address": "192.168.1.100",       // ❌ GDPR considers this PII
   "payment_method": {
-    "type": "credit_card",
-    "last_four": "4242",
-    "full_number": "4242-4242-4242-4242",
-    "expiry": "12/25"
+    "full_number": "4532-1234-5678-9010"  // ❌ High-risk PCI data
   },
-  "device_id": "dev_789",
-  "metadata": {
-    "campaign": "summer_sale_2025",
-    "ab_test_group": "variant_b"
+  "location": {
+    "latitude": 37.7749,               // ❌ Precise location
+    "longitude": -122.4194,
+    "city": "San Francisco"            // ✅ Safe for analytics
   }
 }
 ```
 
-**PII Elements Present:**
-- `user_name` - Direct identifier
-- `email` - Direct identifier
-- `ip_address` - Indirect identifier (GDPR considers this PII)
-- `location.latitude/longitude` - Precise location (high-risk PII)
-- `location.postal_code` - Can identify individuals in small areas
-- `payment_method.full_number` - Highly sensitive PII (PCI-DSS)
+**The challenge:** Remove PII while preserving analytics value (event types, timestamps, regional trends).
 
-**Data We Need to Preserve:**
-- Event type and page (analytics)
-- Timestamp (time-series analysis)
-- Campaign and A/B test data (marketing analytics)
-- General location (city/country for regional trends)
-- Session correlation (user journey analysis)
+## The Solution
 
-The challenge is removing/anonymizing PII while keeping data useful for business analytics.
+This pipeline uses 4 techniques to handle different PII types:
 
-## Solution Overview
+1. **Delete** → Credit cards, precise coordinates (high-risk, no analytics value)
+2. **Hash** → Emails, IPs (preserve uniqueness for counting)
+3. **Pseudonymize** → User names (consistent IDs for tracking)
+4. **Generalize** → Location (keep city/country, remove coordinates)
 
-This guide implements a multi-layered PII removal strategy:
+## Interactive Explorer
 
-1. **Delete** credit card numbers and precise coordinates (high-risk, no analytics value)
-2. **Hash** IP addresses and emails (preserve uniqueness for counting, prevent identification)
-3. **Generalize** location data (keep city/country, remove precise coordinates and postal codes)
-4. **Pseudonymize** user names (replace with consistent IDs)
-5. **Validate** the output contains no PII (schema enforcement)
-6. **Audit** all PII operations (compliance trail)
+**Try it yourself!** Use the slider below to see how each stage of the pipeline transforms the data:
 
-Let's build the pipeline step by step.
+<ProgressivePipelineExplorer
+  stages={piiRemovalStages}
+  inputData={piiSampleInput}
+  title="PII Removal Pipeline - Step by Step"
+/>
+
+---
+
+## Complete Pipeline Configuration
+
+Ready to deploy? Here's the full pipeline configuration with all stages combined:
 
 ## Step 1: Create the PII Removal Pipeline
 
