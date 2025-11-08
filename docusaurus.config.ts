@@ -49,6 +49,11 @@ const config: Config = {
 
   themes: ['@docusaurus/theme-mermaid'],
 
+  plugins: [
+    './plugins/tailwind-config.cjs',
+    './plugins/alias-config.cjs',
+  ],
+
   themeConfig: {
     image: 'img/expanso-social.png',
 
@@ -59,7 +64,7 @@ const config: Config = {
     },
 
     navbar: {
-      title: 'Examples',
+      title: '',
       logo: {
         alt: 'Expanso Logo',
         src: 'img/logo.svg',
@@ -76,12 +81,12 @@ const config: Config = {
         },
         {
           href: 'https://docs.expanso.io',
-          label: '📚 Main Docs',
-          position: 'right',
+          label: 'Docs',
+          position: 'left',
         },
         {
-          href: 'https://github.com/expanso-io/examples.expanso.io',
-          label: 'GitHub',
+          href: 'https://cloud.expanso.io',
+          label: 'Cloud Console',
           position: 'right',
         },
       ],
@@ -91,28 +96,49 @@ const config: Config = {
       style: 'dark',
       links: [
         {
-          title: 'Documentation',
+          title: 'Docs',
           items: [
             {
               label: 'Getting Started',
-              href: 'https://docs.expanso.io/getting-started',
+              href: 'https://docs.expanso.io/getting-started/quick-start',
             },
             {
               label: 'Components',
               href: 'https://docs.expanso.io/components',
             },
             {
-              label: 'Guides',
-              href: 'https://docs.expanso.io/guides',
+              label: 'Use Cases',
+              href: 'https://docs.expanso.io/use-cases',
             },
           ],
         },
         {
-          title: 'Examples',
+          title: 'Company',
           items: [
             {
-              label: 'All Examples',
-              to: '/',
+              label: 'About Us',
+              href: 'https://expanso.io/about-us',
+            },
+            {
+              label: 'Contact',
+              href: 'https://expanso.io/contact',
+            },
+          ],
+        },
+        {
+          title: 'Resources',
+          items: [
+            {
+              label: 'Support',
+              href: 'https://expanso.io/help-center',
+            },
+            {
+              label: 'Security',
+              href: 'https://expanso.io/security-and-governance',
+            },
+            {
+              label: 'FAQ',
+              href: 'https://expanso.io/faq',
             },
           ],
         },
@@ -136,7 +162,7 @@ const config: Config = {
     prism: {
       theme: prismThemes.github,
       darkTheme: prismThemes.vsDark,
-      additionalLanguages: ['yaml', 'bash', 'json', 'typescript', 'javascript'],
+      additionalLanguages: ['yaml', 'bash', 'json', 'typescript', 'javascript', 'docker', 'nginx', 'sql'],
     },
   } satisfies Preset.ThemeConfig,
 };
