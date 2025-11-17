@@ -107,6 +107,7 @@ keywords: [${config.name}, interactive, pipeline, expanso]
 ---
 
 import DataPipelineExplorer from '@site/src/components/DataPipelineExplorer';
+import ExplorerSection from '@site/src/components/ExplorerSection';
 import { ${exportName} } from '../${config.name}-full.stages';
 
 # Interactive ${config.title} Explorer
@@ -151,14 +152,10 @@ After exploring all ${config.stages} stages, you now understand:
 
 Ready to build your own ${config.title.toLowerCase()} pipeline? Follow the step-by-step tutorial:
 
-<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
-  <a href="./setup" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Start Tutorial
-  </a>
-  <a href="./complete-pipeline" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Download Complete Solution
-  </a>
-</div>
+<ExplorerSection
+  setupLink="./setup"
+  completeLink="./complete-pipeline"
+/>
 
 ## Deep Dive into Each Step
 
@@ -178,6 +175,220 @@ TODO: Answer another common question.
 ---
 
 **Next:** [Set up your environment](./setup) to build ${config.title.toLowerCase()} pipelines yourself
+`;
+}
+
+function generateIndexMdx(config: ExplorerConfig): string {
+  return `---
+title: ${config.title}
+sidebar_label: Introduction
+sidebar_position: 1
+description: Learn how to implement ${config.title.toLowerCase()} in your data pipelines
+keywords: [${config.name}, pipeline, expanso]
+---
+
+# ${config.title}
+
+## Overview
+
+TODO: Provide a compelling introduction to this pattern.
+
+**Problem:** Describe the problem this pattern solves.
+
+**Solution:** Explain how this pattern addresses the problem.
+
+**Business Impact:** Quantify the benefits (cost savings, performance improvement, compliance, etc.).
+
+## Use Cases
+
+Common scenarios where ${config.title.toLowerCase()} is valuable:
+
+1. **TODO: Use Case 1** - Description
+2. **TODO: Use Case 2** - Description
+3. **TODO: Use Case 3** - Description
+
+## How It Works
+
+TODO: Explain the core concept at a high level.
+
+### Key Components
+
+1. **Component 1**: Description
+2. **Component 2**: Description
+3. **Component 3**: Description
+
+## Real-World Example
+
+TODO: Provide a concrete example with realistic data.
+
+\`\`\`json
+{
+  "example": "data",
+  "field": "value"
+}
+\`\`\`
+
+## Benefits
+
+✅ **Benefit 1** - Description and impact
+
+✅ **Benefit 2** - Description and impact
+
+✅ **Benefit 3** - Description and impact
+
+## Trade-offs
+
+⚠️ **Consideration 1** - When this pattern might not be ideal
+
+⚠️ **Consideration 2** - Potential limitations or costs
+
+## Next Steps
+
+Ready to see ${config.title.toLowerCase()} in action?
+
+1. [**Interactive Explorer**](./explorer) - Step through ${config.stages} stages with live examples
+2. [**Setup Guide**](./setup) - Configure your environment
+3. [**Complete Solution**](./complete-pipeline) - Download working code
+
+---
+
+**Continue:** [Explore the interactive demo](./explorer) to see ${config.title.toLowerCase()} in action
+`;
+}
+
+function generateSetupMdx(config: ExplorerConfig): string {
+  return `---
+title: ${config.title} - Setup Guide
+sidebar_label: Setup Guide
+sidebar_position: 3
+description: Set up your environment to build ${config.title.toLowerCase()} pipelines
+keywords: [${config.name}, setup, installation, configuration]
+---
+
+# Setup Guide
+
+This guide will help you set up your environment to build ${config.title.toLowerCase()} pipelines.
+
+## Prerequisites
+
+Before you begin, ensure you have:
+
+- **TODO: List prerequisites** (e.g., Expanso CLI, Docker, Node.js, etc.)
+- **TODO: Minimum versions** (e.g., Expanso v1.0+, Node 20+)
+- **TODO: Access requirements** (e.g., API keys, credentials)
+
+## Installation
+
+### 1. Install Expanso CLI
+
+TODO: Provide installation instructions for Expanso.
+
+\`\`\`bash
+# Example installation command
+curl -sSL https://install.expanso.io | sh
+\`\`\`
+
+### 2. Configure Environment
+
+TODO: Explain any environment configuration needed.
+
+\`\`\`bash
+# Example configuration
+export EXPANSO_API_KEY="your-api-key"
+export EXPANSO_ENDPOINT="https://api.expanso.io"
+\`\`\`
+
+### 3. Verify Installation
+
+TODO: Provide verification steps.
+
+\`\`\`bash
+# Check version
+expanso --version
+
+# Test connectivity
+expanso status
+\`\`\`
+
+## Project Setup
+
+### Create Project Directory
+
+\`\`\`bash
+mkdir ${config.name}-example
+cd ${config.name}-example
+\`\`\`
+
+### Initialize Configuration
+
+TODO: Explain project initialization.
+
+\`\`\`bash
+# Example initialization
+expanso init
+\`\`\`
+
+## Configuration Files
+
+### Pipeline Configuration
+
+Create a basic pipeline configuration:
+
+\`\`\`yaml
+# TODO: Provide a minimal pipeline.yaml template
+name: ${config.name}-pipeline
+description: ${config.title} implementation
+type: pipeline
+namespace: default
+
+config:
+  input:
+    # TODO: Configure input
+
+  pipeline:
+    processors:
+      # TODO: Configure processors
+
+  output:
+    # TODO: Configure output
+\`\`\`
+
+## Testing Your Setup
+
+### Run the Pipeline
+
+TODO: Provide commands to test the setup.
+
+\`\`\`bash
+# Example test command
+expanso run pipeline.yaml
+\`\`\`
+
+### Expected Output
+
+TODO: Describe what users should see if setup is successful.
+
+## Troubleshooting
+
+### Common Issues
+
+**Problem: TODO Issue 1**
+- **Solution:** TODO solution
+
+**Problem: TODO Issue 2**
+- **Solution:** TODO solution
+
+## Next Steps
+
+Now that your environment is configured:
+
+1. [**Interactive Explorer**](./explorer) - See ${config.title.toLowerCase()} in action
+2. [**Step-by-Step Tutorial**](./step-1-todo) - Build your first pipeline
+3. [**Complete Solution**](./complete-pipeline) - Download reference implementation
+
+---
+
+**Continue:** [Start the interactive explorer](./explorer) to see how ${config.title.toLowerCase()} works
 `;
 }
 
@@ -212,6 +423,7 @@ function updateSidebars(config: ExplorerConfig): void {
           items: [
             '${config.category}/${config.name}/index',
             '${config.category}/${config.name}/explorer',
+            '${config.category}/${config.name}/setup',
           ],
         },`;
 
@@ -251,7 +463,10 @@ function main(): void {
   // Generate files
   const stagesFile = path.join(docsDir, `${config.name}-full.stages.ts`);
   const explorerFile = path.join(explorerDir, 'explorer.mdx');
+  const indexFile = path.join(explorerDir, 'index.mdx');
+  const setupFile = path.join(explorerDir, 'setup.mdx');
 
+  // Check if files already exist
   if (fs.existsSync(stagesFile)) {
     console.error(`❌ Error: ${stagesFile} already exists`);
     process.exit(1);
@@ -262,11 +477,28 @@ function main(): void {
     process.exit(1);
   }
 
+  if (fs.existsSync(indexFile)) {
+    console.error(`❌ Error: ${indexFile} already exists`);
+    process.exit(1);
+  }
+
+  if (fs.existsSync(setupFile)) {
+    console.error(`❌ Error: ${setupFile} already exists`);
+    process.exit(1);
+  }
+
+  // Generate all files
   fs.writeFileSync(stagesFile, generateStagesFile(config));
   console.log(`✅ Created ${stagesFile}`);
 
+  fs.writeFileSync(indexFile, generateIndexMdx(config));
+  console.log(`✅ Created ${indexFile}`);
+
   fs.writeFileSync(explorerFile, generateExplorerMdx(config));
   console.log(`✅ Created ${explorerFile}`);
+
+  fs.writeFileSync(setupFile, generateSetupMdx(config));
+  console.log(`✅ Created ${setupFile}`);
 
   // Update sidebars
   updateSidebars(config);
@@ -274,11 +506,19 @@ function main(): void {
   console.log('');
   console.log('🎉 Explorer boilerplate created successfully!');
   console.log('');
+  console.log('📦 Generated files:');
+  console.log(`   • ${config.name}-full.stages.ts - Stage definitions`);
+  console.log(`   • ${config.name}/index.mdx - Introduction page`);
+  console.log(`   • ${config.name}/explorer.mdx - Interactive explorer`);
+  console.log(`   • ${config.name}/setup.mdx - Setup guide`);
+  console.log('');
   console.log('Next steps:');
   console.log('  1. Edit the stages file to add your pipeline logic');
-  console.log('  2. Update the explorer.mdx with descriptions');
-  console.log(`  3. Create ${config.name}/index.mdx for the introduction page`);
-  console.log('  4. Run `npm start` to preview your explorer');
+  console.log('  2. Customize index.mdx with use cases and benefits');
+  console.log('  3. Update explorer.mdx with stage descriptions');
+  console.log('  4. Fill in setup.mdx with installation steps');
+  console.log('  5. Run `npm start` to preview your explorer');
+  console.log('  6. Run `npm run validate-stages` to check your work');
   console.log('');
 }
 
