@@ -53,7 +53,16 @@ const sidebars: SidebarsConfig = {
       items: [
         'log-processing/filter-severity',
         'log-processing/enrich-export',
-        'log-processing/production-pipeline',
+        {
+          type: 'category',
+          label: 'Production Log Pipeline',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'log-processing/production-pipeline/index',
+            'log-processing/production-pipeline/explorer',
+          ],
+        },
       ],
     },
   ],

@@ -1,0 +1,106 @@
+---
+title: Interactive Production Pipeline Explorer
+sidebar_label: Interactive Explorer
+sidebar_position: 2
+description: Explore 6 stages of a complete production log processing pipeline with live before/after comparisons
+keywords: [production, pipeline, kafka, elasticsearch, s3, log-processing, interactive]
+---
+
+import DataPipelineExplorer from '@site/src/components/DataPipelineExplorer';
+import { productionPipelineStages } from '../production-pipeline-full.stages';
+
+# Interactive Production Pipeline Explorer
+
+**See a complete production pipeline in action!** Use the interactive explorer below to step through 6 stages of enterprise-grade log processing: parse → validate → enrich → filter → redact → fan-out. This is the most comprehensive example combining all patterns.
+
+## How to Use This Explorer
+
+1. **Navigate** using arrow keys (← →) or click the numbered stage buttons
+2. **Compare** the Input (left) and Output (right) showing transformations at each stage
+3. **Observe** how raw logs become production-ready analytics data
+4. **Inspect** the YAML code showing real-world pipeline configuration
+5. **Learn** from the stage description explaining each processing step
+
+## Interactive Production Pipeline Explorer
+
+<DataPipelineExplorer
+  stages={productionPipelineStages}
+  title="PRODUCTION LOG PIPELINE"
+  subtitle="6-Stage Enterprise Processing"
+/>
+
+## Understanding the Stages
+
+### Stage 1: Raw HTTP Input
+Production systems receive unstructured logs via HTTP POST. No validation, metadata, or structure - needs comprehensive processing.
+
+### Stage 2: Parse & Validate
+Parse JSON, validate schema (required fields), route invalid logs to DLQ. Add pipeline metadata for observability.
+
+### Stage 3: Enrich Metadata
+Add timestamps (ingestion + processing), correlation ID for tracing, pipeline version, edge node hostname.
+
+### Stage 4: Filter & Score
+Drop DEBUG/TRACE logs (90% reduction). Assign priority scores based on severity, keywords. High-priority gets fast-path routing.
+
+### Stage 5: Redact PII
+Remove sensitive data (emails, IPs) using regex + hashing. GDPR/CCPA compliant - only pseudonymized IDs remain.
+
+### Stage 6: Fan-Out
+Route to multiple destinations: Elasticsearch (high-priority alerts), Kafka (stream processing), S3 (archival). 99.9% delivery with fallbacks.
+
+## What You've Learned
+
+After exploring all 6 stages, you now understand:
+
+✅ **Parse & validate** - Catch malformed data early with schema validation + DLQ
+
+✅ **Enrich metadata** - Add timestamps, correlation IDs, tracing for observability
+
+✅ **Filter & score** - Reduce volume 90%, prioritize critical logs
+
+✅ **Redact PII** - GDPR/CCPA compliance with hashing + field removal
+
+✅ **Fan-out routing** - Multi-destination delivery with priority-based logic
+
+✅ **Production patterns** - Enterprise-grade reliability, observability, compliance
+
+## Try It Yourself
+
+Ready to build production log pipelines? Follow the step-by-step tutorial:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./setup" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Start Tutorial
+  </a>
+  <a href="./complete-production-pipeline" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Download Complete Solution
+  </a>
+</div>
+
+## Deep Dive into Each Step
+
+- [**Step 1: Configure HTTP Input**](./step-1-configure-http-input) - Production-grade HTTP server setup
+- [**Step 2: Parse & Validate Logs**](./step-2-parse-validate-logs) - Schema validation with DLQ routing
+- [**Step 3: Enrich with Metadata**](./step-3-enrich-with-metadata) - Observability and tracing
+- [**Step 4: Filter & Score Logs**](./step-4-filter-score-logs) - Priority-based processing
+- [**Step 5: Redact Sensitive Data**](./step-5-redact-sensitive-data) - GDPR/CCPA compliance
+- [**Step 6: Fan-Out to Destinations**](./step-6-fan-out-destinations) - Multi-destination routing
+
+## Common Questions
+
+### Why 6 stages instead of just parse → output?
+Each stage serves a specific production need: validation (catch bad data), enrichment (observability), filtering (cost reduction), PII redaction (compliance), fan-out (reliability). Skipping stages creates gaps in reliability, compliance, or cost efficiency.
+
+### Can I simplify this for development?
+Yes! For dev/staging, skip filtering (stage 4) and use single output (skip stage 6). Keep validation (stage 2) and PII redaction (stage 5) even in dev to catch issues early.
+
+### How do I monitor this pipeline?
+Each stage emits metrics: validation failures, filter drop rate, PII fields redacted, destination delivery rates. Use Prometheus + Grafana to visualize pipeline health in real-time.
+
+### What's the throughput?
+This 6-stage pipeline handles 100k-1M logs/second on a single edge node. Bottlenecks are usually output destinations (Elasticsearch write rate, S3 upload bandwidth), not pipeline processing.
+
+---
+
+**Next:** [Set up your environment](./setup) to build production pipelines yourself
