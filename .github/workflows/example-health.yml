@@ -1,0 +1,163 @@
+name: Example Health Monitoring
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**/*-full.stages.ts'
+      - 'docs/**/*.mdx'
+      - 'scripts/check-example-health.ts'
+      - 'scripts/generate-coverage-report.ts'
+      - '.github/workflows/example-health.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'docs/**/*-full.stages.ts'
+      - 'docs/**/*.mdx'
+  schedule:
+    # Run daily at 9am UTC to track progress
+    - cron: '0 9 * * *'
+  workflow_dispatch: # Allow manual triggers
+
+jobs:
+  health-check:
+    name: Check Example Health
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run health check
+        id: health
+        run: |
+          # Run health check and capture output
+          npm run check-health > health-output.txt 2>&1 || true
+          cat health-output.txt
+
+          # Extract key metrics from output
+          TOTAL=$(grep "Total Examples:" health-output.txt | awk '{print $3}' || echo "0")
+          COMPLETE=$(grep "Complete (100%):" health-output.txt | awk '{print $3}' || echo "0")
+          PARTIAL=$(grep "Partial (50-99%):" health-output.txt | awk '{print $3}' || echo "0")
+          MINIMAL=$(grep "Minimal (<50%):" health-output.txt | awk '{print $3}' || echo "0")
+          AVG=$(grep "Average Completion:" health-output.txt | awk '{print $3}' | tr -d '%' || echo "0")
+
+          echo "total=${TOTAL}" >> $GITHUB_OUTPUT
+          echo "complete=${COMPLETE}" >> $GITHUB_OUTPUT
+          echo "partial=${PARTIAL}" >> $GITHUB_OUTPUT
+          echo "minimal=${MINIMAL}" >> $GITHUB_OUTPUT
+          echo "average=${AVG}" >> $GITHUB_OUTPUT
+
+      - name: Generate coverage report
+        run: |
+          npm run coverage-report -- --output COVERAGE.md
+
+      - name: Upload coverage report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: COVERAGE.md
+          retention-days: 30
+
+      - name: Comment on PR with health status
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            const total = '${{ steps.health.outputs.total }}';
+            const complete = '${{ steps.health.outputs.complete }}';
+            const partial = '${{ steps.health.outputs.partial }}';
+            const minimal = '${{ steps.health.outputs.minimal }}';
+            const average = '${{ steps.health.outputs.average }}';
+
+            // Determine emoji based on average completion
+            let emoji = '❌';
+            if (average >= 90) emoji = '🎉';
+            else if (average >= 75) emoji = '✅';
+            else if (average >= 50) emoji = '⚠️';
+
+            // Generate progress bar
+            const barLength = 20;
+            const filled = Math.round((average / 100) * barLength);
+            const progressBar = '█'.repeat(filled) + '░'.repeat(barLength - filled);
+
+            let comment = `${emoji} **Example Health Report**\n\n`;
+            comment += `### Overall Statistics\n\n`;
+            comment += `- **Total Examples:** ${total}\n`;
+            comment += `- **Complete (100%):** ${complete}\n`;
+            comment += `- **Partial (50-99%):** ${partial}\n`;
+            comment += `- **Minimal (<50%):** ${minimal}\n`;
+            comment += `- **Average Completion:** ${average}%\n\n`;
+            comment += `### Progress\n\n`;
+            comment += `\`\`\`\n${progressBar} ${average}%\n\`\`\`\n\n`;
+
+            if (average < 100) {
+              comment += `### Action Items\n\n`;
+              comment += `Some examples are incomplete. Run \`npm run check-health\` locally to see which files are missing.\n\n`;
+            } else {
+              comment += `### Status\n\n`;
+              comment += `🎉 All examples are complete! Great work!\n\n`;
+            }
+
+            comment += `<details>\n`;
+            comment += `<summary>View full coverage report</summary>\n\n`;
+
+            if (fs.existsSync('COVERAGE.md')) {
+              const coverage = fs.readFileSync('COVERAGE.md', 'utf8');
+              comment += `\n${coverage}\n`;
+            }
+
+            comment += `</details>\n\n`;
+            comment += `---\n`;
+            comment += `*This health check runs automatically on every PR. Download the full report from the workflow artifacts.*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Update coverage badge (main branch only)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "Creating coverage badge..."
+          AVG="${{ steps.health.outputs.average }}"
+          COLOR="red"
+
+          if [ "$AVG" -ge 90 ]; then COLOR="brightgreen"; fi
+          if [ "$AVG" -ge 75 ] && [ "$AVG" -lt 90 ]; then COLOR="green"; fi
+          if [ "$AVG" -ge 50 ] && [ "$AVG" -lt 75 ]; then COLOR="yellow"; fi
+          if [ "$AVG" -ge 25 ] && [ "$AVG" -lt 50 ]; then COLOR="orange"; fi
+
+          echo "Badge: coverage-${AVG}%-${COLOR}"
+          echo "Coverage: ${AVG}%"
+
+      - name: Commit coverage report (main branch only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+          if [ -f COVERAGE.md ]; then
+            # Create docs/internal directory if it doesn't exist
+            mkdir -p docs/internal
+            mv COVERAGE.md docs/internal/COVERAGE.md
+
+            git add docs/internal/COVERAGE.md || true
+            git diff --staged --quiet || git commit -m "docs: update example coverage report [skip ci]"
+            git push || true
+          fi
