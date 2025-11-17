@@ -1,0 +1,97 @@
+---
+title: Interactive Deduplication Explorer
+sidebar_label: Interactive Explorer
+sidebar_position: 2
+description: Explore 5 stages of event deduplication with live before/after comparisons
+keywords: [deduplication, interactive, tutorial, demo, hash-based, fingerprint-based]
+---
+
+import DataPipelineExplorer from '@site/src/components/DataPipelineExplorer';
+import { deduplicateEventsStages } from '../deduplicate-events-full.stages';
+
+# Interactive Deduplication Explorer
+
+**See event deduplication in action!** Use the interactive explorer below to step through 5 stages of deduplication techniques. Watch as duplicate events are progressively detected and filtered using different strategies.
+
+## How to Use This Explorer
+
+1. **Navigate** using arrow keys (← →) or click the numbered stage buttons
+2. **Compare** the Input (left) and Output (right) JSON at each stage
+3. **Observe** how duplicates are rejected (red strikethrough) or accepted (green highlight)
+4. **Inspect** the YAML code showing exactly what processor was added
+5. **Learn** from the stage description explaining the technique and compliance benefits
+
+## Interactive Deduplication Explorer
+
+<DataPipelineExplorer
+  stages={deduplicateEventsStages}
+  title="EVENT DEDUPLICATION"
+  subtitle="5-Stage Progressive Duplicate Detection"
+/>
+
+## Understanding the Stages
+
+### Stage 1: Original Input
+Multiple events arrive with potential duplicates from network retries, load balancer failovers, and eventual consistency delays.
+
+### Stage 2: Hash-Based Deduplication
+Generates SHA-256 hash of entire event content and caches it. Identical events (same JSON structure) are detected and filtered.
+
+### Stage 3: Fingerprint-Based Deduplication  
+Extracts only business-critical fields (user ID, email, action type) to generate a semantic fingerprint. Catches duplicates with different event IDs but same business meaning.
+
+### Stage 4: ID-Based Deduplication
+Uses existing unique event IDs for fastest duplicate detection. Ideal when your system guarantees truly unique identifiers.
+
+### Stage 5: Production Configuration
+Adds distributed caching with Redis, monitoring metrics, and error handling for production deployment across multiple edge nodes.
+
+## What You've Learned
+
+After exploring all 5 stages, you now understand:
+
+✅ **Content Hashing** - How SHA-256 hashes detect exact duplicate events
+✅ **Semantic Fingerprinting** - How selective field hashing catches business duplicates
+✅ **ID-Based Optimization** - When to use unique identifiers for fastest deduplication
+✅ **Production Scaling** - How distributed caches enable global duplicate detection
+
+## Try It Yourself
+
+Ready to build this deduplication pipeline? Follow the step-by-step tutorial:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./setup" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Start Tutorial
+  </a>
+  <a href="./complete-deduplication-pipeline" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Download Complete Pipeline
+  </a>
+</div>
+
+## Deep Dive into Each Strategy
+
+Want to understand each deduplication technique in depth?
+
+- [**Step 1: Hash-Based**](./step-1-hash-based-exact-duplicates) - Content hashing for exact duplicate detection
+- [**Step 2: Fingerprint-Based**](./step-2-fingerprint-semantic-duplicates) - Semantic deduplication with selective field hashing
+- [**Step 3: ID-Based**](./step-3-id-based-unique-identifiers) - Optimized deduplication for unique identifiers
+- [**Step 4: Production**](./step-4-production-distributed-cache) - Distributed cache and monitoring for production scale
+
+## Common Questions
+
+### Which strategy should I use for my use case?
+- **Network retries with identical payloads:** Hash-based deduplication
+- **Load balancer failovers creating different event IDs:** Fingerprint-based deduplication  
+- **Reliable unique event IDs (Kafka, UUIDs):** ID-based deduplication
+- **Multi-node deployments:** Production configuration with Redis
+
+### How much memory will deduplication cache use?
+Memory usage = `event_rate_per_second × TTL_seconds × bytes_per_cache_entry`
+Example: 1000 events/sec × 3600 sec TTL × 1KB = 3.6GB cache size
+
+### What happens if the cache fills up?
+Old entries are evicted using LRU policy. Duplicates may slip through if their original entries were evicted. Monitor cache hit rates and adjust TTL or capacity accordingly.
+
+---
+
+**Next:** [Set up your environment](./setup) to build this deduplication pipeline yourself

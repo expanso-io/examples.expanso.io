@@ -1,0 +1,1198 @@
+---
+title: Troubleshooting Deduplication Issues
+sidebar_label: Troubleshooting
+sidebar_position: 9
+description: Comprehensive troubleshooting guide for deduplication pipeline issues and performance optimization
+keywords: [troubleshooting, debugging, performance-issues, cache-problems, duplicate-detection]
+---
+
+# Troubleshooting Deduplication Issues
+
+**Comprehensive guide for diagnosing and resolving deduplication pipeline issues**. This troubleshooting guide covers the most common problems, diagnostic procedures, and step-by-step solutions for production deduplication systems.
+
+## Quick Diagnostic Commands
+
+### Essential Health Check Commands
+
+```bash
+# 1. Pipeline status check
+curl -f http://localhost:9090/health || echo "Pipeline health check failed"
+
+# 2. Basic metrics overview
+curl -s http://localhost:9090/metrics | grep -E "(dedup|cache|circuit)" | head -20
+
+# 3. Cache connectivity test
+redis-cli -h redis-cluster -p 7001 ping || echo "Redis connection failed"
+
+# 4. Recent error logs
+expanso logs --tail 50 | grep -i error
+
+# 5. Performance snapshot
+curl -s http://localhost:9090/metrics | grep -E "(latency|throughput|rate)"
+```
+
+### Diagnostic Data Collection Script
+
+```bash
+#!/bin/bash
+# Comprehensive diagnostic data collection
+
+echo "=== Deduplication Pipeline Diagnostics ==="
+echo "Timestamp: $(date)"
+echo "Node: ${NODE_ID:-$(hostname)}"
+echo ""
+
+# System information
+echo "=== System Information ==="
+echo "Memory: $(free -h | grep Mem | awk '{print $3 "/" $2}')"
+echo "CPU: $(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)% used"
+echo "Disk: $(df -h / | tail -1 | awk '{print $5}' | cut -d'%' -f1)% used"
+echo ""
+
+# Pipeline status
+echo "=== Pipeline Status ==="
+if curl -s -f http://localhost:9090/health > /dev/null; then
+    echo "✅ Pipeline responding"
+else
+    echo "❌ Pipeline not responding"
+fi
+
+# Cache status
+echo "=== Cache Status ==="
+for port in 7001 7002 7003; do
+    if redis-cli -h redis-cluster -p $port ping > /dev/null 2>&1; then
+        echo "✅ Redis node :$port responding"
+    else
+        echo "❌ Redis node :$port not responding"
+    fi
+done
+
+# Key metrics
+echo "=== Key Metrics (Last 5 minutes) ==="
+curl -s http://localhost:9090/metrics | grep -E "(dedup_events_processed|dedup_duplicates_detected|cache_hits)" | while read line; do
+    echo "  $line"
+done
+
+# Error analysis
+echo "=== Recent Errors ==="
+expanso logs --tail 100 | grep -i -E "(error|failed|timeout)" | tail -10
+
+echo "=== Diagnostic Collection Complete ==="
+```
+
+## Issue Categories
+
+### 1. Duplicate Detection Issues
+
+#### Issue: No Duplicates Being Detected
+
+**Symptoms:**
+- Cache hit rate near 0%
+- All events being processed despite known duplicates
+- Duplicate rate metrics showing 0%
+
+**Diagnostic Steps:**
+
+```bash
+# Check if cache is storing data
+curl -s http://localhost:9090/metrics | grep cache_items
+# Should show increasing cache item count
+
+# Test cache operations manually
+curl -X POST http://localhost:8080/debug/cache_test \
+  -H "Content-Type: application/json" \
+  -d '{"test_key":"debug_001","test_value":"test"}'
+
+# Check cache key generation consistency
+curl -X POST http://localhost:8080/debug/key_generation \
+  -H "Content-Type: application/json" \
+  -d '{"event_id":"test_123","event_type":"test"}'
+
+# Send same event twice and compare cache keys
+for i in {1..2}; do
+  echo "Request $i:"
+  curl -X POST http://localhost:8080/webhooks/events \
+    -H "Content-Type: application/json" \
+    -d '{"event_id":"debug_dup","event_type":"test","user":{"id":"test"}}' 2>/dev/null
+  echo
+done
+```
+
+**Common Causes & Solutions:**
+
+1. **TTL Too Short:**
+```yaml
+# Problem: Cache expires before duplicates arrive
+cache_resources:
+  - label: dedup_cache
+    memory:
+      default_ttl: "30s"  # Too short!
+
+# Solution: Increase TTL
+cache_resources:
+  - label: dedup_cache
+    memory:
+      default_ttl: "1h"   # Appropriate for most use cases
+```
+
+2. **Inconsistent Key Generation:**
+```yaml
+# Problem: JSON field ordering causing different hashes
+{"a": 1, "b": 2} vs {"b": 2, "a": 1}
+
+# Solution: Use json_format() for consistent ordering
+processors:
+  - mapping: |
+      root.dedup_key = this.json_format().hash("sha256")
+```
+
+3. **Clock Skew in Timestamps:**
+```yaml
+# Problem: Timestamps differ between identical events
+# Solution: Exclude timestamps from hash
+processors:
+  - mapping: |
+      let hash_data = this.without("timestamp", "received_at", "processed_at")
+      root.dedup_key = hash_data.json_format().hash("sha256")
+```
+
+4. **Cache Capacity Exceeded:**
+```bash
+# Check cache evictions
+curl -s http://localhost:9090/metrics | grep cache_evictions
+
+# Increase capacity or reduce TTL
+# cache_resources:
+#   - label: dedup_cache
+#     memory:
+#       cap: 1000000  # Increase from default
+```
+
+#### Issue: False Positive Duplicates
+
+**Symptoms:**
+- Legitimate unique events being marked as duplicates
+- Cache hit rate higher than expected duplicate rate
+- Business complaints about missing transactions
+
+**Diagnostic Steps:**
+
+```bash
+# Analyze cache key collisions
+curl -X POST http://localhost:8080/debug/collision_analysis \
+  -H "Content-Type: application/json" \
+  -d '{
+    "events": [
+      {"event_id":"evt1","user":"alice","action":"signup"},
+      {"event_id":"evt2","user":"bob","action":"signup"}
+    ]
+  }'
+
+# Check fingerprint field selection
+curl -s http://localhost:9090/debug/fingerprint_fields | jq
+
+# Review recent duplicate decisions
+expanso logs --tail 100 | grep duplicate_detected | tail -10
+```
+
+**Solutions:**
+
+1. **Add More Distinguishing Fields:**
+```yaml
+# Include more specific business context
+processors:
+  - mapping: |
+      let business_data = {
+        "event_type": this.event_type,
+        "user_id": this.user.id,
+        "user_email": this.user.email,
+        "session_id": this.session.id,  # Add session context
+        "timestamp_minute": this.timestamp.ts_parse().ts_format("%Y-%m-%d %H:%M")  # Add time context
+      }
+      root.dedup_key = business_data.json_format().hash("sha256")
+```
+
+2. **Use Time-Windowed Fingerprints:**
+```yaml
+# Reduce duplicate detection window
+processors:
+  - mapping: |
+      let business_data = {
+        "user_id": this.user.id,
+        "action": this.action,
+        "time_window": this.timestamp.ts_parse().ts_format("%Y-%m-%d %H:%M")  # 1-minute window
+      }
+      root.dedup_key = business_data.json_format().hash("sha256")
+```
+
+3. **Event-Type Specific Logic:**
+```yaml
+# Different fingerprint strategies by event type
+processors:
+  - mapping: |
+      let business_data = if this.event_type == "purchase" {
+        # Purchases need exact matching
+        {
+          "user_id": this.user.id,
+          "amount_cents": this.purchase.amount_cents,
+          "product_id": this.purchase.product_id,
+          "timestamp_hour": this.timestamp.ts_parse().ts_format("%Y-%m-%d %H")
+        }
+      } else if this.event_type == "page_view" {
+        # Page views can be more relaxed
+        {
+          "user_id": this.user.id,
+          "page": this.page.url,
+          "timestamp_hour": this.timestamp.ts_parse().ts_format("%Y-%m-%d %H")
+        }
+      } else {
+        # Default fingerprint
+        {
+          "event_type": this.event_type,
+          "user_id": this.user.id
+        }
+      }
+      root.dedup_key = business_data.json_format().hash("sha256")
+```
+
+### 2. Performance Issues
+
+#### Issue: High Processing Latency
+
+**Symptoms:**
+- Processing time >10ms per event
+- Increasing response times under load
+- Timeout errors from upstream systems
+
+**Diagnostic Steps:**
+
+```bash
+# Check processing latency breakdown
+curl -s http://localhost:9090/metrics | grep latency_seconds
+
+# Monitor cache operation times
+curl -s http://localhost:9090/metrics | grep cache_operation_duration
+
+# Check Redis connectivity latency
+for port in 7001 7002 7003; do
+  echo "Redis :$port latency:"
+  redis-cli -h redis-cluster -p $port --latency -i 1 | head -5
+done
+
+# Analyze processing bottlenecks
+curl -X POST http://localhost:8080/debug/performance_profile \
+  -H "Content-Type: application/json" \
+  -d '{"duration_seconds": 30}'
+```
+
+**Solutions:**
+
+1. **Optimize Hash Algorithm:**
+```yaml
+# Use faster hash algorithm
+processors:
+  - mapping: |
+      root.dedup_key = this.event_id.hash("xxhash64")  # Faster than SHA-256
+```
+
+2. **Reduce Cache Payload:**
+```yaml
+# Store minimal data in cache
+processors:
+  - mapping: |
+      # Store only timestamp instead of full event metadata
+      _ = cache_set("dedup_cache", this.dedup_key, now(), "1h")
+```
+
+3. **Optimize Redis Configuration:**
+```yaml
+# Redis performance tuning
+# redis.conf
+tcp-keepalive 60
+timeout 300
+maxclients 10000
+# Use pipeline for bulk operations
+pipeline true
+```
+
+4. **Connection Pool Tuning:**
+```yaml
+cache_resources:
+  - label: dedup_cache
+    redis:
+      pool_size: 100        # Increase pool size
+      min_idle_conns: 20    # Maintain idle connections
+      dial_timeout: "1s"    # Faster connection timeout
+      read_timeout: "500ms" # Reduce read timeout
+      write_timeout: "500ms"# Reduce write timeout
+```
+
+#### Issue: Memory Exhaustion
+
+**Symptoms:**
+- High memory usage alerts
+- OOM kills or container restarts
+- Cache evictions happening frequently
+
+**Diagnostic Steps:**
+
+```bash
+# Check memory usage breakdown
+curl -s http://localhost:9090/metrics | grep memory_bytes
+
+# Check cache item distribution
+curl -s http://localhost:9090/debug/cache_stats | jq
+
+# Analyze cache entry sizes
+redis-cli -h redis-cluster -p 7001 --bigkeys
+
+# Monitor eviction patterns
+curl -s http://localhost:9090/metrics | grep evictions_total
+```
+
+**Solutions:**
+
+1. **Optimize Cache Size:**
+```yaml
+# Calculate appropriate cache size
+# Formula: events_per_second × TTL_seconds × bytes_per_entry
+
+cache_resources:
+  - label: dedup_cache
+    memory:
+      # Adjust based on your traffic
+      cap: 500000           # Reduce if memory constrained
+      default_ttl: "30m"    # Reduce TTL to save memory
+      eviction_policy: lru  # Ensure LRU eviction
+```
+
+2. **Use Shorter Cache Keys:**
+```yaml
+# Hash long keys to fixed length
+processors:
+  - mapping: |
+      let cache_key = if this.event_id.length() > 50 {
+        this.event_id.hash("xxhash64")  # Fixed 16-char hash
+      } else {
+        this.event_id
+      }
+      root.dedup_key = cache_key
+```
+
+3. **Implement Tiered Caching:**
+```yaml
+# Use different TTLs for different event types
+processors:
+  - mapping: |
+      root.cache_ttl = if this.event_type == "page_view" {
+        "15m"   # Short TTL for high-volume events
+      } else if this.event_type == "purchase" {
+        "6h"    # Longer TTL for important events
+      } else {
+        "1h"    # Default TTL
+      }
+```
+
+### 3. Distributed Cache Issues
+
+#### Issue: Cache Cluster Split-Brain
+
+**Symptoms:**
+- Inconsistent duplicate detection across nodes
+- Conflicting cache states
+- Partial cluster connectivity
+
+**Diagnostic Steps:**
+
+```bash
+# Check cluster health
+redis-cli -h redis-cluster -p 7001 cluster nodes
+
+# Identify master/slave distribution
+redis-cli -h redis-cluster -p 7001 cluster nodes | grep master
+
+# Check for split-brain indicators
+redis-cli -h redis-cluster -p 7001 cluster info | grep cluster_state
+
+# Test cross-node communication
+for port in 7001 7002 7003; do
+  echo "Node :$port cluster view:"
+  redis-cli -h redis-cluster -p $port cluster nodes | wc -l
+done
+```
+
+**Solutions:**
+
+1. **Force Cluster Reconfiguration:**
+```bash
+# Identify problematic nodes
+redis-cli -h redis-cluster -p 7001 cluster nodes | grep fail
+
+# Force cluster reset if safe
+redis-cli -h redis-cluster -p 7001 cluster reset
+
+# Recreate cluster
+redis-cli --cluster create \
+  redis-node-1:7001 redis-node-2:7002 redis-node-3:7003 \
+  --cluster-replicas 0
+```
+
+2. **Enable Partial Cluster Tolerance:**
+```yaml
+cache_resources:
+  - label: dedup_cache
+    redis:
+      cluster_addresses: ["node1:7001", "node2:7002", "node3:7003"]
+      # Allow operations with partial cluster
+      cluster_require_full_coverage: false
+      read_from_replicas: true
+```
+
+3. **Implement Fallback Strategy:**
+```yaml
+processors:
+  - mapping: |
+      root = this
+      let cluster_available = cache_health_check("dedup_cache")
+      
+      root.cache_strategy = if cluster_available {
+        "distributed"
+      } else {
+        "local_only"
+      }
+```
+
+#### Issue: Network Partitions
+
+**Symptoms:**
+- Intermittent cache failures
+- Circuit breaker opening frequently
+- Inconsistent duplicate detection
+
+**Diagnostic Steps:**
+
+```bash
+# Check network connectivity to cache nodes
+for node in redis-node-1 redis-node-2 redis-node-3; do
+  ping -c 3 $node || echo "$node unreachable"
+done
+
+# Monitor connection failures
+curl -s http://localhost:9090/metrics | grep connection_errors
+
+# Check circuit breaker state
+curl -s http://localhost:9090/metrics | grep circuit_breaker_state
+
+# Test cache operations under network stress
+curl -X POST http://localhost:8080/debug/network_stress_test
+```
+
+**Solutions:**
+
+1. **Adjust Circuit Breaker Sensitivity:**
+```yaml
+# Make circuit breaker more tolerant of transient failures
+processors:
+  - mapping: |
+      # Increase failure threshold
+      let failure_threshold = 10  # Instead of 5
+      let recovery_timeout = 60   # Longer recovery time
+```
+
+2. **Implement Retry Logic:**
+```yaml
+cache_resources:
+  - label: dedup_cache
+    redis:
+      max_retries: 5          # Increase retries
+      retry_backoff: "200ms"  # Exponential backoff
+      dial_timeout: "5s"      # Longer connection timeout
+```
+
+3. **Use Multiple Cache Regions:**
+```yaml
+# Deploy caches in multiple availability zones
+cache_resources:
+  - label: primary_cache
+    redis:
+      cluster_addresses: ["az1-redis:7001", "az1-redis:7002"]
+  - label: fallback_cache
+    redis:
+      cluster_addresses: ["az2-redis:7001", "az2-redis:7002"]
+```
+
+### 4. Business Logic Issues
+
+#### Issue: Incorrect Strategy Selection
+
+**Symptoms:**
+- Wrong deduplication strategy being applied
+- Poor performance due to suboptimal strategy
+- Business events being treated as generic events
+
+**Diagnostic Steps:**
+
+```bash
+# Check strategy distribution
+curl -s http://localhost:9090/metrics | grep strategy_used
+
+# Analyze strategy selection logic
+curl -X POST http://localhost:8080/debug/strategy_analysis \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sample_events": [
+      {"event_id":"550e8400-e29b-41d4-a716-446655440000","event_type":"purchase"},
+      {"event_id":"custom_123","event_type":"signup"},
+      {"event_id":"pv_789","event_type":"page_view"}
+    ]
+  }'
+
+# Review strategy assignment logs
+expanso logs --tail 100 | grep strategy_selected
+```
+
+**Solutions:**
+
+1. **Improve Strategy Selection Logic:**
+```yaml
+processors:
+  - mapping: |
+      root.dedup_strategy = if this.event_id.match("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$") {
+        "id-based"  # Valid UUID4
+      } else if this.event_type.in(["user_signup", "purchase", "subscription_change", "refund"]) {
+        "fingerprint-based"  # Business-critical events
+      } else if this.kafka_metadata.exists() && this.kafka_metadata.offset.exists() {
+        "id-based-kafka"  # Kafka events
+      } else if this.event_id.starts_with("req_") && this.event_id.length() > 20 {
+        "id-based"  # API request IDs
+      } else {
+        "hash-based"  # Fallback
+      }
+```
+
+2. **Add Strategy Validation:**
+```yaml
+processors:
+  - mapping: |
+      root = this
+      
+      # Validate strategy choice makes sense
+      root = if this.dedup_strategy == "id-based" && (!this.event_id.exists() || this.event_id.length() < 10) {
+        throw("ID-based strategy selected but event_id invalid")
+      } else if this.dedup_strategy == "fingerprint-based" && !this.user.id.exists() {
+        throw("Fingerprint strategy selected but user.id missing")
+      } else {
+        this
+      }
+```
+
+#### Issue: Business Context Missing
+
+**Symptoms:**
+- Events missing required business fields
+- Fingerprint-based strategy failing
+- Incomplete duplicate detection for business events
+
+**Solutions:**
+
+1. **Add Field Validation:**
+```yaml
+processors:
+  - mapping: |
+      root = this
+      
+      # Validate business context based on event type
+      root = if this.event_type == "user_signup" && (!this.user.email.exists() || !this.signup_details.exists()) {
+        throw("Missing required signup context: user.email or signup_details")
+      } else if this.event_type == "purchase" && (!this.purchase.amount_cents.exists() || !this.purchase.product_id.exists()) {
+        throw("Missing required purchase context: amount_cents or product_id")
+      } else {
+        this
+      }
+```
+
+2. **Provide Default Business Context:**
+```yaml
+processors:
+  - mapping: |
+      root = this
+      
+      # Add default business context where missing
+      root = if this.event_type == "user_signup" && !this.signup_details.exists() {
+        root.signup_details = {
+          "source": "unknown",
+          "plan": "free"
+        }
+        this
+      } else {
+        this
+      }
+```
+
+### 5. Monitoring and Alerting Issues
+
+#### Issue: Missing or Incorrect Metrics
+
+**Symptoms:**
+- Dashboards showing no data
+- Alerts not firing when they should
+- Inconsistent metric values
+
+**Diagnostic Steps:**
+
+```bash
+# Check metrics endpoint
+curl -f http://localhost:9090/metrics || echo "Metrics endpoint failed"
+
+# Verify specific metrics exist
+curl -s http://localhost:9090/metrics | grep -c "dedup_"
+
+# Check Prometheus scraping
+curl -s http://prometheus:9090/api/v1/targets | jq '.data.activeTargets[] | select(.labels.job=="deduplication")'
+
+# Test custom metrics
+curl -X POST http://localhost:8080/debug/test_metrics
+```
+
+**Solutions:**
+
+1. **Add Missing Metrics:**
+```yaml
+# Add comprehensive metrics tracking
+processors:
+  - mapping: |
+      root = this
+      
+      # Increment strategy-specific counters
+      _ = metrics_counter_inc("dedup_strategy_used", {"strategy": this.dedup_strategy})
+      _ = metrics_counter_inc("dedup_events_by_type", {"event_type": this.event_type})
+      
+      # Track processing latency
+      let processing_time = (now() - this.received_at.ts_parse()).total_milliseconds()
+      _ = metrics_histogram_observe("dedup_processing_latency_ms", processing_time, {"strategy": this.dedup_strategy})
+```
+
+2. **Fix Metric Labels:**
+```yaml
+# Ensure consistent labeling
+processors:
+  - mapping: |
+      # Normalize labels to prevent cardinality explosion
+      let normalized_event_type = this.event_type.lowercase().re_replace_all("[^a-z0-9_]", "_")
+      _ = metrics_counter_inc("events_processed", {"event_type": normalized_event_type})
+```
+
+#### Issue: Alert Fatigue
+
+**Symptoms:**
+- Too many alerts firing
+- False positive alerts
+- Important alerts being ignored
+
+**Solutions:**
+
+1. **Tune Alert Thresholds:**
+```yaml
+# Adjust alert sensitivity based on historical data
+alerts:
+  - name: HighDuplicateRate
+    condition: dedup_duplicate_rate > 0.4  # Increase from 0.2
+    for: 10m  # Increase duration
+    severity: warning  # Reduce from critical
+    
+  - name: CriticalDuplicateRate
+    condition: dedup_duplicate_rate > 0.7  # New critical threshold
+    for: 5m
+    severity: critical
+```
+
+2. **Add Context to Alerts:**
+```yaml
+alerts:
+  - name: HighLatency
+    condition: avg(dedup_processing_latency_seconds) > 0.010
+    annotations:
+      summary: "Deduplication latency high"
+      description: |
+        Average latency is {{ $value }}s, exceeding 10ms threshold.
+        Current strategy distribution: {{ query "sum by (strategy) (rate(dedup_strategy_used[5m]))" }}
+        Possible causes: Redis connectivity, high load, cache contention
+```
+
+## Advanced Troubleshooting
+
+### Performance Profiling
+
+```bash
+#!/bin/bash
+# Advanced performance profiling script
+
+echo "=== Performance Profiling Session ==="
+
+# 1. Capture baseline metrics
+echo "Capturing baseline..."
+curl -s http://localhost:9090/metrics > baseline_metrics.txt
+
+# 2. Generate controlled load
+echo "Generating test load..."
+for i in {1..1000}; do
+  uuid=$(uuidgen)
+  curl -s -X POST http://localhost:8080/webhooks/events \
+    -H "Content-Type: application/json" \
+    -d "{\"event_id\":\"$uuid\",\"event_type\":\"test\",\"user\":{\"id\":\"user_$((RANDOM % 100))\"}}" &
+    
+  # Control concurrency
+  if [ $((i % 50)) -eq 0 ]; then
+    wait
+    echo "Sent $i events..."
+  fi
+done
+wait
+
+# 3. Capture final metrics
+echo "Analyzing results..."
+sleep 5
+curl -s http://localhost:9090/metrics > final_metrics.txt
+
+# 4. Compare metrics
+echo "=== Performance Analysis ==="
+echo "Events processed:"
+grep dedup_events_processed final_metrics.txt | tail -1
+
+echo "Processing latency:"
+grep latency_seconds final_metrics.txt | grep dedup
+
+echo "Cache performance:"
+grep cache_operation_duration final_metrics.txt
+
+echo "Strategy distribution:"
+grep strategy_used final_metrics.txt
+
+# 5. Generate recommendations
+echo "=== Recommendations ==="
+latency=$(grep "dedup_processing_latency_seconds" final_metrics.txt | tail -1 | cut -d' ' -f2)
+if [ "$(echo "$latency > 0.005" | bc)" -eq 1 ]; then
+    echo "⚠️  High latency detected ($latency s)"
+    echo "   Consider: faster hash algorithm, connection pooling"
+fi
+
+cache_hits=$(grep cache_hits_total final_metrics.txt | tail -1 | cut -d' ' -f2)
+cache_ops=$(grep cache_operations_total final_metrics.txt | tail -1 | cut -d' ' -f2)
+if [ "$cache_ops" -gt 0 ]; then
+    hit_rate=$(echo "scale=2; $cache_hits * 100 / $cache_ops" | bc)
+    if [ "$(echo "$hit_rate < 10" | bc)" -eq 1 ]; then
+        echo "⚠️  Low cache hit rate ($hit_rate%)"
+        echo "   Consider: longer TTL, larger cache capacity"
+    fi
+fi
+
+rm baseline_metrics.txt final_metrics.txt
+echo "=== Profiling Complete ==="
+```
+
+### Cache Analysis Tools
+
+```python
+#!/usr/bin/env python3
+"""
+Cache analysis and optimization tool
+"""
+import redis
+import json
+import time
+from collections import defaultdict, Counter
+from datetime import datetime, timedelta
+
+class CacheAnalyzer:
+    def __init__(self, redis_host='localhost', redis_port=7001):
+        self.redis = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+        
+    def analyze_key_patterns(self):
+        """Analyze cache key patterns and distribution"""
+        print("=== Cache Key Pattern Analysis ===")
+        
+        # Get all keys (use SCAN for large datasets)
+        keys = list(self.redis.scan_iter(match="dedup:*", count=1000))
+        
+        patterns = defaultdict(int)
+        sizes = []
+        ttls = []
+        
+        for key in keys[:1000]:  # Sample first 1000 keys
+            # Analyze key patterns
+            if key.startswith('dedup:prod:v3:'):
+                if len(key) == 50:  # SHA256 hash length
+                    patterns['hash-based'] += 1
+                elif '-' in key and len(key) == 72:  # UUID format
+                    patterns['id-based-uuid'] += 1
+                else:
+                    patterns['other'] += 1
+                    
+            # Analyze value sizes
+            try:
+                value = self.redis.get(key)
+                if value:
+                    sizes.append(len(value))
+                    
+                # Get TTL
+                ttl = self.redis.ttl(key)
+                if ttl > 0:
+                    ttls.append(ttl)
+            except:
+                continue
+                
+        print(f"Total keys analyzed: {len(keys)}")
+        print("Key pattern distribution:")
+        for pattern, count in patterns.items():
+            percentage = (count / sum(patterns.values())) * 100
+            print(f"  {pattern}: {count} ({percentage:.1f}%)")
+            
+        if sizes:
+            print(f"Average value size: {sum(sizes) / len(sizes):.0f} bytes")
+            print(f"Memory usage estimate: {sum(sizes) / 1024 / 1024:.1f} MB")
+            
+        if ttls:
+            print(f"Average TTL: {sum(ttls) / len(ttls) / 3600:.1f} hours")
+            
+    def analyze_hot_keys(self):
+        """Find frequently accessed keys"""
+        print("=== Hot Key Analysis ===")
+        
+        # Monitor key access patterns (requires Redis monitoring)
+        info = self.redis.info()
+        print(f"Total commands processed: {info.get('total_commands_processed', 'N/A')}")
+        print(f"Keyspace hits: {info.get('keyspace_hits', 'N/A')}")
+        print(f"Keyspace misses: {info.get('keyspace_misses', 'N/A')}")
+        
+        hits = info.get('keyspace_hits', 0)
+        misses = info.get('keyspace_misses', 0)
+        if hits + misses > 0:
+            hit_rate = (hits / (hits + misses)) * 100
+            print(f"Cache hit rate: {hit_rate:.2f}%")
+            
+    def memory_usage_breakdown(self):
+        """Analyze memory usage by key type"""
+        print("=== Memory Usage Breakdown ===")
+        
+        info = self.redis.info('memory')
+        print(f"Used memory: {info.get('used_memory_human', 'N/A')}")
+        print(f"Used memory peak: {info.get('used_memory_peak_human', 'N/A')}")
+        print(f"Memory fragmentation ratio: {info.get('mem_fragmentation_ratio', 'N/A')}")
+        
+        # Analyze by key prefix
+        prefixes = ['dedup:prod:', 'dedup:critical:', 'circuit:']
+        for prefix in prefixes:
+            keys = list(self.redis.scan_iter(match=f"{prefix}*", count=100))
+            if keys:
+                sample_size = sum(len(self.redis.get(key) or '') for key in keys[:10])
+                estimated_total = (sample_size / min(10, len(keys))) * len(keys)
+                print(f"{prefix}* keys: {len(keys)}, estimated memory: {estimated_total / 1024:.1f} KB")
+                
+    def suggest_optimizations(self):
+        """Suggest cache optimizations based on analysis"""
+        print("=== Optimization Suggestions ===")
+        
+        info = self.redis.info()
+        
+        # Check fragmentation
+        frag_ratio = info.get('mem_fragmentation_ratio', 1.0)
+        if frag_ratio > 1.5:
+            print("⚠️  High memory fragmentation detected")
+            print("   Suggestion: Consider MEMORY PURGE or restart Redis")
+            
+        # Check evictions
+        evicted_keys = info.get('evicted_keys', 0)
+        if evicted_keys > 0:
+            print(f"⚠️  {evicted_keys} keys evicted")
+            print("   Suggestion: Increase maxmemory or reduce TTL")
+            
+        # Check expired keys
+        expired_keys = info.get('expired_keys', 0)
+        total_keys = info.get('db0', {}).get('keys', 0)
+        if total_keys > 0 and expired_keys / total_keys > 0.5:
+            print("⚠️  High key expiration rate")
+            print("   Suggestion: Review TTL settings")
+            
+if __name__ == "__main__":
+    analyzer = CacheAnalyzer()
+    analyzer.analyze_key_patterns()
+    print()
+    analyzer.analyze_hot_keys()
+    print()
+    analyzer.memory_usage_breakdown()
+    print()
+    analyzer.suggest_optimizations()
+```
+
+## Emergency Procedures
+
+### Complete System Recovery
+
+```bash
+#!/bin/bash
+# Emergency recovery procedure for complete system failure
+
+echo "=== EMERGENCY DEDUPLICATION SYSTEM RECOVERY ==="
+echo "⚠️  This procedure will reset all cache state and restart services"
+read -p "Continue? (yes/no): " confirm
+
+if [ "$confirm" != "yes" ]; then
+    echo "Recovery cancelled"
+    exit 1
+fi
+
+echo "Step 1: Enabling emergency passthrough mode..."
+# Allow all events to pass through without deduplication
+kubectl set env deployment/dedup-pipeline EMERGENCY_PASSTHROUGH=true
+
+echo "Step 2: Stopping cache operations..."
+# Stop Redis clusters
+docker-compose -f redis-clusters.yml down
+
+echo "Step 3: Clearing cache data..."
+# Remove persistent data
+docker volume prune -f
+
+echo "Step 4: Restarting Redis clusters..."
+# Restart with clean state
+docker-compose -f redis-clusters.yml up -d
+
+# Wait for Redis to initialize
+sleep 30
+
+echo "Step 5: Reinitializing clusters..."
+# Recreate Redis clusters
+docker exec redis-primary-1 redis-cli --cluster create \
+  172.18.0.2:6379 172.18.0.3:6379 172.18.0.4:6379 \
+  --cluster-replicas 0 --cluster-yes
+
+docker exec redis-critical-1 redis-cli --cluster create \
+  172.18.0.5:6379 172.18.0.6:6379 172.18.0.7:6379 \
+  --cluster-replicas 0 --cluster-yes
+
+echo "Step 6: Restarting deduplication pipeline..."
+kubectl rollout restart deployment/dedup-pipeline
+
+# Wait for deployment to be ready
+kubectl wait --for=condition=available --timeout=300s deployment/dedup-pipeline
+
+echo "Step 7: Disabling emergency mode..."
+kubectl set env deployment/dedup-pipeline EMERGENCY_PASSTHROUGH-
+
+echo "Step 8: Verifying recovery..."
+# Test basic functionality
+sleep 10
+curl -f http://localhost:8080/webhooks/events -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"event_id":"recovery-test","event_type":"test","user":{"id":"test"}}'
+
+if [ $? -eq 0 ]; then
+    echo "✅ Recovery successful - system operational"
+else
+    echo "❌ Recovery failed - manual intervention required"
+fi
+
+echo "=== Emergency Recovery Complete ==="
+```
+
+### Gradual Cache Warming
+
+```bash
+#!/bin/bash
+# Gradual cache warming after recovery
+
+echo "=== Cache Warming Procedure ==="
+
+# Start with reduced capacity to prevent overwhelming
+echo "Step 1: Setting reduced capacity..."
+kubectl set env deployment/dedup-pipeline CACHE_WARMING_MODE=true
+
+# Gradually increase traffic processing
+echo "Step 2: Warming caches gradually..."
+
+# Send diverse event types to populate caches
+declare -a event_types=("user_signup" "purchase" "login" "page_view")
+declare -a strategies=("id-based" "fingerprint-based" "hash-based")
+
+for event_type in "${event_types[@]}"; do
+    echo "Warming $event_type events..."
+    for i in {1..100}; do
+        uuid=$(uuidgen)
+        curl -s -X POST http://localhost:8080/webhooks/events \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"event_id\":\"$uuid\",
+            \"event_type\":\"$event_type\",
+            \"user\":{\"id\":\"user_$((RANDOM % 1000))\"},
+            \"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)\"
+          }" &
+          
+        if [ $((i % 20)) -eq 0 ]; then
+            wait
+            echo "  Sent $i warming events for $event_type"
+        fi
+    done
+    wait
+done
+
+echo "Step 3: Monitoring cache population..."
+for i in {1..12}; do  # Monitor for 1 minute
+    cache_items=$(curl -s http://localhost:9090/metrics | grep cache_items | tail -1 | cut -d' ' -f2)
+    echo "Cache items: $cache_items"
+    sleep 5
+done
+
+echo "Step 4: Restoring normal capacity..."
+kubectl set env deployment/dedup-pipeline CACHE_WARMING_MODE-
+
+echo "✅ Cache warming complete"
+```
+
+## Prevention and Best Practices
+
+### Automated Health Monitoring
+
+```bash
+#!/bin/bash
+# Automated health monitoring and self-healing
+
+# Create monitoring cron job
+cat > /etc/cron.d/dedup-monitoring << 'EOF'
+# Deduplication pipeline monitoring
+*/2 * * * * root /opt/dedup/health-check.sh
+*/15 * * * * root /opt/dedup/performance-check.sh
+0 */6 * * * root /opt/dedup/cache-maintenance.sh
+0 2 * * * root /opt/dedup/daily-report.sh
+EOF
+
+# Create health check script
+cat > /opt/dedup/health-check.sh << 'EOF'
+#!/bin/bash
+# Automated health checking with self-healing
+
+HEALTH_URL="http://localhost:9090/health"
+METRICS_URL="http://localhost:9090/metrics"
+
+# Check pipeline health
+if ! curl -f -s $HEALTH_URL > /dev/null; then
+    echo "$(date): Pipeline health check failed - attempting restart"
+    kubectl rollout restart deployment/dedup-pipeline
+    sleep 60
+    
+    # Recheck after restart
+    if ! curl -f -s $HEALTH_URL > /dev/null; then
+        echo "$(date): Pipeline restart failed - alerting operations"
+        curl -X POST "$SLACK_WEBHOOK" -d '{"text":"🚨 Deduplication pipeline restart failed - manual intervention required"}'
+    fi
+fi
+
+# Check cache cluster health
+for port in 7001 7002 7003; do
+    if ! redis-cli -h redis-cluster -p $port ping > /dev/null 2>&1; then
+        echo "$(date): Redis node :$port down - checking cluster status"
+        # Additional cluster health checks and recovery logic here
+    fi
+done
+
+# Check for circuit breaker issues
+circuit_open=$(curl -s $METRICS_URL | grep 'circuit_breaker_state.*open' | wc -l)
+if [ $circuit_open -gt 0 ]; then
+    echo "$(date): Circuit breakers open - investigating"
+    # Circuit breaker recovery logic here
+fi
+EOF
+
+chmod +x /opt/dedup/health-check.sh
+```
+
+### Configuration Validation
+
+```yaml
+# Pre-deployment configuration validation
+validation:
+  required_env_vars:
+    - NODE_ID
+    - CLUSTER_REGION
+    - REDIS_PRIMARY_CLUSTER
+    - ANALYTICS_ENDPOINT
+    
+  cache_configuration:
+    min_ttl: "5m"
+    max_ttl: "24h"
+    min_capacity: 1000
+    max_capacity: 10000000
+    
+  strategy_configuration:
+    required_strategies: ["id-based", "fingerprint-based", "hash-based"]
+    strategy_validation:
+      id-based:
+        requires: ["event_id"]
+        validation: "event_id must be at least 10 characters"
+      fingerprint-based:
+        requires: ["event_type", "user"]
+        validation: "user.id or user.email must exist"
+```
+
+## Getting Additional Help
+
+### Support Channels
+
+1. **Internal Documentation:**
+   - Pipeline logs: `expanso logs --tail 100`
+   - Metrics: `http://localhost:9090/metrics`
+   - Debug endpoints: `http://localhost:9090/debug/*`
+
+2. **Community Resources:**
+   - [Expanso Documentation](https://docs.expanso.io)
+   - [Redis Documentation](https://redis.io/documentation)
+   - [Prometheus Monitoring](https://prometheus.io/docs/)
+
+3. **Emergency Contacts:**
+   - Operations Team: ops@company.com
+   - Platform Team: platform@company.com
+   - On-call Engineer: +1-555-ONCALL
+
+### Providing Support Information
+
+When requesting help, always include:
+
+```bash
+# Generate comprehensive support bundle
+cat > support-bundle.sh << 'EOF'
+#!/bin/bash
+echo "=== Deduplication Support Bundle ==="
+echo "Generated: $(date)"
+echo "Node: ${NODE_ID:-$(hostname)}"
+echo ""
+
+echo "=== System Information ==="
+echo "OS: $(uname -a)"
+echo "Memory: $(free -h | grep Mem)"
+echo "CPU: $(nproc) cores"
+
+echo "=== Pipeline Status ==="
+expanso status dedup-pipeline 2>/dev/null || echo "Pipeline status unavailable"
+
+echo "=== Recent Metrics ==="
+curl -s http://localhost:9090/metrics | grep -E "(dedup|cache|circuit)" | tail -20
+
+echo "=== Recent Logs ==="
+expanso logs --tail 50 | grep -E "(error|warn|duplicate|cache)"
+
+echo "=== Cache Status ==="
+for port in 7001 7002 7003; do
+    echo "Redis :$port - $(redis-cli -h redis-cluster -p $port ping 2>/dev/null || echo 'FAILED')"
+done
+
+echo "=== Configuration ==="
+echo "Environment variables:"
+env | grep -E "(NODE_ID|REDIS|CACHE|DEDUP)" | sort
+
+echo "=== Support Bundle Complete ==="
+EOF
+
+chmod +x support-bundle.sh
+./support-bundle.sh > support-bundle-$(date +%Y%m%d-%H%M%S).txt
+```
+
+This comprehensive troubleshooting guide should help you diagnose and resolve most deduplication pipeline issues. Remember to always check the basics first (connectivity, configuration, resources) before diving into complex debugging procedures.

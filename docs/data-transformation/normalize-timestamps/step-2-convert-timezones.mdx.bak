@@ -1,0 +1,664 @@
+---
+title: "Step 2: Convert Timezones to UTC"
+sidebar_label: "Step 2: Convert Timezones"
+sidebar_position: 4
+description: Standardize all timestamps to UTC while preserving original timezone context for compliance and analytics
+keywords: [timezone, UTC, conversion, DST, daylight-saving, audit-trail, compliance, GDPR]
+---
+
+# Step 2: Convert Timezones to UTC
+
+Standardize all timestamps to UTC representation while preserving the original timezone context for compliance audit trails and business analytics. This step handles timezone offsets, named timezones, DST transitions, and edge cases.
+
+## Learning Objectives
+
+By the end of this step, you'll understand:
+
+✅ **UTC Conversion:** Transform timestamps from any timezone to UTC
+✅ **Timezone Context:** Preserve original timezone information for audit trails
+✅ **DST Handling:** Manage daylight saving time transitions correctly
+✅ **Compliance:** Meet GDPR Article 30 requirements for timezone audit trails
+✅ **Edge Cases:** Handle ambiguous times and invalid transitions
+
+## The Challenge
+
+Timestamps from Step 1 still carry timezone context that makes analytics difficult:
+
+### Input from Step 1
+
+```json
+// London time (GMT+1) 
+{
+  "timestamp_parsed": "2025-10-20T19:23:45.123+01:00",
+  "timezone_original": "+01:00",
+  "format_detected": "iso8601_offset"
+}
+
+// New York time (EDT -4)
+{
+  "timestamp_parsed": "2025-10-20T14:23:45.000-04:00", 
+  "timezone_original": "America/New_York",
+  "format_detected": "custom_datetime"
+}
+
+// Unix timestamp (timezone unknown)
+{
+  "timestamp_parsed": "2025-10-20T18:23:45.000Z",
+  "timezone_original": "unknown", 
+  "format_detected": "unix_seconds"
+}
+```
+
+### Conversion Goals
+
+All timestamps must be converted to UTC with preserved context:
+
+```json
+{
+  "timestamp": "2025-10-20T18:23:45.123Z",        // ← UTC normalized
+  "timestamp_original": "2025-10-20T19:23:45.123+01:00",
+  "timezone_original": "+01:00",
+  "timezone_offset_minutes": 60,
+  "dst_active": false,
+  "conversion_applied": true
+}
+```
+
+## UTC Conversion Logic
+
+The pipeline converts timestamps while maintaining timezone audit trails:
+
+### Core Conversion Algorithm
+
+```yaml
+- mapping: |
+    # Start with parsed timestamp from Step 1
+    let parsed_ts = this.timestamp_parsed
+    let tz_original = this.timezone_original
+    
+    # Convert to UTC if not already
+    root.timestamp_utc = if tz_original == "UTC" || tz_original == "Z" {
+      parsed_ts  # Already UTC
+    } else if tz_original == "unknown" {
+      parsed_ts  # Assume UTC for unknown timezones
+    } else if tz_original.re_match("^[-+]\\d{2}:?\\d{2}$") {
+      # Offset-based timezone (+01:00, -05:00, etc.)
+      parsed_ts.format_timestamp_iso8601()  # Parse handles offset automatically
+    } else {
+      # Named timezone (America/New_York, Europe/London)
+      parsed_ts.format_timestamp_iso8601("UTC")
+    }
+    
+    # Store UTC as primary timestamp
+    root.timestamp = this.timestamp_utc
+```
+
+### Timezone Offset Calculation
+
+Extract numeric offset for analytics and validation:
+
+```yaml
+- mapping: |
+    let tz = this.timezone_original
+    
+    # Calculate offset in minutes from UTC
+    root.timezone_offset_minutes = if tz == "UTC" || tz == "Z" {
+      0
+    } else if tz == "unknown" {
+      0  # Assume UTC
+    } else if tz.re_match("^[-+]\\d{2}:?\\d{2}$") {
+      # Parse offset string (+01:00 = +60 minutes)
+      let sign = if tz.string().index(0) == "-" { -1 } else { 1 }
+      let parts = tz.string().re_find_all("\\d{2}")
+      let hours = parts.index(0).number() 
+      let minutes = parts.index(1).number()
+      sign * (hours * 60 + minutes)
+    } else {
+      # Named timezone - calculate offset for this specific timestamp
+      let utc_ts = this.timestamp_parsed.format_timestamp_iso8601("UTC")
+      let local_ts = this.timestamp_parsed.format_timestamp_iso8601(tz)
+      (utc_ts.parse_timestamp_iso8601().timestamp_unix() - local_ts.parse_timestamp_iso8601().timestamp_unix()) / 60
+    }
+```
+
+### DST Detection
+
+Identify whether daylight saving time was active:
+
+```yaml
+- mapping: |
+    let tz = this.timezone_original
+    let ts = this.timestamp_parsed
+    
+    # Detect DST for named timezones
+    root.dst_active = if tz.re_match("^(America|Europe|Australia)/.+") {
+      # For named timezones, check if offset differs from standard time
+      let jan_offset = ts.format_timestamp("2006-01-01 15:04:05", tz)
+      let jul_offset = ts.format_timestamp("2006-07-01 15:04:05", tz)
+      let current_offset = ts.format_timestamp("2006-01-02 15:04:05", tz)
+      
+      # If current offset != standard winter offset, DST is active
+      current_offset != jan_offset && current_offset == jul_offset
+    } else {
+      # Offset-based timezones don't have DST info
+      false
+    }
+```
+
+## Complete Timezone Conversion Pipeline
+
+Create `step2-convert-timezones.yaml`:
+
+```yaml title="step2-convert-timezones.yaml"
+input:
+  file:
+    paths: ["/tmp/parsed-timestamps.jsonl"]
+    codec: lines
+    delete_on_finish: false
+
+pipeline:
+  processors:
+    # Step 1: Convert to UTC
+    - mapping: |
+        root = this
+        
+        let parsed_ts = this.timestamp_parsed
+        let tz_original = this.timezone_original.string()
+        
+        # Convert to UTC timestamp
+        root.timestamp_utc = if tz_original == "UTC" || tz_original == "Z" || tz_original == "unknown" {
+          parsed_ts
+        } else if tz_original.re_match("^[-+]\\d{2}:?\\d{2}$") {
+          # Already parsed with offset - just ensure UTC format
+          parsed_ts.format_timestamp_iso8601("UTC")
+        } else {
+          # Named timezone - convert to UTC  
+          parsed_ts.format_timestamp_iso8601("UTC")
+        }
+        
+        # Set primary timestamp field to UTC
+        root.timestamp = this.timestamp_utc
+
+    # Step 2: Calculate timezone offset in minutes
+    - mapping: |
+        root = this
+        
+        let tz = this.timezone_original.string()
+        
+        root.timezone_offset_minutes = if tz == "UTC" || tz == "Z" || tz == "unknown" {
+          0
+        } else if tz.re_match("^[-+]\\d{2}:?\\d{2}$") {
+          # Parse offset (+01:00, -05:00, etc.)
+          let clean_tz = tz.re_replace_all("[^-+\\d]", "")  # Remove colons
+          let sign = if clean_tz.index(0) == "-" { -1 } else { 1 }
+          let hours_str = clean_tz.slice(1, 3)
+          let minutes_str = clean_tz.slice(3, 5) 
+          let hours = hours_str.number()
+          let minutes = minutes_str.number()
+          sign * (hours * 60 + minutes)
+        } else {
+          # Named timezone - calculate from timestamp difference
+          let original_unix = this.timestamp_parsed.timestamp_unix()
+          let utc_unix = this.timestamp_utc.parse_timestamp_iso8601().timestamp_unix()
+          (original_unix - utc_unix) / 60
+        }
+
+    # Step 3: DST detection for named timezones
+    - mapping: |
+        root = this
+        
+        let tz = this.timezone_original.string()
+        let ts = this.timestamp_parsed
+        
+        # Only check DST for named timezones
+        root.dst_active = if tz.re_match("^(America|Europe|Asia|Australia)/.+") {
+          # Check if this timestamp falls in DST period
+          # This is a simplified check - production should use proper DST calculation
+          let month = ts.format_timestamp("01", "UTC").number()
+          let timezone_family = tz.split("/").index(0)
+          
+          if timezone_family == "America" {
+            # DST roughly Mar-Nov in North America
+            month >= 3 && month <= 11
+          } else if timezone_family == "Europe" {
+            # DST roughly Mar-Oct in Europe  
+            month >= 3 && month <= 10
+          } else {
+            # Conservative - assume no DST
+            false
+          }
+        } else {
+          false
+        }
+
+    # Step 4: Conversion audit trail
+    - mapping: |
+        root = this
+        
+        # Track whether conversion was applied
+        root.conversion_applied = this.timezone_original.string() != "UTC" && 
+                                  this.timezone_original.string() != "Z" && 
+                                  this.timezone_original.string() != "unknown"
+        
+        # Create audit trail for compliance
+        root.timezone_audit = {
+          "original_timezone": this.timezone_original,
+          "original_timestamp": this.timestamp_original,
+          "utc_timestamp": this.timestamp,
+          "offset_minutes": this.timezone_offset_minutes,
+          "dst_detected": this.dst_active,
+          "conversion_time": now().format_timestamp_iso8601()
+        }
+
+    # Step 5: Validation 
+    - mapping: |
+        root = this
+        
+        # Validate UTC timestamp format
+        let utc_ts = this.timestamp.string()
+        root.validation = {
+          "is_valid_utc": utc_ts.contains("Z") && utc_ts.re_match("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"),
+          "offset_reasonable": this.timezone_offset_minutes.abs() <= 840,  # ±14 hours max
+          "timestamp_reasonable": true  # Add range validation as needed
+        }
+
+output:
+  stdout:
+    codec: lines
+```
+
+## Testing Timezone Conversion
+
+Test the conversion with various timezone scenarios:
+
+```bash
+# Create test data with Step 1 output format
+cat > /tmp/parsed-timestamps.jsonl << 'EOF'
+{"event_id": "utc_test", "timestamp_parsed": "2025-10-20T18:23:45.123Z", "timezone_original": "UTC", "format_detected": "iso8601_offset"}
+{"event_id": "london_test", "timestamp_parsed": "2025-10-20T19:23:45.123+01:00", "timezone_original": "+01:00", "format_detected": "iso8601_offset"}
+{"event_id": "ny_test", "timestamp_parsed": "2025-10-20T14:23:45.000", "timezone_original": "America/New_York", "format_detected": "custom_datetime"}
+{"event_id": "tokyo_test", "timestamp_parsed": "2025-10-21T03:23:45.000", "timezone_original": "Asia/Tokyo", "format_detected": "custom_datetime"}
+{"event_id": "unix_test", "timestamp_parsed": "2025-10-20T18:23:45.000Z", "timezone_original": "unknown", "format_detected": "unix_seconds"}
+EOF
+
+# Deploy and run conversion
+expanso deploy step2-convert-timezones.yaml
+expanso pipeline output step2-convert-timezones --lines 10
+```
+
+**Expected output:**
+```json
+{"event_id": "london_test", "timestamp": "2025-10-20T18:23:45.123Z", "timezone_original": "+01:00", "timezone_offset_minutes": 60, "dst_active": false, "conversion_applied": true, "timezone_audit": {...}}
+
+{"event_id": "ny_test", "timestamp": "2025-10-20T18:23:45.000Z", "timezone_original": "America/New_York", "timezone_offset_minutes": -240, "dst_active": true, "conversion_applied": true, "timezone_audit": {...}}
+```
+
+## Advanced Timezone Handling
+
+### DST Transition Detection
+
+Handle the complexities of DST transitions:
+
+```yaml
+# Advanced DST transition handling
+- mapping: |
+    let tz = this.timezone_original.string()
+    let ts = this.timestamp_parsed
+    
+    # Check for DST transition ambiguity
+    root.dst_transition = if tz.re_match("^(America|Europe)/.+") {
+      let hour = ts.format_timestamp("15", tz).number()
+      let month = ts.format_timestamp("01", tz).number()
+      let day = ts.format_timestamp("02", tz).number()
+      let weekday = ts.format_timestamp("Mon", tz)
+      
+      # US DST: Second Sunday in March / First Sunday in November
+      # EU DST: Last Sunday in March / Last Sunday in October
+      if tz.contains("America/") {
+        (month == 3 && weekday == "Sun" && day >= 8 && day <= 14 && hour >= 2) ||
+        (month == 11 && weekday == "Sun" && day <= 7 && hour >= 1)
+      } else if tz.contains("Europe/") {
+        (month == 3 && weekday == "Sun" && day >= 25 && hour >= 1) ||
+        (month == 10 && weekday == "Sun" && day >= 25 && hour >= 1)
+      } else {
+        false
+      }
+    } else {
+      false
+    }
+    
+    # Flag ambiguous times during "fall back"
+    root.time_ambiguous = this.dst_transition && 
+                         this.timezone_offset_minutes != this.timezone_standard_offset
+```
+
+### Historical Timezone Changes
+
+Account for historical timezone definition changes:
+
+```yaml
+# Handle historical timezone changes
+- mapping: |
+    let tz = this.timezone_original.string()
+    let year = this.timestamp_parsed.format_timestamp("2006", "UTC").number()
+    
+    # Flag timestamps that may be affected by historical changes
+    root.timezone_historical_note = if tz == "Europe/Moscow" && year < 2014 {
+      "Moscow timezone changed in 2014 - verify historical accuracy"
+    } else if tz.contains("America/") && year < 2007 {
+      "US DST rules changed in 2007 - may affect timestamps before then"
+    } else if tz == "Asia/Shanghai" && year < 1949 {
+      "China timezone standardization - historical accuracy may vary"
+    } else {
+      null
+    }
+```
+
+### UTC Offset Validation
+
+Validate that calculated offsets are reasonable:
+
+```yaml
+# Validate timezone offsets
+- mapping: |
+    let offset_mins = this.timezone_offset_minutes
+    
+    root = if offset_mins.abs() > 840 {  # ±14 hours (max UTC offset)
+      throw("Invalid timezone offset: " + offset_mins.string() + " minutes")
+    } else if offset_mins.abs() % 15 != 0 && offset_mins.abs() % 30 != 0 && offset_mins.abs() % 60 != 0 {
+      # Most timezones are multiples of 15, 30, or 60 minutes
+      this.assign({"timezone_warning": "Unusual offset: " + offset_mins.string() + " minutes"})
+    } else {
+      this
+    }
+```
+
+## Compliance & Audit Requirements
+
+### GDPR Article 30 Compliance
+
+Maintain detailed audit trails for data processing:
+
+```yaml
+# GDPR Article 30 audit trail
+- mapping: |
+    root = this
+    
+    # Detailed processing record for compliance
+    root.gdpr_audit = {
+      "processing_timestamp": now().format_timestamp_iso8601(),
+      "processor_version": "timestamp-normalization-v1.2",
+      "data_origin": {
+        "original_timezone": this.timezone_original,
+        "original_timestamp": this.timestamp_original,
+        "format_detected": this.format_detected
+      },
+      "transformations_applied": [
+        {
+          "type": "timezone_conversion",
+          "from": this.timezone_original,
+          "to": "UTC",
+          "method": if this.conversion_applied { "automatic_conversion" } else { "no_conversion_required" }
+        }
+      ],
+      "data_retention": {
+        "original_preserved": true,
+        "audit_trail_retention": "7_years"
+      }
+    }
+```
+
+### PCI-DSS Timezone Handling
+
+For payment card industry compliance:
+
+```yaml
+# PCI-DSS timezone audit
+- mapping: |
+    root = this
+    
+    # PCI-DSS requires precise timestamp tracking
+    root.pci_audit = if this.event_type.string().contains("payment") {
+      {
+        "transaction_timestamp_utc": this.timestamp,
+        "local_business_time": this.timestamp_parsed.format_timestamp("2006-01-02 15:04:05", this.timezone_original),
+        "timezone_context": this.timezone_original,
+        "clock_source": "ntp_synchronized",
+        "precision": "millisecond"
+      }
+    } else {
+      null
+    }
+```
+
+## Performance Optimizations
+
+### Timezone Caching
+
+Cache timezone offset calculations:
+
+```yaml
+# Cache timezone offset calculations
+- cache:
+    resource: "timezone_offset_cache"
+    key: '${! json("timezone_original") + "_" + json("timestamp_parsed").format_timestamp("2006-01-02", "UTC") }'
+    value: '${! json("timezone_offset_minutes") }'
+    ttl: "24h"  # Cache daily offsets
+```
+
+### Batch Timezone Processing
+
+Process timezone conversions in batches:
+
+```yaml
+input:
+  file:
+    paths: ["/tmp/parsed-timestamps.jsonl"]
+    batching:
+      count: 1000
+      period: "5s"
+
+pipeline:
+  processors:
+    # Batch process timezone conversions
+    - mapping: |
+        # Group events by timezone for efficient processing
+        let timezone_groups = this.group_by(event -> event.timezone_original)
+        
+        root = timezone_groups.map_each_key(tz -> 
+          tz.value.map_each(event -> 
+            # Apply timezone conversion logic
+            event.merge({
+              "timestamp": event.timestamp_parsed.format_timestamp_iso8601("UTC"),
+              "conversion_applied": tz.key != "UTC"
+            })
+          )
+        ).values().flatten()
+```
+
+## Analytics Enhancements
+
+### Business Time Context
+
+Add business-relevant time context:
+
+```yaml
+# Add business time context
+- mapping: |
+    root = this
+    
+    # Calculate business timezone representation
+    let business_tz = "America/New_York"  # Company headquarters
+    root.business_time = {
+      "local_time": this.timestamp.parse_timestamp_iso8601().format_timestamp("2006-01-02 15:04:05", business_tz),
+      "business_day": this.timestamp.parse_timestamp_iso8601().format_timestamp("2006-01-02", business_tz),
+      "business_hour": this.timestamp.parse_timestamp_iso8601().format_timestamp("15", business_tz).number(),
+      "is_business_hours": this.timestamp.parse_timestamp_iso8601().format_timestamp("15", business_tz).number() >= 9 &&
+                          this.timestamp.parse_timestamp_iso8601().format_timestamp("15", business_tz).number() < 17,
+      "timezone": business_tz
+    }
+```
+
+### Regional Analytics
+
+Group events by geographic regions:
+
+```yaml
+# Regional grouping for analytics
+- mapping: |
+    root = this
+    
+    let tz = this.timezone_original.string()
+    
+    root.region = if tz.contains("America/") {
+      if tz.contains("New_York") || tz.contains("Toronto") || tz.contains("Montreal") {
+        "North_America_Eastern"
+      } else if tz.contains("Los_Angeles") || tz.contains("Vancouver") {
+        "North_America_Pacific"
+      } else if tz.contains("Chicago") || tz.contains("Mexico_City") {
+        "North_America_Central"
+      } else {
+        "Americas_Other"
+      }
+    } else if tz.contains("Europe/") {
+      "Europe"
+    } else if tz.contains("Asia/") {
+      "Asia_Pacific"
+    } else {
+      "Unknown"
+    }
+```
+
+## Monitoring & Alerting
+
+### Timezone Conversion Metrics
+
+Track conversion success rates and patterns:
+
+```yaml
+# Timezone conversion metrics
+- metric:
+    type: counter
+    name: "timezone_conversions_total"
+    labels:
+      original_timezone: '${! json("timezone_original") }'
+      conversion_applied: '${! json("conversion_applied") }'
+      dst_active: '${! json("dst_active") }'
+    value: 1
+
+- metric:
+    type: histogram
+    name: "timezone_offset_minutes"
+    value: '${! json("timezone_offset_minutes").abs() }'
+```
+
+### Clock Skew Detection
+
+Monitor for significant clock skew:
+
+```yaml
+# Clock skew detection
+- mapping: |
+    let processing_time = now().timestamp_unix()
+    let event_time = this.timestamp.parse_timestamp_iso8601().timestamp_unix()
+    let skew_seconds = (processing_time - event_time).abs()
+    
+    root = this
+    root.clock_skew_seconds = skew_seconds
+    
+    # Alert on significant skew
+    root.alert = if skew_seconds > 300 {  # 5 minutes
+      {
+        "type": "clock_skew_detected",
+        "severity": if skew_seconds > 3600 { "critical" } else { "warning" },
+        "message": "Clock skew detected: " + skew_seconds.string() + " seconds"
+      }
+    } else {
+      null
+    }
+```
+
+## Testing & Validation
+
+### DST Transition Testing
+
+Test timezone conversions around DST transitions:
+
+```bash
+# Test DST transition scenarios
+cat > /tmp/dst-test.jsonl << 'EOF'
+{"test": "spring_forward", "timestamp_parsed": "2025-03-09T06:59:59.000-05:00", "timezone_original": "America/New_York"}
+{"test": "spring_forward_gap", "timestamp_parsed": "2025-03-09T07:30:00.000-05:00", "timezone_original": "America/New_York"}
+{"test": "fall_back", "timestamp_parsed": "2025-11-02T05:59:59.000-04:00", "timezone_original": "America/New_York"}
+{"test": "fall_back_ambiguous", "timestamp_parsed": "2025-11-02T06:30:00.000-05:00", "timezone_original": "America/New_York"}
+EOF
+
+cp /tmp/dst-test.jsonl /tmp/parsed-timestamps.jsonl
+expanso pipeline output step2-convert-timezones
+```
+
+### Cross-Timezone Validation
+
+Verify same UTC time for simultaneous events:
+
+```bash
+# Same moment in different timezones should convert to same UTC
+cat > /tmp/sync-test.jsonl << 'EOF'
+{"sync_id": "moment_1", "timestamp_parsed": "2025-10-20T18:23:45.123Z", "timezone_original": "UTC"}
+{"sync_id": "moment_1", "timestamp_parsed": "2025-10-20T19:23:45.123+01:00", "timezone_original": "+01:00"}
+{"sync_id": "moment_1", "timestamp_parsed": "2025-10-20T14:23:45.123-04:00", "timezone_original": "-04:00"}
+EOF
+
+cp /tmp/sync-test.jsonl /tmp/parsed-timestamps.jsonl
+expanso pipeline output step2-convert-timezones | jq -r '[.sync_id, .timestamp] | @csv' | sort
+```
+
+**Expected:** All should show the same UTC timestamp `2025-10-20T18:23:45.123Z`
+
+## Troubleshooting
+
+### Common Issues
+
+**Issue: Incorrect DST detection**
+```bash
+# Verify DST rules for specific timezone
+zdump -v America/New_York | grep 2025
+```
+
+**Issue: Invalid offset calculation**  
+```bash
+# Test offset calculation manually
+date -d "2025-10-20T19:23:45+01:00" -u
+# Should show: Sun 20 Oct 2025 06:23:45 PM UTC
+```
+
+**Issue: Historical timezone data**
+```bash
+# Update timezone database
+sudo apt-get update && sudo apt-get install -y tzdata
+```
+
+---
+
+## What You've Learned
+
+✅ **UTC Conversion:** Standardize timestamps from any timezone to UTC
+✅ **Audit Trails:** Preserve original timezone context for compliance
+✅ **DST Handling:** Manage daylight saving time transitions correctly
+✅ **Performance:** Optimize timezone calculations with caching and batching
+✅ **Compliance:** Meet GDPR and PCI-DSS timezone audit requirements
+
+## Next Steps
+
+Now that all timestamps are in UTC, let's add analytics-friendly time components:
+
+<div style={{display: 'flex', gap: '1rem', marginTop: '2rem', marginBottom: '2rem', flexWrap: 'wrap'}}>
+  <a href="./step-3-enrich-metadata" className="button button--primary button--lg" style={{flex: '1', minWidth: '200px'}}>
+    Step 3: Enrich Metadata
+  </a>
+  <a href="./troubleshooting" className="button button--secondary button--lg" style={{flex: '1', minWidth: '200px'}}>
+    Troubleshooting Guide
+  </a>
+</div>
+
+**Continue Reading:** [Step 3: Enrich Metadata](./step-3-enrich-metadata) - Add analytics-friendly time components

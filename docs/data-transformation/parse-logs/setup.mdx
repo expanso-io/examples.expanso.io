@@ -1,0 +1,365 @@
+---
+title: Setup Environment for Log Parsing
+sidebar_label: Setup
+sidebar_position: 3
+description: Configure environment variables, sample log data, and deploy a shell log parser for testing
+keywords: [setup, environment, log files, expanso cli, deployment, configuration]
+---
+
+# Setup Environment for Log Parsing
+
+Before building the multi-format log parser, you'll set up sample log data, environment variables, and deploy a minimal shell parser to verify your configuration.
+
+## Prerequisites
+
+- ✅ Expanso CLI installed ([Installation Guide](https://docs.expanso.io/installation))
+- ✅ Text editor or IDE for YAML editing
+- ✅ Terminal access for command execution
+- ✅ Basic familiarity with log formats (helpful but not required)
+
+## Step 1: Create Sample Log Data
+
+Create sample log files representing different formats you'll encounter in production:
+
+```bash
+# Create log directory structure
+mkdir -p ~/expanso-logs/{app,sensors,nginx,system}
+
+# JSON application logs
+cat > ~/expanso-logs/app/application.jsonl << 'EOF'
+{"timestamp":"2025-10-20T14:23:45.123Z","level":"error","service":"api","message":"Database connection failed","duration_ms":5000}
+{"timestamp":"2025-10-20T14:24:12.456Z","level":"info","service":"web","message":"Request processed successfully","duration_ms":45}
+{"timestamp":"2025-10-20T14:24:33.789Z","level":"warning","service":"auth","message":"Login attempt from unknown IP","client_ip":"203.0.113.45"}
+EOF
+
+# CSV sensor data  
+cat > ~/expanso-logs/sensors/temperature.csv << 'EOF'
+timestamp,metric_name,sensor_id,value,unit
+2025-10-20T14:23:45Z,temperature,temp-sensor-01,35.5,celsius
+2025-10-20T14:24:45Z,temperature,temp-sensor-02,22.1,celsius
+2025-10-20T14:25:45Z,humidity,humid-sensor-01,85.2,percent
+EOF
+
+# Nginx access logs
+cat > ~/expanso-logs/nginx/access.log << 'EOF'
+203.0.113.45 - user123 [20/Oct/2025:14:23:45 +0000] "GET /api/users HTTP/1.1" 200 1234 "https://example.com" "Mozilla/5.0 Chrome/91.0"
+198.51.100.67 - - [20/Oct/2025:14:24:12 +0000] "POST /api/auth HTTP/1.1" 401 89 "-" "curl/7.68.0" 
+192.0.2.123 - admin [20/Oct/2025:14:24:33 +0000] "GET /admin/dashboard HTTP/1.1" 200 5678 "https://admin.example.com" "Mozilla/5.0 Firefox/91.0"
+EOF
+
+# Syslog messages
+cat > ~/expanso-logs/system/syslog << 'EOF'
+&lt;134&gt;Oct 20 14:23:45 edge-node-01 app[12345]: Database connection established
+&lt;131&gt;Oct 20 14:24:12 edge-node-01 nginx[8901]: Server started on port 80
+&lt;132&gt;Oct 20 14:24:33 edge-node-02 kernel: Memory usage at 85%
+EOF
+
+echo "✅ Sample log data created in ~/expanso-logs/"
+```
+
+## Step 2: Set Environment Variables
+
+Configure variables for log destinations and secrets:
+
+```bash
+# Export environment variables for the session
+export LOG_ENDPOINT="https://your-log-service.com/api"
+export TIMESERIES_ENDPOINT="https://your-metrics-service.com/api"
+export ANALYTICS_ENDPOINT="https://your-analytics-service.com/api"
+export ALERT_ENDPOINT="https://your-alerts-service.com/api"
+export IP_SALT="your-secure-salt-string"
+
+# Verify variables are set
+echo "LOG_ENDPOINT: $LOG_ENDPOINT"
+echo "IP_SALT configured: ${IP_SALT:+Yes}"
+```
+
+:::tip Persistent Configuration
+To make these variables persistent across sessions:
+
+```bash
+# Add to your shell profile (~/.bashrc, ~/.zshrc, etc.)
+echo 'export LOG_ENDPOINT="https://your-log-service.com/api"' >> ~/.bashrc
+echo 'export IP_SALT="your-secure-salt-string"' >> ~/.bashrc
+source ~/.bashrc
+```
+:::
+
+## Step 3: Deploy Shell Parser
+
+Before adding complex parsing logic, deploy a minimal "shell" parser that just reads log files and outputs them. This verifies your setup works.
+
+Create `shell-parser.yaml`:
+
+```yaml title="shell-parser.yaml"
+name: shell-log-parser
+description: Shell parser to verify log file reading
+type: pipeline
+namespace: default
+
+config:
+  input:
+    broker:
+      pattern: fan_in
+      inputs:
+        # JSON application logs
+        - file:
+            paths: 
+              - "~/expanso-logs/app/*.jsonl"
+            codec: lines
+        
+        # CSV sensor data
+        - file:
+            paths:
+              - "~/expanso-logs/sensors/*.csv"
+            codec: lines
+            
+        # Nginx access logs  
+        - file:
+            paths:
+              - "~/expanso-logs/nginx/*.log"
+            codec: lines
+            
+        # Syslog messages
+        - file:
+            paths:
+              - "~/expanso-logs/system/syslog"
+            codec: lines
+
+  pipeline:
+    processors:
+      # Add basic metadata without parsing
+      - mapping: |
+          root = this
+          root.raw_content = this.string()
+          root.received_at = now().ts_unix()
+          root.source_node = env("HOSTNAME").or("unknown")
+          root.processing_stage = "shell"
+
+  output:
+    # Write to local file for verification
+    file:
+      path: ~/expanso-logs/output/shell-output.jsonl
+      codec: lines
+```
+
+Deploy the shell parser:
+
+```bash
+# Create output directory
+mkdir -p ~/expanso-logs/output
+
+# Deploy to Expanso
+expanso job deploy shell-parser.yaml
+
+# Verify deployment
+expanso job status shell-log-parser
+```
+
+**Expected output:**
+```
+Job Status: Running
+Processed: 0 messages
+Errors: 0
+```
+
+## Step 4: Test Shell Parser
+
+Trigger log processing to verify file reading works:
+
+```bash
+# The parser should automatically process existing files
+# Check output after a few seconds
+sleep 5
+
+# View processed logs
+head -3 ~/expanso-logs/output/shell-output.jsonl
+```
+
+**Expected output:**
+```json
+{"raw_content":"{\"timestamp\":\"2025-10-20T14:23:45.123Z\",\"level\":\"error\",\"service\":\"api\",\"message\":\"Database connection failed\",\"duration_ms\":5000}","received_at":1729433025,"source_node":"my-laptop","processing_stage":"shell"}
+{"raw_content":"timestamp,metric_name,sensor_id,value,unit","received_at":1729433025,"source_node":"my-laptop","processing_stage":"shell"}  
+{"raw_content":"203.0.113.45 - user123 [20/Oct/2025:14:23:45 +0000] \"GET /api/users HTTP/1.1\" 200 1234 \"https://example.com\" \"Mozilla/5.0 Chrome/91.0\"","received_at":1729433025,"source_node":"my-laptop","processing_stage":"shell"}
+```
+
+:::tip Success!
+If you see logs being processed with `raw_content` fields, your environment is correctly configured!
+
+**Next step:** Add format detection and parsing logic
+:::
+
+## Step 5: Verify Log Format Variety
+
+Check that you have multiple log formats in the output:
+
+```bash
+# Count processed logs by content patterns
+echo "JSON logs:"
+grep -c '"timestamp".*"level"' ~/expanso-logs/output/shell-output.jsonl
+
+echo "CSV logs:" 
+grep -c 'timestamp,metric_name' ~/expanso-logs/output/shell-output.jsonl
+
+echo "Access logs:"
+grep -c '\[.*\].*"GET\|POST' ~/expanso-logs/output/shell-output.jsonl
+
+echo "Syslog messages:"
+grep -c '^.*<[0-9]*>' ~/expanso-logs/output/shell-output.jsonl
+```
+
+**Expected output:**
+```
+JSON logs: 3
+CSV logs: 4  
+Access logs: 3
+Syslog messages: 3
+```
+
+## Step 6: Configure Log Rotation
+
+Set up log rotation to prevent disk space issues during testing:
+
+```bash
+# Create logrotate configuration
+cat > ~/expanso-logs/logrotate.conf << 'EOF'
+~/expanso-logs/output/*.jsonl {
+    daily
+    rotate 7
+    compress
+    missingok
+    notifempty
+    create 0644
+}
+EOF
+
+# Test logrotate configuration (dry run)
+logrotate -d ~/expanso-logs/logrotate.conf
+```
+
+## Step 7: Monitor Processing Performance
+
+Check basic performance metrics:
+
+```bash
+# View job statistics
+expanso job stats shell-log-parser
+
+# Check processing rate (messages per second)
+expanso job metrics shell-log-parser --metric throughput
+
+# Monitor for errors
+expanso job logs shell-log-parser --level error --tail
+```
+
+**Key metrics to verify:**
+- **Throughput:** Should process 100+ messages/second for small files
+- **Error rate:** Should be 0% for well-formed log files  
+- **Memory usage:** Should be < 100MB for this simple pipeline
+- **CPU usage:** Should be < 5% for file reading workload
+
+## Troubleshooting
+
+### Issue: No logs processed
+
+**Diagnosis:**
+```bash
+# Check if log files exist
+ls -la ~/expanso-logs/*/
+
+# Verify file permissions
+ls -la ~/expanso-logs/app/application.jsonl
+
+# Check job logs for errors  
+expanso job logs shell-log-parser --level error
+```
+
+**Solutions:**
+
+**1. File path issues**
+```yaml
+# Use absolute paths instead of ~
+paths:
+  - "/home/username/expanso-logs/app/*.jsonl"
+```
+
+**2. File permissions**
+```bash
+# Fix permissions
+chmod 644 ~/expanso-logs/*/*.{jsonl,csv,log}
+```
+
+### Issue: Job deployment fails
+
+**Diagnosis:**
+```bash
+# Check YAML syntax
+expanso job validate shell-parser.yaml
+
+# View detailed error
+expanso job deploy shell-parser.yaml --verbose
+```
+
+**Solutions:**
+
+**1. YAML formatting**
+```bash
+# Check indentation (use spaces, not tabs)
+cat -A shell-parser.yaml | grep "\t"
+```
+
+**2. Invalid configuration**  
+```bash
+# Use expanso config template
+expanso job init log-parser --template file-input
+```
+
+### Issue: Output file not created
+
+**Diagnosis:**
+```bash
+# Check if directory exists
+ls -la ~/expanso-logs/output/
+
+# Check job output configuration
+expanso job describe shell-log-parser
+```
+
+**Solutions:**
+
+**1. Create output directory**
+```bash
+mkdir -p ~/expanso-logs/output
+chmod 755 ~/expanso-logs/output
+```
+
+**2. Use absolute path in YAML**
+```yaml
+output:
+  file:
+    path: /home/username/expanso-logs/output/shell-output.jsonl
+```
+
+---
+
+## Next Steps
+
+Your environment is now configured and the shell parser is working! Time to add format-specific parsing:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./step-1-parse-json-logs" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Step 1: Parse JSON Logs
+  </a>
+  <a href="./troubleshooting" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Troubleshooting Guide
+  </a>
+</div>
+
+**What's Next:**
+1. **Format Detection** - Add automatic format detection logic
+2. **JSON Parsing** - Process application logs with structured extraction
+3. **CSV Handling** - Parse sensor data with column mapping
+4. **Grok Patterns** - Extract data from access logs and syslog
+5. **Production Pipeline** - Combine all formats with error handling
+
+**Questions?** Check the [troubleshooting guide](./troubleshooting) or review the shell parser output to verify your setup.

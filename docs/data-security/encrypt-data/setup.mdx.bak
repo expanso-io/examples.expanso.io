@@ -1,0 +1,500 @@
+---
+title: Setup Environment for Field Encryption
+sidebar_label: Setup
+sidebar_position: 3
+description: Configure encryption keys, environment variables, and deploy a shell pipeline for field-level encryption
+keywords: [setup, encryption-keys, aes, environment, key-management]
+---
+
+# Setup Environment for Field Encryption
+
+Before building the field encryption pipeline, you'll set up secure encryption keys, configure environment variables, and deploy a minimal test pipeline to verify everything works.
+
+## Prerequisites
+
+- ✅ Expanso installed and running ([Getting Started Guide](https://docs.expanso.io/getting-started))
+- ✅ Edge nodes connected to your orchestrator
+- ✅ OpenSSL installed for key generation
+- ✅ Basic familiarity with AES-256-GCM encryption
+
+## Step 1: Generate Encryption Keys
+
+Generate secure AES-256 encryption keys for different data types. Using separate keys allows granular access control and meets compliance requirements.
+
+```bash title="Generate encryption keys"
+# Generate master encryption key for credit card data (32 bytes = 256 bits)
+export CARD_ENCRYPTION_KEY=$(openssl rand -hex 32)
+echo "Card encryption key generated: ${CARD_ENCRYPTION_KEY:0:8}..."
+
+# Generate key for PII data (SSN, email, phone)
+export PII_ENCRYPTION_KEY=$(openssl rand -hex 32)
+echo "PII encryption key generated: ${PII_ENCRYPTION_KEY:0:8}..."
+
+# Generate key for address data
+export ADDRESS_ENCRYPTION_KEY=$(openssl rand -hex 32)
+echo "Address encryption key generated: ${ADDRESS_ENCRYPTION_KEY:0:8}..."
+
+# Generate key version for rotation tracking
+export KEY_VERSION="v1_$(date +%Y%m%d)"
+echo "Key version: $KEY_VERSION"
+
+# Generate node identifier
+export NODE_ID="edge-encryption-$(hostname -s)"
+echo "Node ID: $NODE_ID"
+```
+
+:::danger Protect Your Encryption Keys
+These keys are the most critical security components. If compromised, all encrypted data can be decrypted. **Never:**
+- Store keys in source code or configuration files
+- Commit keys to version control  
+- Log keys in application logs
+- Share keys between environments (dev/staging/prod)
+
+**Always:**
+- Use a key management system (HashiCorp Vault, AWS KMS)
+- Rotate keys every 90 days for high-sensitivity data
+- Implement key versioning for seamless rotation
+- Audit all key access operations
+:::
+
+## Step 2: Secure Key Storage (Production)
+
+For production deployments, store keys in a dedicated key management system:
+
+```bash title="Store keys in HashiCorp Vault"
+# Store card encryption key
+vault kv put secret/expanso/encryption/card \
+  key=$CARD_ENCRYPTION_KEY \
+  version=$KEY_VERSION \
+  created=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+  purpose="credit_card_data" \
+  compliance="PCI_DSS"
+
+# Store PII encryption key
+vault kv put secret/expanso/encryption/pii \
+  key=$PII_ENCRYPTION_KEY \
+  version=$KEY_VERSION \
+  created=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+  purpose="personal_data" \
+  compliance="GDPR_HIPAA"
+
+# Store address encryption key
+vault kv put secret/expanso/encryption/address \
+  key=$ADDRESS_ENCRYPTION_KEY \
+  version=$KEY_VERSION \
+  created=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+  purpose="location_data" \
+  compliance="privacy_regulation"
+
+# Verify keys are stored
+vault kv get secret/expanso/encryption/card
+```
+
+**Alternative: AWS KMS setup:**
+
+```bash title="Store keys in AWS KMS"
+# Create customer managed keys
+aws kms create-key \
+  --description "Expanso Card Encryption Key v1" \
+  --key-usage ENCRYPT_DECRYPT \
+  --key-spec SYMMETRIC_DEFAULT \
+  --tags TagKey=Purpose,TagValue=CardEncryption TagKey=Compliance,TagValue=PCI_DSS
+
+# Create alias for easy reference
+aws kms create-alias \
+  --alias-name alias/expanso-card-encryption-v1 \
+  --target-key-id <key-id-from-previous-command>
+```
+
+## Step 3: Configure Sample Data
+
+Create sample payment transaction data for testing:
+
+```bash title="Create test data"
+mkdir -p /tmp/encryption-test
+
+cat > /tmp/encryption-test/sample-payment.json <<'EOF'
+{
+  "transaction_id": "txn_20251020_001",
+  "timestamp": "2025-10-20T14:30:00Z",
+  "merchant_id": "merchant_789",
+  "amount": 127.50,
+  "currency": "USD",
+  "payment": {
+    "card_number": "4532-1234-5678-9010",
+    "cvv": "123",
+    "expiration": "12/27",
+    "cardholder_name": "Sarah Johnson"
+  },
+  "customer": {
+    "email": "sarah.johnson@example.com",
+    "phone": "+1-415-555-0123",
+    "ssn": "123-45-6789",
+    "date_of_birth": "1985-03-15"
+  },
+  "billing_address": {
+    "street": "123 Main St",
+    "city": "San Francisco",
+    "state": "CA",
+    "zip": "94102",
+    "country": "US"
+  },
+  "metadata": {
+    "terminal_id": "pos_42",
+    "transaction_type": "card_present",
+    "merchant_category": "5814"
+  }
+}
+EOF
+
+echo "Sample data created at /tmp/encryption-test/sample-payment.json"
+```
+
+## Step 4: Deploy Shell Pipeline
+
+Before building the complete encryption pipeline, deploy a minimal "shell" pipeline that validates your setup and performs basic field identification without encryption.
+
+Create `shell-encryption.yaml`:
+
+```yaml title="shell-encryption.yaml"
+apiVersion: expanso.io/v1
+kind: DataPipeline
+metadata:
+  name: shell-field-encryption
+  namespace: default
+spec:
+  processors:
+    - name: input-validation
+      type: mapping
+      config:
+        mapping: |
+          # Validate required fields
+          root = if this.transaction_id.type() != "string" {
+            throw("transaction_id must be a string")
+          } else if this.payment.card_number.type() != "string" {
+            throw("payment.card_number is required")
+          } else if this.customer.ssn.type() != "string" {
+            throw("customer.ssn is required")
+          } else {
+            this
+          }
+          
+          # Add field classification metadata
+          root.field_classification = {
+            "sensitive_fields": [
+              "payment.card_number",
+              "payment.cvv", 
+              "payment.cardholder_name",
+              "customer.ssn",
+              "customer.email",
+              "customer.phone",
+              "customer.date_of_birth",
+              "billing_address.street",
+              "billing_address.zip"
+            ],
+            "preserved_fields": [
+              "transaction_id",
+              "timestamp",
+              "merchant_id",
+              "amount",
+              "currency",
+              "payment.expiration",
+              "billing_address.city",
+              "billing_address.state",
+              "billing_address.country",
+              "metadata"
+            ]
+          }
+          
+    - name: shell-output
+      type: mapping
+      config:
+        mapping: |
+          root = this
+          root.pipeline_status = "shell_validation_complete"
+          root.next_step = "field_encryption"
+          
+  input:
+    http_server:
+      address: "0.0.0.0:8443"
+      path: /payments/validate
+      allowed_verbs: ["POST"]
+      timeout: "30s"
+      tls:
+        enabled: true
+        cert_file: "/etc/expanso/certs/server.crt"
+        key_file: "/etc/expanso/certs/server.key"
+        
+  output:
+    stdout: {}
+
+  environment:
+    NODE_ID: "${NODE_ID}"
+    PIPELINE_NAME: "shell-field-encryption"
+```
+
+Deploy the shell pipeline:
+
+```bash title="Deploy shell pipeline"
+# Deploy to edge nodes
+expanso job deploy shell-encryption.yaml
+
+# Wait for deployment
+sleep 10
+
+# Check status
+expanso job status shell-field-encryption
+```
+
+**Expected output:**
+```
+Job: shell-field-encryption
+Status: running
+Type: pipeline
+Executions:
+  - Node: edge-encryption-001
+    State: running
+    Since: 15 seconds ago
+    Health: healthy
+```
+
+## Step 5: Test Shell Pipeline
+
+Test that field validation and classification work correctly:
+
+```bash title="Test field validation"
+# Test with valid payment data
+curl -X POST https://localhost:8443/payments/validate \
+  --cacert /etc/expanso/certs/ca.crt \
+  --cert /etc/expanso/certs/client.crt \
+  --key /etc/expanso/certs/client.key \
+  -H "Content-Type: application/json" \
+  -d @/tmp/encryption-test/sample-payment.json
+
+# Test with invalid data (missing required field)
+curl -X POST https://localhost:8443/payments/validate \
+  --cacert /etc/expanso/certs/ca.crt \
+  --cert /etc/expanso/certs/client.crt \
+  --key /etc/expanso/certs/client.key \
+  -H "Content-Type: application/json" \
+  -d '{
+    "transaction_id": "test_001",
+    "amount": 100.00
+  }'
+```
+
+**Expected success output:**
+```json
+{
+  "transaction_id": "txn_20251020_001",
+  "payment": {
+    "card_number": "4532-1234-5678-9010",
+    "cvv": "123"
+  },
+  "field_classification": {
+    "sensitive_fields": [
+      "payment.card_number",
+      "payment.cvv",
+      "customer.ssn"
+    ],
+    "preserved_fields": [
+      "transaction_id", 
+      "amount",
+      "timestamp"
+    ]
+  },
+  "pipeline_status": "shell_validation_complete",
+  "next_step": "field_encryption"
+}
+```
+
+**Expected error output:**
+```json
+{
+  "error": "payment.card_number is required",
+  "pipeline": "shell-field-encryption",
+  "timestamp": "2025-10-20T14:30:01Z"
+}
+```
+
+:::tip Success!
+If you see field classification output, your environment is correctly configured!
+
+**Next step:** Remove the shell pipeline and build the full encryption pipeline
+:::
+
+## Step 6: Verify Encryption Dependencies
+
+Before proceeding to full encryption, verify all required components are available:
+
+```bash title="Verify encryption capabilities"
+# Test OpenSSL encryption (simulates what Expanso will do)
+echo "test data" | openssl enc -aes-256-gcm -e -K "$CARD_ENCRYPTION_KEY" -iv $(openssl rand -hex 12) | base64
+
+# Verify environment variables are set
+echo "Environment check:"
+echo "- CARD_ENCRYPTION_KEY: ${CARD_ENCRYPTION_KEY:+SET} ${CARD_ENCRYPTION_KEY:-NOT_SET}"
+echo "- PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY:+SET} ${PII_ENCRYPTION_KEY:-NOT_SET}"
+echo "- ADDRESS_ENCRYPTION_KEY: ${ADDRESS_ENCRYPTION_KEY:+SET} ${ADDRESS_ENCRYPTION_KEY:-NOT_SET}"
+echo "- KEY_VERSION: $KEY_VERSION"
+echo "- NODE_ID: $NODE_ID"
+
+# Test TLS certificates exist
+if [[ -f "/etc/expanso/certs/server.crt" ]]; then
+  echo "✅ TLS certificates found"
+else
+  echo "❌ TLS certificates missing - check Expanso installation"
+fi
+```
+
+## Step 7: Clean Up Shell Pipeline
+
+Remove the shell pipeline before building the full encryption pipeline:
+
+```bash title="Clean up shell pipeline"
+# Stop the shell pipeline
+expanso job delete shell-field-encryption
+
+# Wait for cleanup
+sleep 5
+
+# Verify removal
+expanso job list | grep shell-field-encryption || echo "Shell pipeline removed"
+```
+
+## Step 8: Prepare for Full Pipeline
+
+Set up additional environment variables needed for the complete encryption pipeline:
+
+```bash title="Configure full pipeline environment"
+# Set output endpoints
+export PAYMENT_PROCESSOR_ENDPOINT="https://payment-api.example.com:8443/transactions"
+export ANALYTICS_ENDPOINT="https://analytics-api.example.com:8080/payments" 
+export AUDIT_LOG_ENDPOINT="https://audit-api.example.com:9000/encryption-events"
+
+# Set encryption parameters
+export ENCRYPTION_ALGORITHM="AES-256-GCM"
+export ENCRYPTION_VERSION="1.0"
+
+# Set monitoring parameters  
+export ENABLE_ENCRYPTION_METRICS="true"
+export METRICS_ENDPOINT="https://metrics-api.example.com:9090/encryption-metrics"
+
+# Export all variables for pipeline deployment
+export PIPELINE_NAME="payment-field-encryption"
+
+# Verify complete environment
+echo "Complete environment configured:"
+echo "- Encryption keys: SET"
+echo "- Pipeline name: $PIPELINE_NAME"
+echo "- Algorithm: $ENCRYPTION_ALGORITHM"
+echo "- Version: $ENCRYPTION_VERSION"
+echo "- Node ID: $NODE_ID"
+echo "- Key version: $KEY_VERSION"
+```
+
+## Troubleshooting Setup Issues
+
+### Issue: Key generation fails
+**Symptom:** `openssl rand` command not found or fails
+
+**Solution:**
+```bash
+# Install OpenSSL (Ubuntu/Debian)
+sudo apt-get update && sudo apt-get install openssl
+
+# Install OpenSSL (CentOS/RHEL)
+sudo yum install openssl
+
+# Verify installation
+openssl version
+```
+
+### Issue: Vault integration fails
+**Symptom:** `vault: command not found` or authentication errors
+
+**Solutions:**
+
+**1. Install Vault CLI:**
+```bash
+# Download and install Vault
+curl -fsSL https://releases.hashicorp.com/vault/1.15.2/vault_1.15.2_linux_amd64.zip -o vault.zip
+unzip vault.zip && sudo mv vault /usr/local/bin/
+
+# Verify installation
+vault version
+```
+
+**2. Configure Vault authentication:**
+```bash
+# Set Vault address
+export VAULT_ADDR="https://vault.example.com:8200"
+
+# Authenticate with token
+vault auth -method=token token=$VAULT_TOKEN
+
+# Or authenticate with username/password
+vault auth -method=userpass username=$VAULT_USERNAME password=$VAULT_PASSWORD
+```
+
+### Issue: TLS certificate errors
+**Symptom:** `curl` commands fail with certificate errors
+
+**Solutions:**
+
+**1. Generate self-signed certificates for testing:**
+```bash
+sudo mkdir -p /etc/expanso/certs
+sudo openssl req -x509 -newkey rsa:4096 -keyout /etc/expanso/certs/server.key -out /etc/expanso/certs/server.crt -days 365 -nodes -subj "/CN=localhost"
+sudo openssl req -x509 -newkey rsa:4096 -keyout /etc/expanso/certs/client.key -out /etc/expanso/certs/client.crt -days 365 -nodes -subj "/CN=client"
+```
+
+**2. Use system CA bundle:**
+```bash
+# Use system certificates instead
+curl --cacert /etc/ssl/certs/ca-certificates.crt ...
+```
+
+### Issue: Environment variables not persisting
+**Symptom:** Variables lost between shell sessions
+
+**Solution:**
+```bash
+# Add to shell profile for persistence
+cat >> ~/.bashrc << 'EOF'
+# Expanso encryption environment
+export CARD_ENCRYPTION_KEY="your-key-here"
+export PII_ENCRYPTION_KEY="your-key-here"  
+export ADDRESS_ENCRYPTION_KEY="your-key-here"
+export KEY_VERSION="v1_20251020"
+export NODE_ID="edge-encryption-$(hostname -s)"
+EOF
+
+# Reload shell configuration
+source ~/.bashrc
+```
+
+---
+
+## Next Steps
+
+Your environment is now configured for field-level encryption. Choose your next step:
+
+<div style={{display: 'flex', gap: '1rem', marginTop: '2rem', marginBottom: '2rem', flexWrap: 'wrap'}}>
+  <a href="./step-1-encrypt-payment-data" className="button button--primary button--lg" style={{flex: '1', minWidth: '200px'}}>
+    Step 1: Encrypt Credit Card Data
+  </a>
+  <a href="./complete-pipeline" className="button button--secondary button--lg" style={{flex: '1', minWidth: '200px'}}>
+    Skip to Complete Pipeline
+  </a>
+</div>
+
+**Security Checklist:**
+- ✅ Encryption keys generated and stored securely
+- ✅ Environment variables configured
+- ✅ TLS certificates available
+- ✅ Shell pipeline tested successfully
+- ✅ Field validation working
+- ✅ All dependencies verified
+
+**Next:** [Encrypt credit card data](./step-1-encrypt-payment-data) with PCI-DSS compliant methods

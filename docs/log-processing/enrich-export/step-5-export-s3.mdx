@@ -1,0 +1,849 @@
+---
+title: Step 5 - Export to S3
+sidebar_label: Step 5 - Export to S3
+sidebar_position: 8
+description: Configure secure, efficient Amazon S3 export with partitioning, compression, and analytics optimization
+keywords: [s3-export, cloud-storage, partitioning, compression, analytics, aws]
+---
+
+# Step 5: Export to S3
+
+Learn how to configure secure, cost-effective Amazon S3 exports that integrate seamlessly with analytics platforms. This final step completes your log enrichment pipeline with production-ready cloud storage.
+
+## What You'll Build
+
+In this step, you'll implement S3 export with:
+
+- **Secure authentication** - IAM roles, profiles, and credential management
+- **Intelligent partitioning** - Date-based organization for efficient queries
+- **Compression optimization** - Reduce storage costs by 60-80%
+- **Analytics integration** - JSON Lines format optimized for AWS analytics
+- **Error handling** - Robust retry and dead letter queue strategies
+
+## Why S3 for Log Storage?
+
+**Durability:** 99.999999999% (11 9's) data durability guarantee
+**Scalability:** Virtually unlimited storage with consistent performance
+**Cost-Effective:** Intelligent tiering and lifecycle policies reduce costs
+**Analytics Integration:** Native integration with Athena, EMR, and Glue
+**Security:** Advanced encryption, access controls, and compliance features
+
+## S3 Storage Cost Optimization
+
+### Without Compression
+- **Log volume:** 1GB/day raw JSON logs
+- **Monthly storage:** 30GB at $0.023/GB = **$0.69/month**
+- **Annual storage:** 365GB = **$8.40/year**
+
+### With GZIP Compression (70% reduction)
+- **Compressed volume:** 300MB/day
+- **Monthly storage:** 9GB at $0.023/GB = **$0.21/month** 
+- **Annual storage:** 109GB = **$2.51/year**
+- **Savings:** $5.89/year (70% reduction)
+
+### With Intelligent Tiering
+- **Frequent access (30 days):** $0.21/month
+- **Infrequent access (11 months):** 9GB × 11 × $0.0125/GB = **$1.24/year**
+- **Total annual cost:** $2.75/year
+- **Additional savings:** $5.65/year compared to uncompressed
+
+## Implementation
+
+### Basic S3 Export
+
+Start with fundamental S3 export configuration:
+
+```yaml title="step5-basic-s3.yaml"
+input:
+  generate:
+    interval: 2s
+    mapping: |
+      root.id = uuid_v4()
+      root.timestamp = now()
+      root.level = ["INFO", "WARN", "ERROR"].index(random_int() % 3)
+      root.service = ["auth-service", "payment-service", "user-service"].index(random_int() % 3)
+      root.message = "Demo log from " + this.service
+      root.user_id = "user_" + (random_int() % 10)
+      root.request_id = uuid_v4()
+
+pipeline:
+  processors:
+    # Add lineage metadata
+    - mapping: |
+        root = this
+        root.lineage_node_id = env("NODE_ID").or("edge-node-demo")
+        root.lineage_pipeline = "log-enrichment-s3-demo"
+        root.lineage_processed_at = now()
+
+    # Restructure format
+    - mapping: |
+        root.event = {
+          "id": this.id,
+          "timestamp": this.timestamp,
+          "level": this.level,
+          "service": this.service,
+          "message": this.message,
+          "user_id": this.user_id,
+          "request_id": this.request_id
+        }
+        root.metadata = {
+          "node_id": this.lineage_node_id,
+          "pipeline": this.lineage_pipeline,
+          "processed_at": this.lineage_processed_at
+        }
+
+output:
+  aws_s3:
+    bucket: your-log-bucket-name  # Replace with your bucket
+    path: logs/demo_${!timestamp_unix()}.jsonl
+    batching:
+      count: 10
+      period: 30s
+    credentials:
+      profile: expanso-demo  # Replace with your AWS profile
+    region: us-east-1       # Replace with your region
+```
+
+Deploy basic S3 export:
+
+```bash
+# Ensure AWS credentials are configured
+aws configure list --profile expanso-demo
+
+# Update bucket name in YAML file
+sed -i 's/your-log-bucket-name/your-actual-bucket-name/g' step5-basic-s3.yaml
+
+# Deploy S3 export
+expanso pipeline deploy step5-basic-s3.yaml --name basic-s3-export
+
+# Monitor S3 uploads
+expanso pipeline logs basic-s3-export --follow --lines 5
+
+# Check S3 bucket for files
+aws s3 ls s3://your-actual-bucket-name/logs/ --profile expanso-demo
+```
+
+**Expected S3 output:**
+```
+2024-01-15 10:30:00    1247 demo_1705315800.jsonl
+2024-01-15 10:30:30    1189 demo_1705315830.jsonl
+```
+
+### Advanced S3 Export with Partitioning
+
+Implement intelligent partitioning for analytics optimization:
+
+```yaml title="step5-partitioned-s3.yaml"
+input:
+  generate:
+    interval: 1s
+    mapping: |
+      root.id = uuid_v4()
+      root.timestamp = now()
+      root.level = ["INFO", "INFO", "INFO", "WARN", "ERROR"].index(random_int() % 5)
+      
+      let services = ["auth-service", "payment-service", "user-service", "notification-service"]
+      root.service = $services.index(random_int() % 4)
+      root.user_id = "user_" + (random_int() % 100)
+      root.request_id = uuid_v4()
+      
+      # Add realistic business context
+      root.duration_ms = random_int() % 5000 + 100
+      root.status_code = if this.level == "ERROR" { 500 } else { 200 }
+      root.message = match {
+        this.service == "auth-service" => "Authentication " + (if this.level == "ERROR" { "failed" } else { "successful" })
+        this.service == "payment-service" => "Payment processed: $" + (random_int() % 1000 + 10)
+        _ => "Service operation completed"
+      }
+
+pipeline:
+  processors:
+    # Enhanced lineage with S3 preparation
+    - mapping: |
+        root = this
+        
+        root.lineage = {
+          "node_id": env("NODE_ID").or("edge-node-" + uuid_v4().slice(0, 8)),
+          "node_region": env("AWS_REGION").or("us-east-1"),
+          "pipeline": "log-enrichment-s3-partitioned",
+          "processed_at": now(),
+          "sequence_number": counter("processed_messages"),
+          "environment": env("ENVIRONMENT").or("production")
+        }
+
+    # Restructure with S3 analytics optimization
+    - mapping: |
+        root.event = {
+          "id": this.id,
+          "timestamp": this.timestamp,
+          "level": this.level,
+          "service": this.service,
+          "message": this.message,
+          "user_id": this.user_id,
+          "request_id": this.request_id,
+          "duration_ms": this.duration_ms,
+          "status_code": this.status_code
+        }
+        
+        root.metadata = {
+          "lineage": this.lineage,
+          "s3_partition": {
+            "year": this.timestamp.format_timestamp("2006", "UTC"),
+            "month": this.timestamp.format_timestamp("01", "UTC"),
+            "day": this.timestamp.format_timestamp("02", "UTC"),
+            "hour": this.timestamp.format_timestamp("15", "UTC"),
+            "service": this.service,
+            "level": this.level
+          }
+        }
+
+output:
+  aws_s3:
+    # Hive-style partitioning for analytics
+    bucket: ${S3_BUCKET_NAME}
+    path: logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/hour=${!timestamp("15")}/service=${!json("event.service")}/logs_${!timestamp_unix()}.jsonl
+    
+    # Optimized batching for S3
+    batching:
+      count: 100              # Good balance of latency and cost
+      period: 2m              # Maximum 2-minute latency
+      byte_size: 2097152      # 2MB maximum batch size
+    
+    # S3-specific optimizations
+    content_type: application/x-ndjson
+    content_encoding: gzip
+    
+    # Add metadata tags for cost tracking
+    metadata:
+      environment: ${ENVIRONMENT}
+      pipeline: log-enrichment
+      created_by: expanso
+    
+    # AWS configuration
+    credentials:
+      profile: ${AWS_PROFILE}
+    region: ${AWS_REGION}
+    
+    # Upload optimization
+    upload_cutoff: 104857600   # 100MB multipart threshold
+    chunk_size: 10485760       # 10MB chunk size
+```
+
+Deploy partitioned S3 export:
+
+```bash
+# Set comprehensive environment
+export S3_BUCKET_NAME="your-log-bucket-name"
+export AWS_PROFILE="expanso-demo"
+export AWS_REGION="us-east-1"
+export ENVIRONMENT="production"
+
+# Deploy partitioned pipeline
+expanso pipeline stop basic-s3-export
+expanso pipeline deploy step5-partitioned-s3.yaml --name partitioned-s3-export
+
+# Monitor partitioned uploads
+expanso pipeline logs partitioned-s3-export --follow --lines 3
+
+# Check partitioned structure in S3
+aws s3 ls s3://$S3_BUCKET_NAME/logs/ --recursive --profile $AWS_PROFILE | head -10
+```
+
+**Expected partitioned structure:**
+```
+logs/year=2024/month=01/day=15/hour=10/service=auth-service/logs_1705315800.jsonl
+logs/year=2024/month=01/day=15/hour=10/service=payment-service/logs_1705315830.jsonl
+logs/year=2024/month=01/day=15/hour=11/service=user-service/logs_1705319400.jsonl
+```
+
+### Production S3 Export with Compression and Error Handling
+
+Implement production-ready S3 export with comprehensive features:
+
+```yaml title="step5-production-s3.yaml"
+input:
+  generate:
+    interval: 500ms  # High throughput simulation
+    mapping: |
+      # Production-realistic log generation
+      root.id = uuid_v4()
+      root.timestamp = now()
+      
+      # Realistic log distribution
+      let level_weights = random_int() % 100
+      root.level = if $level_weights < 60 {
+        "INFO"
+      } else if $level_weights < 80 {
+        "WARN"
+      } else if $level_weights < 95 {
+        "ERROR"
+      } else {
+        "FATAL"
+      }
+      
+      # Production services with versions
+      let services = [
+        {"name": "api-gateway", "version": "2.1.0"},
+        {"name": "auth-service", "version": "1.3.2"},
+        {"name": "payment-service", "version": "3.0.1"},
+        {"name": "user-service", "version": "2.2.0"},
+        {"name": "notification-service", "version": "1.8.3"},
+        {"name": "analytics-service", "version": "1.0.5"}
+      ]
+      let selected_service = $services.index(random_int() % 6)
+      
+      root.service = $selected_service.name
+      root.service_version = $selected_service.version
+      root.user_id = "user_" + (random_int() % 10000)
+      root.session_id = "session_" + (random_int() % 1000)
+      root.request_id = uuid_v4()
+      root.trace_id = uuid_v4()
+      
+      # Performance and business metrics
+      root.duration_ms = random_int() % 10000 + 50
+      root.status_code = match {
+        this.level == "INFO" => [200, 201, 202, 204].index(random_int() % 4)
+        this.level == "WARN" => [400, 401, 403, 404, 429].index(random_int() % 5)
+        this.level == "ERROR" || this.level == "FATAL" => [500, 502, 503, 504].index(random_int() % 4)
+        _ => 200
+      }
+      
+      # Rich contextual information
+      root.endpoint = "/" + this.service.replace("-", "/") + "/v1/action"
+      root.method = ["GET", "POST", "PUT", "DELETE", "PATCH"].index(random_int() % 5)
+      root.ip_address = (random_int() % 255) + "." + (random_int() % 255) + ".xxx.xxx"
+      root.user_agent = "ExpansoClient/2.1.0 (compatible; monitoring)"
+      
+      # Service-specific business data
+      root.business_data = match {
+        this.service == "payment-service" => {
+          "amount_usd": random_int() % 100000 + 100,
+          "payment_method": ["credit_card", "debit_card", "paypal", "bank_transfer"].index(random_int() % 4),
+          "merchant_id": "merchant_" + (random_int() % 1000)
+        }
+        this.service == "user-service" => {
+          "profile_action": ["create", "update", "delete", "view"].index(random_int() % 4),
+          "fields_affected": ["email", "preferences", "profile_image", "settings"].slice(0, random_int() % 3 + 1)
+        }
+        this.service == "notification-service" => {
+          "notification_type": ["email", "sms", "push", "webhook"].index(random_int() % 4),
+          "template_id": "template_" + (random_int() % 50),
+          "delivery_status": if this.level == "ERROR" { "failed" } else { "sent" }
+        }
+        _ => {}
+      }
+
+pipeline:
+  processors:
+    # Comprehensive lineage for production
+    - mapping: |
+        root = this
+        let processing_start = now()
+        
+        root.lineage = {
+          "node_id": env("NODE_ID").or("edge-node-prod-" + uuid_v4().slice(0, 6)),
+          "node_region": env("AWS_REGION").or("us-east-1"),
+          "node_zone": env("AVAILABILITY_ZONE").or(env("AWS_REGION") + "a"),
+          "node_instance_type": env("INSTANCE_TYPE").or("unknown"),
+          "pipeline": "log-enrichment-production-s3",
+          "pipeline_version": env("PIPELINE_VERSION").or("4.0.0"),
+          "processed_at": $processing_start,
+          "processing_duration_ms": 3.5,
+          "sequence_number": counter("total_processed"),
+          "environment": env("ENVIRONMENT").or("production"),
+          "deployment_id": env("DEPLOYMENT_ID").or("unknown"),
+          "git_commit": env("GIT_COMMIT").or("unknown")
+        }
+
+    # Production restructuring with analytics optimization
+    - mapping: |
+        root.event = {
+          # Core event identification
+          "id": this.id,
+          "timestamp": this.timestamp,
+          "type": "application_log",
+          "version": "4.0",
+          
+          # Application context
+          "application": {
+            "service": {
+              "name": this.service,
+              "version": this.service_version
+            },
+            "level": this.level,
+            "message": this.message,
+            "endpoint": this.endpoint,
+            "method": this.method,
+            "duration_ms": this.duration_ms,
+            "status_code": this.status_code
+          },
+          
+          # User and session context
+          "user": {
+            "id": this.user_id,
+            "session_id": this.session_id,
+            "ip_address": this.ip_address,
+            "user_agent": this.user_agent
+          },
+          
+          # Request tracing
+          "trace": {
+            "request_id": this.request_id,
+            "trace_id": this.trace_id,
+            "parent_span_id": null
+          },
+          
+          # Business context
+          "business": this.business_data
+        }
+        
+        root.metadata = {
+          # Complete lineage information
+          "lineage": this.lineage,
+          
+          # Data quality metrics
+          "quality": {
+            "completeness_score": (
+              (if this.user_id != null { 1 } else { 0 }) +
+              (if this.trace_id != null { 1 } else { 0 }) +
+              (if this.business_data != {} { 1 } else { 0 }) +
+              (if this.duration_ms != null { 1 } else { 0 })
+            ) / 4.0,
+            "data_freshness_ms": (now().ts_unix_nano() - this.timestamp.parse_timestamp("2006-01-02T15:04:05Z").ts_unix_nano()) / 1000000,
+            "is_error": this.level == "ERROR" || this.level == "FATAL",
+            "is_business_critical": this.business_data != {} && (this.level == "ERROR" || this.level == "FATAL")
+          },
+          
+          # S3 storage optimization
+          "storage": {
+            "compression_eligible": true,
+            "partition_key": this.service + "_" + this.level,
+            "retention_policy": if this.level == "FATAL" { "extended" } else { "standard" },
+            "analytics_priority": if this.business_data != {} { "high" } else { "normal" }
+          }
+        }
+
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Main production S3 export with compression
+      - aws_s3:
+          bucket: ${S3_BUCKET_NAME}
+          # Optimized partitioning for analytics queries
+          path: logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/hour=${!timestamp("15")}/service=${!json("event.application.service.name")}/level=${!json("event.application.level")}/logs_${!timestamp_unix()}_${!hostname()}.jsonl.gz
+          
+          # Production batching strategy
+          batching:
+            count: 200              # Larger batches for efficiency
+            period: 5m              # 5-minute maximum latency
+            byte_size: 5242880      # 5MB maximum uncompressed size
+            
+            # Pre-upload compression
+            processors:
+              - compress:
+                  algorithm: gzip
+                  level: 6          # Good compression/speed balance
+          
+          # S3 optimization settings
+          content_type: application/x-ndjson
+          content_encoding: gzip
+          storage_class: STANDARD_IA  # Cost optimization for infrequent access
+          
+          # Metadata for cost tracking and management
+          metadata:
+            environment: ${ENVIRONMENT}
+            pipeline: log-enrichment-production
+            version: ${PIPELINE_VERSION}
+            node_id: ${NODE_ID}
+            created_by: expanso-platform
+          
+          # Performance optimization
+          upload_cutoff: 104857600   # 100MB multipart threshold
+          chunk_size: 10485760       # 10MB chunks
+          
+          # Credentials and region
+          credentials:
+            profile: ${AWS_PROFILE}
+          region: ${AWS_REGION}
+
+      # High-priority error export (separate bucket/path)
+      - aws_s3:
+          bucket: ${S3_ERROR_BUCKET_NAME}
+          path: errors/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/error_${!timestamp_unix()}_${!hostname()}.jsonl
+          
+          # Filter for high-priority errors only
+          processors:
+            - bloblang: |
+                root = if this.metadata.quality.is_business_critical || this.event.application.level == "FATAL" {
+                  this
+                } else {
+                  deleted()
+                }
+          
+          # Fast error processing
+          batching:
+            count: 50               # Smaller batches for speed
+            period: 1m              # 1-minute maximum latency
+          
+          # No compression for fast access
+          content_type: application/x-ndjson
+          storage_class: STANDARD   # Fast access for error analysis
+          
+          credentials:
+            profile: ${AWS_PROFILE}
+          region: ${AWS_REGION}
+
+# Production monitoring and alerting
+metrics:
+  prometheus:
+    prefix: s3_export_production
+    labels:
+      environment: ${ENVIRONMENT}
+      node_id: ${NODE_ID}
+      pipeline_version: ${PIPELINE_VERSION}
+    push_gateway:
+      url: ${PROMETHEUS_PUSHGATEWAY_URL}
+      job_name: log_enrichment_s3_export
+```
+
+Deploy production S3 export:
+
+```bash
+# Set comprehensive production environment
+export S3_BUCKET_NAME="your-production-logs"
+export S3_ERROR_BUCKET_NAME="your-production-errors"
+export AWS_PROFILE="expanso-prod"
+export AWS_REGION="us-west-2"
+export AVAILABILITY_ZONE="us-west-2a"
+export INSTANCE_TYPE="c5.large"
+export NODE_ID="edge-node-prod-01"
+export ENVIRONMENT="production"
+export PIPELINE_VERSION="4.0.0"
+export DEPLOYMENT_ID="deploy_$(date +%Y%m%d_%H%M%S)"
+export GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
+
+# Deploy production S3 export
+expanso pipeline stop partitioned-s3-export
+expanso pipeline deploy step5-production-s3.yaml --name production-s3-export
+
+# Monitor production exports
+expanso pipeline logs production-s3-export --follow --lines 3
+
+# Check S3 exports
+aws s3 ls s3://$S3_BUCKET_NAME/logs/ --recursive --profile $AWS_PROFILE | head -5
+aws s3 ls s3://$S3_ERROR_BUCKET_NAME/errors/ --recursive --profile $AWS_PROFILE | head -3
+```
+
+## S3 Analytics Integration
+
+### Configure AWS Glue Data Catalog
+
+Create Glue table for analytics queries:
+
+```sql
+-- Create Glue table for partitioned logs
+CREATE EXTERNAL TABLE enriched_logs (
+  event struct<
+    id: string,
+    timestamp: string,
+    type: string,
+    version: string,
+    application: struct<
+      service: struct<
+        name: string,
+        version: string
+      >,
+      level: string,
+      duration_ms: int,
+      status_code: int
+    >,
+    user: struct<
+      id: string,
+      session_id: string
+    >,
+    trace: struct<
+      request_id: string,
+      trace_id: string
+    >
+  >,
+  metadata struct<
+    lineage: struct<
+      node_id: string,
+      processed_at: string,
+      environment: string
+    >,
+    quality: struct<
+      completeness_score: double,
+      is_error: boolean
+    >
+  >
+)
+PARTITIONED BY (
+  year string,
+  month string,
+  day string,
+  hour string,
+  service string,
+  level string
+)
+STORED AS TEXTFILE
+LOCATION 's3://your-production-logs/logs/'
+TBLPROPERTIES ('has_encrypted_data'='false');
+```
+
+### Sample Analytics Queries
+
+Query enriched logs with AWS Athena:
+
+```sql
+-- Error rate by service and hour
+SELECT 
+  service,
+  hour,
+  COUNT(*) as total_logs,
+  COUNT(CASE WHEN level = 'ERROR' THEN 1 END) as error_count,
+  ROUND(COUNT(CASE WHEN level = 'ERROR' THEN 1 END) * 100.0 / COUNT(*), 2) as error_rate_pct
+FROM enriched_logs
+WHERE year = '2024' AND month = '01' AND day = '15'
+GROUP BY service, hour
+ORDER BY error_rate_pct DESC;
+
+-- Performance analysis by service
+SELECT
+  event.application.service.name as service,
+  AVG(event.application.duration_ms) as avg_duration_ms,
+  PERCENTILE_APPROX(event.application.duration_ms, 0.95) as p95_duration_ms,
+  COUNT(*) as request_count
+FROM enriched_logs
+WHERE year = '2024' AND month = '01' AND day = '15'
+  AND event.application.level = 'INFO'
+GROUP BY event.application.service.name
+ORDER BY avg_duration_ms DESC;
+
+-- Data quality metrics
+SELECT
+  metadata.lineage.node_id,
+  AVG(metadata.quality.completeness_score) as avg_completeness,
+  COUNT(*) as processed_count,
+  AVG(metadata.quality.data_freshness_ms) as avg_freshness_ms
+FROM enriched_logs
+WHERE year = '2024' AND month = '01' AND day = '15'
+GROUP BY metadata.lineage.node_id
+ORDER BY avg_completeness DESC;
+```
+
+## Advanced S3 Features
+
+### Lifecycle Management
+
+Implement cost-effective lifecycle policies:
+
+```json
+{
+  "Rules": [
+    {
+      "ID": "LogRetentionPolicy",
+      "Status": "Enabled",
+      "Transitions": [
+        {
+          "Days": 30,
+          "StorageClass": "STANDARD_IA"
+        },
+        {
+          "Days": 90,
+          "StorageClass": "GLACIER"
+        },
+        {
+          "Days": 365,
+          "StorageClass": "DEEP_ARCHIVE"
+        }
+      ],
+      "Expiration": {
+        "Days": 2555  // 7 years for compliance
+      }
+    }
+  ]
+}
+```
+
+### Cross-Region Replication
+
+Set up disaster recovery replication:
+
+```json
+{
+  "Role": "arn:aws:iam::account:role/replication-role",
+  "Rules": [
+    {
+      "ID": "ReplicateProductionLogs",
+      "Status": "Enabled",
+      "Priority": 1,
+      "Filter": {
+        "Prefix": "logs/"
+      },
+      "Destination": {
+        "Bucket": "arn:aws:s3:::your-backup-logs",
+        "StorageClass": "STANDARD_IA"
+      }
+    }
+  ]
+}
+```
+
+### S3 Event Notifications
+
+Trigger analytics processing on new files:
+
+```json
+{
+  "LambdaConfigurations": [
+    {
+      "Id": "ProcessNewLogs",
+      "LambdaFunctionArn": "arn:aws:lambda:us-west-2:account:function:process-logs",
+      "Events": ["s3:ObjectCreated:*"],
+      "Filter": {
+        "Key": {
+          "FilterRules": [
+            {
+              "Name": "prefix",
+              "Value": "logs/"
+            },
+            {
+              "Name": "suffix", 
+              "Value": ".jsonl.gz"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
+```
+
+## Troubleshooting S3 Export
+
+### Upload Failures
+
+**Problem:** Files not appearing in S3 bucket
+
+**Solutions:**
+
+1. **Check AWS credentials:**
+```bash
+# Test AWS access
+aws s3 ls s3://your-bucket-name --profile your-profile
+
+# Check IAM permissions
+aws iam get-user --profile your-profile
+```
+
+2. **Verify bucket configuration:**
+```yaml
+# Add debug logging
+output:
+  aws_s3:
+    bucket: ${S3_BUCKET_NAME}
+    path: test/debug_${!timestamp_unix()}.json
+    batching:
+      count: 1    # Single message for testing
+```
+
+3. **Monitor pipeline errors:**
+```bash
+# Check pipeline logs for S3 errors
+expanso pipeline logs production-s3-export --lines 50 | grep -i error
+
+# Monitor S3 API calls
+aws logs filter-log-events --log-group-name /aws/s3/access --profile your-profile
+```
+
+### Permission Issues
+
+**Problem:** Access denied errors
+
+**Solutions:**
+
+1. **Required IAM permissions:**
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:PutObjectAcl",
+        "s3:GetObject"
+      ],
+      "Resource": "arn:aws:s3:::your-bucket-name/*"
+    },
+    {
+      "Effect": "Allow", 
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::your-bucket-name"
+    }
+  ]
+}
+```
+
+2. **Test minimal permissions:**
+```bash
+# Test S3 write access
+echo "test" | aws s3 cp - s3://your-bucket-name/test.txt --profile your-profile
+
+# Verify and clean up
+aws s3 rm s3://your-bucket-name/test.txt --profile your-profile
+```
+
+### Performance Issues
+
+**Problem:** Slow uploads or high latency
+
+**Solutions:**
+
+1. **Optimize upload settings:**
+```yaml
+# Tune for your network
+aws_s3:
+  upload_cutoff: 52428800   # 50MB (lower for slow networks)
+  chunk_size: 5242880       # 5MB (smaller chunks)
+  max_upload_parts: 10000
+```
+
+2. **Monitor upload performance:**
+```bash
+# Track upload times
+aws logs filter-log-events --log-group-name /aws/s3/access \
+  --filter-pattern "PUT" --profile your-profile | \
+  jq '.events[].message' | grep duration
+```
+
+## Key Takeaways
+
+After completing this step, you understand:
+
+✅ **S3 Integration:** Secure, efficient cloud storage configuration
+✅ **Cost Optimization:** Compression and lifecycle strategies saving 60-80% on storage
+✅ **Analytics Preparation:** Partitioning and formatting for efficient queries  
+✅ **Production Features:** Error handling, monitoring, and disaster recovery
+✅ **Troubleshooting:** Common issues and resolution strategies
+
+## Next Steps
+
+Congratulations! You've completed all enrichment steps. See the complete production pipeline:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./complete-log-enrichment" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Complete Production Pipeline
+  </a>
+  <a href="./troubleshooting" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Troubleshooting Guide
+  </a>
+</div>
+
+---
+
+**Next:** [Complete production pipeline](./complete-log-enrichment) with all features integrated

@@ -1,0 +1,1254 @@
+---
+title: Complete Multi-Format Transformation Pipeline
+sidebar_label: Complete Pipeline
+sidebar_position: 7
+description: Deploy the complete production-ready pipeline that handles JSON, Avro, Parquet, and Protobuf transformations with auto-detection and intelligent routing
+keywords: [complete-pipeline, production-deployment, multi-format, transformation-pipeline, auto-detection, monitoring, scalability]
+---
+
+# Complete Multi-Format Transformation Pipeline
+
+**Deploy the complete, production-ready multi-format transformation pipeline** that combines auto-detection, intelligent routing, and all format transformations into a single, scalable solution. This is the culmination of all previous steps integrated into an enterprise-grade data processing platform.
+
+## Complete Solution Architecture
+
+The complete pipeline integrates all transformation capabilities:
+
+```
+┌─────────────────┐    ┌──────────────────────┐    ┌─────────────────────┐
+│ Universal Input │    │ Format Detection     │    │ Transformation      │
+│                 │    │ & Intelligent        │    │ Engine              │
+│ • HTTP Endpoint │───▶│ Routing             │───▶│                     │
+│ • Message Queue │    │                      │    │ ┌─────────────────┐ │
+│ • File Upload   │    │ • Content-Type       │    │ │ JSON ←→ Avro    │ │
+│ • gRPC Service  │    │ • Binary Signatures  │    │ │ JSON ←→ Parquet │ │
+│ • WebSocket     │    │ • Structure Analysis │    │ │ JSON ←→ Protobuf│ │
+│                 │    │ • ML Enhancement     │    │ │ Avro ←→ Parquet │ │
+└─────────────────┘    │ • Schema Registry    │    │ │ Cross-Format    │ │
+                       └──────────────────────┘    │ │ Transformations │ │
+                                                   └─────────────────┘ │
+┌─────────────────┐    ┌──────────────────────┐    └─────────────────────┘
+│ Output Routing  │    │ Monitoring &         │              │
+│                 │    │ Analytics            │              │
+│ • Cloud Storage │◄───│                      │◄─────────────┘
+│ • Data Lakes    │    │ • Performance        │
+│ • Analytics DB  │    │ • Error Tracking     │
+│ • Message Queue │    │ • Cost Analysis      │
+│ • API Response  │    │ • Usage Analytics    │
+│ • gRPC Services │    │ • Alerting System    │
+└─────────────────┘    └──────────────────────┘
+```
+
+## Implementation: Complete Pipeline Configuration
+
+The complete pipeline configuration integrates all transformation capabilities:
+
+```yaml title="complete-format-transformation-pipeline.yaml"
+# Complete Multi-Format Transformation Pipeline
+apiVersion: expanso.io/v1
+kind: Pipeline
+metadata:
+  name: complete-format-transformation-pipeline
+  description: "Production-ready multi-format transformation platform with auto-detection and intelligent routing"
+  version: "2.0.0"
+  labels:
+    environment: "production"
+    component: "data-transformation"
+    capability: "multi-format-processing"
+
+spec:
+  # Universal input configuration
+  inputs:
+    # Primary HTTP endpoint
+    - name: http-api
+      connector: http
+      config:
+        port: 8080
+        paths:
+          - path: "/transform"
+            methods: ["POST", "PUT"]
+            max_body_size: 104857600  # 100MB
+          - path: "/transform/{format}"
+            methods: ["POST"]
+            max_body_size: 104857600
+          - path: "/health"
+            methods: ["GET"]
+        
+        # Security configuration
+        security:
+          cors:
+            enabled: true
+            allow_origins: ["*"]
+            allow_methods: ["POST", "PUT", "GET", "OPTIONS"]
+            allow_headers: ["Content-Type", "Accept", "Authorization"]
+          rate_limiting:
+            enabled: true
+            requests_per_minute: 1000
+            burst_size: 100
+          authentication:
+            enabled: true
+            type: "bearer_token"
+            
+        # Content handling
+        content_handling:
+          preserve_binary: true
+          include_headers: true
+          max_header_size: 8192
+    
+    # Message queue input
+    - name: kafka-input
+      connector: kafka
+      config:
+        bootstrap_servers: ["kafka-1:9092", "kafka-2:9092", "kafka-3:9092"]
+        topics: ["raw-data", "format-conversion-requests"]
+        group_id: "format-transformation-consumer"
+        auto_offset_reset: "earliest"
+        
+        # Performance optimization
+        fetch_min_bytes: 1048576      # 1MB
+        fetch_max_wait_ms: 500
+        max_poll_records: 1000
+        
+        # Multi-format support
+        value_deserializers:
+          - format: "avro"
+            schema_registry_url: "${SCHEMA_REGISTRY_URL}"
+          - format: "json"
+          - format: "protobuf"
+          - format: "binary"
+    
+    # File upload input
+    - name: file-upload
+      connector: file
+      config:
+        watch_directories: ["/data/input"]
+        file_patterns: ["*.json", "*.avro", "*.parquet", "*.pb"]
+        recursive: true
+        delete_after_processing: false
+        move_to_processed: "/data/processed"
+    
+    # gRPC service input
+    - name: grpc-service
+      connector: grpc
+      config:
+        port: 9090
+        services:
+          - name: "FormatTransformationService"
+            methods: ["TransformData", "BatchTransform", "GetSupportedFormats"]
+        
+        # gRPC optimization
+        max_concurrent_streams: 1000
+        keepalive_time_ms: 30000
+        keepalive_timeout_ms: 5000
+
+  # Complete processing pipeline
+  processors:
+    # Stage 1: Input normalization and metadata extraction
+    - name: input-normalization
+      type: script
+      config:
+        language: javascript
+        source: |
+          function process(event) {
+            // Normalize input from different sources
+            const normalized = {
+              raw_body: event.body,
+              headers: event.headers || {},
+              source_connector: event.source || 'unknown',
+              processing_id: generateProcessingId(),
+              processing_start: Date.now(),
+              
+              // Extract metadata hints
+              metadata: {
+                content_type: event.headers?.['content-type'] || 'application/octet-stream',
+                content_length: Buffer.byteLength(event.body),
+                source_ip: event.headers?.['x-forwarded-for'] || event.remote_addr,
+                user_agent: event.headers?.['user-agent'],
+                accept_header: event.headers?.['accept'],
+                
+                // Processing context
+                tenant_id: extractTenantId(event),
+                request_id: event.headers?.['x-request-id'] || generateRequestId(),
+                correlation_id: event.headers?.['x-correlation-id']
+              }
+            };
+            
+            return normalized;
+          }
+          
+          function generateProcessingId() {
+            return 'proc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+          }
+          
+          function generateRequestId() {
+            return 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+          }
+          
+          function extractTenantId(event) {
+            // Extract tenant from various sources
+            return event.headers?.['x-tenant-id'] || 
+                   event.query?.tenant || 
+                   'default';
+          }
+
+    # Stage 2: Enhanced format detection with ML
+    - name: enhanced-format-detection
+      type: script
+      config:
+        language: javascript
+        requirements: ["@tensorflow/tfjs-node", "ml-matrix"]
+        source: |
+          const tf = require('@tensorflow/tfjs-node');
+          const { Matrix } = require('ml-matrix');
+          
+          class EnhancedFormatDetector {
+            constructor() {
+              this.signatureDetector = new BinarySignatureDetector();
+              this.structureAnalyzer = new StructureAnalyzer();
+              this.mlClassifier = new MLFormatClassifier();
+              this.schemaRegistry = new SchemaRegistryClient();
+            }
+            
+            async detect(data, metadata) {
+              const detectionResults = {
+                detection_id: metadata.processing_id,
+                detection_start: Date.now(),
+                methods_used: [],
+                confidence_scores: {},
+                final_decision: null
+              };
+              
+              // 1. Content-Type header analysis (highest priority)
+              const contentTypeResult = this.detectFromContentType(metadata.content_type);
+              if (contentTypeResult.confidence > 0.9) {
+                detectionResults.methods_used.push('content_type');
+                detectionResults.confidence_scores.content_type = contentTypeResult.confidence;
+                detectionResults.final_decision = contentTypeResult;
+              }
+              
+              // 2. Binary signature detection
+              const signatureResult = await this.signatureDetector.detect(data);
+              if (signatureResult.confidence > 0.85) {
+                detectionResults.methods_used.push('binary_signature');
+                detectionResults.confidence_scores.binary_signature = signatureResult.confidence;
+                
+                if (!detectionResults.final_decision || signatureResult.confidence > detectionResults.final_decision.confidence) {
+                  detectionResults.final_decision = signatureResult;
+                }
+              }
+              
+              // 3. Schema registry lookup
+              const schemaResult = await this.schemaRegistry.detectFormat(data);
+              if (schemaResult.confidence > 0.9) {
+                detectionResults.methods_used.push('schema_registry');
+                detectionResults.confidence_scores.schema_registry = schemaResult.confidence;
+                detectionResults.final_decision = schemaResult;
+              }
+              
+              // 4. Structure analysis
+              const structureResult = await this.structureAnalyzer.analyze(data);
+              if (structureResult.confidence > 0.8) {
+                detectionResults.methods_used.push('structure_analysis');
+                detectionResults.confidence_scores.structure_analysis = structureResult.confidence;
+                
+                if (!detectionResults.final_decision || structureResult.confidence > detectionResults.final_decision.confidence) {
+                  detectionResults.final_decision = structureResult;
+                }
+              }
+              
+              // 5. ML classification (fallback and validation)
+              const mlResult = await this.mlClassifier.classify(data, metadata);
+              detectionResults.methods_used.push('machine_learning');
+              detectionResults.confidence_scores.machine_learning = mlResult.confidence;
+              
+              // Use ML if no high-confidence result from other methods
+              if (!detectionResults.final_decision || detectionResults.final_decision.confidence < 0.7) {
+                detectionResults.final_decision = mlResult;
+              }
+              
+              // Ensemble decision if multiple high-confidence results
+              if (Object.keys(detectionResults.confidence_scores).length > 1) {
+                const ensembleResult = this.ensembleDecision(detectionResults.confidence_scores);
+                if (ensembleResult.confidence > detectionResults.final_decision.confidence) {
+                  detectionResults.final_decision = ensembleResult;
+                  detectionResults.methods_used.push('ensemble');
+                }
+              }
+              
+              detectionResults.detection_end = Date.now();
+              detectionResults.detection_duration_ms = detectionResults.detection_end - detectionResults.detection_start;
+              
+              return detectionResults;
+            }
+            
+            detectFromContentType(contentType) {
+              const ct = contentType.toLowerCase();
+              
+              const mappings = {
+                'application/json': { format: 'JSON', confidence: 0.95 },
+                'application/avro': { format: 'AVRO', confidence: 0.95 },
+                'application/x-protobuf': { format: 'PROTOBUF', confidence: 0.95 },
+                'application/protobuf': { format: 'PROTOBUF', confidence: 0.95 },
+                'application/parquet': { format: 'PARQUET', confidence: 0.95 },
+                'application/octet-stream': { format: 'UNKNOWN', confidence: 0.1 }
+              };
+              
+              for (const [type, result] of Object.entries(mappings)) {
+                if (ct.includes(type.split('/')[1])) {
+                  return result;
+                }
+              }
+              
+              return { format: 'UNKNOWN', confidence: 0.0 };
+            }
+            
+            ensembleDecision(confidenceScores) {
+              // Weighted ensemble based on method reliability
+              const weights = {
+                content_type: 0.3,
+                schema_registry: 0.3,
+                binary_signature: 0.25,
+                structure_analysis: 0.1,
+                machine_learning: 0.05
+              };
+              
+              const formatVotes = {};
+              
+              for (const [method, confidence] of Object.entries(confidenceScores)) {
+                const weight = weights[method] || 0.05;
+                const weightedScore = confidence * weight;
+                
+                // This is simplified - in practice, you'd track format for each method
+                const format = 'ENSEMBLE_FORMAT';  // Placeholder
+                formatVotes[format] = (formatVotes[format] || 0) + weightedScore;
+              }
+              
+              const bestFormat = Object.keys(formatVotes).reduce((a, b) => 
+                formatVotes[a] > formatVotes[b] ? a : b
+              );
+              
+              return {
+                format: bestFormat,
+                confidence: formatVotes[bestFormat],
+                method: 'ensemble'
+              };
+            }
+          }
+          
+          // Binary signature detector class
+          class BinarySignatureDetector {
+            constructor() {
+              this.signatures = {
+                PARQUET: [0x50, 0x41, 0x52, 0x31],  // "PAR1"
+                AVRO: [0x4F, 0x62, 0x6A, 0x01],     // "Obj\x01"
+                PDF: [0x25, 0x50, 0x44, 0x46],      // "%PDF"
+                PNG: [0x89, 0x50, 0x4E, 0x47]       // PNG signature
+              };
+            }
+            
+            async detect(data) {
+              if (!Buffer.isBuffer(data) && typeof data !== 'string') {
+                return { format: 'UNKNOWN', confidence: 0.0 };
+              }
+              
+              const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+              
+              if (buffer.length < 4) {
+                return { format: 'UNKNOWN', confidence: 0.0 };
+              }
+              
+              const firstFourBytes = Array.from(buffer.slice(0, 4));
+              
+              for (const [format, signature] of Object.entries(this.signatures)) {
+                if (this.matchesSignature(firstFourBytes, signature)) {
+                  return { format, confidence: 0.98 };
+                }
+              }
+              
+              // Check for Avro with schema registry header
+              if (buffer.length >= 5 && buffer[0] === 0x00) {
+                return { format: 'AVRO', confidence: 0.85, schema_registry: true };
+              }
+              
+              return { format: 'UNKNOWN', confidence: 0.0 };
+            }
+            
+            matchesSignature(bytes, signature) {
+              return signature.every((byte, index) => bytes[index] === byte);
+            }
+          }
+          
+          // Structure analyzer class
+          class StructureAnalyzer {
+            async analyze(data) {
+              const text = Buffer.isBuffer(data) ? data.toString() : String(data);
+              const trimmed = text.trim();
+              
+              // JSON structure detection
+              if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+                  (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+                try {
+                  JSON.parse(trimmed);
+                  return { 
+                    format: 'JSON', 
+                    confidence: 0.92,
+                    structure_type: trimmed.startsWith('{') ? 'object' : 'array'
+                  };
+                } catch (e) {
+                  // Invalid JSON
+                  return { format: 'UNKNOWN', confidence: 0.0 };
+                }
+              }
+              
+              // XML detection
+              if (trimmed.startsWith('<') && trimmed.endsWith('>')) {
+                return { format: 'XML', confidence: 0.85 };
+              }
+              
+              // CSV detection
+              if (this.looksLikeCSV(trimmed)) {
+                return { format: 'CSV', confidence: 0.75 };
+              }
+              
+              return { format: 'UNKNOWN', confidence: 0.0 };
+            }
+            
+            looksLikeCSV(text) {
+              const lines = text.split('\n').slice(0, 5);
+              if (lines.length < 2) return false;
+              
+              const firstLineCommas = (lines[0].match(/,/g) || []).length;
+              if (firstLineCommas === 0) return false;
+              
+              // Check if subsequent lines have similar comma count
+              return lines.slice(1).some(line => 
+                Math.abs((line.match(/,/g) || []).length - firstLineCommas) <= 1
+              );
+            }
+          }
+          
+          // ML classifier class
+          class MLFormatClassifier {
+            constructor() {
+              this.model = null;
+              this.loadModel();
+            }
+            
+            async loadModel() {
+              // In production, load a pre-trained TensorFlow model
+              // this.model = await tf.loadLayersModel('/models/format-classifier.json');
+            }
+            
+            async classify(data, metadata) {
+              // Feature extraction
+              const features = this.extractFeatures(data, metadata);
+              
+              // For now, return heuristic-based classification
+              // In production, use the trained ML model
+              return this.heuristicClassification(features);
+            }
+            
+            extractFeatures(data, metadata) {
+              const text = Buffer.isBuffer(data) ? data.toString() : String(data);
+              
+              return {
+                size: Buffer.byteLength(data),
+                is_binary: this.isBinaryContent(data),
+                char_distribution: this.analyzeCharDistribution(text),
+                content_type_hint: metadata.content_type,
+                first_bytes: Array.from(Buffer.from(data).slice(0, 16))
+              };
+            }
+            
+            isBinaryContent(data) {
+              const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+              const sampleSize = Math.min(buffer.length, 512);
+              
+              for (let i = 0; i < sampleSize; i++) {
+                const byte = buffer[i];
+                if (byte < 32 && byte !== 9 && byte !== 10 && byte !== 13) {
+                  return true;
+                }
+              }
+              return false;
+            }
+            
+            analyzeCharDistribution(text) {
+              const chars = { braces: 0, brackets: 0, quotes: 0, colons: 0 };
+              
+              for (let i = 0; i < Math.min(text.length, 1000); i++) {
+                const char = text[i];
+                if (char === '{' || char === '}') chars.braces++;
+                if (char === '[' || char === ']') chars.brackets++;
+                if (char === '"') chars.quotes++;
+                if (char === ':') chars.colons++;
+              }
+              
+              return chars;
+            }
+            
+            heuristicClassification(features) {
+              // Simplified heuristic classification
+              if (features.is_binary) {
+                return { format: 'BINARY', confidence: 0.6 };
+              }
+              
+              const { braces, brackets, quotes, colons } = features.char_distribution;
+              
+              if (braces > 0 && quotes > 0 && colons > 0) {
+                return { format: 'JSON', confidence: 0.75 };
+              }
+              
+              if (brackets > braces) {
+                return { format: 'JSON', confidence: 0.65 };
+              }
+              
+              return { format: 'UNKNOWN', confidence: 0.3 };
+            }
+          }
+          
+          // Schema registry client class
+          class SchemaRegistryClient {
+            constructor() {
+              this.baseUrl = process.env.SCHEMA_REGISTRY_URL || 'http://localhost:8081';
+            }
+            
+            async detectFormat(data) {
+              if (!Buffer.isBuffer(data)) {
+                return { format: 'UNKNOWN', confidence: 0.0 };
+              }
+              
+              // Check for Avro schema ID
+              if (data.length >= 5 && data[0] === 0x00) {
+                const schemaId = data.readUInt32BE(1);
+                
+                try {
+                  const response = await fetch(`${this.baseUrl}/schemas/ids/${schemaId}`);
+                  if (response.ok) {
+                    const schema = await response.json();
+                    return { 
+                      format: 'AVRO', 
+                      confidence: 0.95,
+                      schema_id: schemaId,
+                      schema_info: schema
+                    };
+                  }
+                } catch (error) {
+                  // Schema registry not available or schema not found
+                }
+              }
+              
+              return { format: 'UNKNOWN', confidence: 0.0 };
+            }
+          }
+          
+          // Main processing function
+          const detector = new EnhancedFormatDetector();
+          
+          async function process(event) {
+            const detectionResult = await detector.detect(event.raw_body, event.metadata);
+            
+            return {
+              ...event,
+              format_detection: detectionResult.final_decision,
+              detection_metadata: detectionResult
+            };
+          }
+
+    # Stage 3: Intelligent transformation routing
+    - name: intelligent-transformation-routing
+      type: script
+      config:
+        language: javascript
+        source: |
+          function process(event) {
+            const sourceFormat = event.format_detection?.format || 'UNKNOWN';
+            const metadata = event.metadata;
+            const acceptHeader = metadata.accept_header || '';
+            
+            // Analyze data characteristics for optimal routing
+            const dataAnalysis = analyzeDataCharacteristics(event.raw_body, sourceFormat);
+            
+            // Determine target format based on multiple factors
+            const routingDecision = determineOptimalRoute(
+              sourceFormat, 
+              acceptHeader, 
+              dataAnalysis,
+              metadata
+            );
+            
+            return {
+              ...event,
+              data_analysis: dataAnalysis,
+              transformation_route: routingDecision,
+              routing_timestamp: Date.now()
+            };
+          }
+          
+          function analyzeDataCharacteristics(data, sourceFormat) {
+            const size = Buffer.byteLength(data);
+            let recordCount = 1;
+            let complexity = 'low';
+            let useCase = 'unknown';
+            
+            if (sourceFormat === 'JSON') {
+              try {
+                const parsed = JSON.parse(data);
+                if (Array.isArray(parsed)) {
+                  recordCount = parsed.length;
+                  
+                  if (recordCount > 10000) {
+                    useCase = 'batch_analytics';
+                    complexity = 'high';
+                  } else if (recordCount > 100) {
+                    useCase = 'medium_batch';
+                    complexity = 'medium';
+                  } else {
+                    useCase = 'single_record';
+                    complexity = 'low';
+                  }
+                } else {
+                  const fieldCount = Object.keys(parsed).length;
+                  if (fieldCount > 20) {
+                    complexity = 'high';
+                  } else if (fieldCount > 10) {
+                    complexity = 'medium';
+                  }
+                }
+              } catch (e) {
+                // Invalid JSON
+              }
+            }
+            
+            return {
+              size_bytes: size,
+              size_category: categorizeSize(size),
+              record_count: recordCount,
+              complexity: complexity,
+              inferred_use_case: useCase
+            };
+          }
+          
+          function categorizeSize(size) {
+            if (size < 1024) return 'tiny';
+            if (size < 102400) return 'small';
+            if (size < 1048576) return 'medium';
+            if (size < 10485760) return 'large';
+            return 'huge';
+          }
+          
+          function determineOptimalRoute(sourceFormat, acceptHeader, dataAnalysis, metadata) {
+            // Priority 1: Explicit Accept header
+            if (acceptHeader) {
+              const explicitTarget = parseAcceptHeader(acceptHeader);
+              if (explicitTarget !== 'UNKNOWN') {
+                return {
+                  target_format: explicitTarget,
+                  reasoning: 'explicit_accept_header',
+                  confidence: 0.95,
+                  transformation_type: getTransformationType(sourceFormat, explicitTarget)
+                };
+              }
+            }
+            
+            // Priority 2: Data characteristics-based routing
+            const characteristicRoute = routeByCharacteristics(sourceFormat, dataAnalysis);
+            if (characteristicRoute.confidence > 0.8) {
+              return characteristicRoute;
+            }
+            
+            // Priority 3: Default routing patterns
+            const defaultRoute = getDefaultRoute(sourceFormat, metadata);
+            
+            return defaultRoute;
+          }
+          
+          function parseAcceptHeader(acceptHeader) {
+            const formats = {
+              'application/json': 'JSON',
+              'application/avro': 'AVRO',
+              'application/x-protobuf': 'PROTOBUF',
+              'application/protobuf': 'PROTOBUF',
+              'application/parquet': 'PARQUET'
+            };
+            
+            for (const [contentType, format] of Object.entries(formats)) {
+              if (acceptHeader.includes(contentType)) {
+                return format;
+              }
+            }
+            
+            return 'UNKNOWN';
+          }
+          
+          function routeByCharacteristics(sourceFormat, dataAnalysis) {
+            const { inferred_use_case, record_count, size_category } = dataAnalysis;
+            
+            // Analytics workloads → Parquet
+            if (inferred_use_case === 'batch_analytics' || record_count > 1000) {
+              return {
+                target_format: 'PARQUET',
+                reasoning: 'analytics_workload',
+                confidence: 0.9,
+                transformation_type: getTransformationType(sourceFormat, 'PARQUET')
+              };
+            }
+            
+            // Streaming workloads → Avro
+            if (inferred_use_case === 'medium_batch' && sourceFormat === 'JSON') {
+              return {
+                target_format: 'AVRO',
+                reasoning: 'streaming_workload',
+                confidence: 0.85,
+                transformation_type: getTransformationType(sourceFormat, 'AVRO')
+              };
+            }
+            
+            // Small messages → Protobuf (for services)
+            if (size_category === 'small' || size_category === 'tiny') {
+              return {
+                target_format: 'PROTOBUF',
+                reasoning: 'microservice_communication',
+                confidence: 0.8,
+                transformation_type: getTransformationType(sourceFormat, 'PROTOBUF')
+              };
+            }
+            
+            return {
+              target_format: sourceFormat,
+              reasoning: 'no_clear_pattern',
+              confidence: 0.3,
+              transformation_type: 'passthrough'
+            };
+          }
+          
+          function getDefaultRoute(sourceFormat, metadata) {
+            // Default transformation patterns
+            const defaults = {
+              'JSON': 'AVRO',      // JSON → Avro for streaming
+              'AVRO': 'PARQUET',   // Avro → Parquet for analytics
+              'PROTOBUF': 'JSON',  // Protobuf → JSON for web APIs
+              'PARQUET': 'JSON'    // Parquet → JSON for queries
+            };
+            
+            const targetFormat = defaults[sourceFormat] || 'JSON';
+            
+            return {
+              target_format: targetFormat,
+              reasoning: 'default_pattern',
+              confidence: 0.6,
+              transformation_type: getTransformationType(sourceFormat, targetFormat)
+            };
+          }
+          
+          function getTransformationType(source, target) {
+            if (source === target) return 'passthrough';
+            return `${source.toLowerCase()}_to_${target.toLowerCase()}`;
+          }
+
+    # Stage 4: Format transformation execution
+    - name: format-transformation-execution
+      type: router
+      config:
+        routing_field: "transformation_route.transformation_type"
+        routes:
+          "json_to_avro":
+            processors:
+              - name: execute-json-to-avro
+                type: avro_encoder
+                config:
+                  schema_registry_url: "${SCHEMA_REGISTRY_URL}"
+                  subject: "multi-format-data-value"
+                  compression: "snappy"
+                  include_schema_id: true
+          
+          "json_to_protobuf":
+            processors:
+              - name: execute-json-to-protobuf
+                type: protobuf_encoder
+                config:
+                  proto_file: "/config/multi-format.proto"
+                  message_type: "MultiFormatData"
+                  validate_schema: true
+          
+          "json_to_parquet":
+            processors:
+              - name: execute-json-to-parquet
+                type: parquet_encoder
+                config:
+                  compression: "snappy"
+                  page_size: 1048576
+                  row_group_size: 134217728
+                  enable_statistics: true
+          
+          "avro_to_parquet":
+            processors:
+              - name: execute-avro-to-parquet
+                type: parquet_encoder
+                config:
+                  input_format: "avro"
+                  compression: "snappy"
+                  preserve_avro_schema: true
+          
+          "avro_to_json":
+            processors:
+              - name: execute-avro-to-json
+                type: avro_decoder
+                config:
+                  schema_registry_url: "${SCHEMA_REGISTRY_URL}"
+                  output_format: "json"
+          
+          "protobuf_to_json":
+            processors:
+              - name: execute-protobuf-to-json
+                type: protobuf_decoder
+                config:
+                  proto_file: "/config/multi-format.proto"
+                  output_format: "json"
+          
+          "parquet_to_json":
+            processors:
+              - name: execute-parquet-to-json
+                type: parquet_decoder
+                config:
+                  output_format: "json"
+                  include_metadata: false
+          
+          "passthrough":
+            processors:
+              - name: passthrough-processor
+                type: script
+                config:
+                  source: |
+                    function process(event) {
+                      return {
+                        ...event,
+                        transformed_data: event.raw_body,
+                        transformation_applied: false,
+                        passthrough_reason: event.transformation_route?.reasoning
+                      };
+                    }
+
+    # Stage 5: Output routing and optimization
+    - name: output-routing-optimization
+      type: script
+      config:
+        language: javascript
+        source: |
+          function process(event) {
+            const targetFormat = event.transformation_route?.target_format || 'JSON';
+            const dataAnalysis = event.data_analysis;
+            const metadata = event.metadata;
+            
+            // Determine optimal output destinations
+            const outputRoutes = determineOutputRoutes(targetFormat, dataAnalysis, metadata);
+            
+            // Add transformation metadata
+            const transformationSummary = {
+              processing_id: metadata.processing_id,
+              source_format: event.format_detection?.format,
+              target_format: targetFormat,
+              transformation_type: event.transformation_route?.transformation_type,
+              
+              // Performance metrics
+              total_processing_time_ms: Date.now() - event.processing_start,
+              detection_time_ms: event.detection_metadata?.detection_duration_ms,
+              transformation_start: Date.now(),
+              
+              // Data metrics
+              input_size_bytes: dataAnalysis.size_bytes,
+              record_count: dataAnalysis.record_count,
+              complexity: dataAnalysis.complexity,
+              
+              // Quality metrics
+              detection_confidence: event.format_detection?.confidence || 0,
+              routing_confidence: event.transformation_route?.confidence || 0
+            };
+            
+            return {
+              transformed_data: event.transformed_data || event.raw_body,
+              transformation_summary: transformationSummary,
+              output_routes: outputRoutes,
+              original_metadata: metadata
+            };
+          }
+          
+          function determineOutputRoutes(targetFormat, dataAnalysis, metadata) {
+            const routes = [];
+            const useCase = dataAnalysis.inferred_use_case;
+            const sizeCategory = dataAnalysis.size_category;
+            
+            // Primary output: HTTP response (always)
+            routes.push({
+              type: 'http_response',
+              priority: 1,
+              content_type: getContentType(targetFormat),
+              enabled: true
+            });
+            
+            // Analytics storage for large datasets
+            if (useCase === 'batch_analytics' || dataAnalysis.record_count > 100) {
+              routes.push({
+                type: 'analytics_storage',
+                priority: 2,
+                destination: 'data_lake',
+                format: 'PARQUET',
+                enabled: true
+              });
+            }
+            
+            // Message queue for streaming workloads
+            if (useCase === 'medium_batch' && targetFormat === 'AVRO') {
+              routes.push({
+                type: 'message_queue',
+                priority: 2,
+                destination: 'kafka',
+                topic: 'processed-data-stream',
+                enabled: true
+              });
+            }
+            
+            // Real-time API for small messages
+            if (sizeCategory === 'small' || sizeCategory === 'tiny') {
+              routes.push({
+                type: 'realtime_api',
+                priority: 3,
+                destination: 'websocket',
+                enabled: metadata.tenant_id !== 'batch-only'
+              });
+            }
+            
+            // Audit logging (always)
+            routes.push({
+              type: 'audit_log',
+              priority: 4,
+              destination: 'audit_kafka',
+              enabled: true
+            });
+            
+            return routes.filter(route => route.enabled);
+          }
+          
+          function getContentType(format) {
+            const contentTypes = {
+              'JSON': 'application/json',
+              'AVRO': 'application/avro',
+              'PROTOBUF': 'application/x-protobuf',
+              'PARQUET': 'application/parquet'
+            };
+            
+            return contentTypes[format] || 'application/octet-stream';
+          }
+
+  # Multiple output destinations
+  outputs:
+    # Primary HTTP response
+    - name: http-response
+      connector: http
+      config:
+        response_mode: true
+        content_type_field: "output_routes[0].content_type"
+        include_transformation_headers: true
+        headers:
+          X-Transformation-Source: "{transformation_summary.source_format}"
+          X-Transformation-Target: "{transformation_summary.target_format}"
+          X-Processing-Time: "{transformation_summary.total_processing_time_ms}ms"
+          X-Detection-Confidence: "{transformation_summary.detection_confidence}"
+    
+    # Data lake storage for analytics
+    - name: analytics-data-lake
+      connector: s3
+      config:
+        bucket: "${DATA_LAKE_BUCKET}"
+        key_prefix: "processed-data/{year}/{month}/{day}/{format}/"
+        filename_pattern: "{processing_id}-{timestamp}.{format_extension}"
+        
+        # Conditional routing
+        route_condition: |
+          output_routes.some(route => route.type === 'analytics_storage')
+        
+        # Lifecycle management
+        lifecycle:
+          transition_to_ia_days: 30
+          transition_to_glacier_days: 90
+          expiration_days: 2555
+    
+    # Streaming message queue
+    - name: streaming-kafka
+      connector: kafka
+      config:
+        bootstrap_servers: ["kafka-1:9092", "kafka-2:9092", "kafka-3:9092"]
+        topic_pattern: "processed-{transformation_summary.target_format}-stream"
+        key_field: "original_metadata.processing_id"
+        
+        # Conditional routing
+        route_condition: |
+          output_routes.some(route => route.type === 'message_queue')
+        
+        # Performance optimization
+        acks: "1"
+        batch_size: 16384
+        linger_ms: 5
+        compression_type: "lz4"
+    
+    # Real-time WebSocket for small messages
+    - name: realtime-websocket
+      connector: websocket
+      config:
+        endpoint: "wss://realtime-api.example.com/transformed-data"
+        
+        # Conditional routing
+        route_condition: |
+          output_routes.some(route => route.type === 'realtime_api')
+        
+        # Message formatting
+        message_template: |
+          {
+            "type": "transformation_complete",
+            "processing_id": "{transformation_summary.processing_id}",
+            "data": "{transformed_data}",
+            "metadata": {
+              "source_format": "{transformation_summary.source_format}",
+              "target_format": "{transformation_summary.target_format}",
+              "processing_time_ms": {transformation_summary.total_processing_time_ms}
+            }
+          }
+    
+    # Comprehensive analytics and metrics
+    - name: analytics-metrics
+      connector: kafka
+      config:
+        bootstrap_servers: ["kafka-1:9092", "kafka-2:9092", "kafka-3:9092"]
+        topic: "format-transformation-analytics"
+        
+        # Analytics payload
+        value_template: |
+          {
+            "processing_id": "{transformation_summary.processing_id}",
+            "timestamp": {transformation_summary.transformation_start},
+            "source_format": "{transformation_summary.source_format}",
+            "target_format": "{transformation_summary.target_format}",
+            "transformation_type": "{transformation_summary.transformation_type}",
+            
+            "performance_metrics": {
+              "total_processing_time_ms": {transformation_summary.total_processing_time_ms},
+              "detection_time_ms": {transformation_summary.detection_time_ms},
+              "detection_confidence": {transformation_summary.detection_confidence},
+              "routing_confidence": {transformation_summary.routing_confidence}
+            },
+            
+            "data_metrics": {
+              "input_size_bytes": {transformation_summary.input_size_bytes},
+              "record_count": {transformation_summary.record_count},
+              "complexity": "{transformation_summary.complexity}"
+            },
+            
+            "routing_metadata": {
+              "tenant_id": "{original_metadata.tenant_id}",
+              "source_connector": "{original_metadata.source_connector}",
+              "output_routes_count": {output_routes.length}
+            }
+          }
+    
+    # Audit logging for compliance
+    - name: audit-logging
+      connector: kafka
+      config:
+        bootstrap_servers: ["kafka-1:9092", "kafka-2:9092", "kafka-3:9092"]
+        topic: "transformation-audit-log"
+        
+        # Audit payload
+        value_template: |
+          {
+            "event_type": "format_transformation",
+            "processing_id": "{transformation_summary.processing_id}",
+            "timestamp": {transformation_summary.transformation_start},
+            "tenant_id": "{original_metadata.tenant_id}",
+            "source_ip": "{original_metadata.source_ip}",
+            "user_agent": "{original_metadata.user_agent}",
+            
+            "transformation_details": {
+              "source_format": "{transformation_summary.source_format}",
+              "target_format": "{transformation_summary.target_format}",
+              "input_size_bytes": {transformation_summary.input_size_bytes},
+              "success": true
+            },
+            
+            "compliance_metadata": {
+              "data_classification": "processed",
+              "retention_period_days": 90,
+              "audit_trail": true
+            }
+          }
+
+  # Production-grade error handling
+  error_handling:
+    strategy: comprehensive_error_management
+    
+    # Format detection errors
+    detection_errors:
+      strategy: fallback_to_json
+      confidence_threshold: 0.3
+      include_alternatives: true
+      
+    # Transformation errors
+    transformation_errors:
+      strategy: retry_with_exponential_backoff
+      max_retries: 3
+      initial_delay_ms: 1000
+      max_delay_ms: 30000
+      
+    # Schema errors
+    schema_errors:
+      strategy: schema_evolution_handling
+      auto_register_new_schemas: false
+      fallback_to_generic_schema: true
+      
+    # Output errors
+    output_errors:
+      strategy: multi_output_failover
+      primary_output_timeout_ms: 30000
+      failover_outputs: ["audit-logging"]
+      
+    # Dead letter queue
+    dead_letter_queue:
+      enabled: true
+      topic: "transformation-dlq"
+      include_full_context: true
+      retention_days: 30
+
+  # Comprehensive monitoring and observability
+  monitoring:
+    # Health checks
+    health_checks:
+      - name: "format_detection_health"
+        endpoint: "/health/detection"
+        interval_seconds: 30
+        timeout_seconds: 10
+        
+      - name: "transformation_health"
+        endpoint: "/health/transformation"
+        interval_seconds: 60
+        timeout_seconds: 15
+        
+      - name: "output_routing_health"
+        endpoint: "/health/outputs"
+        interval_seconds: 30
+        timeout_seconds: 10
+    
+    # Performance metrics
+    metrics:
+      # Detection metrics
+      - name: "format_detection_accuracy"
+        type: "histogram"
+        labels: ["source_format", "detection_method"]
+        buckets: [0.1, 0.3, 0.5, 0.7, 0.85, 0.95]
+        
+      - name: "format_detection_latency"
+        type: "histogram"
+        labels: ["detection_method", "data_size_category"]
+        buckets: [1, 5, 10, 25, 50, 100]
+        
+      # Transformation metrics
+      - name: "transformation_success_rate"
+        type: "counter"
+        labels: ["source_format", "target_format", "transformation_type"]
+        
+      - name: "transformation_latency"
+        type: "histogram"
+        labels: ["transformation_type", "data_size_category"]
+        buckets: [10, 50, 100, 500, 1000, 5000, 10000]
+        
+      - name: "transformation_throughput"
+        type: "counter"
+        labels: ["source_format", "target_format"]
+        
+      # Data metrics
+      - name: "data_volume_processed"
+        type: "counter"
+        labels: ["format", "tenant_id"]
+        unit: "bytes"
+        
+      - name: "record_count_processed"
+        type: "counter"
+        labels: ["format", "complexity"]
+        
+      # Business metrics
+      - name: "cost_savings"
+        type: "histogram"
+        labels: ["transformation_type"]
+        description: "Storage cost savings from format optimization"
+        buckets: [10, 25, 50, 75, 90]
+        
+      - name: "compression_efficiency"
+        type: "histogram"
+        labels: ["source_format", "target_format"]
+        buckets: [10, 30, 50, 70, 85, 95]
+    
+    # Alerting rules
+    alerts:
+      # Critical alerts
+      - name: "transformation_failure_rate_high"
+        condition: "transformation_success_rate < 0.95"
+        severity: "critical"
+        message: "Format transformation success rate below 95%"
+        
+      - name: "detection_confidence_low"
+        condition: "format_detection_accuracy < 0.8"
+        severity: "critical"
+        message: "Format detection accuracy below 80%"
+        
+      # Warning alerts
+      - name: "transformation_latency_high"
+        condition: "transformation_latency > 5000"
+        severity: "warning"
+        message: "Format transformation latency above 5 seconds"
+        
+      - name: "data_volume_spike"
+        condition: "data_volume_processed > 10GB/hour"
+        severity: "warning"
+        message: "Unusual spike in data volume processed"
+        
+      # Info alerts
+      - name: "new_format_detected"
+        condition: "unknown_format_rate > 0.01"
+        severity: "info"
+        message: "New or unknown format patterns detected"
+
+  # Auto-scaling configuration
+  scaling:
+    enabled: true
+    
+    # Horizontal scaling
+    horizontal:
+      min_replicas: 3
+      max_replicas: 50
+      
+      # CPU-based scaling
+      cpu_threshold: 70
+      memory_threshold: 80
+      
+      # Custom metrics scaling
+      custom_metrics:
+        - metric: "transformation_latency"
+          threshold: 1000
+          scale_up_threshold: 1000
+          scale_down_threshold: 200
+          
+        - metric: "queue_depth"
+          threshold: 1000
+          scale_up_threshold: 1000
+          scale_down_threshold: 100
+    
+    # Vertical scaling
+    vertical:
+      enabled: true
+      resource_limits:
+        cpu: "2000m"
+        memory: "4Gi"
+      resource_requests:
+        cpu: "500m"
+        memory: "1Gi"
+```
+
+Continue reading on the next part...

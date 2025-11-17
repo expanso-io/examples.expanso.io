@@ -1,0 +1,163 @@
+---
+title: Priority Queues for Message Routing
+sidebar_label: Introduction
+sidebar_position: 1
+description: Route messages to priority-based queues for differential processing and SLA management
+keywords: [routing, priority, queues, switch, sla, tiering, performance, latency]
+---
+
+# Priority Queues for Message Routing
+
+**Transform message chaos into organized, SLA-compliant processing.** This step-by-step guide teaches you 4 essential priority routing techniques through an interactive explorer and hands-on exercises.
+
+## The Problem
+
+Consider a production system processing millions of events per day across different customer tiers and message types. Without priority queuing, you face several critical challenges:
+
+```json
+{
+  "timestamp": "2024-01-15T10:30:00Z",
+  "severity": "CRITICAL",           // ❌ Stuck behind millions of INFO logs
+  "customer_tier": "enterprise",    // ❌ Same latency as free tier users
+  "event_type": "payment.failed",   // ❌ Competing with bulk analytics
+  "urgency": "high"                 // ❌ No differentiated processing
+}
+```
+
+**The challenge:** Critical alerts get stuck behind millions of routine log messages, leading to SLA violations and poor customer experience.
+
+## The Solution: 4 Priority Routing Techniques
+
+This guide teaches you how to apply the right technique for each scenario:
+
+### 1. **Severity-Based Routing** → Log Processing Systems
+Route messages by log severity levels with differential batching and retry policies.
+- **Use case:** Application logs, system monitoring, error tracking
+- **Method:** Map severity levels (CRITICAL, ERROR, WARN, INFO) to priority queues
+- **Result:** Critical alerts process immediately while routine logs batch efficiently
+
+### 2. **Customer Tier Routing** → Multi-Tenant SaaS
+Provide differentiated service levels based on subscription tiers.
+- **Use case:** SaaS platforms, API gateways, subscription services
+- **Method:** Route enterprise/premium customers to dedicated high-priority queues
+- **Result:** Premium customers get sub-second response while free tier optimizes for cost
+
+### 3. **Multi-Criteria Scoring** → Complex Event Processing
+Combine multiple factors (customer tier, event type, urgency) for sophisticated prioritization.
+- **Use case:** Payment processing, security events, operational alerts
+- **Method:** Weighted scoring algorithm considers multiple priority dimensions
+- **Result:** Payment failures from enterprise customers get highest priority
+
+### 4. **Age-Based Escalation** → Starvation Prevention
+Automatically boost priority of aging messages to prevent indefinite delays.
+- **Use case:** Any system with significant priority differences
+- **Method:** Time-based priority boost prevents low-priority message starvation
+- **Result:** All messages eventually process, maintaining system fairness
+
+## Why Process at the Edge?
+
+**Bandwidth Optimization:** Route only critical events to cloud, keep low-priority data local for batch sync (93% cost reduction)
+
+**Latency Reduction:** Critical messages bypass edge batching for immediate delivery (&lt;100ms vs 5-30s)
+
+**SLA Compliance:** Guarantee response times per customer tier without over-provisioning infrastructure
+
+**Resource Efficiency:** Allocate processing power based on business value, not message arrival order
+
+## What You'll Learn
+
+By the end of this guide, you'll be able to:
+
+✅ **Route messages by severity** with differential batching (critical: no batch, info: 1000-message batches)
+
+✅ **Implement customer tier prioritization** with dedicated queues and SLA tracking
+
+✅ **Build multi-criteria scoring systems** combining customer value, event criticality, and urgency
+
+✅ **Prevent priority starvation** with age-based escalation and fairness guarantees
+
+✅ **Optimize edge bandwidth** by keeping 60%+ of messages local while maintaining real-time processing
+
+✅ **Monitor priority distribution** and detect anomalies in traffic patterns
+
+## Get Started
+
+### Option 1: Interactive Explorer (Recommended)
+**See** each priority routing technique in action with side-by-side before/after views.
+
+[**→ Launch Interactive Explorer**](./explorer)
+
+### Option 2: Step-by-Step Tutorial
+**Build** the priority queue system incrementally, one concept at a time.
+
+1. [**Setup Guide**](./setup) - Configure environment and deploy test pipeline
+2. [**Step 1: Severity-Based Queues**](./step-1-severity-routing) - Map log levels to priority tiers
+3. [**Step 2: Customer Tier Queues**](./step-2-customer-tier-routing) - Differentiate by subscription level
+4. [**Step 3: Multi-Criteria Scoring**](./step-3-multi-criteria-scoring) - Combine multiple priority factors
+5. [**Step 4: Prevent Starvation**](./step-4-prevent-starvation) - Age-based priority escalation
+
+### Option 3: Jump to Final Solution
+**Download** the complete, production-ready priority queue system.
+
+[**→ Get Complete Priority Pipeline**](./complete-priority-pipeline)
+
+## Who This Guide Is For
+
+- **SRE Engineers** building reliable, SLA-compliant message processing systems
+- **Backend Developers** implementing multi-tenant applications with differentiated service levels
+- **Platform Engineers** optimizing resource allocation and reducing cloud egress costs
+- **DevOps Engineers** managing high-volume event streaming with performance guarantees
+
+## Prerequisites
+
+- Expanso edge node running and connected to orchestrator
+- Access to Kafka/Redis Streams/NATS message broker
+- Basic understanding of message queuing concepts
+- Bloblang transformation language familiarity ([Bloblang Guide](https://docs.expanso.io/guides/bloblang))
+
+## Time to Complete
+
+- **Interactive Explorer:** 15 minutes
+- **Step-by-Step Tutorial:** 45-60 minutes
+- **Quick Deploy:** 10 minutes
+
+## Real-World Impact
+
+**Before Priority Queues:**
+```
+- Critical alert latency: 5-30 seconds (batching delay)
+- SLA violations: 15% of premium customers affected
+- Cloud egress costs: $405/month (5GB/day * $0.09/GB * 30 days)
+- Resource waste: Equal processing for all message types
+```
+
+**After Priority Queues:**
+```
+- Critical alert latency: &lt;100ms (immediate delivery)
+- SLA violations: &lt;1% (99%+ compliance achieved)
+- Cloud egress costs: $43/month (93% reduction via local batching)
+- Resource efficiency: 10x processing power for critical vs routine messages
+```
+
+---
+
+## Next Steps
+
+Ready to start? Choose your learning path:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./explorer" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Interactive Explorer
+  </a>
+  <a href="./setup" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Step-by-Step Tutorial
+  </a>
+</div>
+
+**Questions?** Check [Troubleshooting](./troubleshooting) or see [Related Examples](#related-examples) below.
+
+## Related Examples
+
+- [**Content Routing**](../content-routing) - Route messages based on field values and patterns
+- [**Fan-Out Pattern**](../fan-out-pattern) - Send messages to multiple destinations simultaneously
+- [**Circuit Breakers**](../circuit-breakers) - Handle failures gracefully with resilience patterns

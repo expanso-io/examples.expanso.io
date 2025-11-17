@@ -1,0 +1,146 @@
+---
+title: Circuit Breaker Patterns for Downstream Systems
+sidebar_label: Introduction
+sidebar_position: 1
+description: Protect your edge pipelines from cascading failures with circuit breaker patterns
+keywords: [circuit-breaker, retry, failure-handling, fallback, reliability, downstream, edge, resilience]
+---
+
+# Circuit Breaker Patterns for Downstream Systems
+
+**Protect your edge pipelines from cascading failures when downstream systems fail**. This step-by-step guide teaches you 4 essential circuit breaker techniques through hands-on exercises and production examples.
+
+## The Problem
+
+When your edge pipeline depends on downstream systems like databases, HTTP APIs, or cloud services, those systems will eventually fail. A single unresponsive endpoint can cause your entire pipeline to grind to a halt, consuming resources while waiting for operations that will never succeed.
+
+```json
+{
+  "sensor_data": "...",
+  "api_status": "timeout",     // ❌ Waiting 60s per request
+  "pipeline_status": "backed_up",  // ❌ Thousands of pending requests
+  "memory_usage": "95%"        // ❌ About to crash
+}
+```
+
+**The challenge:** Without circuit breakers, one failing service takes down your entire edge infrastructure.
+
+## The Solution: 4 Circuit Breaker Techniques
+
+This guide teaches you how to apply the right technique for each failure scenario:
+
+### 1. **HTTP Client Circuit Breakers** → External APIs
+Protect against slow or unresponsive HTTP services
+- **Use case:** Cloud APIs, external data sources, webhooks
+- **Method:** Fast timeouts with exponential backoff
+- **Result:** 5-10x faster recovery from API failures
+
+### 2. **Database Circuit Breakers** → Database Connections
+Prevent connection pool exhaustion and query timeouts
+- **Use case:** SQL queries, caching systems, data lookups
+- **Method:** Connection limits and query timeouts
+- **Result:** Maintain availability during database outages
+
+### 3. **Multi-Level Fallback** → Critical Systems
+Implement cascade fallback when primary systems fail
+- **Use case:** High-availability requirements, compliance logging
+- **Method:** Primary → Secondary → Local buffer → DLQ
+- **Result:** 99.9%+ availability even during outages
+
+### 4. **Production Monitoring** → Circuit Breaker Observability
+Monitor circuit state and failure patterns
+- **Use case:** Production systems, SLA monitoring, alerting
+- **Method:** Metrics, logging, and alerting integration
+- **Result:** Proactive failure detection and faster recovery
+
+## Why Process at the Edge?
+
+**Reduced Latency:** Fail fast locally instead of waiting for remote timeouts
+**Resource Protection:** Prevent memory and CPU exhaustion from pending requests  
+**Autonomous Operation:** Continue processing during cloud connectivity issues
+**Cost Efficiency:** Avoid expensive retry storms and resource consumption
+
+## What You'll Learn
+
+By the end of this guide, you'll be able to:
+
+✅ **Configure HTTP circuit breakers** with proper timeouts and retry strategies
+✅ **Implement database circuit breakers** to prevent connection pool exhaustion
+✅ **Design multi-level fallback chains** for high-availability systems
+✅ **Monitor circuit breaker metrics** for production observability
+✅ **Deploy production-ready solutions** with comprehensive error handling
+
+## Get Started
+
+### Option 1: Step-by-Step Tutorial (Recommended)
+**Build** circuit breaker patterns incrementally, one concept at a time.
+
+1. [**Setup Guide**](./setup) - Configure test environment and sample downstream systems
+2. [**Step 1: HTTP Client Circuit Breakers**](./step-1-http-circuit-breakers) - Protect against API failures
+3. [**Step 2: Database Circuit Breakers**](./step-2-database-circuit-breakers) - Prevent database connection issues
+4. [**Step 3: Multi-Level Fallback**](./step-3-multi-level-fallback) - Implement comprehensive fallback strategies
+5. [**Step 4: Production Monitoring**](./step-4-production-monitoring) - Add metrics and alerting
+
+### Option 2: Jump to Complete Solution
+**Download** the complete, production-ready circuit breaker implementation.
+
+[**→ Get Complete Circuit Breaker Pipeline**](./complete-circuit-breakers)
+
+## Who This Guide Is For
+
+- **DevOps Engineers** implementing reliable edge infrastructure
+- **Platform Engineers** designing resilient data pipelines  
+- **Site Reliability Engineers** preventing cascading failures
+- **IoT Developers** building autonomous edge systems
+
+## Prerequisites
+
+- Expanso CLI installed ([Installation Guide](https://docs.expanso.io/installation))
+- Basic familiarity with Expanso pipeline configuration
+- Access to downstream systems for testing (HTTP API, database, etc.)
+
+## Time to Complete
+
+- **Step-by-Step Tutorial:** 45-60 minutes
+- **Quick Deploy:** 10 minutes
+
+## Real-World Impact
+
+**Before Circuit Breakers:**
+```
+- Pipeline availability: 95% (fails when any dependency fails)
+- Recovery time: 5-10 minutes (manual intervention required)
+- Resource consumption: High (pending requests accumulate)
+- Customer impact: Complete outage during failures
+```
+
+**After Circuit Breakers:**
+```
+- Pipeline availability: 99.9% (fails gracefully)
+- Recovery time: 30-60 seconds (automatic recovery)
+- Resource consumption: Low (fast failure prevents accumulation)
+- Customer impact: Graceful degradation, core functions continue
+```
+
+---
+
+## Next Steps
+
+Ready to start? Choose your learning path:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./setup" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Step-by-Step Tutorial
+  </a>
+  <a href="./complete-circuit-breakers" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Download Complete Solution
+  </a>
+</div>
+
+**Questions?** Check [Troubleshooting](./troubleshooting) or see [Related Examples](#related-examples) below.
+
+## Related Examples
+
+- [**Fan-Out Pattern**](../fan-out-pattern/) - Multi-destination routing with fallback
+- [**Content Routing**](../content-routing) - Conditional routing based on data content
+- [**Priority Queues**](../priority-queues) - Priority-based message handling

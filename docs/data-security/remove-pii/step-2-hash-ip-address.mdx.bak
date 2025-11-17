@@ -1,0 +1,495 @@
+---
+title: "Step 2: Hash IP Address"
+sidebar_label: "Step 2: Hash IP"
+sidebar_position: 5
+description: Convert IP addresses to irreversible SHA-256 hashes for GDPR compliance while preserving uniqueness for abuse detection
+keywords: [gdpr, ip-address, hashing, sha256, privacy, abuse-detection]
+---
+
+# Step 2: Hash IP Address
+
+**Learn to anonymize IP addresses** using SHA-256 hashing with cryptographic salts. This preserves uniqueness for abuse detection while making data GDPR-compliant.
+
+## The Concept: One-Way Hashing
+
+IP addresses are **personal data under GDPR** but have **analytics value** for abuse detection. Hashing provides the perfect balance.
+
+**Use hashing when:**
+- ✅ You need to preserve uniqueness for counting (e.g., unique visitor counts)
+- ✅ You need to track behavior without knowing identity (e.g., "same IP made 50 requests")
+- ✅ You need GDPR compliance (hashes are not considered personal data)
+- ✅ You'll never need to reverse the transformation
+
+**Don't use hashing when:**
+- ❌ You need to contact the user (use encryption with key management)
+- ❌ You need geolocation analytics (use generalization to city/country instead)
+- ❌ You have no analytics use for the field (use deletion instead)
+
+## What We're Transforming
+
+From this event:
+
+```json
+{
+  "event_id": "evt_20240115_1030",
+  "ip_address": "192.168.1.100",  // ❌ GDPR personal data
+  // ... other fields
+}
+```
+
+To this:
+
+```json
+{
+  "event_id": "evt_20240115_1030",
+  "ip_hash": "8f3e7a9c2d1b...",     // ✅ GDPR-compliant hash
+  // ... other fields
+}
+```
+
+## The Bloblang Hashing Functions
+
+**SHA-256 with salt:**
+```bloblang
+# Hash a value with a salt (secret key)
+value.hash("sha256", env("SALT_VALUE").or("default-salt"))
+```
+
+**Example:**
+```bloblang
+# Remove original IP, add hashed version
+root = this
+root = this.without("ip_address")
+root.ip_hash = this.ip_address.hash("sha256", env("IP_SALT").or(""))
+```
+
+**How it works:**
+1. Takes original IP: `"192.168.1.100"`
+2. Combines with secret salt: `"192.168.1.100" + "your-secret-salt"`
+3. Applies SHA-256: produces `8f3e7a9c2d1b4e6f...` (64 hex characters)
+4. Result is **irreversible** - cannot get back to original IP
+
+## Step-by-Step Implementation
+
+### 1. Verify Environment Variable
+
+Ensure `IP_SALT` is set from the [Setup guide](./setup):
+
+```bash
+# Check salt is configured
+echo "IP_SALT length: ${#IP_SALT}"  # Should print 64
+
+# If not set, generate one
+export IP_SALT=$(openssl rand -hex 32)
+```
+
+### 2. Create the Pipeline Configuration
+
+Create `step-2-hash-ip.yaml`:
+
+```yaml title="step-2-hash-ip.yaml"
+name: pii-step-2-hash-ip
+description: "Step 2: Hash IP addresses (GDPR)"
+type: pipeline
+namespace: default
+priority: 100
+
+config:
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /events/ingest
+      allowed_verbs: [POST]
+
+  pipeline:
+    processors:
+      # Processor 1: Delete payment PII (from Step 1)
+      - mapping: |
+          root = this
+          root.payment_method = this.payment_method.without(
+            "full_number",
+            "expiry"
+          )
+
+      # Processor 2: Hash IP address
+      - mapping: |
+          # Hash the IP address with salt
+          root.ip_hash = this.ip_address.hash(
+            "sha256",
+            env("IP_SALT").or("")
+          )
+
+          # Remove original IP address
+          root = this.without("ip_address")
+
+  output:
+    file:
+      path: /var/log/expanso/step-2-output.jsonl
+      codec: lines
+
+logger:
+  level: INFO
+```
+
+### 3. Deploy the Pipeline
+
+```bash
+# Deploy to edge nodes
+expanso job deploy step-2-hash-ip.yaml
+
+# Verify deployment
+expanso job status pii-step-2-hash-ip
+```
+
+### 4. Test with Sample Data
+
+```bash
+# Send the sample event
+curl -X POST http://localhost:8080/events/ingest \
+  -H "Content-Type: application/json" \
+  -d @sample-data.json
+
+# Check the output
+tail -1 /var/log/expanso/step-2-output.jsonl | jq .
+```
+
+### 5. Verify IP Hashing
+
+**Expected output:**
+
+```json
+{
+  "event_id": "evt_20240115_1030",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "event_type": "purchase",
+  // "ip_address" removed          ✅ Original IP deleted
+  "ip_hash": "8f3e7a9c2d1b4e6f...", // ✅ 64-character hash
+  // ... other fields unchanged
+}
+```
+
+**Verification checklist:**
+- ✅ `ip_address` field is **not present** in output
+- ✅ `ip_hash` field is **present** with 64 hex characters
+- ✅ Same IP always produces **same hash** (run test twice to verify)
+- ✅ Hash is **different** from raw IP (cannot reverse-engineer)
+
+## Why This Works for GDPR
+
+### GDPR Article 4(1) - Personal Data
+
+Under GDPR, personal data is:
+> "any information relating to an identified or identifiable natural person"
+
+**IP addresses are personal data because:**
+- 🔴 ISPs can link IPs to individuals
+- 🔴 Combined with other data, IPs can identify users
+- 🔴 GDPR Article 29 Working Party explicitly lists IPs as personal data
+
+### GDPR Recital 26 - Anonymous Data
+
+Data is **not personal data** if:
+> "the data subject is not or no longer identifiable"
+
+**Why our hashed IPs qualify:**
+- ✅ SHA-256 is **cryptographically irreversible** (cannot compute original from hash)
+- ✅ With a strong salt, **rainbow table attacks fail**
+- ✅ Hash alone cannot identify an individual
+- ✅ Complies with GDPR Article 4(5) - pseudonymization
+
+### Important Legal Distinction
+
+**Hashing ≠ Encryption:**
+- **Encryption** can be reversed with a key → still personal data under GDPR
+- **Hashing** cannot be reversed → not personal data (if properly salted)
+
+## Analytics Impact
+
+### Before (with raw IP):
+```json
+"ip_address": "192.168.1.100"
+```
+
+**Analytics queries you CAN run:**
+- ✅ Geolocation analysis (city, country, region)
+- ✅ ISP detection
+- ✅ Reverse DNS lookup
+- ❌ These violate GDPR without consent!
+
+### After (with hashed IP):
+```json
+"ip_hash": "8f3e7a9c2d1b4e6f1a2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6"
+```
+
+**Analytics queries you CAN still run:**
+- ✅ Unique visitor counts (`SELECT COUNT(DISTINCT ip_hash)`)
+- ✅ Abuse detection ("same ip_hash made 1000 requests in 1 minute")
+- ✅ Rate limiting by IP hash
+- ✅ DDoS pattern detection ("10,000 requests from same ip_hash")
+- ✅ User journey tracking ("ip_hash visited 5 pages")
+
+**Analytics you CANNOT run:**
+- ❌ Geolocation (city, country) - use generalization for this
+- ❌ ISP identification
+- ❌ Reverse to contact user
+
+## Common Variations
+
+### Variation 1: Keep IP for Short-Term Analysis
+
+Hash for long-term storage, keep original for 24-hour window:
+
+```yaml
+- mapping: |
+    root = this
+
+    # Add hash for long-term storage
+    root.ip_hash = this.ip_address.hash("sha256", env("IP_SALT").or(""))
+
+    # Keep original IP (will be deleted by TTL policy after 24h)
+    # Don't remove ip_address field
+```
+
+Configure output with TTL to auto-delete after 24 hours.
+
+### Variation 2: Hash to Separate Field (Preserve Structure)
+
+If downstream systems expect `ip_address` field:
+
+```yaml
+- mapping: |
+    root = this
+
+    # Replace IP value with hash in-place
+    root.ip_address = this.ip_address.hash("sha256", env("IP_SALT").or(""))
+```
+
+**Result:** `"ip_address": "8f3e7a9c..."` (field name unchanged)
+
+### Variation 3: Hash Multiple IP Fields
+
+For events with multiple IPs (client_ip, proxy_ip, etc.):
+
+```yaml
+- mapping: |
+    root = this
+
+    # Hash all IP fields
+    root.client_ip_hash = this.client_ip.hash("sha256", env("IP_SALT").or(""))
+    root.proxy_ip_hash = this.proxy_ip.hash("sha256", env("IP_SALT").or(""))
+
+    # Remove originals
+    root = this.without("client_ip", "proxy_ip")
+```
+
+### Variation 4: Conditional Hashing (Preserve Internal IPs)
+
+Hash only public IPs, keep internal IPs for debugging:
+
+```yaml
+- mapping: |
+    root = this
+
+    # Check if IP is public (not 10.x.x.x, 192.168.x.x, 172.16-31.x.x)
+    let is_public = !this.ip_address.re_match("^(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[0-1])\\.)")
+
+    # Hash public IPs, keep internal IPs
+    root.ip_hash = if $is_public {
+      this.ip_address.hash("sha256", env("IP_SALT").or(""))
+    } else {
+      this.ip_address
+    }
+
+    root = this.without("ip_address")
+```
+
+## Troubleshooting
+
+### Issue: All IP hashes are identical
+
+**Cause:** Hashing a constant value instead of the IP field
+
+**Debug:**
+```bash
+# Check if ip_hash changes with different IPs
+curl -X POST http://localhost:8080/events/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"ip_address": "1.2.3.4", "event_type": "test"}'
+
+curl -X POST http://localhost:8080/events/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"ip_address": "5.6.7.8", "event_type": "test"}'
+
+# Compare hashes - they should be different
+tail -2 /var/log/expanso/step-2-output.jsonl | jq .ip_hash
+```
+
+**Wrong:**
+```yaml
+root.ip_hash = "192.168.1.100".hash("sha256", env("IP_SALT").or(""))  # ❌ Hardcoded
+```
+
+**Correct:**
+```yaml
+root.ip_hash = this.ip_address.hash("sha256", env("IP_SALT").or(""))  # ✅ Uses field
+```
+
+### Issue: Hash is too short or wrong format
+
+**Cause:** Using wrong hash algorithm or encoding
+
+**Debug:**
+```bash
+# SHA-256 should produce 64 hex characters
+tail -1 /var/log/expanso/step-2-output.jsonl | jq -r '.ip_hash | length'
+# Should print: 64
+```
+
+**Wrong algorithms:**
+```yaml
+this.ip_address.hash("md5", ...)     # ❌ Only 32 chars, cryptographically weak
+this.ip_address.hash("sha1", ...)    # ❌ Only 40 chars, deprecated
+```
+
+**Correct:**
+```yaml
+this.ip_address.hash("sha256", ...)  # ✅ 64 chars, secure
+this.ip_address.hash("sha512", ...)  # ✅ 128 chars, very secure
+```
+
+### Issue: IP_SALT environment variable not found
+
+**Cause:** Salt not configured or not accessible to pipeline
+
+**Debug:**
+```bash
+# Check salt is set in current shell
+echo $IP_SALT
+
+# Check salt is available to Expanso job
+expanso job inspect pii-step-2-hash-ip | grep -i env
+```
+
+**Fix:**
+```bash
+# Ensure salt is exported (not just set)
+export IP_SALT=$(openssl rand -hex 32)
+
+# For production, configure in Expanso orchestrator
+expanso config set IP_SALT "$(openssl rand -hex 32)" --secret
+```
+
+**Fallback in pipeline:**
+```yaml
+# Use .or() to provide clear error if salt missing
+root.ip_hash = this.ip_address.hash(
+  "sha256",
+  env("IP_SALT").or("MISSING_SALT_ERROR")
+)
+```
+
+### Issue: Can't track returning visitors
+
+**Cause:** Salt changed between deployments
+
+**Impact:** Same IP produces different hash after salt rotation
+
+**Example:**
+```bash
+# Day 1 with SALT_A
+192.168.1.100 → hash_abc123
+
+# Day 2 with SALT_B (rotated)
+192.168.1.100 → hash_xyz789  # Different hash!
+```
+
+**Solutions:**
+
+**Option 1:** Rotate salts slowly (every 90 days) and accept discontinuity
+
+**Option 2:** Use dual-hashing during rotation period:
+```yaml
+- mapping: |
+    root = this
+
+    # Hash with new salt
+    root.ip_hash_current = this.ip_address.hash("sha256", env("IP_SALT_NEW").or(""))
+
+    # Also hash with old salt (for 90 days)
+    root.ip_hash_previous = this.ip_address.hash("sha256", env("IP_SALT_OLD").or(""))
+
+    # Remove original
+    root = this.without("ip_address")
+```
+
+Then match on either hash during transition period.
+
+## Security Considerations
+
+### Rainbow Table Attacks
+
+**Threat:** Attacker builds table of `hash(common_ip)` to reverse-engineer hashes
+
+**Example:**
+```
+hash("1.1.1.1")       → abc123...
+hash("8.8.8.8")       → def456...
+hash("192.168.1.1")   → ghi789...
+```
+
+If your hash matches `abc123...`, attacker knows IP was `1.1.1.1`.
+
+**Defense:** Salting prevents this:
+```
+hash("1.1.1.1" + "secret_salt") → xyz999...
+```
+
+Attacker cannot build rainbow table without knowing salt.
+
+### Salt Protection
+
+**Best practices:**
+- 🔒 Store salts in secret management (Vault, AWS Secrets Manager)
+- 🔒 Never log or expose salt values
+- 🔒 Use different salts per environment (dev/staging/prod)
+- 🔒 Rotate salts every 90 days (accept tracking discontinuity)
+- 🔒 Use 32+ byte salts (64 hex characters minimum)
+
+### Hash Collision Risk
+
+**Q:** Can two different IPs produce the same hash?
+
+**A:** Theoretically yes (SHA-256 has 2^256 possible outputs, IPs have 2^32 IPv4 addresses). Practically no - collision probability is ~10^-60.
+
+**Comparison:**
+- Winning lottery: ~10^-7
+- SHA-256 collision: ~10^-60 (trillions of trillions of times less likely)
+
+## Key Takeaways
+
+✅ **Use SHA-256 hashing** to anonymize IPs while preserving uniqueness
+✅ **Always use salts** to prevent rainbow table attacks
+✅ **Delete original IPs** after hashing for GDPR compliance
+✅ **Hashes enable abuse detection** without storing personal data
+✅ **Cannot reverse hashes** - if you need original data later, use encryption instead
+✅ **Same IP = same hash** enables user journey tracking and rate limiting
+
+## Next Step
+
+Now that you've hashed IP addresses, continue with **email hashing** which adds an important twist: extracting the domain for organizational analytics.
+
+<div className="margin-top--lg margin-bottom--lg">
+  <a href="./step-3-hash-email" className="button button--primary button--lg">
+    Step 3: Hash Email →
+  </a>
+</div>
+
+### Or Jump Ahead:
+- [**Step 4: Pseudonymize User**](./step-4-pseudonymize-user)
+- [**Step 5: Generalize Location**](./step-5-generalize-location)
+- [**Complete Pipeline**](./complete-pipeline)
+
+### Related Resources:
+- [**Interactive Explorer**](./explorer) - See this transformation visually
+- [**Bloblang String Functions**](https://docs.expanso.io/components/processors/mapping#string-manipulation) - Full function reference
+- [**Cryptographic Functions**](https://docs.expanso.io/components/processors/mapping#hashing) - Hash algorithms guide

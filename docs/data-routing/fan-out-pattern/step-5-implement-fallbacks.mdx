@@ -1,0 +1,1170 @@
+---
+title: Implement Comprehensive Fallback Strategies
+sidebar_label: Step 5 - Implement Fallbacks
+sidebar_position: 8
+description: Build resilient edge computing with local fallbacks, circuit breakers, and automatic recovery
+keywords: [fallback, resilience, edge computing, circuit breaker, local buffering, reliability]
+---
+
+# Step 5: Implement Comprehensive Fallback Strategies
+
+**Make your fan-out pipeline bulletproof with edge computing resilience patterns**. This step teaches you how to implement comprehensive fallback strategies that ensure zero data loss during network partitions, cloud service outages, and edge node resource constraints.
+
+## Understanding Fallback Patterns in Edge Computing
+
+Edge computing environments face unique challenges that require sophisticated fallback strategies:
+
+### Edge Computing Challenges
+
+**Intermittent Connectivity:**
+- Cellular networks with variable coverage and bandwidth limitations
+- Satellite connections with high latency and weather-dependent reliability
+- Factory networks with maintenance windows and equipment interference
+
+**Resource Constraints:**
+- Limited disk space for local buffering during extended outages
+- Memory constraints requiring intelligent data prioritization
+- CPU limitations affecting compression and processing overhead
+
+**Service Dependencies:**
+- Cloud services may be unreachable during network partitions
+- Authentication services may timeout during connectivity issues
+- Multiple services failing independently requiring cascaded fallbacks
+
+### Fallback Strategy Benefits
+
+**Zero Data Loss:**
+- Local buffering ensures data preservation during any outage duration
+- Automatic retry and replay mechanisms handle transient failures
+- Priority-based data handling ensures critical data is always preserved
+
+**Graceful Degradation:**
+- Continue processing with reduced functionality during outages
+- Maintain operational visibility through local monitoring
+- Automatic recovery when services become available
+
+**Cost Optimization:**
+- Reduce bandwidth costs by intelligently buffering during high-cost periods
+- Compress and batch data during fallback periods for efficient recovery
+- Prevent expensive emergency data recovery procedures
+
+## Comprehensive Fallback Architecture
+
+### Layered Fallback Strategy
+
+The optimal edge fallback strategy uses multiple layers:
+
+```
+Primary → Retry → Circuit Breaker → Local Buffer → Alert
+```
+
+1. **Primary Destination**: Normal cloud service operation
+2. **Retry Logic**: Handle transient failures with exponential backoff  
+3. **Circuit Breaker**: Prevent resource exhaustion from persistent failures
+4. **Local Buffer**: Preserve data during extended outages
+5. **Alert System**: Notify operators of fallback activation
+
+### Fallback Pattern Types
+
+**Per-Destination Fallbacks:**
+Each output has its own fallback chain tailored to its characteristics
+```yaml
+- fallback:
+    - kafka: # Primary
+    - file: # Local buffer
+```
+
+**Global Pipeline Fallback:**
+Entire pipeline falls back to local processing during major outages
+```yaml
+- switch:
+    - condition: # Network available
+      output: # Normal fan-out
+    - default:
+      output: # Local-only processing
+```
+
+**Priority-Based Fallbacks:**
+Critical data gets different fallback treatment than non-critical data
+```yaml
+- switch:
+    - condition: ${!json("priority")} == "critical"
+      output: # Aggressive fallbacks
+    - default:
+      output: # Standard fallbacks  
+```
+
+## Step-by-Step Fallback Implementation
+
+### Starting Point: Current Multi-Destination Pipeline
+
+From Step 4, you have a complete multi-destination pipeline:
+
+```yaml title="Current pipeline outputs"
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Real-time Kafka streaming
+      - kafka: # ... existing config
+      
+      # Long-term S3 archival  
+      - aws_s3: # ... existing config
+      
+      # Search and analytics with basic fallback
+      - fallback:
+          - elasticsearch: # ... existing config
+          - file: # ... basic fallback
+```
+
+### Implement Comprehensive Kafka Fallback
+
+Replace the basic Kafka output with a comprehensive fallback chain:
+
+```yaml title="Comprehensive Kafka fallback"
+# Real-time Kafka with comprehensive fallback
+- fallback:
+    # Primary: Kafka with circuit breaker
+    - kafka:
+        addresses:
+          - ${KAFKA_BROKER_1}
+          - ${KAFKA_BROKER_2}
+          - ${KAFKA_BROKER_3}
+        topic: sensor-events
+        key: ${!json("sensor_id")}
+        
+        # Optimized for quick failure detection
+        batching:
+          count: 100
+          period: 2s
+          
+        # Circuit breaker settings
+        max_retries: 3           # Fail fast to activate fallback
+        backoff:
+          initial_interval: 200ms
+          max_interval: 2s       # Short max interval for quick fallback
+          
+        # Quick timeout for edge environments  
+        timeout: 10s
+        
+        # Kafka-specific optimizations
+        compression: snappy
+        idempotent_write: true
+        ack_replicas: true
+        
+        # Authentication
+        sasl:
+          mechanism: SCRAM-SHA-512
+          user: ${KAFKA_USERNAME}
+          password: ${KAFKA_PASSWORD}
+        tls:
+          enabled: true
+
+    # Fallback Level 1: Local Kafka buffer (high priority)
+    - file:
+        path: /var/expanso/kafka-buffer/high-priority-${!timestamp_unix_date("2006-01-02")}-${!timestamp_unix_hour()}.jsonl
+        codec: lines
+        
+        # Optimized for later Kafka replay
+        batching:
+          count: 500
+          period: 5m
+          byte_size: 10MB
+          
+        processors:
+          - mapping: |
+              root = this
+              root.fallback_metadata = {
+                "reason": "kafka_primary_failed",
+                "buffered_at": now(),
+                "intended_destination": "kafka_sensor-events",
+                "replay_priority": "high",
+                "buffer_level": "level_1"
+              }
+              
+              # Mark for priority replay  
+              root.replay_info = {
+                "target_topic": "sensor-events",
+                "target_key": this.sensor_id,
+                "original_timestamp": this.timestamp,
+                "buffer_sequence": uuid_v4()
+              }
+
+    # Fallback Level 2: Local compressed buffer (normal priority)
+    - file:
+        path: /var/expanso/kafka-buffer/compressed-${!timestamp_unix_date("2006-01-02")}-${!count("kafka_compressed_files")}.jsonl.gz
+        codec: lines
+        
+        # Large batches with compression for space efficiency
+        batching:
+          count: 2000
+          period: 15m
+          byte_size: 50MB
+          
+        # Enable compression to save disk space
+        processors:
+          - compress:
+              algorithm: gzip
+              level: 6
+          - mapping: |
+              root = this
+              root.fallback_metadata = {
+                "reason": "kafka_all_buffers_failed",
+                "buffered_at": now(),
+                "compression": "gzip_level_6",
+                "replay_priority": "normal",
+                "buffer_level": "level_2_compressed"
+              }
+
+    # Fallback Level 3: Emergency disk buffer (survival mode)
+    - file:
+        path: /var/expanso/emergency/kafka-emergency-${!timestamp_unix_date("2006-01-02")}.jsonl
+        codec: lines
+        
+        # Minimal resource usage for emergency situations
+        batching:
+          count: 5000
+          period: 60m
+          
+        processors:
+          - mapping: |
+              root = this
+              root.emergency_metadata = {
+                "reason": "kafka_complete_failure",
+                "emergency_activated_at": now(),
+                "disk_usage_critical": true,
+                "manual_intervention_required": true
+              }
+              
+              # Keep only essential fields to save space
+              root = {
+                "event_id": this.event_id,
+                "sensor_id": this.sensor_id,
+                "timestamp": this.timestamp,
+                "temperature": this.temperature.or(null),
+                "humidity": this.humidity.or(null),
+                "emergency_metadata": this.emergency_metadata
+              }
+```
+
+### Implement Intelligent S3 Fallback
+
+Add smart S3 fallback with bandwidth awareness:
+
+```yaml title="Intelligent S3 fallback"
+# Long-term S3 archival with intelligent fallback
+- fallback:
+    # Primary: S3 with bandwidth optimization  
+    - aws_s3:
+        bucket: ${S3_BUCKET}
+        region: ${AWS_REGION}
+        path: "sensor-data/dt=${!timestamp_unix_date("2006-01-02")}/hr=${!timestamp_unix_hour()}/edge=${!env("NODE_ID")}/batch=${!count("s3_files")}.jsonl.gz"
+        
+        # Large batches for efficiency
+        batching:
+          count: 10000
+          period: 60m
+          byte_size: 100MB
+          
+        # S3-specific optimizations
+        content_encoding: gzip
+        storage_class: INTELLIGENT_TIERING
+        server_side_encryption: AES256
+        
+        # Edge-friendly timeouts and retries
+        timeout: 600s
+        max_retries: 5
+        backoff:
+          initial_interval: 5s
+          max_interval: 5m
+          
+        # Credentials
+        credentials:
+          id: ${AWS_ACCESS_KEY_ID}
+          secret: ${AWS_SECRET_ACCESS_KEY}
+
+    # Fallback Level 1: Local S3-compatible buffer
+    - file:
+        path: /var/expanso/s3-buffer/archive-${!timestamp_unix_date("2006/01/02")}/hour-${!timestamp_unix_hour()}/batch-${!count("s3_buffer_files")}.jsonl.gz
+        codec: lines
+        
+        # Mirror S3 structure for easy sync later
+        batching:
+          count: 10000
+          period: 90m    # Longer than primary for efficiency
+          byte_size: 150MB
+          
+        processors:
+          - compress:
+              algorithm: gzip
+              level: 9     # Maximum compression for storage efficiency
+          - mapping: |
+              root = this
+              root.s3_fallback_metadata = {
+                "reason": "s3_primary_failed",
+                "buffered_at": now(),
+                "intended_bucket": env("S3_BUCKET"),
+                "intended_path": "sensor-data/dt=" + this.timestamp.parse_timestamp().ts_format("2006-01-02") + "/hr=" + this.timestamp.parse_timestamp().ts_hour().string(),
+                "compression_level": 9,
+                "sync_priority": "high"
+              }
+
+    # Fallback Level 2: Minimal local archive
+    - file:
+        path: /var/expanso/minimal-archive/events-${!timestamp_unix_date("2006-01-02")}.jsonl.xz
+        codec: lines
+        
+        # Maximum compression for space-constrained situations
+        batching:
+          count: 50000
+          period: 24h    # Daily files for minimal disk usage
+          
+        processors:
+          - compress:
+              algorithm: xz
+              level: 9
+          - mapping: |
+              # Keep only critical fields for minimal storage
+              root = {
+                "event_id": this.event_id,
+                "sensor_id": this.sensor_id, 
+                "timestamp": this.timestamp,
+                "metrics": {
+                  "temperature_celsius": this.temperature.or(null),
+                  "humidity_percent": this.humidity.or(null)
+                },
+                "edge_node_id": this.edge_node_id,
+                "minimal_archive_metadata": {
+                  "reason": "storage_space_critical",
+                  "compression": "xz_maximum",
+                  "fields_reduced": true
+                }
+              }
+```
+
+### Implement Smart Elasticsearch Fallback
+
+Add Elasticsearch fallback with search optimization:
+
+```yaml title="Smart Elasticsearch fallback"
+# Search and analytics with smart fallback
+- fallback:
+    # Primary: Elasticsearch cluster
+    - elasticsearch:
+        urls:
+          - ${ES_ENDPOINT_1}
+          - ${ES_ENDPOINT_2}
+          - ${ES_ENDPOINT_3}
+        
+        index: sensor-events-${!timestamp_unix_date("2006-01-02")}
+        id: ${!json("event_id")}
+        routing: ${!json("edge_node_id")}
+        
+        # Balanced batching for search responsiveness
+        batching:
+          count: 500
+          period: 15s
+          byte_size: 10MB
+          
+        # Quick failure detection
+        max_retries: 3
+        timeout: 30s
+        backoff:
+          initial_interval: 2s
+          max_interval: 30s
+          
+        # Authentication and compression
+        basic_auth:
+          enabled: true
+          username: ${ES_USERNAME}
+          password: ${ES_PASSWORD}
+        gzip_compression: true
+        
+        # Processing pipeline
+        pipeline: "sensor-events-ingest-pipeline"
+
+    # Fallback Level 1: Local search index (SQLite)
+    - sql:
+        driver: "sqlite3"
+        dsn: "/var/expanso/search-buffer/sensor-events.db"
+        table: "sensor_events"
+        
+        # Optimized for search-like queries
+        columns:
+          event_id: "TEXT PRIMARY KEY"
+          sensor_id: "TEXT INDEXED"
+          timestamp: "DATETIME INDEXED"
+          edge_node_id: "TEXT INDEXED"
+          temperature: "REAL"
+          humidity: "REAL"
+          search_content: "TEXT"
+          alert_status: "TEXT INDEXED"
+          
+        batching:
+          count: 1000
+          period: 30s
+          
+        processors:
+          - mapping: |
+              # Prepare for local SQLite search
+              root = {
+                "event_id": this.event_id,
+                "sensor_id": this.sensor_id,
+                "timestamp": this.timestamp,
+                "edge_node_id": this.edge_node_id,
+                "temperature": this.temperature.or(null),
+                "humidity": this.humidity.or(null),
+                "search_content": [
+                  this.sensor_id,
+                  this.device_type.or(""),
+                  this.edge_location.or(""),
+                  "temp:" + this.temperature.string()
+                ].join(" "),
+                "alert_status": this.alerts.temperature_status.or("unknown")
+              }
+
+    # Fallback Level 2: Minimal search buffer
+    - file:
+        path: /var/expanso/search-buffer/searchable-events-${!timestamp_unix_date("2006-01-02")}.jsonl
+        codec: lines
+        
+        # Optimized for later search indexing
+        batching:
+          count: 2000
+          period: 30m
+          
+        processors:
+          - mapping: |
+              root = this
+              root.search_fallback_metadata = {
+                "reason": "elasticsearch_and_sqlite_failed",
+                "buffered_at": now(),
+                "search_fields_preserved": true,
+                "indexing_priority": "high"
+              }
+              
+              # Preserve search-critical fields
+              root.search_preserved = {
+                "full_text": this.search_content.or(""),
+                "facets": {
+                  "sensor_id": this.sensor_id,
+                  "device_type": this.device_type.or("unknown"),
+                  "edge_location": this.edge_location.or("unknown")
+                },
+                "metrics": this.metrics,
+                "alerts": this.alerts
+              }
+```
+
+### Implement Global Pipeline Fallback
+
+Add a global fallback for complete network isolation:
+
+```yaml title="Global pipeline fallback"
+# Complete pipeline with global fallback
+output:
+  # Use switch to choose between normal and emergency mode
+  switch:
+    # Normal mode: Full fan-out with comprehensive fallbacks
+    - condition: ${!env("NETWORK_STATUS").or("online")} == "online"
+      output:
+        broker:
+          pattern: fan_out
+          outputs:
+            # Comprehensive Kafka fallback (as defined above)
+            - fallback:
+                # ... Kafka fallback chain
+
+            # Intelligent S3 fallback (as defined above)  
+            - fallback:
+                # ... S3 fallback chain
+
+            # Smart Elasticsearch fallback (as defined above)
+            - fallback:
+                # ... Elasticsearch fallback chain
+
+    # Emergency mode: Local-only processing
+    - condition: ${!env("NETWORK_STATUS")} == "offline"
+      output:
+        broker:
+          pattern: fan_out
+          outputs:
+            # Emergency local Kafka buffer
+            - file:
+                path: /var/expanso/emergency/offline-kafka-${!timestamp_unix_date("2006-01-02")}-${!timestamp_unix_hour()}.jsonl
+                codec: lines
+                batching:
+                  count: 1000
+                  period: 10m
+                processors:
+                  - mapping: |
+                      root = this
+                      root.emergency_mode = {
+                        "network_status": "offline",
+                        "local_processing_only": true,
+                        "sync_required": true,
+                        "priority": "high"
+                      }
+
+            # Emergency local archive
+            - file:
+                path: /var/expanso/emergency/offline-archive-${!timestamp_unix_date("2006-01-02")}.jsonl.gz  
+                codec: lines
+                batching:
+                  count: 5000
+                  period: 60m
+                processors:
+                  - compress:
+                      algorithm: gzip
+                      level: 6
+                  - mapping: |
+                      root = this
+                      root.emergency_archive = {
+                        "offline_mode": true,
+                        "compression": "gzip_6",
+                        "full_sync_required": true
+                      }
+
+            # Emergency local search
+            - file:
+                path: /var/expanso/emergency/offline-search-${!timestamp_unix_date("2006-01-02")}.jsonl
+                codec: lines
+                batching:
+                  count: 500
+                  period: 5m
+                processors:
+                  - mapping: |
+                      # Preserve searchable content for offline operations
+                      root = {
+                        "event_id": this.event_id,
+                        "sensor_id": this.sensor_id,
+                        "timestamp": this.timestamp,
+                        "search_content": [this.sensor_id, this.device_type.or(""), this.temperature.string(), this.humidity.string()].join(" "),
+                        "alert_summary": this.alerts.temperature_status.or("normal") + "_" + this.alerts.humidity_status.or("normal"),
+                        "offline_search_metadata": {
+                          "indexed_offline": true,
+                          "search_ready": true
+                        }
+                      }
+
+    # Disaster recovery mode: Minimal survival processing
+    - default:
+        output:
+          file:
+            path: /var/expanso/disaster-recovery/survival-log-${!timestamp_unix_nano()}.jsonl
+            codec: lines
+            batching:
+              count: 100
+              period: 1m
+            processors:
+              - mapping: |
+                  # Absolute minimal data preservation
+                  root = {
+                    "id": this.event_id.or(uuid_v4()),
+                    "sensor": this.sensor_id.or("unknown"),
+                    "time": this.timestamp.or(now()),
+                    "temp": this.temperature.or(null),
+                    "hum": this.humidity.or(null),
+                    "disaster_mode": true
+                  }
+```
+
+### Add Fallback Monitoring and Recovery
+
+Implement monitoring for fallback activation and automatic recovery:
+
+```yaml title="Fallback monitoring and recovery"
+pipeline:
+  processors:
+    # Add fallback monitoring metadata
+    - mapping: |
+        root = this
+        
+        # Fallback status tracking
+        root.fallback_monitoring = {
+          "network_quality": env("NETWORK_QUALITY").or("unknown"),
+          "disk_usage_percent": env("DISK_USAGE_PERCENT").number().or(0),
+          "memory_usage_percent": env("MEMORY_USAGE_PERCENT").number().or(0),
+          "fallback_buffers_size_mb": env("FALLBACK_BUFFERS_SIZE_MB").number().or(0),
+          "last_successful_kafka": env("LAST_KAFKA_SUCCESS").or("unknown"),
+          "last_successful_s3": env("LAST_S3_SUCCESS").or("unknown"),
+          "last_successful_elasticsearch": env("LAST_ES_SUCCESS").or("unknown")
+        }
+        
+        # Automatic recovery triggers
+        root.recovery_triggers = {
+          "should_retry_kafka": this.fallback_monitoring.last_successful_kafka == "unknown" || (now() - this.fallback_monitoring.last_successful_kafka.parse_timestamp()) > 300,
+          "should_retry_s3": this.fallback_monitoring.disk_usage_percent < 80,
+          "should_retry_elasticsearch": this.fallback_monitoring.memory_usage_percent < 85,
+          "emergency_mode_required": this.fallback_monitoring.disk_usage_percent > 95
+        }
+
+    # Fallback decision logic
+    - mapping: |
+        root = this
+        
+        # Set environment variables for switch conditions
+        if this.recovery_triggers.emergency_mode_required {
+          root.pipeline_env = {"NETWORK_STATUS": "disaster"}
+        } else if this.fallback_monitoring.network_quality == "poor" {
+          root.pipeline_env = {"NETWORK_STATUS": "offline"}  
+        } else {
+          root.pipeline_env = {"NETWORK_STATUS": "online"}
+        }
+        
+        # Add recovery metadata for later replay
+        root.recovery_metadata = {
+          "fallback_level": if this.pipeline_env.NETWORK_STATUS == "disaster" { "disaster" }
+                           else if this.pipeline_env.NETWORK_STATUS == "offline" { "emergency" }
+                           else { "normal" },
+          "recovery_priority": if this.recovery_triggers.emergency_mode_required { "critical" } else { "normal" },
+          "replay_required": this.pipeline_env.NETWORK_STATUS != "online"
+        }
+```
+
+## Complete Fallback Configuration
+
+Here's the complete configuration with comprehensive fallback strategies:
+
+```yaml title="complete-fallback-fan-out-pipeline.yaml"
+name: comprehensive-fallback-pipeline
+description: Complete multi-destination pipeline with comprehensive edge computing fallbacks
+type: pipeline
+namespace: production
+labels:
+  environment: production
+  pattern: fan-out-resilient
+  version: v5.0
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+      timeout: 5s
+      rate_limit: "25000/s"
+
+  pipeline:
+    processors:
+      # Edge metadata and monitoring
+      - mapping: |
+          root = this
+          root.edge_node_id = env("NODE_ID").or("unknown")
+          root.edge_location = env("NODE_LOCATION").or("unknown")
+          root.processing_timestamp = now()
+          root.pipeline_version = "resilient-v5.0"
+          
+          # Fallback monitoring
+          root.fallback_monitoring = {
+            "network_quality": env("NETWORK_QUALITY").or("good"),
+            "disk_usage_percent": env("DISK_USAGE_PERCENT").number().or(30),
+            "memory_usage_percent": env("MEMORY_USAGE_PERCENT").number().or(40)
+          }
+
+      # Multi-destination metadata preparation
+      - mapping: |
+          root = this
+          
+          # All destination metadata
+          root.kafka_metadata = {
+            "partition_key": this.sensor_id,
+            "delivery_mode": "at_least_once"
+          }
+          root.s3_metadata = {
+            "partition_date": this.timestamp.parse_timestamp().ts_format("2006-01-02"),
+            "storage_tier": "intelligent_tiering"
+          }
+          root.search_metadata = {
+            "index_name": "sensor-events-" + this.timestamp.parse_timestamp().ts_format("2006-01-02"),
+            "routing_key": this.edge_node_id
+          }
+
+      # Enhanced processing for all destinations
+      - mapping: |
+          root = this
+          
+          # Analytics fields
+          root.analytics = {
+            "event_hour": this.timestamp.parse_timestamp().ts_hour(),
+            "is_business_hour": this.timestamp.parse_timestamp().ts_hour() >= 8 && this.timestamp.parse_timestamp().ts_hour() <= 17
+          }
+          
+          # Metrics and alerts
+          root.metrics = {
+            "temperature_celsius": this.temperature.number(),
+            "humidity_percent": this.humidity.number()
+          }
+          root.alerts = {
+            "temperature_status": if this.metrics.temperature_celsius > 35 { "high" } else { "normal" },
+            "data_quality": if this.exists("temperature") && this.exists("humidity") { "complete" } else { "incomplete" }
+          }
+          
+          # Fallback decision metadata
+          root.recovery_metadata = {
+            "fallback_level": if this.fallback_monitoring.disk_usage_percent > 95 { "disaster" }
+                             else if this.fallback_monitoring.network_quality == "poor" { "emergency" }
+                             else { "normal" },
+            "replay_required": this.fallback_monitoring.network_quality != "good"
+          }
+
+      # Validation
+      - mapping: |
+          if !this.exists("event_id") || !this.exists("sensor_id") || !this.exists("timestamp") {
+            throw("missing required fields")
+          }
+          root = this
+
+  output:
+    # Global fallback switch
+    switch:
+      # Normal mode: Comprehensive fan-out with fallbacks
+      - condition: ${!json("recovery_metadata.fallback_level")} == "normal"
+        output:
+          broker:
+            pattern: fan_out
+            outputs:
+              # Comprehensive Kafka fallback
+              - fallback:
+                  - kafka:
+                      addresses: [${KAFKA_BROKER_1}, ${KAFKA_BROKER_2}]
+                      topic: sensor-events
+                      key: ${!json("sensor_id")}
+                      batching: {count: 100, period: "2s"}
+                      max_retries: 3
+                      timeout: "10s"
+                      sasl: {mechanism: "SCRAM-SHA-512", user: "${KAFKA_USERNAME}", password: "${KAFKA_PASSWORD}"}
+                  - file:
+                      path: "/var/expanso/kafka-buffer/high-priority-${!timestamp_unix_date(\"2006-01-02\")}-${!timestamp_unix_hour()}.jsonl"
+                      batching: {count: 500, period: "5m"}
+                  - file:
+                      path: "/var/expanso/kafka-buffer/compressed-${!timestamp_unix_date(\"2006-01-02\")}.jsonl.gz"
+                      batching: {count: 2000, period: "15m"}
+
+              # Intelligent S3 fallback
+              - fallback:
+                  - aws_s3:
+                      bucket: ${S3_BUCKET}
+                      path: "sensor-data/dt=${!timestamp_unix_date(\"2006-01-02\")}/hr=${!timestamp_unix_hour()}/batch=${!count(\"s3_files\")}.jsonl.gz"
+                      batching: {count: 10000, period: "60m"}
+                      content_encoding: gzip
+                      credentials: {id: "${AWS_ACCESS_KEY_ID}", secret: "${AWS_SECRET_ACCESS_KEY}"}
+                  - file:
+                      path: "/var/expanso/s3-buffer/archive-${!timestamp_unix_date(\"2006/01/02\")}/batch-${!count(\"s3_buffer_files\")}.jsonl.gz"
+                      batching: {count: 10000, period: "90m"}
+
+              # Smart Elasticsearch fallback
+              - fallback:
+                  - elasticsearch:
+                      urls: [${ES_ENDPOINT_1}]
+                      index: "sensor-events-${!timestamp_unix_date(\"2006-01-02\")}"
+                      id: ${!json("event_id")}
+                      batching: {count: 500, period: "15s"}
+                      basic_auth: {enabled: true, username: "${ES_USERNAME}", password: "${ES_PASSWORD}"}
+                  - file:
+                      path: "/var/expanso/search-buffer/searchable-events-${!timestamp_unix_date(\"2006-01-02\")}.jsonl"
+                      batching: {count: 2000, period: "30m"}
+
+      # Emergency mode: Local-only processing
+      - condition: ${!json("recovery_metadata.fallback_level")} == "emergency"
+        output:
+          broker:
+            pattern: fan_out
+            outputs:
+              - file:
+                  path: "/var/expanso/emergency/offline-kafka-${!timestamp_unix_date(\"2006-01-02\")}.jsonl"
+                  batching: {count: 1000, period: "10m"}
+              - file:
+                  path: "/var/expanso/emergency/offline-archive-${!timestamp_unix_date(\"2006-01-02\")}.jsonl.gz"
+                  batching: {count: 5000, period: "60m"}
+              - file:
+                  path: "/var/expanso/emergency/offline-search-${!timestamp_unix_date(\"2006-01-02\")}.jsonl"
+                  batching: {count: 500, period: "5m"}
+
+      # Disaster recovery: Minimal survival
+      - default:
+          output:
+            file:
+              path: "/var/expanso/disaster-recovery/survival-${!timestamp_unix_nano()}.jsonl"
+              batching: {count: 100, period: "1m"}
+```
+
+## Testing Fallback Scenarios
+
+### Test Network Outage Scenarios
+
+```bash title="Test fallback activation"
+# Create network simulation script
+cat > test-fallbacks.sh << 'EOF'
+#!/bin/bash
+
+PIPELINE="comprehensive-fallback-pipeline"
+
+echo "Testing Comprehensive Fallback Scenarios"
+echo "======================================="
+
+# Test 1: Normal operation
+echo "1. Testing normal operation..."
+export NETWORK_QUALITY="good"
+export DISK_USAGE_PERCENT="30"
+export MEMORY_USAGE_PERCENT="40"
+
+./generate-test-data.sh http://localhost:8080/events 5
+sleep 10
+
+echo "Checking normal mode files..."
+find /var/expanso/kafka-buffer/ -name "*.jsonl" -mmin -5 2>/dev/null | wc -l
+
+# Test 2: Simulate network degradation
+echo "2. Testing network degradation..."
+export NETWORK_QUALITY="poor"
+
+./generate-test-data.sh http://localhost:8080/events 5
+sleep 10
+
+echo "Checking emergency mode files..."
+find /var/expanso/emergency/ -name "*.jsonl" -mmin -5 2>/dev/null | wc -l
+
+# Test 3: Simulate resource exhaustion
+echo "3. Testing resource exhaustion..."
+export DISK_USAGE_PERCENT="98"
+export MEMORY_USAGE_PERCENT="95"
+
+./generate-test-data.sh http://localhost:8080/events 3
+sleep 5
+
+echo "Checking disaster recovery files..."
+find /var/expanso/disaster-recovery/ -name "*.jsonl" -mmin -2 2>/dev/null | wc -l
+
+# Test 4: Recovery simulation
+echo "4. Testing recovery..."
+export NETWORK_QUALITY="good"
+export DISK_USAGE_PERCENT="30"
+export MEMORY_USAGE_PERCENT="40"
+
+./generate-test-data.sh http://localhost:8080/events 5
+sleep 10
+
+echo "Checking return to normal mode..."
+find /var/expanso/kafka-buffer/ -name "*.jsonl" -mmin -5 2>/dev/null | wc -l
+
+echo "Fallback testing complete!"
+EOF
+
+chmod +x test-fallbacks.sh
+./test-fallbacks.sh
+```
+
+### Monitor Fallback Buffer Usage
+
+```bash title="Monitor fallback systems"
+# Create buffer monitoring script
+cat > monitor-fallback-buffers.sh << 'EOF'
+#!/bin/bash
+
+echo "Fallback Buffer Status Monitor"
+echo "=============================="
+
+# Check disk usage by fallback type
+echo "Disk Usage by Fallback Type:"
+echo "Kafka Buffers:"
+du -sh /var/expanso/kafka-buffer/ 2>/dev/null || echo "  No Kafka buffers"
+
+echo "S3 Buffers:"  
+du -sh /var/expanso/s3-buffer/ 2>/dev/null || echo "  No S3 buffers"
+
+echo "Search Buffers:"
+du -sh /var/expanso/search-buffer/ 2>/dev/null || echo "  No search buffers"
+
+echo "Emergency Buffers:"
+du -sh /var/expanso/emergency/ 2>/dev/null || echo "  No emergency buffers"
+
+echo "Disaster Recovery:"
+du -sh /var/expanso/disaster-recovery/ 2>/dev/null || echo "  No disaster recovery files"
+
+echo ""
+echo "Buffer File Counts:"
+echo "Kafka: $(find /var/expanso/kafka-buffer/ -name "*.jsonl*" 2>/dev/null | wc -l) files"
+echo "S3: $(find /var/expanso/s3-buffer/ -name "*.jsonl*" 2>/dev/null | wc -l) files"  
+echo "Search: $(find /var/expanso/search-buffer/ -name "*.jsonl*" 2>/dev/null | wc -l) files"
+echo "Emergency: $(find /var/expanso/emergency/ -name "*.jsonl*" 2>/dev/null | wc -l) files"
+echo "Disaster: $(find /var/expanso/disaster-recovery/ -name "*.jsonl*" 2>/dev/null | wc -l) files"
+
+echo ""
+echo "Recent Activity (last 30 minutes):"
+echo "Recent Kafka buffers: $(find /var/expanso/kafka-buffer/ -name "*.jsonl*" -mmin -30 2>/dev/null | wc -l)"
+echo "Recent S3 buffers: $(find /var/expanso/s3-buffer/ -name "*.jsonl*" -mmin -30 2>/dev/null | wc -l)"
+echo "Recent Emergency files: $(find /var/expanso/emergency/ -name "*.jsonl*" -mmin -30 2>/dev/null | wc -l)"
+
+echo ""
+echo "Storage Health:"
+TOTAL_FALLBACK_SIZE=$(du -s /var/expanso/ 2>/dev/null | cut -f1)
+AVAILABLE_SPACE=$(df /var/expanso/ 2>/dev/null | awk 'NR==2 {print $4}')
+if [ ! -z "$TOTAL_FALLBACK_SIZE" ] && [ ! -z "$AVAILABLE_SPACE" ]; then
+  USAGE_PERCENT=$(echo "scale=2; $TOTAL_FALLBACK_SIZE * 100 / ($TOTAL_FALLBACK_SIZE + $AVAILABLE_SPACE)" | bc 2>/dev/null)
+  echo "Fallback storage usage: ${USAGE_PERCENT}%"
+  if [ $(echo "$USAGE_PERCENT > 80" | bc 2>/dev/null) -eq 1 ]; then
+    echo "⚠️  WARNING: Fallback storage usage high!"
+  fi
+else
+  echo "Unable to calculate storage usage"
+fi
+EOF
+
+chmod +x monitor-fallback-buffers.sh
+./monitor-fallback-buffers.sh
+```
+
+### Create Recovery Automation
+
+```bash title="Automated recovery procedures"
+# Create recovery automation script
+cat > automated-recovery.sh << 'EOF'
+#!/bin/bash
+
+echo "Automated Recovery Procedures"
+echo "============================="
+
+# Function to replay Kafka buffers
+replay_kafka_buffers() {
+  echo "Replaying Kafka buffers..."
+  
+  # Find Kafka buffer files
+  KAFKA_BUFFERS=$(find /var/expanso/kafka-buffer/ -name "*.jsonl" -mtime -1)
+  
+  if [ -z "$KAFKA_BUFFERS" ]; then
+    echo "No Kafka buffers to replay"
+    return
+  fi
+  
+  for buffer_file in $KAFKA_BUFFERS; do
+    echo "Replaying: $buffer_file"
+    
+    # Extract replay metadata and send to Kafka
+    while IFS= read -r line; do
+      echo "$line" | jq -r 'select(.replay_info != null)' | \
+      while read -r event; do
+        if [ ! -z "$event" ]; then
+          # Send to original Kafka endpoint
+          echo "$event" | curl -s -X POST http://localhost:8080/events \
+            -H "Content-Type: application/json" \
+            -d @-
+        fi
+      done
+    done < "$buffer_file"
+    
+    # Archive replayed buffer
+    mv "$buffer_file" "${buffer_file}.replayed.$(date +%s)"
+  done
+}
+
+# Function to sync S3 buffers
+sync_s3_buffers() {
+  echo "Syncing S3 buffers..."
+  
+  S3_BUFFERS=$(find /var/expanso/s3-buffer/ -name "*.jsonl.gz" -mtime -1)
+  
+  if [ -z "$S3_BUFFERS" ]; then
+    echo "No S3 buffers to sync"
+    return
+  fi
+  
+  for buffer_file in $S3_BUFFERS; do
+    echo "Syncing: $buffer_file"
+    
+    # Extract S3 metadata for proper upload path
+    S3_PATH=$(zcat "$buffer_file" | head -1 | jq -r '.s3_fallback_metadata.intended_path // empty')
+    
+    if [ ! -z "$S3_PATH" ]; then
+      # Upload to S3 using intended path
+      aws s3 cp "$buffer_file" "s3://${S3_BUCKET}/${S3_PATH}/$(basename $buffer_file)" \
+        --region ${AWS_REGION}
+      
+      if [ $? -eq 0 ]; then
+        echo "Successfully synced: $buffer_file"
+        mv "$buffer_file" "${buffer_file}.synced.$(date +%s)"
+      else
+        echo "Failed to sync: $buffer_file"
+      fi
+    fi
+  done
+}
+
+# Function to index search buffers
+index_search_buffers() {
+  echo "Indexing search buffers..."
+  
+  SEARCH_BUFFERS=$(find /var/expanso/search-buffer/ -name "*.jsonl" -mtime -1)
+  
+  if [ -z "$SEARCH_BUFFERS" ]; then
+    echo "No search buffers to index"
+    return
+  fi
+  
+  for buffer_file in $SEARCH_BUFFERS; do
+    echo "Indexing: $buffer_file"
+    
+    # Bulk index to Elasticsearch
+    while IFS= read -r line; do
+      INDEX_NAME=$(echo "$line" | jq -r '.search_metadata.index_name // "sensor-events-'$(date +%Y-%m-%d)'"')
+      DOC_ID=$(echo "$line" | jq -r '.event_id')
+      
+      # Create bulk index entry
+      echo '{"index": {"_index": "'$INDEX_NAME'", "_id": "'$DOC_ID'"}}' 
+      echo "$line"
+    done < "$buffer_file" | \
+    curl -s -X POST "${ES_ENDPOINT_1}/_bulk" \
+      -u "${ES_USERNAME}:${ES_PASSWORD}" \
+      -H "Content-Type: application/x-ndjson" \
+      --data-binary @-
+    
+    if [ $? -eq 0 ]; then
+      echo "Successfully indexed: $buffer_file"
+      mv "$buffer_file" "${buffer_file}.indexed.$(date +%s)"
+    else
+      echo "Failed to index: $buffer_file"
+    fi
+  done
+}
+
+# Check network connectivity before recovery
+echo "Checking connectivity..."
+if curl -s --max-time 5 "${KAFKA_BROKER_1}" >/dev/null 2>&1; then
+  echo "Kafka reachable - starting Kafka replay"
+  replay_kafka_buffers
+else
+  echo "Kafka unreachable - skipping replay"
+fi
+
+if aws s3 ls "s3://${S3_BUCKET}/" >/dev/null 2>&1; then
+  echo "S3 reachable - starting S3 sync"
+  sync_s3_buffers
+else
+  echo "S3 unreachable - skipping sync"
+fi
+
+if curl -s --max-time 5 "${ES_ENDPOINT_1}/_cluster/health" >/dev/null 2>&1; then
+  echo "Elasticsearch reachable - starting search indexing"
+  index_search_buffers
+else
+  echo "Elasticsearch unreachable - skipping indexing"
+fi
+
+echo "Automated recovery completed!"
+EOF
+
+chmod +x automated-recovery.sh
+
+# Set up cron job for periodic recovery
+echo "# Automated fallback recovery - every 15 minutes" | crontab -l > /tmp/crontab_backup 2>/dev/null || true
+echo "*/15 * * * * cd $(pwd) && ./automated-recovery.sh >> /var/log/expanso-recovery.log 2>&1" >> /tmp/crontab_backup
+crontab /tmp/crontab_backup
+echo "Automated recovery scheduled every 15 minutes"
+```
+
+## Production Optimization Strategies
+
+### Disk Space Management
+
+```yaml title="Intelligent disk space management"
+pipeline:
+  processors:
+    # Add disk space monitoring
+    - mapping: |
+        root = this
+        
+        # Check available disk space
+        disk_usage = env("DISK_USAGE_PERCENT").number().or(0)
+        
+        # Adjust fallback behavior based on space
+        root.space_management = {
+          "disk_usage_percent": disk_usage,
+          "compression_level": if disk_usage > 80 { 9 } else { 6 },
+          "retention_hours": if disk_usage > 90 { 6 } else if disk_usage > 70 { 24 } else { 72 },
+          "emergency_cleanup": disk_usage > 95
+        }
+        
+        # Set compression and retention policies
+        root.fallback_config = {
+          "use_maximum_compression": this.space_management.disk_usage_percent > 75,
+          "reduce_batch_sizes": this.space_management.disk_usage_percent > 85,
+          "emergency_mode": this.space_management.emergency_cleanup
+        }
+```
+
+### Priority-Based Fallback
+
+```yaml title="Priority-based fallback handling"
+output:
+  switch:
+    # Critical data gets aggressive fallbacks
+    - condition: ${!json("priority")} == "critical"
+      output:
+        broker:
+          pattern: fan_out
+          outputs:
+            - fallback:
+                - kafka: # Primary with shorter timeouts
+                    timeout: "5s"
+                    max_retries: 5
+                - file: # Immediate local buffer
+                    path: "/var/expanso/critical/kafka-${!timestamp_unix_hour()}.jsonl"
+                    batching: {count: 50, period: "1m"}  # Small, frequent batches
+                - file: # Secondary critical buffer
+                    path: "/var/expanso/critical/backup-${!timestamp_unix_nano()}.jsonl"
+                    batching: {count: 10, period: "30s"} # Very small batches
+                    
+    # Normal data gets standard fallbacks            
+    - condition: ${!json("priority")} == "normal"
+      output:
+        # ... standard fallback configuration
+        
+    # Low priority data gets best-effort handling
+    - default:
+        output:
+          fallback:
+            - kafka: # Primary with longer timeouts
+                timeout: "30s"
+                max_retries: 2
+            - file: # Larger batches, less frequent
+                path: "/var/expanso/low-priority/batch-${!count(\"low_priority_files\")}.jsonl"
+                batching: {count: 5000, period: "60m"}
+```
+
+## Key Concepts Recap
+
+**Comprehensive Fallback Benefits:**
+- ✅ **Zero data loss**: Multiple fallback layers ensure no data is ever lost
+- ✅ **Graceful degradation**: Continue operations with reduced functionality during outages
+- ✅ **Automatic recovery**: Built-in replay and sync mechanisms restore normal operations
+- ✅ **Resource awareness**: Intelligent adaptation based on edge node constraints
+
+**Fallback Strategy Guidelines:**
+- **Layered approach**: Primary → Retry → Circuit Breaker → Local Buffer → Emergency
+- **Destination-specific**: Each output type gets optimized fallback chains
+- **Resource monitoring**: Disk and memory usage guide fallback behavior
+- **Priority handling**: Critical data gets more aggressive fallback treatment
+
+**Edge Computing Best Practices:**
+- **Local buffering**: Always maintain local copies during cloud service outages
+- **Compression optimization**: Use maximum compression when disk space is constrained
+- **Automatic cleanup**: Remove old fallback files after successful replay/sync
+- **Recovery automation**: Scheduled recovery processes minimize manual intervention
+
+## Next Steps
+
+✅ **Comprehensive fallback implementation complete!** Your multi-destination pipeline is now bulletproof against network outages, service failures, and resource constraints.
+
+**Ready to see the complete solution?** Review the final production-ready pipeline:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./complete-fan-out-pipeline" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Complete Pipeline
+  </a>
+  <a href="./troubleshooting" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Troubleshooting Guide
+  </a>
+</div>
+
+---
+
+**Next:** [Review the complete production-ready pipeline](./complete-fan-out-pipeline)

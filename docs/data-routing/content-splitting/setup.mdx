@@ -1,0 +1,318 @@
+---
+title: Setup Environment for Content Splitting
+sidebar_label: Setup
+sidebar_position: 3
+description: Configure environment variables, test data, and deploy a shell splitting pipeline
+keywords: [setup, environment, configuration, deployment, content-splitting]
+---
+
+# Setup Environment for Content Splitting
+
+Before building the content splitting pipeline, you'll set up test data, configure destinations, and deploy a minimal "shell" pipeline that validates your environment.
+
+## Prerequisites
+
+- ✅ Expanso edge node installed ([Installation Guide](https://docs.expanso.io/installation))
+- ✅ Destination services available (Kafka, S3, HTTP endpoints)
+- ✅ Basic familiarity with YAML configuration ([Expanso Configuration](https://docs.expanso.io/configuration))
+
+## Step 1: Configure Environment Variables
+
+Set up environment variables for your destination services. This example uses Kafka and S3, but you can substitute any destinations:
+
+```bash
+# Kafka configuration
+export KAFKA_BROKERS="localhost:9092"
+export KAFKA_TOPIC_ALERTS="temperature-alerts"
+export KAFKA_TOPIC_STORAGE="temperature-storage"
+
+# S3 configuration (optional)
+export S3_BUCKET="your-sensor-data-bucket"
+export AWS_ACCESS_KEY_ID="your-access-key"
+export AWS_SECRET_ACCESS_KEY="your-secret-key"
+export AWS_REGION="us-west-2"
+
+# HTTP endpoint for alerts (optional)
+export ALERT_WEBHOOK_URL="https://your-alerting-system.com/webhooks/temperature"
+
+# Verify configuration
+echo "Kafka: $KAFKA_BROKERS"
+echo "S3 Bucket: $S3_BUCKET"
+echo "Alert URL: $ALERT_WEBHOOK_URL"
+```
+
+## Step 2: Create Sample Data Files
+
+Create test data files that simulate real-world splitting scenarios:
+
+```bash
+# Create test data directory
+mkdir -p /tmp/splitting-test-data
+
+# Create JSON array test file
+cat > /tmp/splitting-test-data/sensor-array.json << 'EOF'
+{
+  "device_id": "sensor-001",
+  "timestamp": "2025-10-20T10:00:00Z",
+  "location": "warehouse-a",
+  "readings": [
+    {"sensor": "temp-1", "value": 72.5, "unit": "F", "status": "normal"},
+    {"sensor": "temp-2", "value": 85.3, "unit": "F", "status": "high"},
+    {"sensor": "temp-3", "value": 68.1, "unit": "F", "status": "normal"},
+    {"sensor": "temp-4", "value": 92.7, "unit": "F", "status": "critical"},
+    {"sensor": "temp-5", "value": 75.2, "unit": "F", "status": "normal"}
+  ]
+}
+EOF
+
+# Create CSV batch test file
+cat > /tmp/splitting-test-data/transactions.csv << 'EOF'
+transaction_id,timestamp,amount,currency,country,customer_id
+txn-001,2025-10-20T10:00:00Z,150.00,USD,US,cust-123
+txn-002,2025-10-20T10:01:00Z,12500.00,EUR,DE,cust-456
+txn-003,2025-10-20T10:02:00Z,75.50,GBP,UK,cust-789
+txn-004,2025-10-20T10:03:00Z,25.99,USD,US,cust-101
+txn-005,2025-10-20T10:04:00Z,8750.00,JPY,JP,cust-202
+EOF
+
+# Create nested structure test file
+cat > /tmp/splitting-test-data/order.json << 'EOF'
+{
+  "order_id": "order-12345",
+  "customer": "customer-001",
+  "order_date": "2025-10-20T09:00:00Z",
+  "items": [
+    {"sku": "WIDGET-A", "quantity": 5, "price": 19.99, "warehouse": "US-EAST"},
+    {"sku": "GADGET-B", "quantity": 2, "price": 49.99, "warehouse": "EU-WEST"},
+    {"sku": "TOOL-C", "quantity": 1, "price": 129.99, "warehouse": "US-WEST"}
+  ],
+  "shipping": {
+    "address": "123 Main St, Anytown, CA 12345",
+    "country": "US",
+    "method": "standard"
+  }
+}
+EOF
+
+# Verify test files
+echo "Test files created:"
+ls -la /tmp/splitting-test-data/
+```
+
+## Step 3: Deploy Shell Splitting Pipeline
+
+Before adding complex splitting logic, deploy a minimal "shell" pipeline that just receives and logs messages. This verifies your setup works:
+
+Create `shell-splitting.yaml`:
+
+```yaml title="shell-splitting.yaml"
+name: shell-content-splitting
+description: Shell pipeline to validate content splitting setup
+type: pipeline
+namespace: development
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /split/test
+      timeout: 10s
+
+  pipeline:
+    processors:
+      # Just log received messages for now
+      - mapping: |
+          root = this
+          root.received_at = now()
+          root.pipeline = "shell-splitting"
+          
+          # Log the message structure
+          let message_type = match {
+            this.readings.exists() => "sensor_array"
+            this.items.exists() => "order_structure"
+            this.string().contains(",") => "csv_line"
+            _ => "unknown"
+          }
+          
+          root.detected_type = $message_type
+
+  output:
+    file:
+      path: /var/log/expanso/shell-splitting-${!timestamp_unix()}.jsonl
+      codec: lines
+```
+
+Deploy the shell pipeline:
+
+```bash
+# Deploy to Expanso
+expanso pipeline deploy shell-splitting.yaml
+
+# Verify deployment
+expanso pipeline list | grep shell-splitting
+
+# Check pipeline status
+expanso pipeline status shell-content-splitting
+```
+
+**Expected output:**
+```
+Pipeline: shell-content-splitting
+Status: Running
+Input: HTTP Server (port 8080)
+Output: File (/var/log/expanso/shell-splitting-*.jsonl)
+```
+
+## Step 4: Test Shell Pipeline
+
+Test the shell pipeline with your sample data to ensure everything is working:
+
+```bash
+# Test with JSON array
+curl -X POST http://localhost:8080/split/test \
+  -H "Content-Type: application/json" \
+  -d @/tmp/splitting-test-data/sensor-array.json
+
+# Test with nested structure
+curl -X POST http://localhost:8080/split/test \
+  -H "Content-Type: application/json" \
+  -d @/tmp/splitting-test-data/order.json
+
+# Check the output
+tail -f /var/log/expanso/shell-splitting-*.jsonl
+```
+
+**Expected output:** You should see logged messages with `received_at` timestamps and `detected_type` fields indicating the pipeline correctly identified your data structures.
+
+:::tip Success!
+If you see messages being logged with correct `detected_type` values (sensor_array, order_structure), your environment is correctly configured!
+
+**Next step:** You're ready to implement actual content splitting
+:::
+
+## Step 5: Verify Destination Connectivity
+
+Before proceeding, verify your destination services are reachable and properly configured:
+
+```bash
+# Test Kafka connectivity (if using Kafka)
+kafka-topics.sh --bootstrap-server $KAFKA_BROKERS --list
+
+# Test S3 connectivity (if using S3)
+aws s3 ls s3://$S3_BUCKET --region $AWS_REGION
+
+# Test HTTP webhook (if using webhooks)
+curl -X POST $ALERT_WEBHOOK_URL \
+  -H "Content-Type: application/json" \
+  -d '{"test": "connectivity", "timestamp": "'$(date -Iseconds)'"}'
+```
+
+## Step 6: Create Monitoring Directory
+
+Create a directory to monitor your pipeline outputs during development:
+
+```bash
+# Create monitoring directory
+mkdir -p /tmp/splitting-outputs
+
+# Create monitoring script
+cat > /tmp/splitting-outputs/monitor.sh << 'EOF'
+#!/bin/bash
+echo "Monitoring content splitting outputs..."
+echo "Press Ctrl+C to stop"
+echo ""
+
+while true; do
+  echo "=== $(date) ==="
+  
+  # Count files in each output
+  echo "Log files: $(ls -1 /var/log/expanso/*splitting* 2>/dev/null | wc -l)"
+  echo "Recent activity:"
+  
+  # Show recent log entries
+  find /var/log/expanso -name "*splitting*" -type f -exec tail -1 {} \; 2>/dev/null | head -3
+  
+  echo ""
+  sleep 5
+done
+EOF
+
+chmod +x /tmp/splitting-outputs/monitor.sh
+```
+
+## Step 7: Prepare for Step-by-Step Tutorial
+
+Your environment is now ready for the step-by-step tutorial. You have:
+
+- ✅ Environment variables configured for destinations
+- ✅ Sample test data files created  
+- ✅ Shell pipeline deployed and tested
+- ✅ Destination connectivity verified
+- ✅ Monitoring tools set up
+
+## Environment Summary
+
+**Configuration Files Created:**
+- `shell-splitting.yaml` - Basic pipeline for testing
+- `/tmp/splitting-test-data/` - Sample data files
+
+**Verification Commands:**
+```bash
+# Check pipeline status
+expanso pipeline status shell-content-splitting
+
+# Monitor outputs
+tail -f /var/log/expanso/shell-splitting-*.jsonl
+
+# Test connectivity
+curl -X POST http://localhost:8080/split/test -H "Content-Type: application/json" -d '{"test": "ready"}'
+```
+
+## Common Setup Issues
+
+### Issue: Port 8080 Already in Use
+
+**Symptom:** Pipeline fails to start with "bind: address already in use"
+
+**Solution:**
+```bash
+# Find what's using port 8080
+lsof -i :8080
+
+# Kill the process or change the port
+# In shell-splitting.yaml, change:
+address: 0.0.0.0:8081  # Use different port
+```
+
+### Issue: Permission Denied Writing Log Files
+
+**Symptom:** Pipeline starts but no log files appear
+
+**Solution:**
+```bash
+# Create log directory with proper permissions
+sudo mkdir -p /var/log/expanso
+sudo chown $USER:$USER /var/log/expanso
+
+# Or change to a user-writable directory
+# In shell-splitting.yaml:
+path: /tmp/shell-splitting-${!timestamp_unix()}.jsonl
+```
+
+### Issue: Environment Variables Not Set
+
+**Symptom:** Pipeline fails when trying to connect to destinations
+
+**Solution:**
+```bash
+# Re-export variables
+source ~/.bashrc
+
+# Or add to pipeline config directly
+# In your YAML file:
+addresses: ["localhost:9092"]  # Instead of ${KAFKA_BROKERS}
+```
+
+---
+
+**Next:** [Step 1: Split JSON Arrays](./step-1-split-json-arrays) to implement your first content splitting transformation.

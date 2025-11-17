@@ -1,0 +1,1012 @@
+---
+title: "Step 3: Session Windows"
+sidebar_label: "Step 3: Session Windows"
+sidebar_position: 6
+description: Implement dynamic activity-based windows for behavioral analytics and event clustering
+keywords: [session-windows, activity-clustering, behavioral-analytics, dynamic-windows, event-clustering]
+---
+
+# Step 3: Session Windows
+
+**Learn to implement dynamic activity-based windows for behavioral analytics and event clustering**. Session windows group events by natural activity patterns separated by inactivity gaps, making them ideal for user sessions, transaction analysis, and equipment usage tracking.
+
+## What You'll Build
+
+Transform continuous sensor streams into meaningful activity sessions based on natural usage patterns:
+
+**Input (Raw sensor events with varying activity patterns):**
+```json
+{"sensor_id": "motion_001", "activity": "detected", "timestamp": "10:30:00Z"}
+{"sensor_id": "motion_001", "activity": "detected", "timestamp": "10:30:15Z"}
+{"sensor_id": "motion_001", "activity": "detected", "timestamp": "10:30:30Z"}
+// 5-minute inactivity gap
+{"sensor_id": "motion_001", "activity": "detected", "timestamp": "10:35:45Z"}
+{"sensor_id": "motion_001", "activity": "detected", "timestamp": "10:36:00Z"}
+```
+
+**Output (Activity sessions with behavioral analytics):**
+```json
+{
+  "sensor_id": "motion_001",
+  "session_id": "motion_001_20250115_103000_103045",
+  "session_start": "2025-01-15T10:30:00Z",
+  "session_end": "2025-01-15T10:30:30Z",
+  "session_duration_minutes": 0.5,
+  "inactivity_gap_before_minutes": null,
+  "inactivity_gap_after_minutes": 5.25,
+  "total_events": 3,
+  "activity_intensity": "high",
+  "activity_pattern": "continuous",
+  "peak_activity_time": "2025-01-15T10:30:15Z"
+}
+```
+
+**Result:** Natural activity clustering that follows actual usage patterns rather than arbitrary time boundaries.
+
+## Understanding Session Windows
+
+Session windows create dynamic boundaries based on activity gaps rather than fixed time intervals:
+
+```
+Events:     A B C . . . . D E F . . . . . G H I J K
+Time:      |-----|     |-----|         |--------|
+Sessions:  [A,B,C]     [D,E,F]         [G,H,I,J,K]
+Gaps:         5min         8min
+```
+
+**Key characteristics:**
+- **Dynamic boundaries:** Sessions start/end based on activity, not clock time
+- **Natural clustering:** Follows actual usage patterns and behavior
+- **Variable duration:** Sessions can be seconds to hours depending on activity
+- **Gap-based separation:** Inactivity periods define session boundaries
+
+**Common gap thresholds:**
+- **Web sessions:** 30 minutes of inactivity
+- **IoT equipment:** 5 minutes of inactivity  
+- **Mobile apps:** 2 minutes of inactivity
+- **Industrial machines:** 15 minutes of inactivity
+
+## Use Cases for Session Windows
+
+### User Behavior Analysis
+```
+User session: Login → Browse products (15 min) → Add to cart → Checkout
+Session duration: 18 minutes
+Activity intensity: Medium (12 actions)
+Conversion: Successful purchase
+```
+
+### Equipment Usage Tracking
+```
+Machine session: Startup → Production run (2.5 hours) → Idle detection
+Session duration: 2.5 hours
+Efficiency: 89% (active time / session duration)
+Output: 2,847 units produced
+```
+
+### Security Monitoring
+```
+Access session: Badge scan → Door activities (12 min) → Exit scan
+Session duration: 12 minutes
+Security level: Normal
+Anomaly: Extended session duration (avg: 4 minutes)
+```
+
+## Implementation Architecture
+
+```mermaid
+graph TB
+    A[Raw Event Stream] --> B[Parse Timestamps]
+    B --> C[Sort by Time]
+    C --> D[Calculate Inter-Event Gaps]
+    D --> E[Identify Session Boundaries<br/>gap > threshold]
+    E --> F[Group Events into Sessions]
+    F --> G[Calculate Session Analytics<br/>duration, intensity, patterns]
+    G --> H[Output Session Summaries]
+    
+    style E fill:#e1f5ff
+    style G fill:#fff4e1
+```
+
+**Session boundary detection:**
+```
+Event sequence: A(10:00) → B(10:02) → C(10:03) → [6min gap] → D(10:09) → E(10:11)
+
+Gap analysis:
+- A to B: 2 minutes < 5-minute threshold → Same session
+- B to C: 1 minute < 5-minute threshold → Same session  
+- C to D: 6 minutes > 5-minute threshold → New session
+- D to E: 2 minutes < 5-minute threshold → Same session
+
+Sessions:
+- Session 1: [A, B, C] (10:00-10:03, 3 minutes)
+- Session 2: [D, E] (10:09-10:11, 2 minutes)
+```
+
+## Complete Configuration
+
+Create `step3-session-windows.yaml`:
+
+```yaml title="step3-session-windows.yaml"
+# Session window aggregation: Dynamic activity-based clustering with behavioral analytics
+
+input:
+  file:
+    paths: ["sensor-activity.jsonl"]
+    scanner:
+      lines: {}
+
+# Cache resources for session building
+resources:
+  caches:
+    # Temporary storage for collecting events into sessions
+    session_builder_cache:
+      memory:
+        default_ttl: "3600s"  # 1 hour max session length
+        max_items: 10000
+        eviction_policy: lru
+    
+    # Store last event time per sensor to detect session boundaries
+    last_event_cache:
+      memory:
+        default_ttl: "7200s"  # 2 hours to detect long gaps
+        max_items: 5000
+        eviction_policy: lru
+
+pipeline:
+  processors:
+    # Parse JSON events
+    - json: {}
+    
+    # Validate required fields
+    - mapping: |
+        if !this.exists("sensor_id") { error("Missing sensor_id field") }
+        if !this.exists("timestamp") { error("Missing timestamp field") }
+        
+        root = this
+        
+        # Standardize timestamp format
+        root.parsed_timestamp = this.timestamp.parse_timestamp("2006-01-02T15:04:05.000Z")
+        root.timestamp_unix = root.parsed_timestamp.timestamp_unix()
+
+    # Sort events by time within each sensor (critical for session detection)
+    - cache:
+        resource: session_builder_cache
+        key: ${! this.sensor_id }
+        value: ${! this }
+        
+    # Group events by sensor for session analysis
+    - group_by:
+        - key: ${! this.sensor_id }
+          value: ${! this }
+          
+    # Sort events chronologically and detect sessions
+    - mapping: |
+        # Sort all events for this sensor by timestamp
+        let sorted_events = this.sort_by(event -> event.timestamp_unix)
+        let sensor_id = sorted_events[0].sensor_id
+        
+        # Session configuration
+        let inactivity_threshold_minutes = 5  # 5-minute gap creates new session
+        let min_session_events = 1            # Minimum events to form a session
+        let max_session_duration_hours = 4    # Maximum session length
+        
+        # Session detection algorithm
+        let sessions = []
+        let current_session = []
+        let session_counter = 0
+        
+        # Process each event to detect session boundaries
+        let i = 0
+        let last_event_time = null
+        
+        # Build sessions by analyzing inter-event gaps
+        let processed_events = sorted_events.map_each(event -> {
+          let event_time = event.timestamp_unix
+          let gap_minutes = if last_event_time != null {
+            (event_time - last_event_time) / 60.0
+          } else {
+            0
+          }
+          
+          # Determine if this event starts a new session
+          let starts_new_session = if last_event_time == null {
+            true  # First event always starts new session
+          } else if gap_minutes > inactivity_threshold_minutes {
+            true  # Gap exceeds threshold
+          } else if current_session.length() > 0 {
+            let session_duration_hours = (event_time - current_session[0].timestamp_unix) / 3600.0
+            session_duration_hours > max_session_duration_hours  # Session too long
+          } else {
+            false
+          }
+          
+          # Assign session information
+          let result_event = event
+          result_event.gap_before_minutes = gap_minutes.round(2)
+          result_event.starts_new_session = starts_new_session
+          
+          # Update last event time for next iteration
+          last_event_time = event_time
+          
+          result_event
+        })
+        
+        # Group events into sessions based on session boundaries
+        root.session_events = []
+        let current_session_events = []
+        let current_session_id = 0
+        
+        processed_events.map_each(event -> {
+          if event.starts_new_session && current_session_events.length() > 0 {
+            # Complete current session
+            root.session_events = root.session_events + [current_session_events]
+            current_session_events = [event]
+            current_session_id = current_session_id + 1
+          } else {
+            # Add to current session
+            current_session_events = current_session_events + [event]
+          }
+          
+          # Add session metadata to event
+          event.session_index = current_session_id
+        })
+        
+        # Add final session if exists
+        if current_session_events.length() > 0 {
+          root.session_events = root.session_events + [current_session_events]
+        }
+        
+        # Filter out sessions that don't meet minimum requirements
+        root.valid_sessions = root.session_events.filter(session -> 
+          session.length() >= min_session_events
+        )
+
+    # Explode into individual sessions for analysis
+    - mapping: |
+        root = this.valid_sessions
+
+    # Unroll sessions array
+    - unarchive:
+        format: json_array
+
+    # Analyze each session
+    - mapping: |
+        let session_events = this.sort_by(event -> event.timestamp_unix)
+        let first_event = session_events[0]
+        let last_event = session_events[-1]
+        
+        # Basic session metadata
+        root.sensor_id = first_event.sensor_id
+        root.session_start = first_event.timestamp
+        root.session_end = last_event.timestamp
+        
+        # Generate unique session ID
+        let start_formatted = first_event.parsed_timestamp.ts_format("20060102_150405")
+        let end_formatted = last_event.parsed_timestamp.ts_format("150405")
+        root.session_id = first_event.sensor_id + "_" + start_formatted + "_" + end_formatted
+        
+        # Temporal analysis
+        let session_duration_seconds = last_event.timestamp_unix - first_event.timestamp_unix
+        root.session_duration_minutes = (session_duration_seconds / 60.0).round(2)
+        root.session_duration_hours = (session_duration_seconds / 3600.0).round(3)
+        root.total_events = session_events.length()
+        
+        # Activity intensity analysis
+        root.events_per_minute = if root.session_duration_minutes > 0 {
+          (root.total_events / root.session_duration_minutes).round(2)
+        } else {
+          root.total_events  # For very short sessions
+        }
+        
+        # Classify activity intensity
+        root.activity_intensity = match {
+          root.events_per_minute > 10 => "very_high",
+          root.events_per_minute > 5 => "high", 
+          root.events_per_minute > 2 => "medium",
+          root.events_per_minute > 0.5 => "low",
+          _ => "very_low"
+        }
+        
+        # Gap analysis (inactivity periods)
+        if session_events.length() > 1 {
+          let inter_event_gaps = range(1, session_events.length()).map(i -> {
+            (session_events[i].timestamp_unix - session_events[i-1].timestamp_unix) / 60.0
+          })
+          
+          root.avg_inter_event_gap_minutes = inter_event_gaps.mean().round(2)
+          root.max_inter_event_gap_minutes = inter_event_gaps.max().round(2)
+          root.min_inter_event_gap_minutes = inter_event_gaps.min().round(2)
+          
+          # Activity pattern classification
+          let gap_consistency = inter_event_gaps.stddev()
+          root.activity_pattern = match {
+            gap_consistency < 0.5 => "regular",      # Consistent timing
+            gap_consistency < 2.0 => "irregular",    # Some variation
+            _ => "bursty"                             # Highly variable
+          }
+        } else {
+          root.activity_pattern = "single_event"
+        }
+        
+        # Peak activity detection (time with most events in sliding 1-minute windows)
+        if session_events.length() >= 3 {
+          let minute_buckets = session_events.map_each(event -> {
+            event.parsed_timestamp.ts_format("2006-01-02T15:04:00Z")  # Round to minute
+          })
+          
+          let minute_counts = {}
+          minute_buckets.map_each(minute -> {
+            minute_counts = minute_counts.merge({minute: (minute_counts.get(minute).or(0) + 1)})
+          })
+          
+          # Find minute with most activity
+          let max_count = 0
+          let peak_minute = ""
+          minute_counts.keys().map_each(minute -> {
+            let count = minute_counts.get(minute)
+            if count > max_count {
+              max_count = count
+              peak_minute = minute
+            }
+          })
+          
+          root.peak_activity_time = peak_minute
+          root.peak_activity_events = max_count
+        }
+        
+        # Behavioral insights for different sensor types
+        if first_event.exists("activity") {
+          let activity_types = session_events.map_each(e -> e.activity).unique()
+          root.activity_types = activity_types
+          root.activity_variety = activity_types.length()
+          
+          # Most common activity
+          let activity_counts = {}
+          session_events.map_each(event -> {
+            let activity = event.activity
+            activity_counts = activity_counts.merge({activity: (activity_counts.get(activity).or(0) + 1)})
+          })
+          
+          let max_activity_count = 0
+          let dominant_activity = ""
+          activity_counts.keys().map_each(activity -> {
+            let count = activity_counts.get(activity)
+            if count > max_activity_count {
+              max_activity_count = count
+              dominant_activity = activity
+            }
+          })
+          
+          root.dominant_activity = dominant_activity
+          root.dominant_activity_percentage = ((max_activity_count / root.total_events.float()) * 100).round(1)
+        }
+        
+        # Session quality metrics
+        root.session_completeness = if root.total_events > 1 {
+          # Estimate expected events based on activity intensity
+          let expected_events = root.session_duration_minutes * 0.5  # Assume 0.5 events/minute baseline
+          let completeness_ratio = (root.total_events / expected_events).min(1.0)
+          completeness_ratio.round(3)
+        } else {
+          1.0
+        }
+        
+        # Previous and next session gap analysis (if available)
+        let first_event_gap = first_event.gap_before_minutes
+        root.inactivity_gap_before_minutes = if first_event_gap > 0 {
+          first_event_gap
+        } else {
+          null
+        }
+        
+        # Session timing context
+        let session_hour = first_event.parsed_timestamp.format_timestamp("15").number()
+        let session_day_of_week = first_event.parsed_timestamp.format_timestamp("Monday")
+        
+        root.temporal_context = {
+          "start_hour": session_hour,
+          "day_of_week": session_day_of_week,
+          "time_of_day": match {
+            session_hour >= 6 && session_hour < 12 => "morning",
+            session_hour >= 12 && session_hour < 18 => "afternoon", 
+            session_hour >= 18 && session_hour < 22 => "evening",
+            _ => "night"
+          }
+        }
+        
+        # Anomaly detection for sessions
+        root.anomaly_indicators = {
+          "unusually_long": root.session_duration_minutes > 180,      # > 3 hours
+          "unusually_short": root.session_duration_minutes < 0.5,    # < 30 seconds  
+          "high_intensity": root.events_per_minute > 20,             # > 20 events/min
+          "single_event_session": root.total_events == 1
+        }
+        
+        let anomaly_count = root.anomaly_indicators.values().filter(v -> v == true).length()
+        root.anomaly_score = anomaly_count
+        root.is_anomalous = anomaly_count > 0
+        
+        # Store individual events for detailed analysis
+        root.event_details = session_events.map_each(event -> {
+          {
+            "timestamp": event.timestamp,
+            "activity": event.get("activity"),
+            "gap_before_minutes": event.gap_before_minutes
+          }
+        })
+
+output:
+  # Send session analytics to behavioral analysis endpoint
+  http_client:
+    url: "${ANALYTICS_ENDPOINT}/sessions"
+    verb: POST
+    headers:
+      Content-Type: application/json
+      Authorization: "Bearer ${ANALYTICS_API_KEY}"
+    
+    # Batch session analytics
+    batching:
+      count: 25       # Smaller batches for session data
+      period: "30s"   # Regular session updates
+      
+    # Retry configuration
+    retry_until_success: true
+    max_retries: 3
+    backoff:
+      initial_interval: "2s"
+      max_interval: "60s"
+
+# Metrics for session window monitoring  
+metrics:
+  prometheus:
+    use_histogram_timing: true
+    add_process_metrics: true
+    add_go_metrics: true
+    histogram_buckets: [.1, .5, 1, 5, 10, 30, 60, 300, 600, 1800]  # Session duration buckets
+    
+  mapping: |
+    root = this
+    
+    # Track session analytics metrics
+    if this.exists("session_duration_minutes") {
+      root.metrics_session_duration = this.session_duration_minutes
+      root.metrics_events_per_minute = this.events_per_minute
+      root.metrics_anomaly_score = this.anomaly_score
+      root.metrics_activity_intensity = match {
+        this.activity_intensity == "very_high" => 5,
+        this.activity_intensity == "high" => 4,
+        this.activity_intensity == "medium" => 3,
+        this.activity_intensity == "low" => 2,
+        _ => 1
+      }
+    }
+
+# Logging for session analysis debugging
+logger:
+  level: INFO
+  add_timestamp: true
+  json_format: true
+```
+
+## Sample Input Data
+
+Create sample activity data for testing:
+
+```bash
+# Generate sample sensor activity data
+cat > sensor-activity.jsonl << 'EOF'
+{"sensor_id":"motion_001","activity":"detected","location":"lobby","timestamp":"2025-01-15T09:00:00.000Z"}
+{"sensor_id":"motion_001","activity":"detected","location":"lobby","timestamp":"2025-01-15T09:00:15.000Z"}
+{"sensor_id":"motion_001","activity":"detected","location":"lobby","timestamp":"2025-01-15T09:00:30.000Z"}
+{"sensor_id":"motion_001","activity":"detected","location":"lobby","timestamp":"2025-01-15T09:07:00.000Z"}
+{"sensor_id":"motion_001","activity":"detected","location":"lobby","timestamp":"2025-01-15T09:07:15.000Z"}
+{"sensor_id":"motion_001","activity":"detected","location":"lobby","timestamp":"2025-01-15T09:15:00.000Z"}
+{"sensor_id":"motion_001","activity":"detected","location":"lobby","timestamp":"2025-01-15T09:15:30.000Z"}
+{"sensor_id":"motion_001","activity":"detected","location":"lobby","timestamp":"2025-01-15T09:16:00.000Z"}
+{"sensor_id":"access_card_002","activity":"badge_scan","user_id":"emp_123","timestamp":"2025-01-15T09:10:00.000Z"}
+{"sensor_id":"access_card_002","activity":"door_open","user_id":"emp_123","timestamp":"2025-01-15T09:10:05.000Z"}
+{"sensor_id":"access_card_002","activity":"door_close","user_id":"emp_123","timestamp":"2025-01-15T09:10:10.000Z"}
+{"sensor_id":"access_card_002","activity":"badge_scan","user_id":"emp_456","timestamp":"2025-01-15T09:25:00.000Z"}
+{"sensor_id":"access_card_002","activity":"door_open","user_id":"emp_456","timestamp":"2025-01-15T09:25:03.000Z"}
+{"sensor_id":"access_card_002","activity":"door_close","user_id":"emp_456","timestamp":"2025-01-15T09:25:08.000Z"}
+EOF
+```
+
+## Deployment and Testing
+
+### Deploy the Pipeline
+
+```bash
+# Deploy session window pipeline
+expanso create step3-session-windows.yaml
+
+# Verify deployment
+expanso list | grep step3-session
+
+# Monitor logs for session analysis
+expanso logs step3-session-windows --follow
+```
+
+### Test with Sample Data
+
+```bash
+# Process sample activity data
+cat sensor-activity.jsonl | expanso run step3-session-windows.yaml > session-output.jsonl
+
+# Analyze session results
+echo "Input events: $(wc -l < sensor-activity.jsonl)"
+echo "Output sessions: $(wc -l < session-output.jsonl)"
+
+# Inspect session analytics
+head -2 session-output.jsonl | jq .
+```
+
+**Expected results:**
+- Input: 14 individual events
+- Output: ~5-7 sessions (depending on gap detection)
+- Session durations: Variable from 30 seconds to several minutes
+
+### Validate Session Detection
+
+```bash
+# Check session duration distribution
+jq '.session_duration_minutes' session-output.jsonl | sort -n
+
+# Verify activity intensity classification
+jq -r '.activity_intensity' session-output.jsonl | sort | uniq -c
+
+# Analyze gap detection
+jq '.inactivity_gap_before_minutes' session-output.jsonl | grep -v null | sort -n
+
+# Check anomaly detection
+jq '.is_anomalous' session-output.jsonl | grep true | wc -l
+echo "Anomalous sessions detected: $(jq '.is_anomalous' session-output.jsonl | grep true | wc -l)"
+```
+
+Expected patterns:
+- Session durations should vary naturally (30 seconds to several hours)
+- Activity intensity should distribute across categories
+- Inactivity gaps should be ≥ threshold (5 minutes in this example)
+- Anomaly rate should be < 20% for normal activity data
+
+## Common Variations
+
+### 1. Multi-Level Session Detection
+
+Detect both micro-sessions (task-level) and macro-sessions (user-level):
+
+```yaml
+# Dual-threshold session detection
+- mapping: |
+    # Micro-sessions: 30-second gaps (individual tasks)
+    let micro_threshold_seconds = 30
+    let macro_threshold_seconds = 300  # 5-minute gaps (user sessions)
+    
+    # Build micro-sessions first
+    root.micro_sessions = detect_sessions(sorted_events, micro_threshold_seconds)
+    
+    # Then build macro-sessions from micro-sessions
+    root.macro_sessions = detect_sessions(root.micro_sessions, macro_threshold_seconds)
+    
+    # Output both levels
+    root.session_type = "multi_level"
+    root.micro_session_count = root.micro_sessions.length()
+    root.macro_session_count = root.macro_sessions.length()
+```
+
+### 2. Adaptive Gap Thresholds
+
+Adjust gap thresholds based on sensor type and historical patterns:
+
+```yaml
+# Dynamic threshold calculation
+- mapping: |
+    # Calculate historical average inter-event gap for this sensor
+    let historical_gaps = get_historical_gaps(this.sensor_id)  # Would need cache lookup
+    let avg_gap = historical_gaps.mean()
+    let gap_stddev = historical_gaps.stddev()
+    
+    # Adaptive threshold: 2 standard deviations above average
+    let adaptive_threshold = (avg_gap + (2 * gap_stddev)).max(60)  # Minimum 1 minute
+    
+    # Different thresholds by sensor type
+    let inactivity_threshold_minutes = match {
+      this.sensor_id.contains("motion") => adaptive_threshold.min(300),      # Max 5 minutes
+      this.sensor_id.contains("access") => adaptive_threshold.min(1800),     # Max 30 minutes  
+      this.sensor_id.contains("machine") => adaptive_threshold.min(900),     # Max 15 minutes
+      _ => 300  # Default 5 minutes
+    }
+```
+
+### 3. Context-Aware Sessions
+
+Incorporate additional context for session boundary detection:
+
+```yaml
+# Location-based session boundaries
+- mapping: |
+    let sessions = []
+    let current_session = []
+    
+    sorted_events.map_each(event -> {
+      let time_gap = calculate_time_gap(event, current_session.last())
+      let location_change = if current_session.length() > 0 {
+        event.location != current_session.last().location
+      } else {
+        false
+      }
+      
+      # Start new session if time gap OR location change
+      let new_session_trigger = time_gap > inactivity_threshold_minutes || location_change
+      
+      if new_session_trigger && current_session.length() > 0 {
+        sessions = sessions + [current_session]
+        current_session = [event]
+      } else {
+        current_session = current_session + [event]
+      }
+    })
+```
+
+### 4. Session Prediction
+
+Predict session end times based on patterns:
+
+```yaml
+# Session end prediction
+- mapping: |
+    # Analyze similar historical sessions
+    let similar_sessions = find_similar_sessions(this.sensor_id, this.activity_intensity, this.temporal_context)
+    
+    if similar_sessions.length() > 5 {
+      let avg_duration = similar_sessions.map_each(s -> s.session_duration_minutes).mean()
+      let current_duration = (now() - this.session_start.parse_timestamp("2006-01-02T15:04:05Z")).seconds() / 60.0
+      
+      root.predicted_end_time = (this.session_start.parse_timestamp("2006-01-02T15:04:05Z") + 
+                                 duration(avg_duration.string() + "m")).ts_format("2006-01-02T15:04:05Z")
+      root.predicted_remaining_minutes = (avg_duration - current_duration).max(0).round(1)
+      root.prediction_confidence = match {
+        similar_sessions.length() > 20 => "high",
+        similar_sessions.length() > 10 => "medium",
+        _ => "low"
+      }
+    }
+```
+
+## Troubleshooting
+
+### Issue: Sessions Not Detected Properly
+
+**Symptoms:**
+- All events in single session
+- Too many single-event sessions
+- Session boundaries don't match expected activity patterns
+
+**Diagnosis:**
+```bash
+# Check gap analysis
+jq '.event_details[].gap_before_minutes' session-output.jsonl | grep -v null | sort -n
+
+# Verify timestamp parsing
+jq '.event_details[].timestamp' session-output.jsonl | head -10
+
+# Check threshold configuration
+jq '.inactivity_gap_before_minutes' session-output.jsonl | sort -n | uniq -c
+```
+
+**Solutions:**
+
+**1. Adjust Gap Threshold**
+```yaml
+# Fine-tune inactivity threshold based on activity patterns
+let inactivity_threshold_minutes = match {
+  this.sensor_type == "high_frequency" => 2,    # 2 minutes for high-freq sensors
+  this.sensor_type == "user_activity" => 30,    # 30 minutes for user sessions
+  this.sensor_type == "machine_cycles" => 10,   # 10 minutes for machinery
+  _ => 5  # Default 5 minutes
+}
+```
+
+**2. Handle Clock Skew**
+```yaml
+# Sort events more robustly
+let sorted_events = this.sort_by(event -> event.timestamp.parse_timestamp("2006-01-02T15:04:05Z").timestamp_unix())
+
+# Filter out events with impossible timestamps  
+let filtered_events = sorted_events.filter(event -> {
+  let event_time = event.timestamp.parse_timestamp("2006-01-02T15:04:05Z")
+  let now_time = now()
+  let age_hours = (now_time - event_time).hours()
+  
+  age_hours < 24 && age_hours > -1  # Events within last 24 hours, not in future
+})
+```
+
+**3. Debug Session Building**
+```yaml
+# Add detailed session building logs
+- mapping: |
+    root = this
+    root.debug_info = {
+      "total_events": sorted_events.length(),
+      "time_span_minutes": ((sorted_events.last().timestamp_unix - sorted_events[0].timestamp_unix) / 60.0).round(2),
+      "avg_gap_minutes": calculate_avg_gap(sorted_events),
+      "threshold_used": inactivity_threshold_minutes
+    }
+```
+
+### Issue: High Memory Usage
+
+**Symptoms:**
+- Cache memory continuously growing
+- Session processing becomes slow
+- Out of memory errors during session building
+
+**Diagnosis:**
+```bash
+# Monitor cache growth
+watch "curl -s http://localhost:8080/metrics | grep cache_items"
+
+# Check session complexity
+jq '.total_events' session-output.jsonl | sort -n | tail -10
+
+# Verify cache TTL expiration
+expanso logs step3-session-windows | grep -i "cache.*expire"
+```
+
+**Solutions:**
+
+**1. Limit Session Size**
+```yaml
+# Cap maximum events per session
+let max_events_per_session = 1000
+let capped_session = if session_events.length() > max_events_per_session {
+  session_events.slice(0, max_events_per_session)
+} else {
+  session_events
+}
+```
+
+**2. Incremental Session Processing**
+```yaml
+# Process sessions in smaller time windows
+- mapping: |
+    # Break large event collections into time chunks
+    let time_window_hours = 1
+    let current_time = now()
+    
+    # Only process events from last hour
+    let recent_events = sorted_events.filter(event -> {
+      let event_time = event.parsed_timestamp
+      let age_hours = (current_time - event_time).hours()
+      age_hours < time_window_hours
+    })
+```
+
+**3. Optimize Session Storage**
+```yaml
+# Store only essential session data
+- mapping: |
+    # Compress event details to reduce memory
+    root.event_summary = {
+      "first_event": session_events[0].timestamp,
+      "last_event": session_events.last().timestamp,
+      "event_count": session_events.length(),
+      "sample_events": session_events.slice(0, 5) + session_events.slice(-5)  # First 5 + last 5
+    }
+    
+    # Skip storing full event_details array for large sessions
+    if session_events.length() <= 20 {
+      root.event_details = session_events
+    }
+```
+
+### Issue: Incorrect Activity Classification
+
+**Symptoms:**
+- Activity intensity classifications seem wrong
+- Anomaly detection has high false positive rate
+- Behavioral patterns don't match expected usage
+
+**Diagnosis:**
+```bash
+# Check activity intensity distribution
+jq -r '.activity_intensity' session-output.jsonl | sort | uniq -c
+
+# Analyze events per minute calculations
+jq '.events_per_minute, .total_events, .session_duration_minutes' session-output.jsonl | paste - - - | head -10
+
+# Verify anomaly indicators
+jq '.anomaly_indicators' session-output.jsonl | head -5
+```
+
+**Solutions:**
+
+**1. Calibrate Activity Thresholds**
+```yaml
+# Adjust intensity thresholds based on sensor type
+let intensity_thresholds = match {
+  this.sensor_id.contains("motion") => {"high": 2.0, "medium": 0.5, "low": 0.1},
+  this.sensor_id.contains("access") => {"high": 5.0, "medium": 1.0, "low": 0.2},  
+  this.sensor_id.contains("machine") => {"high": 10.0, "medium": 3.0, "low": 1.0},
+  _ => {"high": 5.0, "medium": 2.0, "low": 0.5}  # Default thresholds
+}
+
+root.activity_intensity = match {
+  root.events_per_minute > intensity_thresholds.high => "high",
+  root.events_per_minute > intensity_thresholds.medium => "medium",
+  root.events_per_minute > intensity_thresholds.low => "low",
+  _ => "very_low"
+}
+```
+
+**2. Context-Aware Anomaly Detection**
+```yaml
+# Adjust anomaly thresholds based on time and context
+let anomaly_thresholds = {
+  "max_duration_minutes": match {
+    root.temporal_context.time_of_day == "night" => 30,      # Shorter expected sessions at night
+    root.temporal_context.day_of_week.contains("weekend") => 120,  # Longer weekend sessions
+    _ => 180  # Standard 3-hour max
+  },
+  "min_duration_minutes": match {
+    this.sensor_id.contains("quick_scan") => 0.1,  # 6-second minimum for quick scans
+    _ => 0.5  # Standard 30-second minimum
+  }
+}
+
+root.anomaly_indicators.unusually_long = root.session_duration_minutes > anomaly_thresholds.max_duration_minutes
+root.anomaly_indicators.unusually_short = root.session_duration_minutes < anomaly_thresholds.min_duration_minutes
+```
+
+**3. Improve Pattern Recognition**
+```yaml
+# Enhanced activity pattern detection
+- mapping: |
+    if session_events.length() > 2 {
+      # Analyze event timing distribution
+      let gaps = inter_event_gaps
+      let gap_coefficient_variation = gaps.stddev() / gaps.mean()
+      
+      root.activity_pattern = match {
+        gap_coefficient_variation < 0.2 => "highly_regular",    # Very consistent timing
+        gap_coefficient_variation < 0.5 => "regular",           # Consistent timing  
+        gap_coefficient_variation < 1.0 => "somewhat_irregular", # Some variation
+        gap_coefficient_variation < 2.0 => "irregular",         # High variation
+        _ => "very_irregular"                                   # Extremely variable
+      }
+      
+      # Detect burst patterns
+      let short_gaps = gaps.filter(g -> g < 0.5).length()  # < 30 seconds
+      let burst_ratio = short_gaps / gaps.length()
+      
+      if burst_ratio > 0.7 {
+        root.activity_pattern = root.activity_pattern + "_bursty"
+      }
+    }
+```
+
+## Production Deployment
+
+### High-Performance Configuration
+
+```yaml
+# Optimized for high-volume session detection
+input:
+  kafka:
+    addresses: ["kafka1:9092", "kafka2:9092", "kafka3:9092"]
+    topics: ["sensor-events"]
+    consumer_group: "session-windows"
+    
+    # Optimize for streaming session detection
+    batching:
+      count: 1000     # Process events in larger batches
+      period: "10s"   # More frequent processing
+
+# Efficient caching for real-time session detection
+resources:
+  caches:
+    session_builder_cache:
+      memory:
+        default_ttl: "1800s"    # 30-minute sessions
+        max_items: 50000        # Higher capacity for production
+        eviction_policy: lru
+        compression: true       # Compress cached sessions
+        
+# Parallel processing for multiple sensors
+pipeline:
+  processors:
+    - parallel:
+        cap: 8  # Process up to 8 sensors concurrently
+        processors:
+          - cache: # ... session building logic
+```
+
+### Multi-Tenant Session Analysis
+
+```yaml
+# Support multiple customers/tenants
+- mapping: |
+    # Add tenant context for multi-tenant deployments
+    root = this
+    root.tenant_id = this.sensor_id.split("_")[0]  # Extract tenant from sensor ID
+    
+    # Tenant-specific session configuration
+    let tenant_config = get_tenant_config(root.tenant_id)
+    let inactivity_threshold = tenant_config.session_gap_minutes.or(5)
+    let max_session_duration = tenant_config.max_session_hours.or(4)
+
+# Tenant-specific outputs
+output:
+  switch:
+    - check: this.tenant_id == "tenant_a"
+      output:
+        http_client:
+          url: "${TENANT_A_ENDPOINT}/sessions"
+    - check: this.tenant_id == "tenant_b" 
+      output:
+        http_client:
+          url: "${TENANT_B_ENDPOINT}/sessions"
+    - output:
+        http_client:
+          url: "${DEFAULT_ENDPOINT}/sessions"
+```
+
+### Real-Time Session Monitoring
+
+```yaml
+# Real-time session alerts and monitoring
+- mapping: |
+    # Generate alerts for unusual sessions
+    if root.anomaly_score > 2 || root.session_duration_hours > 8 {
+      root.alert = {
+        "type": "unusual_session",
+        "severity": if root.session_duration_hours > 24 { "critical" } else { "warning" },
+        "description": "Unusual activity session detected for " + root.sensor_id,
+        "session_id": root.session_id,
+        "anomaly_indicators": root.anomaly_indicators
+      }
+    }
+
+# Dual output: analytics + alerts
+output:
+  fallback:
+    # Primary: Session analytics
+    - http_client:
+        url: "${ANALYTICS_ENDPOINT}/sessions"
+        
+    # Secondary: Real-time alerts  
+    - switch:
+        - check: this.exists("alert")
+          output:
+            http_client:
+              url: "${ALERTS_ENDPOINT}/session-alerts"
+              timeout: "3s"  # Fast alert delivery
+```
+
+## Next Steps
+
+You've successfully implemented session windows for dynamic activity-based analytics. The pipeline now:
+
+✅ **Detects natural activity boundaries** using configurable inactivity gaps
+✅ **Provides behavioral insights** with intensity, patterns, and timing analysis
+✅ **Identifies anomalous sessions** using duration, intensity, and pattern indicators
+✅ **Supports multiple sensor types** with adaptive thresholds and context awareness
+✅ **Scales for production** with efficient caching and parallel processing
+
+**Continue learning:**
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./step-4-multi-level-aggregation" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Next: Multi-Level Aggregation
+  </a>
+  <a href="./explorer" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Explore Interactive Demo
+  </a>
+</div>
+
+**Or jump to advanced topics:**
+- [**Step 5: Production Optimization**](./step-5-production-optimization) - Reliability, scaling, and monitoring
+- [**Complete Pipeline**](./complete-aggregation-pipeline) - Production-ready deployment
+- [**Troubleshooting Guide**](./troubleshooting) - Common issues and solutions

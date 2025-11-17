@@ -1,0 +1,657 @@
+---
+title: "Step 1: Split JSON Arrays"
+sidebar_label: "Step 1: Split JSON Arrays"
+sidebar_position: 4
+description: Master JSON array splitting with the unarchive processor and metadata preservation patterns
+keywords: [json-arrays, unarchive, metadata, sensor-data, iot, array-processing]
+---
+
+# Step 1: Split JSON Arrays
+
+**Master the fundamental pattern for splitting JSON arrays while preserving parent context.** This is the most common content splitting scenario and forms the foundation for all other splitting techniques.
+
+## Learning Objectives
+
+By completing this step, you'll understand:
+
+✅ **Array Splitting Mechanics** - How the `unarchive` processor transforms arrays  
+✅ **Metadata Preservation** - Critical pattern for preserving parent context  
+✅ **Message Flow** - How one message becomes many through the pipeline  
+✅ **Context Restoration** - Rebuilding complete messages after splitting  
+✅ **Production Patterns** - Error handling and validation for array processing
+
+## The Problem: Bundled Sensor Data
+
+IoT deployments commonly send sensor data in arrays to reduce HTTP overhead. A single request might contain hundreds of temperature readings:
+
+```json title="Input: Bundled sensor array"
+{
+  "device_id": "sensor-001",
+  "timestamp": "2025-10-20T10:00:00Z",
+  "location": "warehouse-a", 
+  "battery_level": 85,
+  "readings": [
+    {"sensor": "temp-1", "value": 72.5, "unit": "F"},
+    {"sensor": "temp-2", "value": 85.3, "unit": "F"},
+    {"sensor": "temp-3", "value": 68.1, "unit": "F"},
+    {"sensor": "temp-4", "value": 92.7, "unit": "F"},
+    {"sensor": "temp-5", "value": 75.2, "unit": "F"}
+  ]
+}
+```
+
+**Processing challenges:**
+- Can't route individual readings based on temperature value
+- Can't apply per-reading transformations or enrichment  
+- Can't track metrics for individual sensors
+- Can't implement sensor-specific alerting thresholds
+
+**Business impact:**
+- Critical temperature alerts delayed by bundled processing
+- Unable to isolate failing sensors for maintenance
+- Compliance requirements for individual data lineage not met
+
+## The Solution: Array Splitting with Context Preservation
+
+The solution uses a three-step pattern that's fundamental to all content splitting:
+
+1. **Store** parent context in metadata before splitting
+2. **Split** the array using the unarchive processor  
+3. **Restore** parent context to each split message
+
+### Core Pattern: The Critical Order
+
+```yaml
+pipeline:
+  processors:
+    # STEP 1: Store parent context FIRST
+    - mapping: |
+        meta device_id = this.device_id
+        meta timestamp = this.timestamp
+        meta location = this.location
+        meta battery_level = this.battery_level
+        root = this
+
+    # STEP 2: Split the array
+    - unarchive:
+        format: json_array
+        field: readings
+
+    # STEP 3: Restore context to each message
+    - mapping: |
+        root = this
+        root.device_id = meta("device_id")
+        root.timestamp = meta("timestamp")
+        root.location = meta("location") 
+        root.battery_level = meta("battery_level")
+```
+
+:::danger Critical Pattern
+The order is essential. If you split before storing metadata, the parent context is permanently lost. This is the #1 mistake when implementing content splitting.
+:::
+
+## Implementation: Complete Sensor Array Splitter
+
+Let's build a production-ready sensor array splitter with validation, enrichment, and routing:
+
+```yaml title="sensor-array-splitter.yaml"
+name: sensor-array-splitter
+description: Split sensor arrays into individual readings with context preservation
+type: pipeline
+namespace: production
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /sensors/bulk
+      timeout: 10s
+      allowed_verbs: [POST]
+
+  pipeline:
+    processors:
+      # Step 1: Validate input structure
+      - mapping: |
+          # Ensure required fields exist
+          if !this.device_id.exists() {
+            throw("device_id is required")
+          }
+          
+          if !this.readings.exists() || this.readings.type() != "array" {
+            throw("readings must be an array")
+          }
+          
+          # Validate array size (prevent memory issues)
+          let max_readings = 1000
+          let reading_count = this.readings.length()
+          
+          if $reading_count > $max_readings {
+            throw("Too many readings: " + $reading_count.string() + 
+                  " (max: " + $max_readings.string() + ")")
+          }
+          
+          if $reading_count == 0 {
+            throw("readings array cannot be empty")
+          }
+          
+          root = this
+
+      # Step 2: Store parent context in metadata (CRITICAL!)
+      - mapping: |
+          meta device_id = this.device_id
+          meta timestamp = this.timestamp.or(now())
+          meta location = this.location.or("unknown")
+          meta battery_level = this.battery_level.or(0)
+          meta readings_count = this.readings.length()
+          meta batch_id = uuid_v4()
+          root = this
+
+      # Step 3: Split the readings array
+      - unarchive:
+          format: json_array
+          field: readings
+
+      # Step 4: Restore context and enrich each reading
+      - mapping: |
+          root = this
+          
+          # Restore parent context
+          root.device_id = meta("device_id")
+          root.timestamp = meta("timestamp")
+          root.location = meta("location")
+          root.battery_level = meta("battery_level")
+          root.batch_id = meta("batch_id")
+          root.batch_size = meta("readings_count")
+          
+          # Add processing metadata
+          root.processed_at = now()
+          root.sequence_number = count("seq_" + meta("batch_id"))
+          
+          # Classify temperature reading
+          root.temperature_status = match {
+            this.value >= 90 => "critical"
+            this.value >= 80 => "warning"  
+            this.value >= 70 => "normal"
+            _ => "low"
+          }
+          
+          # Add alert flag
+          root.requires_alert = this.temperature_status == "critical" || 
+                               this.temperature_status == "warning"
+          
+          # Convert units if needed
+          root.value_celsius = match {
+            this.unit == "F" => (this.value - 32) * 5 / 9
+            _ => this.value
+          }
+
+  output:
+    switch:
+      cases:
+        # Critical temperatures: Immediate HTTP alert
+        - check: this.temperature_status == "critical"
+          output:
+            broker:
+              pattern: fan_out
+              outputs:
+                # Immediate HTTP alert
+                - http_client:
+                    url: ${ALERT_WEBHOOK_URL}/critical
+                    verb: POST
+                    timeout: 5s
+                    headers:
+                      Authorization: Bearer ${ALERT_API_KEY}
+                    batching:
+                      count: 1  # Send immediately
+                      period: 1s
+                
+                # Also store in critical topic
+                - kafka:
+                    addresses: ["${KAFKA_BROKERS}"]
+                    topic: temperature-critical
+                    key: ${!json("device_id")}
+                    batching:
+                      count: 10
+                      period: 5s
+
+        # Warning temperatures: Kafka for analysis
+        - check: this.temperature_status == "warning"
+          output:
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: temperature-warnings
+              key: ${!json("device_id")}
+              batching:
+                count: 50
+                period: 30s
+
+        # Normal and low temperatures: S3 storage
+        - output:
+            s3:
+              bucket: ${S3_BUCKET}
+              path: temperature-data/${!json("location")}/${!timestamp_date()}/${!json("device_id")}/
+              batching:
+                count: 1000
+                period: 300s
+              compression: gzip
+```
+
+## Testing the Array Splitter
+
+Test your array splitter with realistic data:
+
+```bash
+# Test 1: Normal sensor array
+curl -X POST http://localhost:8080/sensors/bulk \
+  -H "Content-Type: application/json" \
+  -d '{
+    "device_id": "sensor-001",
+    "timestamp": "2025-10-20T10:00:00Z", 
+    "location": "warehouse-a",
+    "battery_level": 85,
+    "readings": [
+      {"sensor": "temp-1", "value": 72.5, "unit": "F"},
+      {"sensor": "temp-2", "value": 85.3, "unit": "F"},
+      {"sensor": "temp-3", "value": 68.1, "unit": "F"}
+    ]
+  }'
+
+# Test 2: Critical temperature (should trigger alert)
+curl -X POST http://localhost:8080/sensors/bulk \
+  -H "Content-Type: application/json" \
+  -d '{
+    "device_id": "sensor-002",
+    "location": "server-room",
+    "battery_level": 42,
+    "readings": [
+      {"sensor": "temp-1", "value": 95.2, "unit": "F"},
+      {"sensor": "temp-2", "value": 78.1, "unit": "F"}
+    ]
+  }'
+
+# Test 3: Validation error (too many readings)
+python3 -c "
+import json
+readings = [{'sensor': f'temp-{i}', 'value': 70.0, 'unit': 'F'} for i in range(1500)]
+data = {'device_id': 'sensor-003', 'readings': readings}
+print(json.dumps(data))
+" | curl -X POST http://localhost:8080/sensors/bulk -H "Content-Type: application/json" -d @-
+```
+
+## Advanced Patterns and Variations
+
+### Pattern 1: Multiple Arrays in Same Message
+
+Some messages contain multiple arrays that need different handling:
+
+```yaml
+# Handle message with both temperature and humidity arrays
+pipeline:
+  processors:
+    # Store parent context
+    - mapping: |
+        meta device_id = this.device_id
+        meta timestamp = this.timestamp
+        root = this
+
+    # Split temperature readings first
+    - branch:
+        request_map: 'root = {"type": "temperature", "data": this.temperature_readings}'
+        processors:
+          - unarchive:
+              format: json_array
+              field: data
+          - mapping: |
+              root = this.data
+              root.device_id = meta("device_id")
+              root.timestamp = meta("timestamp")
+              root.reading_type = "temperature"
+
+    # Split humidity readings separately  
+    - branch:
+        request_map: 'root = {"type": "humidity", "data": this.humidity_readings}'
+        processors:
+          - unarchive:
+              format: json_array
+              field: data
+          - mapping: |
+              root = this.data
+              root.device_id = meta("device_id") 
+              root.timestamp = meta("timestamp")
+              root.reading_type = "humidity"
+```
+
+### Pattern 2: Conditional Splitting
+
+Only split arrays that meet certain criteria:
+
+```yaml
+pipeline:
+  processors:
+    # Only split if more than 1 reading
+    - mapping: |
+        if this.readings.length() <= 1 {
+          # Keep as single message
+          root = this
+        } else {
+          # Prepare for splitting
+          meta device_id = this.device_id
+          meta timestamp = this.timestamp
+          root = this
+        }
+
+    # Conditional unarchive
+    - unarchive:
+        format: json_array
+        field: readings
+        # Only process if field exists and is array
+```
+
+### Pattern 3: Nested Array Handling
+
+Split arrays that are deeply nested in the structure:
+
+```yaml
+# Input: {"sensors": {"outdoor": {"readings": [...]}}}
+pipeline:
+  processors:
+    - mapping: |
+        meta device_id = this.device_id
+        meta sensor_location = this.sensors.outdoor.location
+        
+        # Flatten for easier splitting
+        root = this.sensors.outdoor
+        root.device_id = meta("device_id")
+
+    - unarchive:
+        format: json_array
+        field: readings
+
+    - mapping: |
+        root = this
+        root.device_id = meta("device_id")
+        root.sensor_location = meta("sensor_location")
+```
+
+## Compliance and Security Considerations
+
+### GDPR Data Processing
+
+When splitting sensor data that might contain personal identifiers:
+
+```yaml
+pipeline:
+  processors:
+    # Store consent metadata
+    - mapping: |
+        meta device_id = this.device_id
+        meta data_consent = this.user_consent.or("required")
+        meta processing_purpose = "temperature_monitoring"
+        root = this
+
+    - unarchive:
+        format: json_array
+        field: readings
+
+    - mapping: |
+        root = this
+        root.device_id = meta("device_id")
+        
+        # Add GDPR metadata
+        root.gdpr_consent = meta("data_consent")
+        root.processing_purpose = meta("processing_purpose")
+        root.data_retention_days = 365
+        root.can_be_deleted = true
+```
+
+### PCI-DSS Compliance for Payment Arrays
+
+When splitting transaction arrays containing payment data:
+
+```yaml
+pipeline:
+  processors:
+    # Validate PCI compliance requirements
+    - mapping: |
+        if !this.pci_compliant.exists() || this.pci_compliant != true {
+          throw("PCI compliance flag required for payment data")
+        }
+        
+        meta merchant_id = this.merchant_id
+        meta processing_timestamp = now()
+        root = this
+
+    - unarchive:
+        format: json_array
+        field: transactions
+
+    - mapping: |
+        root = this
+        root.merchant_id = meta("merchant_id") 
+        root.processed_at = meta("processing_timestamp")
+        
+        # Add PCI audit trail
+        root.pci_audit_id = uuid_v4()
+        root.data_classification = "pci_restricted"
+```
+
+## Performance Optimization
+
+### Memory-Efficient Processing
+
+For high-volume scenarios, optimize memory usage:
+
+```yaml
+pipeline:
+  processors:
+    # Memory optimization settings
+    - mapping: |
+        # Validate array size early
+        let max_items = 500  # Smaller batches for memory efficiency
+        if this.readings.length() > $max_items {
+          throw("Batch too large for memory limits")
+        }
+        
+        # Store only essential metadata
+        meta device_id = this.device_id
+        meta timestamp = this.timestamp
+        
+        # Remove unnecessary fields before splitting
+        root = this
+        root = root.without("debug_info", "raw_data", "metadata")
+
+    - unarchive:
+        format: json_array
+        field: readings
+
+    # Lightweight restoration
+    - mapping: |
+        root = this
+        root.device_id = meta("device_id")
+        root.timestamp = meta("timestamp")
+```
+
+### Batching Strategy for High Throughput
+
+Balance individual message processing with output efficiency:
+
+```yaml
+output:
+  switch:
+    cases:
+      # Critical: Small batches, fast delivery
+      - check: this.temperature_status == "critical"
+        output:
+          kafka:
+            topic: temperature-critical
+            batching:
+              count: 5      # Small batches
+              period: 2s    # Frequent delivery
+              
+      # Normal: Larger batches, efficient delivery  
+      - output:
+          kafka:
+            topic: temperature-normal
+            batching:
+              count: 1000   # Large batches
+              period: 60s   # Less frequent
+```
+
+## Analytics and Monitoring
+
+### Tracking Split Metrics
+
+Monitor the health and performance of your splitting pipeline:
+
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        meta original_count = this.readings.length()
+        meta batch_received = now()
+        root = this
+
+    - unarchive:
+        format: json_array
+        field: readings
+
+    - mapping: |
+        root = this
+        
+        # Restore context
+        root.device_id = meta("device_id")
+        root.batch_received_at = meta("batch_received")
+        root.original_batch_size = meta("original_count")
+        
+        # Add metrics
+        root.split_sequence = count("global_split_sequence")
+        root.batch_split_ratio = 1.0 / meta("original_count").number()
+        
+        # Performance tracking
+        root.processing_latency_ms = (now() - meta("batch_received")).milliseconds()
+```
+
+### Error Rate Monitoring
+
+Track and alert on splitting failures:
+
+```yaml
+pipeline:
+  processors:
+    - try:
+        # Normal splitting process
+        - mapping: |
+            meta device_id = this.device_id
+            meta original_size = this.readings.length()
+            root = this
+        
+        - unarchive:
+            format: json_array
+            field: readings
+
+    - catch:
+        # Handle splitting errors
+        - mapping: |
+            root = {
+              "error": "splitting_failed",
+              "error_time": now(),
+              "device_id": this.device_id.or("unknown"),
+              "original_message": this,
+              "error_details": error()
+            }
+
+# Route errors to monitoring system
+output:
+  switch:
+    cases:
+      - check: this.error.exists()
+        output:
+          kafka:
+            topic: pipeline-errors
+            key: splitting_errors
+```
+
+## Troubleshooting Common Issues
+
+### Issue: Parent Context Lost After Splitting
+
+**Symptom:** Split messages missing device_id, timestamp, or other parent fields
+
+**Cause:** Parent context not stored in metadata before splitting
+
+**Solution:**
+```yaml
+# WRONG: Context lost
+processors:
+  - unarchive:
+      format: json_array
+      field: readings
+  - mapping: |
+      root.device_id = this.device_id  # ❌ Field doesn't exist!
+
+# CORRECT: Store in metadata first
+processors:
+  - mapping: |
+      meta device_id = this.device_id  # ✅ Store first
+      root = this
+  - unarchive:
+      format: json_array
+      field: readings
+  - mapping: |
+      root = this
+      root.device_id = meta("device_id")  # ✅ Restore from metadata
+```
+
+### Issue: Array Field Missing or Wrong Type
+
+**Symptom:** "field not found" or "not an array" errors
+
+**Solution:**
+```yaml
+processors:
+  - mapping: |
+      # Validate before splitting
+      if !this.readings.exists() {
+        throw("readings field is required")
+      }
+      
+      if this.readings.type() != "array" {
+        throw("readings must be an array, got: " + this.readings.type())
+      }
+      
+      if this.readings.length() == 0 {
+        throw("readings array cannot be empty")
+      }
+      
+      root = this
+```
+
+### Issue: Memory Exhaustion with Large Arrays
+
+**Symptom:** Pipeline crashes or becomes unresponsive with large messages
+
+**Solution:**
+```yaml
+processors:
+  - mapping: |
+      let max_items = 1000
+      let item_count = this.readings.length()
+      
+      if $item_count > $max_items {
+        throw("Array too large: " + $item_count.string() + 
+              " items (max: " + $max_items.string() + ")")
+      }
+      root = this
+```
+
+## Summary
+
+You've mastered JSON array splitting, the foundation of content splitting. Key takeaways:
+
+✅ **Critical Pattern:** Store → Split → Restore (never change this order)  
+✅ **Validation:** Always check array existence, type, and size  
+✅ **Context Preservation:** Use metadata to maintain parent information  
+✅ **Production Considerations:** Memory limits, error handling, compliance  
+✅ **Performance:** Balance individual processing with batching efficiency
+
+**Next:** [Step 2: Split CSV Batches](./step-2-split-csv-batches) to learn file-based splitting patterns.

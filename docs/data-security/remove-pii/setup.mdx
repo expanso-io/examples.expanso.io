@@ -1,0 +1,283 @@
+---
+title: Setup Environment for PII Removal
+sidebar_label: Setup
+sidebar_position: 3
+description: Configure environment variables, sample data, and deploy a shell pipeline
+keywords: [setup, environment, configuration, expanso, deployment]
+---
+
+# Setup Environment for PII Removal
+
+Before building the PII removal pipeline, you'll set up environment variables for cryptographic salts, download sample data for testing, and deploy a minimal "shell" pipeline to verify everything works.
+
+## Prerequisites
+
+- ✅ Expanso CLI installed ([Installation Guide](https://docs.expanso.io/getting-started))
+- ✅ At least one edge node connected to your orchestrator
+- ✅ Basic familiarity with command line and environment variables
+
+## Step 1: Generate Cryptographic Salts
+
+Salts are secret values used in hashing to prevent rainbow table attacks. Each type of PII should have its own salt.
+
+```bash
+# Generate three secure random salts (32 bytes each)
+export IP_SALT=$(openssl rand -hex 32)
+export EMAIL_SALT=$(openssl rand -hex 32)
+export USER_SALT=$(openssl rand -hex 32)
+
+# Verify salts were generated
+echo "IP_SALT length: ${#IP_SALT}"     # Should print 64
+echo "EMAIL_SALT length: ${#EMAIL_SALT}" # Should print 64
+echo "USER_SALT length: ${#USER_SALT}"  # Should print 64
+```
+
+:::danger Protect Your Salts
+These salts are **cryptographic secrets**. If an attacker obtains them, they can reverse-engineer hashed values using rainbow table attacks.
+
+**Production best practices:**
+- Store salts in a secret management system (HashiCorp Vault, AWS Secrets Manager, etc.)
+- Never commit salts to version control
+- Rotate salts periodically (every 90 days recommended)
+- Use different salts per environment (dev/staging/prod)
+:::
+
+### Optional: Persist Salts
+
+To avoid regenerating salts every session:
+
+```bash
+# Save to a file (add to .gitignore!)
+cat > ~/.pii-pipeline-secrets <<EOF
+export IP_SALT="$IP_SALT"
+export EMAIL_SALT="$EMAIL_SALT"
+export USER_SALT="$USER_SALT"
+EOF
+
+# Load in future sessions
+source ~/.pii-pipeline-secrets
+```
+
+## Step 2: Set Analytics Endpoint
+
+Configure where processed (PII-free) events will be sent:
+
+```bash
+# For this tutorial, use a local file sink
+export ANALYTICS_ENDPOINT="file:///var/log/expanso/pii-removed.jsonl"
+
+# In production, use your analytics service:
+# export ANALYTICS_ENDPOINT="http://analytics-service:8080/events"
+# export ANALYTICS_ENDPOINT="https://your-datadog-endpoint.com"
+```
+
+## Step 3: Download Sample Data
+
+Download the sample purchase event we'll use for testing:
+
+```bash
+# Create a working directory
+mkdir -p ~/pii-pipeline-tutorial
+cd ~/pii-pipeline-tutorial
+
+# Download sample data
+curl -o sample-data.json \
+  https://examples.expanso.io/files/data-security/remove-pii/sample-data.json
+
+# Verify the download
+cat sample-data.json | jq .
+```
+
+**Expected output:**
+```json
+{
+  "event_id": "evt_20240115_1030",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "event_type": "purchase",
+  "user_name": "Sarah Johnson",              // PII
+  "email": "sarah.johnson@example.com",      // PII
+  "ip_address": "192.168.1.100",             // PII
+  "payment_method": {
+    "full_number": "4532-1234-5678-9010",    // High-risk PII
+    "expiry": "12/25",
+    "last_four": "9010"
+  },
+  // ... more fields
+}
+```
+
+## Step 4: Deploy Shell Pipeline
+
+Before adding PII removal logic, deploy a minimal "shell" pipeline that just passes data through unchanged. This verifies your setup works.
+
+Create `shell-pipeline.yaml`:
+
+```yaml title="shell-pipeline.yaml"
+name: pii-shell-pipeline
+description: Shell pipeline for testing (no PII removal yet)
+type: pipeline
+namespace: default
+priority: 100
+
+config:
+  # Accept HTTP POST requests
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /events/ingest
+      allowed_verbs: [POST]
+
+  # No processors yet - just pass through
+  pipeline:
+    processors: []
+
+  # Send to analytics endpoint
+  output:
+    file:
+      path: /var/log/expanso/shell-output.jsonl
+      codec: lines
+
+logger:
+  level: INFO
+```
+
+Deploy the shell pipeline:
+
+```bash
+# Deploy to your edge nodes
+expanso job deploy shell-pipeline.yaml
+
+# Verify deployment
+expanso job status pii-shell-pipeline
+```
+
+**Expected output:**
+```
+Job: pii-shell-pipeline
+Status: running
+Type: pipeline
+Executions:
+  - Node: edge-node-001
+    State: running
+    Health: healthy
+```
+
+## Step 5: Test Shell Pipeline
+
+Send the sample data to verify the pipeline receives and processes events:
+
+```bash
+# Send sample event to the pipeline
+curl -X POST http://localhost:8080/events/ingest \
+  -H "Content-Type: application/json" \
+  -d @sample-data.json
+
+# Check the output file
+tail -1 /var/log/expanso/shell-output.jsonl | jq .
+```
+
+**Expected output:** You should see the same event you sent (with all PII intact - we haven't added removal logic yet).
+
+:::tip Success!
+If you see the event in the output file, your environment is correctly configured!
+
+**Next step:** Add the first PII removal processor (delete credit cards).
+:::
+
+## Step 6: Verify Environment Variables
+
+Before proceeding, verify all required environment variables are set:
+
+```bash
+# Run this verification script
+cat > verify-env.sh <<'EOF'
+#!/bin/bash
+errors=0
+
+check_var() {
+  if [ -z "${!1}" ]; then
+    echo "❌ $1 is not set"
+    ((errors++))
+  else
+    echo "✅ $1 is set (length: ${#1})"
+  fi
+}
+
+echo "Checking environment variables..."
+check_var IP_SALT
+check_var EMAIL_SALT
+check_var USER_SALT
+check_var ANALYTICS_ENDPOINT
+
+if [ $errors -eq 0 ]; then
+  echo ""
+  echo "✅ All environment variables configured!"
+  echo "Ready to proceed with PII removal steps."
+else
+  echo ""
+  echo "❌ $errors variable(s) missing. Review Step 1 and Step 2."
+  exit 1
+fi
+EOF
+
+chmod +x verify-env.sh
+./verify-env.sh
+```
+
+## Troubleshooting
+
+### Pipeline not receiving events
+
+**Check if the pipeline is running:**
+```bash
+expanso job status pii-shell-pipeline
+```
+
+**Check logs for errors:**
+```bash
+expanso job logs pii-shell-pipeline --tail 50
+```
+
+### Salt generation fails
+
+**Issue:** `openssl` command not found
+
+**Solution:** Install OpenSSL:
+```bash
+# macOS
+brew install openssl
+
+# Ubuntu/Debian
+sudo apt-get install openssl
+
+# RHEL/CentOS
+sudo yum install openssl
+```
+
+### Environment variables not persisting
+
+**Issue:** Variables disappear after closing terminal
+
+**Solution:** Add to your shell profile:
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+source ~/.pii-pipeline-secrets
+```
+
+---
+
+## Next Steps
+
+Environment configured! Now build the pipeline step-by-step:
+
+<div className="margin-top--lg margin-bottom--lg">
+  <a href="./step-1-delete-payment-data" className="button button--primary button--lg">
+    📖 Step 1: Delete Payment Data →
+  </a>
+</div>
+
+Or jump to a specific step:
+- [**Step 2: Hash IP Address**](./step-2-hash-ip-address)
+- [**Step 3: Hash Email**](./step-3-hash-email)
+- [**Step 4: Pseudonymize User**](./step-4-pseudonymize-user)
+- [**Step 5: Generalize Location**](./step-5-generalize-location)

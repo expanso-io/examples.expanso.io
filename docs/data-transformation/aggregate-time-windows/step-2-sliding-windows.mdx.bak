@@ -1,0 +1,967 @@
+---
+title: "Step 2: Sliding Windows"
+sidebar_label: "Step 2: Sliding Windows"
+sidebar_position: 5
+description: Implement overlapping time windows for smooth trending and moving average calculations
+keywords: [sliding-windows, moving-average, trends, overlapping-windows, analytics]
+---
+
+# Step 2: Sliding Windows
+
+**Learn to implement overlapping time windows for smooth trending and moving average calculations**. Sliding windows provide smoothed analytics by allowing events to contribute to multiple overlapping aggregations, essential for trend analysis, anomaly detection, and real-time monitoring.
+
+## What You'll Build
+
+Transform the jagged tumbling window outputs into smooth trending analytics using overlapping windows:
+
+**Tumbling Windows Output (Step 1):**
+```json
+{"sensor_id": "temp_001", "time_bucket": "10:20:00Z", "temperature_avg": 72.1}
+{"sensor_id": "temp_001", "time_bucket": "10:21:00Z", "temperature_avg": 74.8}  
+{"sensor_id": "temp_001", "time_bucket": "10:22:00Z", "temperature_avg": 71.2}
+{"sensor_id": "temp_001", "time_bucket": "10:23:00Z", "temperature_avg": 75.3}
+```
+
+**Sliding Windows Output (5-minute windows with 1-minute slides):**
+```json
+{
+  "sensor_id": "temp_001",
+  "window_start": "10:20:00Z",
+  "window_end": "10:25:00Z", 
+  "slide_interval_minutes": 1,
+  "temperature_5min_avg": 73.35,
+  "temperature_trend": "increasing",
+  "temperature_slope": 0.8,
+  "events_in_window": [
+    {"time": "10:20:00Z", "avg": 72.1},
+    {"time": "10:21:00Z", "avg": 74.8}, 
+    {"time": "10:22:00Z", "avg": 71.2},
+    {"time": "10:23:00Z", "avg": 75.3},
+    {"time": "10:24:00Z", "avg": 73.4}
+  ]
+}
+```
+
+**Result:** Smooth trending analytics updated every minute with 5-minute context.
+
+## Understanding Sliding Windows
+
+Sliding windows create overlapping time buckets where events contribute to multiple aggregations:
+
+```
+Events:        A  B  C  D  E  F  G  H  I  J  K
+Time:         |----|----|----|----|----|
+Windows:      [---5min---]        Window 1: A,B,C,D,E
+               [---5min---]       Window 2: B,C,D,E,F  
+                [---5min---]      Window 3: C,D,E,F,G
+                 [---5min---]     Window 4: D,E,F,G,H
+Slides:         1min  1min  1min
+```
+
+**Key characteristics:**
+- **Overlapping:** Events appear in multiple windows (5× for 5-minute window with 1-minute slide)
+- **Smooth trends:** Gradual changes rather than abrupt jumps
+- **Frequent updates:** New insights every slide interval
+- **Higher memory:** Each event cached for full window duration
+
+**Memory impact:** 5× higher than tumbling windows (events cached for 5 minutes vs. 1 minute).
+
+## Use Cases for Sliding Windows
+
+### Real-Time Anomaly Detection
+```
+5-minute moving average: 72.1°C ± 2.3°C
+Current 1-minute reading: 89.4°C
+Alert: Temperature spike detected (7.5 standard deviations)
+```
+
+### Trend Analysis
+```
+Temperature trend over 5 minutes:
+10:20-10:25: +2.1°C (increasing, slope: 0.42°C/min)
+10:21-10:26: -1.3°C (decreasing, slope: -0.26°C/min)
+```
+
+### Capacity Planning
+```
+5-minute rolling metrics:
+- CPU utilization: 73% → 81% → 85% (trending up)
+- Memory usage: 2.1GB → 2.3GB → 2.4GB (steady increase)
+- Prediction: 90% CPU in 8 minutes
+```
+
+## Implementation Architecture
+
+```mermaid
+graph TB
+    A[Tumbling Window Aggregations<br/>1/minute per sensor] --> B[Parse Window Metadata]
+    B --> C[Generate Sliding Window Keys<br/>5-minute span, 1-minute slides]
+    C --> D[Cache Events<br/>TTL = Window Duration]
+    D --> E[Group by Sliding Key]
+    E --> F[Sort Events by Time]
+    F --> G[Calculate Trends<br/>slope, correlation, volatility]
+    G --> H[Output Trending Analytics]
+    
+    style D fill:#e1f5ff
+    style G fill:#fff4e1
+```
+
+**Sliding window key generation:**
+```
+For event at 10:23:15:
+- Window 1: 10:19:00-10:24:00 (key: sensor_001|10:19:00|5min) 
+- Window 2: 10:20:00-10:25:00 (key: sensor_001|10:20:00|5min)
+- Window 3: 10:21:00-10:26:00 (key: sensor_001|10:21:00|5min)
+- Window 4: 10:22:00-10:27:00 (key: sensor_001|10:22:00|5min)
+- Window 5: 10:23:00-10:28:00 (key: sensor_001|10:23:00|5min)
+```
+
+## Complete Configuration
+
+Create `step2-sliding-windows.yaml`:
+
+```yaml title="step2-sliding-windows.yaml"
+# Sliding window aggregation: 5-minute windows with 1-minute slides for trend analysis
+
+input:
+  # Read from tumbling window aggregations (Step 1 output)
+  file:
+    paths: ["tumbling-output.jsonl"]
+    scanner:
+      lines: {}
+
+# Cache resource for sliding window buffering  
+resources:
+  caches:
+    sliding_window_cache:
+      memory:
+        # Window duration + grace period  
+        default_ttl: "360s"  # 5-minute window + 1-minute grace period
+        max_items: 100000    # Higher limit for multiple overlapping windows
+        eviction_policy: lru
+
+pipeline:
+  processors:
+    # Parse JSON aggregations from Step 1
+    - json: {}
+    
+    # Validate input format
+    - mapping: |
+        if !this.exists("sensor_id") { error("Missing sensor_id field") }
+        if !this.exists("time_bucket") { error("Missing time_bucket field") }
+        if !this.exists("temperature_avg") { error("Missing temperature_avg field") }
+        
+        root = this
+    
+    # Generate sliding window keys
+    - mapping: |
+        root = this
+        
+        # Parse the 1-minute time bucket from tumbling window
+        let event_time = this.time_bucket.parse_timestamp("2006-01-02T15:04:05Z")
+        
+        # Configuration: 5-minute windows with 1-minute slides
+        let window_duration_minutes = 5
+        let slide_interval_minutes = 1
+        
+        # Generate all sliding windows this event belongs to
+        # Event at 10:23:00 belongs to windows starting at:
+        # 10:19:00, 10:20:00, 10:21:00, 10:22:00, 10:23:00
+        
+        let window_starts = range(0, window_duration_minutes).map(offset -> {
+          (event_time - duration(offset.string() + "m")).ts_format("2006-01-02T15:04:00Z")
+        })
+        
+        # Create array of sliding window records
+        root.sliding_windows = window_starts.map(start_time -> {
+          let end_time = (start_time.parse_timestamp("2006-01-02T15:04:05Z") + duration("5m")).ts_format("2006-01-02T15:04:05Z")
+          
+          {
+            "group_key": this.sensor_id + "|" + start_time + "|5min",
+            "window_start": start_time,
+            "window_end": end_time,
+            "slide_interval_minutes": slide_interval_minutes,
+            "window_duration_minutes": window_duration_minutes,
+            "sensor_id": this.sensor_id,
+            "event_time": this.time_bucket,
+            "temperature_avg": this.temperature_avg,
+            "temperature_min": this.temperature_min,
+            "temperature_max": this.temperature_max,
+            "event_count": this.event_count,
+            "original_aggregation": this
+          }
+        })
+
+    # Explode into separate records for each sliding window
+    - mapping: |
+        root = this.sliding_windows
+
+    # Unroll array into individual events
+    - unarchive:
+        format: json_array
+    
+    # Cache events by sliding window key
+    - cache:
+        resource: sliding_window_cache
+        key: ${! this.group_key }
+        value: ${! this }
+
+    # Group cached events by sliding window
+    - group_by:
+        - key: ${! this.group_key }
+          value: ${! this }
+
+    # Calculate sliding window analytics and trends
+    - mapping: |
+        # Sort events by time for proper trend calculation
+        let sorted_events = this.sort_by(event -> event.event_time)
+        
+        # Extract metadata from first event (consistent across window)
+        let first_event = sorted_events[0]
+        
+        root.sensor_id = first_event.sensor_id
+        root.window_start = first_event.window_start
+        root.window_end = first_event.window_end
+        root.slide_interval_minutes = first_event.slide_interval_minutes
+        root.window_duration_minutes = first_event.window_duration_minutes
+        root.analysis_timestamp = now().ts_format("2006-01-02T15:04:05.000Z")
+        
+        # Window completeness
+        root.expected_points = first_event.window_duration_minutes  # 1 point per minute
+        root.actual_points = sorted_events.length()
+        root.completeness_ratio = (root.actual_points / root.expected_points).round(4)
+        
+        # Temperature trend analysis
+        let temperatures = sorted_events.map_each(e -> e.temperature_avg)
+        let time_points = sorted_events.map_each(e -> e.event_time)
+        
+        # Basic statistics
+        root.temperature_5min_avg = temperatures.mean().round(2)
+        root.temperature_5min_min = temperatures.min()
+        root.temperature_5min_max = temperatures.max()
+        root.temperature_range = (root.temperature_5min_max - root.temperature_5min_min).round(2)
+        root.temperature_volatility = temperatures.stddev().round(2)
+        
+        # Trend calculation (linear regression)
+        let n = temperatures.length()
+        if n >= 3 {
+          # Simple linear trend using first and last points
+          let first_temp = temperatures[0]
+          let last_temp = temperatures[n-1]
+          let time_span_minutes = first_event.window_duration_minutes
+          
+          root.temperature_change = (last_temp - first_temp).round(2)
+          root.temperature_slope = (root.temperature_change / time_span_minutes).round(3)
+          
+          # Trend classification
+          root.temperature_trend = match {
+            root.temperature_slope > 0.1 => "increasing",
+            root.temperature_slope < -0.1 => "decreasing", 
+            _ => "stable"
+          }
+          
+          # Advanced trend analysis
+          if n >= 4 {
+            # Calculate correlation coefficient for trend strength
+            let x_values = range(0, n).map(i -> i)  # Time indices
+            let y_values = temperatures
+            
+            let x_mean = x_values.mean()
+            let y_mean = y_values.mean()
+            
+            let numerator = x_values.zip(y_values).map(pair -> (pair[0] - x_mean) * (pair[1] - y_mean)).sum()
+            let x_variance = x_values.map(x -> (x - x_mean).pow(2)).sum()
+            let y_variance = y_values.map(y -> (y - y_mean).pow(2)).sum()
+            
+            if x_variance > 0 && y_variance > 0 {
+              root.trend_correlation = (numerator / (x_variance * y_variance).sqrt()).round(4)
+              root.trend_strength = match {
+                root.trend_correlation.abs() > 0.8 => "strong",
+                root.trend_correlation.abs() > 0.5 => "moderate",
+                _ => "weak"
+              }
+            }
+          }
+        }
+        
+        # Anomaly detection using sliding window context
+        if root.actual_points >= 3 {
+          let recent_temp = temperatures[temperatures.length() - 1]
+          let historical_avg = temperatures.slice(0, temperatures.length() - 1).mean()
+          let historical_stddev = temperatures.slice(0, temperatures.length() - 1).stddev()
+          
+          if historical_stddev > 0 {
+            root.current_z_score = ((recent_temp - historical_avg) / historical_stddev).round(2)
+            root.anomaly_detected = root.current_z_score.abs() > 2.0  # 2 standard deviations
+            root.anomaly_severity = match {
+              root.current_z_score.abs() > 3.0 => "high",
+              root.current_z_score.abs() > 2.0 => "medium",
+              _ => "low"
+            }
+          }
+        }
+        
+        # Momentum indicators
+        if n >= 3 {
+          # Rate of change (acceleration)
+          let mid_point = temperatures[n/2]
+          let quarter_point = temperatures[n/4]
+          let three_quarter_point = temperatures[3*n/4]
+          
+          root.temperature_acceleration = ((three_quarter_point - quarter_point) - (mid_point - quarter_point)).round(3)
+          root.momentum = match {
+            root.temperature_acceleration > 0.5 => "accelerating",
+            root.temperature_acceleration < -0.5 => "decelerating",
+            _ => "steady"
+          }
+        }
+        
+        # Event count analysis for data quality
+        let event_counts = sorted_events.map_each(e -> e.event_count)
+        root.total_raw_events = event_counts.sum()
+        root.avg_events_per_minute = event_counts.mean().round(1)
+        root.min_events_per_minute = event_counts.min()
+        root.max_events_per_minute = event_counts.max()
+        
+        # Data quality indicators
+        root.consistent_event_rate = (event_counts.max() - event_counts.min()) < 10  # Within 10 events
+        root.data_quality_score = match {
+          root.completeness_ratio >= 0.9 && root.consistent_event_rate => "excellent",
+          root.completeness_ratio >= 0.8 => "good",
+          root.completeness_ratio >= 0.6 => "fair",
+          _ => "poor"
+        }
+        
+        # Store individual data points for detailed analysis
+        root.data_points = sorted_events.map_each(e -> {
+          {
+            "time": e.event_time,
+            "temperature_avg": e.temperature_avg,
+            "temperature_min": e.temperature_min, 
+            "temperature_max": e.temperature_max,
+            "event_count": e.event_count
+          }
+        })
+
+output:
+  # Send sliding window analytics to trend analysis endpoint
+  http_client:
+    url: "${ANALYTICS_ENDPOINT}/trends"
+    verb: POST
+    headers:
+      Content-Type: application/json
+      Authorization: "Bearer ${ANALYTICS_API_KEY}"
+    
+    # Batch trending analytics
+    batching:
+      count: 50       # Smaller batches for real-time trending
+      period: "15s"   # More frequent updates for trending
+      
+    # Retry configuration
+    retry_until_success: true
+    max_retries: 3
+    backoff:
+      initial_interval: "1s"
+      max_interval: "30s"
+
+# Metrics for sliding window monitoring
+metrics:
+  prometheus:
+    use_histogram_timing: true
+    add_process_metrics: true
+    add_go_metrics: true
+  mapping: |
+    root = this
+    
+    # Track trend analysis metrics
+    if this.exists("temperature_slope") {
+      root.metrics_trend_slope = this.temperature_slope
+      root.metrics_trend_correlation = this.trend_correlation if this.exists("trend_correlation")
+      root.metrics_anomaly_score = this.current_z_score if this.exists("current_z_score")
+    }
+
+# Logging for trend analysis debugging
+logger:
+  level: INFO
+  add_timestamp: true
+  json_format: true
+```
+
+## Deployment and Testing
+
+### Deploy the Pipeline
+
+```bash
+# Ensure Step 1 (tumbling windows) is running to generate input
+expanso list | grep step1-tumbling-windows
+
+# Deploy sliding window pipeline
+expanso create step2-sliding-windows.yaml
+
+# Verify deployment
+expanso list | grep step2-sliding
+
+# Monitor logs for trend analysis
+expanso logs step2-sliding-windows --follow
+```
+
+### Test with Tumbling Window Output
+
+```bash
+# Ensure tumbling window output exists
+ls -la tumbling-output.jsonl
+
+# Process tumbling aggregations through sliding windows
+cat tumbling-output.jsonl | expanso run step2-sliding-windows.yaml > sliding-output.jsonl
+
+# Analyze sliding window results
+echo "Input aggregations: $(wc -l < tumbling-output.jsonl)"
+echo "Output trend analyses: $(wc -l < sliding-output.jsonl)"
+
+# Inspect trending analytics
+head -2 sliding-output.jsonl | jq .
+```
+
+**Expected results:**
+- Input: ~1,000 tumbling aggregations
+- Output: ~5,000 sliding window analyses (5× overlap factor)
+- Each output contains trend metrics, anomaly detection, and momentum indicators
+
+### Validate Trend Analysis
+
+```bash
+# Check trend distribution
+jq -r '.temperature_trend' sliding-output.jsonl | sort | uniq -c
+
+# Analyze correlation strength
+jq '.trend_correlation' sliding-output.jsonl | awk '{sum+=$1; count++} END {print "Avg correlation:", sum/count}'
+
+# Check anomaly detection
+jq '.anomaly_detected' sliding-output.jsonl | grep true | wc -l
+echo "Anomalies detected: $(jq '.anomaly_detected' sliding-output.jsonl | grep true | wc -l) out of $(wc -l < sliding-output.jsonl)"
+
+# Examine slope distribution
+jq '.temperature_slope' sliding-output.jsonl | sort -n | uniq -c | head -10
+```
+
+Expected patterns:
+- Trend classifications should be distributed (increasing/decreasing/stable)
+- Correlation values should be between -1.0 and 1.0
+- Anomaly rate should be < 5% for normal sensor data
+- Slope values should center around 0 for stable sensors
+
+## Performance Monitoring
+
+### Memory Usage Analysis
+
+Monitor the increased memory footprint from overlapping windows:
+
+```bash
+# Check cache metrics (should be 5× higher than tumbling windows)
+curl http://localhost:8080/metrics | grep cache_items
+
+# Expected: ~5,000 cached items (1,000 sensors × 5 windows each)
+echo "Expected cache items: ~5,000 (5× tumbling windows)"
+
+# Monitor memory usage
+free -h
+ps aux | grep expanso | grep step2
+```
+
+Calculate memory impact:
+```
+Sliding window memory = Tumbling memory × Overlap factor
+                     = 60MB × 5 
+                     = 300MB for 5-minute windows with 1-minute slides
+```
+
+### Processing Latency
+
+Sliding windows add computational overhead for trend analysis:
+
+```bash
+# Monitor processing duration
+curl http://localhost:8080/metrics | grep processor_duration
+
+# Check trend calculation latency
+jq '.analysis_timestamp, .window_start' sliding-output.jsonl | paste - - | head -5
+```
+
+Target: < 2 seconds for trend calculation (vs. < 1 second for tumbling windows).
+
+### Trend Quality Metrics
+
+Validate trend analysis accuracy:
+
+```bash
+# Data quality distribution
+jq -r '.data_quality_score' sliding-output.jsonl | sort | uniq -c
+
+# Completeness ratio analysis
+jq '.completeness_ratio' sliding-output.jsonl | awk '{sum+=$1; count++} END {print "Avg completeness:", sum/count}'
+
+# Trend strength distribution
+jq -r '.trend_strength' sliding-output.jsonl | sort | uniq -c
+```
+
+Expected quality indicators:
+- Data quality: 90%+ "excellent" or "good"
+- Completeness ratio: > 0.8 average
+- Trend strength: Mixed distribution based on sensor variability
+
+## Common Variations
+
+### 1. Multiple Slide Intervals
+
+Create both fast and slow trending analytics:
+
+```yaml
+# Generate multiple sliding window configurations
+- mapping: |
+    root = this
+    
+    # Fast trending: 2-minute windows, 30-second slides (for real-time alerts)
+    let fast_windows = range(0, 4).map(offset -> {
+      let start_time = (event_time - duration((offset * 0.5).string() + "m")).ts_format("2006-01-02T15:04:00Z")
+      {
+        "group_key": this.sensor_id + "|" + start_time + "|2min_fast",
+        "window_start": start_time,
+        "window_duration_minutes": 2,
+        "slide_interval_minutes": 0.5,
+        "analysis_type": "fast_trending"
+      }
+    })
+    
+    # Slow trending: 15-minute windows, 5-minute slides (for strategic planning)
+    let slow_windows = range(0, 3).map(offset -> {
+      let start_time = (event_time - duration((offset * 5).string() + "m")).ts_format("2006-01-02T15:04:00Z")
+      {
+        "group_key": this.sensor_id + "|" + start_time + "|15min_slow", 
+        "window_start": start_time,
+        "window_duration_minutes": 15,
+        "slide_interval_minutes": 5,
+        "analysis_type": "strategic_trending"
+      }
+    })
+    
+    root.all_windows = fast_windows + slow_windows
+```
+
+### 2. Adaptive Window Sizing
+
+Adjust window size based on data volatility:
+
+```yaml
+# Determine optimal window size based on recent volatility
+- mapping: |
+    # Calculate recent volatility from last few tumbling windows
+    let recent_temps = [this.temperature_avg]  # Would need cache of recent values
+    let volatility = recent_temps.stddev()
+    
+    # Adaptive window sizing
+    let window_duration = match {
+      volatility > 5.0 => 2,    # High volatility: shorter windows (2 min)
+      volatility > 2.0 => 5,    # Medium volatility: standard windows (5 min)
+      _ => 10                   # Low volatility: longer windows (10 min)
+    }
+    
+    root.adaptive_window_minutes = window_duration
+    root.volatility_category = match {
+      volatility > 5.0 => "high",
+      volatility > 2.0 => "medium", 
+      _ => "low"
+    }
+```
+
+### 3. Seasonal Trend Detection
+
+Incorporate time-of-day patterns:
+
+```yaml
+# Add seasonal context to trend analysis
+- mapping: |
+    let current_time = now()
+    let hour_of_day = current_time.format_timestamp("15").number()
+    let day_of_week = current_time.format_timestamp("Monday")
+    
+    # Seasonal expectations (example for temperature sensors)
+    let expected_temp_by_hour = {
+      "0": 68.0, "1": 67.5, "2": 67.0, "3": 66.8, "4": 66.5,
+      "5": 67.0, "6": 68.5, "7": 71.0, "8": 74.0, "9": 77.5,
+      "10": 80.0, "11": 82.5, "12": 84.0, "13": 85.0, "14": 84.5,
+      "15": 83.0, "16": 81.0, "17": 78.5, "18": 76.0, "19": 73.5,
+      "20": 71.5, "21": 70.0, "22": 69.0, "23": 68.5
+    }
+    
+    let expected_temp = expected_temp_by_hour.get(hour_of_day.string()).or(72.0)
+    let seasonal_deviation = (root.temperature_5min_avg - expected_temp).round(2)
+    
+    root.seasonal_context = {
+      "hour_of_day": hour_of_day,
+      "day_of_week": day_of_week,
+      "expected_temperature": expected_temp,
+      "seasonal_deviation": seasonal_deviation,
+      "abnormal_for_time": seasonal_deviation.abs() > 5.0
+    }
+```
+
+### 4. Multi-Metric Correlation
+
+Analyze relationships between multiple sensor metrics:
+
+```yaml
+# Correlate temperature, humidity, and pressure trends
+- mapping: |
+    if this.exists("humidity_avg") && this.exists("pressure_avg") {
+      let temps = sorted_events.map_each(e -> e.temperature_avg)
+      let humidities = sorted_events.map_each(e -> e.humidity_avg) 
+      let pressures = sorted_events.map_each(e -> e.pressure_avg)
+      
+      # Calculate cross-correlations
+      let temp_humidity_corr = calculate_correlation(temps, humidities)
+      let temp_pressure_corr = calculate_correlation(temps, pressures)
+      let humidity_pressure_corr = calculate_correlation(humidities, pressures)
+      
+      root.cross_correlations = {
+        "temp_humidity": temp_humidity_corr.round(3),
+        "temp_pressure": temp_pressure_corr.round(3),
+        "humidity_pressure": humidity_pressure_corr.round(3)
+      }
+      
+      # Identify dominant relationships
+      let max_corr = [temp_humidity_corr.abs(), temp_pressure_corr.abs(), humidity_pressure_corr.abs()].max()
+      root.strongest_relationship = match {
+        temp_humidity_corr.abs() == max_corr => "temperature_humidity",
+        temp_pressure_corr.abs() == max_corr => "temperature_pressure",
+        _ => "humidity_pressure"
+      }
+    }
+```
+
+## Troubleshooting
+
+### Issue: Excessive Memory Usage
+
+**Symptoms:**
+- Cache memory continuously growing
+- System becomes slow or unresponsive
+- Out of memory errors
+
+**Diagnosis:**
+```bash
+# Check memory growth pattern
+watch "free -h && curl -s http://localhost:8080/metrics | grep cache_items"
+
+# Verify overlap factor calculation
+jq '.window_duration_minutes, .slide_interval_minutes' sliding-output.jsonl | paste - - | head -5
+```
+
+**Solutions:**
+
+**1. Reduce Overlap Factor**
+```yaml
+# Change from 5-minute windows with 1-minute slides to 3-minute windows
+let window_duration_minutes = 3  # Reduced from 5
+let slide_interval_minutes = 1   # Keep same slide interval
+# Overlap factor: 3× instead of 5×
+```
+
+**2. Sample Sensors for Testing**
+```yaml
+# Process only subset of sensors during development
+- mapping: |
+    let sensor_num = this.sensor_id.substr(5).number()  # Extract number from "temp_042"
+    if sensor_num % 10 != 0 {  # Process only every 10th sensor
+      error("Filtered for testing")
+    }
+    root = this
+```
+
+**3. Compress Historical Data**
+```yaml
+# Store compressed representations for longer windows  
+- mapping: |
+    # Only store essential data points for trend calculation
+    root.data_points = sorted_events.slice(0, 3) + sorted_events.slice(-2)  # First 3 + last 2
+    
+    # Calculate compressed statistics
+    root.compressed_stats = {
+      "start_temp": temperatures[0],
+      "end_temp": temperatures[-1], 
+      "max_temp": temperatures.max(),
+      "min_temp": temperatures.min(),
+      "avg_temp": temperatures.mean()
+    }
+```
+
+### Issue: Inaccurate Trend Detection
+
+**Symptoms:**
+- Trend classifications don't match visual inspection
+- Correlation values seem incorrect
+- Anomaly detection has high false positive rate
+
+**Diagnosis:**
+```bash
+# Inspect trend calculation details
+jq '.temperature_slope, .temperature_trend, .trend_correlation' sliding-output.jsonl | paste - - - | head -10
+
+# Check data point ordering
+jq '.data_points[0].time, .data_points[-1].time' sliding-output.jsonl | paste - - | head -5
+
+# Verify temperature value ranges
+jq '.temperature_5min_min, .temperature_5min_max, .temperature_range' sliding-output.jsonl | paste - - - | head -5
+```
+
+**Solutions:**
+
+**1. Fix Time Ordering**
+```yaml
+# Ensure proper time-based sorting
+let sorted_events = this.sort_by(event -> event.event_time.parse_timestamp("2006-01-02T15:04:05Z").timestamp_unix())
+```
+
+**2. Improve Trend Calculation**
+```yaml
+# Use linear regression instead of first/last point comparison
+let n = temperatures.length()
+let x_values = range(0, n).map(i -> i)  # Time indices
+let y_values = temperatures
+
+# Calculate proper linear regression slope
+let x_mean = x_values.mean()  
+let y_mean = y_values.mean()
+let numerator = x_values.zip(y_values).map(pair -> (pair[0] - x_mean) * (pair[1] - y_mean)).sum()
+let denominator = x_values.map(x -> (x - x_mean).pow(2)).sum()
+
+root.temperature_slope = if denominator > 0 {
+  (numerator / denominator).round(3)
+} else {
+  0
+}
+```
+
+**3. Adaptive Anomaly Thresholds**
+```yaml
+# Adjust anomaly detection based on sensor type and historical patterns
+let anomaly_threshold = match {
+  this.sensor_id.contains("precision") => 1.5,  # Tighter threshold for precision sensors
+  this.sensor_id.contains("outdoor") => 3.0,    # Looser threshold for weather sensors
+  _ => 2.0  # Standard threshold
+}
+
+root.anomaly_detected = root.current_z_score.abs() > anomaly_threshold
+```
+
+### Issue: High Processing Latency
+
+**Symptoms:**
+- Sliding window outputs delayed significantly
+- CPU usage consistently high
+- Processing times > 5 seconds per window
+
+**Diagnosis:**
+```bash
+# Monitor processing pipeline stages
+curl http://localhost:8080/metrics | grep processor_duration_seconds
+
+# Check cache operations latency
+curl http://localhost:8080/metrics | grep cache_operation
+
+# Verify group_by performance
+expanso logs step2-sliding-windows | grep -i "group_by.*duration"
+```
+
+**Solutions:**
+
+**1. Optimize Trend Calculations**
+```yaml
+# Simplify correlation calculation for performance
+let simple_correlation = if n >= 4 {
+  # Use Spearman rank correlation (faster than Pearson)
+  let rank_temps = temperatures.map(temp -> temperatures.filter(t -> t < temp).length())
+  let rank_times = range(0, n)
+  
+  # Simplified rank correlation
+  let rank_correlation = calculate_spearman_rank(rank_times, rank_temps)
+  rank_correlation.round(3)
+} else {
+  null
+}
+```
+
+**2. Batch Processing**
+```yaml
+# Process multiple windows in batches
+- group_by:
+    - key: ${! this.sensor_id }  # Group by sensor first
+      value: ${! this }
+      size: 50  # Process 50 windows per sensor at once
+```
+
+**3. Reduce Calculation Complexity**
+```yaml
+# Skip expensive calculations for stable sensors
+- mapping: |
+    # Only do full trend analysis if temperature range > 1.0°C
+    if root.temperature_range < 1.0 {
+      root.temperature_trend = "stable"
+      root.trend_strength = "minimal"
+      # Skip correlation and momentum calculations
+    } else {
+      # Full trend analysis for volatile sensors
+      # ... complete trend calculation logic ...
+    }
+```
+
+### Issue: Missing or Inconsistent Windows
+
+**Symptoms:**
+- Some sensors missing from sliding window output
+- Window timestamps don't align properly
+- Completeness ratios consistently low
+
+**Diagnosis:**
+```bash
+# Check window coverage by sensor
+jq -r '.sensor_id' sliding-output.jsonl | sort | uniq -c | head -10
+
+# Verify window timestamp patterns
+jq -r '.window_start' sliding-output.jsonl | sort | uniq -c | head -10
+
+# Check input data gaps
+jq -r '.time_bucket' tumbling-output.jsonl | sort | uniq -c | tail -10
+```
+
+**Solutions:**
+
+**1. Handle Missing Input Data**
+```yaml
+# Fill gaps in tumbling window data
+- mapping: |
+    # Detect missing time buckets and create placeholder entries
+    let expected_time_buckets = generate_time_sequence(start_time, end_time, "1m")
+    let actual_time_buckets = this.map_each(e -> e.time_bucket)
+    let missing_buckets = expected_time_buckets.filter(t -> !actual_time_buckets.contains(t))
+    
+    # Create synthetic entries for missing buckets
+    root.filled_data = this + missing_buckets.map(bucket -> {
+      {
+        "sensor_id": this[0].sensor_id,
+        "time_bucket": bucket,
+        "temperature_avg": null,  # Mark as interpolated
+        "synthetic": true
+      }
+    })
+```
+
+**2. Flexible Window Generation**
+```yaml
+# Generate windows only if sufficient data exists
+let window_starts = range(0, window_duration_minutes).map(offset -> {
+  (event_time - duration(offset.string() + "m")).ts_format("2006-01-02T15:04:00Z")
+}).filter(start -> {
+  # Only create window if we have enough historical data
+  let window_end = (start.parse_timestamp("2006-01-02T15:04:05Z") + duration("5m")).ts_format("2006-01-02T15:04:05Z")
+  historical_data_exists(start, window_end)
+})
+```
+
+## Production Optimization
+
+### Memory-Efficient Configuration
+
+```yaml
+# Optimized cache configuration for production
+resources:
+  caches:
+    sliding_window_cache:
+      memory:
+        default_ttl: "330s"     # Reduced grace period (5.5 minutes)
+        max_items: 50000        # Lower limit with monitoring alerts
+        eviction_policy: lru
+        compression: true       # Enable compression for larger items
+        
+    # Separate cache for metadata to reduce memory per item
+    window_metadata_cache:
+      memory:
+        default_ttl: "330s"
+        max_items: 10000
+        eviction_policy: lru
+```
+
+### Performance Tuning
+
+```yaml
+# Optimize for high-throughput production workloads
+pipeline:
+  processors:
+    # Parallel processing for multiple sensors
+    - parallel:
+        cap: 4  # Process up to 4 sensors concurrently
+        processors:
+          - cache:
+              resource: sliding_window_cache
+              key: ${! this.group_key }
+              value: ${! this }
+          - group_by:
+              - key: ${! this.group_key }
+                value: ${! this }
+                size: 100  # Larger batch sizes
+
+# Optimized output batching
+output:
+  http_client:
+    batching:
+      count: 200      # Larger batches for efficiency
+      period: "10s"   # More frequent trending updates
+    max_in_flight: 5  # Connection pooling
+    timeout: "15s"    # Reduced timeout for real-time trending
+```
+
+### Monitoring and Alerting
+
+```yaml
+# Advanced metrics for production monitoring
+metrics:
+  prometheus:
+    use_histogram_timing: true
+    histogram_buckets: [.01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30]
+    
+  # Custom sliding window metrics
+  mapping: |
+    root = this
+    
+    # Track trend analysis performance
+    if this.exists("temperature_trend") {
+      root.custom_trend_calculation_time = (now() - this.window_start.parse_timestamp("2006-01-02T15:04:05Z")).seconds()
+      root.custom_window_completeness = this.completeness_ratio
+      root.custom_anomaly_rate = if this.anomaly_detected { 1.0 } else { 0.0 }
+    }
+```
+
+## Next Steps
+
+You've successfully implemented sliding windows for smooth trend analysis and anomaly detection. The pipeline now:
+
+✅ **Creates overlapping analytics** with 5-minute context updated every minute
+✅ **Detects trends and momentum** using correlation analysis and linear regression  
+✅ **Identifies anomalies** with z-score analysis and adaptive thresholds
+✅ **Provides quality metrics** with completeness ratios and data consistency checks
+✅ **Optimizes for production** with memory management and performance tuning
+
+**Continue learning:**
+
+<div style={{display: 'flex', gap: '1rem', marginTop: '2rem', marginBottom: '2rem', flexWrap: 'wrap'}}>
+  <a href="./step-3-session-windows" className="button button--primary button--lg" style={{flex: '1', minWidth: '200px'}}>
+    Next: Session Windows
+  </a>
+  <a href="./explorer" className="button button--secondary button--lg" style={{flex: '1', minWidth: '200px'}}>
+    Explore Interactive Demo
+  </a>
+</div>
+
+**Or jump to advanced topics:**
+- [**Step 4: Multi-Level Aggregation**](./step-4-multi-level-aggregation) - Hierarchical analytics across dimensions
+- [**Step 5: Production Optimization**](./step-5-production-optimization) - Reliability, scaling, and monitoring
+- [**Complete Pipeline**](./complete-aggregation-pipeline) - Production-ready deployment
