@@ -29,6 +29,16 @@ const sidebars: SidebarsConfig = {
         'data-security/encryption-patterns',
         'data-security/encrypt-data',
         'data-security/remove-pii',
+        {
+          type: 'category',
+          label: 'Delete Payment Card PII',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'data-security/delete-payment-pii/index',
+            'data-security/delete-payment-pii/explorer',
+          ],
+        },
         'data-security/enforce-schema',
       ],
     },
