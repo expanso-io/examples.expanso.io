@@ -56,6 +56,15 @@ const sidebars: SidebarsConfig = {
         'log-processing/production-pipeline',
       ],
     },
+    {
+      type: 'category',
+      label: '📊 Developer Resources',
+      collapsible: true,
+      collapsed: true,
+      items: [
+        'internal/example-dashboard',
+      ],
+    },
   ],
 };
 
