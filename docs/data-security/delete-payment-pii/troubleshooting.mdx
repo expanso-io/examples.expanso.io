@@ -1,0 +1,1249 @@
+---
+title: "Troubleshooting Payment PII Deletion"
+sidebar_label: "Troubleshooting"
+sidebar_position: 7
+description: Diagnose and resolve common issues in payment PII deletion pipelines, from deployment failures to compliance violations
+keywords: [troubleshooting, debugging, payment-pii, pci-dss-issues, pipeline-errors]
+---
+
+# Troubleshooting Payment PII Deletion
+
+**Diagnose and resolve common issues** in payment PII deletion pipelines. This comprehensive troubleshooting guide covers everything from deployment failures to compliance violations, with step-by-step solutions and prevention strategies.
+
+## Quick Diagnostic Commands
+
+Before diving into specific issues, use these commands to quickly assess your pipeline status:
+
+```bash
+# Pipeline status and health
+expanso job status complete-payment-pii-pipeline
+
+# Recent error logs
+expanso job logs complete-payment-pii-pipeline --tail 50 | grep -i error
+
+# PII leakage check
+expanso job logs complete-payment-pii-pipeline --tail 100 | grep -E '"full_number"|"expiry"|"cvv"'
+
+# Performance metrics
+curl -s http://localhost:4195/metrics | grep payment
+
+# Compliance status
+expanso job logs complete-payment-pii-pipeline --tail 50 | grep '"compliance_check"'
+```
+
+## Deployment Issues
+
+### Issue: Pipeline Deployment Failed
+
+**Symptoms:**
+```
+Error: Failed to deploy pipeline
+YAML validation failed: unknown field 'xyz'
+```
+
+**Diagnosis:**
+```bash
+# Check YAML syntax
+yamllint complete-payment-pii-pipeline.yaml
+
+# Validate with Python YAML parser
+python3 -c "import yaml; yaml.safe_load(open('complete-payment-pii-pipeline.yaml'))"
+
+# Check Expanso CLI version compatibility
+expanso version
+```
+
+**Solutions:**
+
+**1. YAML Syntax Errors**
+```bash
+# Common YAML issues and fixes
+# Wrong indentation (use 2 spaces consistently)
+# Missing quotes around string values with special characters
+# Incorrect list syntax
+
+# Validate and fix
+yamllint --format parsable complete-payment-pii-pipeline.yaml
+```
+
+**2. Incompatible Configuration Fields**
+```bash
+# Check Expanso documentation for supported fields
+expanso help deploy
+
+# Use minimal configuration to test
+cat > minimal-test-pipeline.yaml << 'EOF'
+name: test-payment-pipeline
+type: pipeline
+config:
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /test
+  output:
+    stdout: {}
+EOF
+
+expanso job deploy minimal-test-pipeline.yaml
+```
+
+**3. Resource Conflicts**
+```bash
+# Check for existing pipeline with same name
+expanso job list | grep payment
+
+# Delete conflicting pipeline
+expanso job delete old-payment-pipeline
+
+# Redeploy with unique name
+sed 's/name: complete-payment-pii-pipeline/name: complete-payment-pii-pipeline-v2/' \
+  complete-payment-pii-pipeline.yaml | expanso job deploy -
+```
+
+### Issue: SSL/TLS Certificate Problems
+
+**Symptoms:**
+```
+Error: TLS certificate not found
+Error: Certificate validation failed
+```
+
+**Diagnosis:**
+```bash
+# Check certificate files exist
+ls -la /etc/ssl/certs/payment-pipeline.crt
+ls -la /etc/ssl/private/payment-pipeline.key
+
+# Verify certificate validity
+openssl x509 -in /etc/ssl/certs/payment-pipeline.crt -text -noout
+
+# Check certificate permissions
+stat /etc/ssl/private/payment-pipeline.key
+```
+
+**Solutions:**
+
+**1. Generate New Certificates**
+```bash
+# Generate new self-signed certificate
+openssl req -x509 -newkey rsa:4096 \
+  -keyout payment-pipeline.key \
+  -out payment-pipeline.crt \
+  -days 365 -nodes \
+  -subj "/C=US/ST=State/L=City/O=Company/CN=payment-pipeline"
+
+# Move to correct location
+sudo mv payment-pipeline.crt /etc/ssl/certs/
+sudo mv payment-pipeline.key /etc/ssl/private/
+sudo chmod 644 /etc/ssl/certs/payment-pipeline.crt
+sudo chmod 600 /etc/ssl/private/payment-pipeline.key
+```
+
+**2. Disable TLS for Testing**
+```yaml
+# Temporary TLS-disabled configuration
+input:
+  http_server:
+    address: "0.0.0.0:8080"
+    path: /events/payment
+    # Comment out TLS section for testing
+    # tls:
+    #   enabled: true
+    #   cert_file: "/etc/ssl/certs/payment-pipeline.crt"
+    #   key_file: "/etc/ssl/private/payment-pipeline.key"
+```
+
+---
+
+## Processing Issues
+
+### Issue: High Error Rate in Payment Processing
+
+**Symptoms:**
+```
+Error: Missing required field: payment_method
+Error: Cannot parse payment_method object
+High number of failed validation checks
+```
+
+**Diagnosis:**
+```bash
+# Check recent error patterns
+expanso job logs complete-payment-pii-pipeline --tail 100 | 
+  grep -E "ERROR|FAILED" | sort | uniq -c | sort -nr
+
+# Analyze input data structure
+expanso job logs complete-payment-pii-pipeline --tail 10 | 
+  grep -o '"payment_method":[^,}]*' | head -5
+
+# Check validation failures
+expanso job logs complete-payment-pii-pipeline --tail 50 | 
+  grep '"validation_status":"FAILED"'
+```
+
+**Solutions:**
+
+**1. Input Validation Issues**
+```yaml
+# Add comprehensive input validation
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        
+        # Validate required fields with helpful error messages
+        if this.event_type == null {
+          throw("Missing required field: event_type. Received: " + content())
+        }
+        
+        if this.transaction_id == null {
+          throw("Missing required field: transaction_id. Received: " + content())
+        }
+        
+        if this.payment_method == null {
+          root.processing_note = "No payment_method field - skipping PII deletion"
+        }
+
+    # Add input structure logging for debugging
+    - mapping: |
+        root = this
+        root.debug_info = {
+          "input_keys": this.keys(),
+          "payment_method_keys": this.payment_method.keys() if this.payment_method != null,
+          "input_size": content().length()
+        }
+```
+
+**2. Handle Malformed Payment Method Objects**
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        
+        # Robust payment_method handling
+        if this.payment_method != null {
+          # Check if payment_method is a string (common error)
+          if this.payment_method.type_of() == "string" {
+            root.processing_error = "payment_method is string, expected object"
+            root.payment_method = {}
+          } 
+          # Check if payment_method is empty
+          else if this.payment_method == {} {
+            root.processing_note = "empty payment_method object"
+          }
+          # Normal processing
+          else {
+            root.payment_method = this.payment_method.without(
+              "full_number", "expiry", "cvv"
+            )
+          }
+        }
+```
+
+**3. Create Debugging Pipeline**
+```yaml
+# Debug pipeline to analyze problematic input
+name: debug-payment-input
+type: pipeline
+config:
+  input:
+    http_server:
+      address: "0.0.0.0:8081"  # Different port
+      path: /debug/payment
+
+  pipeline:
+    processors:
+      - mapping: |
+          # Log detailed input analysis
+          root = {
+            "original_input": this,
+            "input_analysis": {
+              "content_length": content().length(),
+              "top_level_keys": this.keys(),
+              "payment_method_type": this.payment_method.type_of() if this.payment_method != null,
+              "payment_method_keys": this.payment_method.keys() if this.payment_method != null && this.payment_method.type_of() == "object",
+              "has_required_fields": {
+                "event_type": this.event_type != null,
+                "transaction_id": this.transaction_id != null,
+                "payment_method": this.payment_method != null
+              }
+            }
+          }
+
+  output:
+    stdout:
+      codec: lines
+```
+
+### Issue: PII Fields Not Being Deleted
+
+**Symptoms:**
+```
+PCI-DSS compliance violations detected
+High-risk field still present: full_number
+Audit shows PII in output
+```
+
+**Diagnosis:**
+```bash
+# Check for PII in recent output
+expanso job logs complete-payment-pii-pipeline --tail 20 | 
+  grep -E '"full_number"|"expiry"|"cvv"|"pan"'
+
+# Check deletion logic
+expanso job describe complete-payment-pii-pipeline | grep -A 20 "without"
+
+# Analyze field names in input
+expanso job logs complete-payment-pii-pipeline --tail 10 | 
+  grep -o '"[a-zA-Z_]*":[^,}]*' | grep -E "number|expiry|cvv"
+```
+
+**Solutions:**
+
+**1. Comprehensive Field Deletion**
+```yaml
+# Expand deletion list to catch variations
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        
+        if this.payment_method != null {
+          root.payment_method = this.payment_method.without(
+            # All possible PAN field names
+            "full_number",
+            "pan", 
+            "primary_account_number",
+            "card_number",
+            "number",
+            "account_number",
+            "cardNumber",
+            "fullNumber",
+            
+            # All possible expiry field names
+            "expiry",
+            "expiry_date", 
+            "exp_date",
+            "expiration",
+            "exp_month",
+            "exp_year",
+            "expiryDate",
+            "expMonth",
+            "expYear",
+            
+            # All possible CVV field names
+            "cvv",
+            "cvc", 
+            "security_code",
+            "verification_code",
+            "cvv2",
+            "securityCode",
+            
+            # Additional sensitive fields
+            "pin",
+            "cardholder_name",
+            "holder_name", 
+            "name_on_card",
+            "cardholderName"
+          )
+        }
+```
+
+**2. Dynamic Field Detection**
+```yaml
+# Detect and delete any field containing sensitive patterns
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        
+        if this.payment_method != null {
+          # Get all field names
+          all_fields = this.payment_method.keys()
+          
+          # Find suspicious field names
+          suspicious_fields = []
+          for field in all_fields {
+            field_lower = field.lowercase()
+            if field_lower.contains("number") || 
+               field_lower.contains("expiry") || 
+               field_lower.contains("cvv") || 
+               field_lower.contains("cvc") ||
+               field_lower.contains("pin") {
+              suspicious_fields = suspicious_fields.append(field)
+            }
+          }
+          
+          # Log suspicious fields for audit
+          root.deletion_audit = {
+            "suspicious_fields_found": suspicious_fields,
+            "all_fields": all_fields
+          }
+          
+          # Delete all suspicious fields
+          root.payment_method = this.payment_method.without(suspicious_fields...)
+        }
+```
+
+**3. Nested Field Deletion**
+```yaml
+# Handle nested payment structures
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        
+        # Handle various payment structure patterns
+        if this.payment != null && this.payment.card != null {
+          # Nested: payment.card structure
+          root.payment = this.payment
+          root.payment.card = this.payment.card.without(
+            "number", "expiry", "cvv", "pin"
+          )
+        }
+        
+        if this.card_details != null {
+          # Alternative structure: card_details
+          root.card_details = this.card_details.without(
+            "full_number", "expiry", "cvv"
+          )
+        }
+        
+        if this.payment_info != null && this.payment_info.credit_card != null {
+          # Alternative structure: payment_info.credit_card
+          root.payment_info = this.payment_info
+          root.payment_info.credit_card = this.payment_info.credit_card.without(
+            "number", "exp_date", "security_code"
+          )
+        }
+```
+
+### Issue: Analytics Data Missing After Enhancement
+
+**Symptoms:**
+```
+payment_method.analytics field is null
+transaction_analytics missing
+Enhanced fields not appearing in output
+```
+
+**Diagnosis:**
+```bash
+# Check if enhancement stage is running
+expanso job logs complete-payment-pii-pipeline --tail 20 | grep "analytics"
+
+# Verify input data has required fields for enhancement
+expanso job logs complete-payment-pii-pipeline --tail 10 | 
+  grep -o '"type":"[^"]*"\|"brand":"[^"]*"\|"amount":[^,}]*'
+
+# Check for enhancement errors
+expanso job logs complete-payment-pii-pipeline --tail 50 | grep -A 5 -B 5 "analytics"
+```
+
+**Solutions:**
+
+**1. Fix Enhancement Logic**
+```yaml
+# Robust analytics enhancement with error handling
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        
+        # Only enhance if payment_method exists and has safe fields
+        if this.payment_method != null {
+          root.payment_method = this.payment_method
+          
+          # Safe enhancement with null checks
+          if this.payment_method.type != null {
+            root.payment_method.analytics = root.payment_method.analytics.default({})
+            root.payment_method.analytics.category = match {
+              this.payment_method.type.lowercase().contains("credit") => "credit",
+              this.payment_method.type.lowercase().contains("debit") => "debit",
+              this.payment_method.type.lowercase().contains("digital") => "digital",
+              _ => "other"
+            }
+          }
+          
+          if this.payment_method.brand != null {
+            root.payment_method.analytics = root.payment_method.analytics.default({})
+            root.payment_method.analytics.brand_normalized = this.payment_method.brand.lowercase()
+          }
+        }
+        
+        # Transaction analytics with null checks
+        if this.amount != null {
+          root.transaction_analytics = {
+            "amount": this.amount,
+            "tier": match {
+              this.amount < 50.0 => "small",
+              this.amount < 200.0 => "medium", 
+              _ => "large"
+            }
+          }
+        }
+```
+
+**2. Add Enhancement Debugging**
+```yaml
+# Add debugging for enhancement issues
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        
+        # Log enhancement input state
+        root.enhancement_debug = {
+          "payment_method_present": this.payment_method != null,
+          "payment_type": this.payment_method.type if this.payment_method != null,
+          "amount_present": this.amount != null,
+          "timestamp_present": this.timestamp != null
+        }
+        
+        # Proceed with enhancement...
+```
+
+---
+
+## Performance Issues
+
+### Issue: High Processing Latency
+
+**Symptoms:**
+```
+Processing duration > 1000ms
+Pipeline backlog growing
+Timeout errors from analytics system
+```
+
+**Diagnosis:**
+```bash
+# Check processing times
+expanso job logs complete-payment-pii-pipeline --tail 100 | 
+  grep -o '"processing_duration_ms":[0-9]*' | 
+  sed 's/"processing_duration_ms"://' | 
+  awk '{sum+=$1; count++} END {print "Average:", sum/count, "ms"}'
+
+# Check pipeline metrics
+curl -s http://localhost:4195/metrics | grep -E "duration|latency|rate"
+
+# Check system resources
+top -p $(pgrep expanso)
+```
+
+**Solutions:**
+
+**1. Optimize Pipeline Processing**
+```yaml
+# High-performance optimized pipeline
+pipeline:
+  processors:
+    # Single-pass processing for speed
+    - mapping: |
+        # Combine all operations in one mapping for performance
+        root = this.without("_temp")
+        
+        # Fast PII deletion
+        root.payment_method = this.payment_method.without(
+          "full_number", "expiry", "cvv", "pan", "pin"
+        ) if this.payment_method != null
+        
+        # Minimal analytics (avoid complex logic)
+        root.analytics = {
+          "category": match this.payment_method.type {
+            "credit_card" => "credit",
+            _ => "other"
+          } if this.payment_method != null,
+          "amount_tier": match this.amount {
+            ..100.0 => "small",
+            _ => "large"  
+          } if this.amount != null,
+          "processed_at": now().unix()
+        }
+
+# Optimize buffer settings
+buffer:
+  type: "memory"
+  memory:
+    limit: "1GB"
+    batch_policy:
+      count: 1000      # Process in larger batches
+      period: "1s"     # More frequent processing
+```
+
+**2. Remove Expensive Operations**
+```yaml
+# Identify and remove expensive operations
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        
+        # Remove expensive operations like:
+        # - Complex regex operations
+        # - Multiple parsing operations  
+        # - Nested loops
+        # - Heavy string manipulation
+        
+        # Use simple, fast operations only
+        root.payment_method = this.payment_method.without("full_number", "expiry", "cvv") if this.payment_method != null
+        root.processed = true
+```
+
+**3. Implement Parallel Processing**
+```yaml
+# Use multiple pipeline instances for scale
+# Deploy multiple copies with load balancing
+name: payment-pii-pipeline-worker-1
+# name: payment-pii-pipeline-worker-2  
+# name: payment-pii-pipeline-worker-3
+```
+
+### Issue: Memory Usage Growing Over Time
+
+**Symptoms:**
+```
+Pipeline memory usage increasing
+Out of memory errors
+System becoming unresponsive
+```
+
+**Diagnosis:**
+```bash
+# Monitor pipeline memory usage
+ps aux | grep expanso | grep payment
+
+# Check system memory
+free -h
+
+# Monitor over time
+watch -n 10 'ps aux | grep expanso | grep payment'
+```
+
+**Solutions:**
+
+**1. Memory-Efficient Processing**
+```yaml
+# Optimize for memory usage
+pipeline:
+  processors:
+    - mapping: |
+        # Use selective field copying instead of full object copying
+        root = {
+          "transaction_id": this.transaction_id,
+          "amount": this.amount,
+          "currency": this.currency,
+          "timestamp": this.timestamp,
+          "payment": {
+            "type": this.payment_method.type,
+            "last_four": this.payment_method.last_four
+          } if this.payment_method != null
+        }
+        
+        # Avoid storing large temporary objects
+        # Avoid complex nested structures
+
+# Optimize buffer settings for memory
+buffer:
+  type: "memory"
+  memory:
+    limit: "512MB"    # Reduce buffer size
+    batch_policy:
+      count: 500      # Smaller batches
+      period: "1s"    # More frequent processing
+```
+
+**2. Add Memory Monitoring**
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        
+        # Add memory usage tracking
+        root.memory_info = {
+          "processing_size": content().length(),
+          "timestamp": now().unix()
+        }
+```
+
+---
+
+## Compliance Issues
+
+### Issue: PCI-DSS Compliance Violations Detected
+
+**Symptoms:**
+```
+PCI-DSS compliance check failed
+Compliance violations: Found PCI pattern: "full_number"
+Audit trail shows high-risk fields in output
+```
+
+**Diagnosis:**
+```bash
+# Comprehensive PII scan
+expanso job logs complete-payment-pii-pipeline --tail 200 | 
+  grep -E '"full_number"|"pan"|"expiry"|"cvv"|"cardholder_name"|"pin"'
+
+# Check compliance metadata
+expanso job logs complete-payment-pii-pipeline --tail 50 | 
+  grep '"compliance_check"' | tail -5
+
+# Audit specific transaction
+expanso job logs complete-payment-pii-pipeline | 
+  grep "transaction_id_here" | grep -E "full_number|expiry|cvv"
+```
+
+**Solutions:**
+
+**1. Comprehensive PII Pattern Detection**
+```yaml
+# Enhanced compliance checking
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        
+        # Comprehensive PII scan on entire event
+        event_str = content()
+        violations = []
+        
+        # Check for various PII patterns
+        pii_patterns = {
+          "credit_card_number": ["full_number", "pan", "card_number", "cardNumber"],
+          "expiry_date": ["expiry", "exp_date", "expiration", "exp_month", "exp_year"],
+          "security_code": ["cvv", "cvc", "security_code", "verification_code"],
+          "cardholder_data": ["cardholder_name", "holder_name", "name_on_card"],
+          "pin_data": ["pin", "personal_id"]
+        }
+        
+        for category, patterns in pii_patterns {
+          for pattern in patterns {
+            if event_str.contains('"' + pattern + '"') {
+              violations = violations.append(category + ": " + pattern)
+            }
+          }
+        }
+        
+        if violations.length() > 0 {
+          throw("PCI-DSS violations: " + violations.join(", "))
+        }
+```
+
+**2. Field Value Pattern Detection**
+```yaml
+# Check field values for card number patterns
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        
+        # Check all string fields for card number patterns
+        violations = []
+        
+        # Recursive function to check all fields
+        def check_object(obj, path) {
+          if obj.type_of() == "object" {
+            for key, value in obj {
+              check_object(value, path + "." + key)
+            }
+          } elif obj.type_of() == "string" {
+            # Check for credit card number patterns (Luhn algorithm candidates)
+            if obj.re_match("^[0-9]{13,19}$") || obj.re_match("^[0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{4}$") {
+              violations = violations.append("Possible card number at " + path)
+            }
+            # Check for expiry patterns
+            if obj.re_match("^[0-9]{2}/[0-9]{2,4}$") || obj.re_match("^[0-9]{2}-[0-9]{2,4}$") {
+              violations = violations.append("Possible expiry at " + path)
+            }
+          }
+        }
+        
+        check_object(this, "root")
+        
+        if violations.length() > 0 {
+          throw("Pattern violations: " + violations.join(", "))
+        }
+```
+
+### Issue: Audit Trail Missing or Incomplete
+
+**Symptoms:**
+```
+Audit log file not found
+Missing audit entries for processed events
+Incomplete deletion tracking
+```
+
+**Diagnosis:**
+```bash
+# Check audit log existence and permissions
+ls -la /var/log/expanso/payment-pii-audit.log
+
+# Count audit entries vs processed events
+AUDIT_COUNT=$(wc -l < /var/log/expanso/payment-pii-audit.log 2>/dev/null || echo 0)
+PROCESSED_COUNT=$(expanso job logs complete-payment-pii-pipeline --tail 1000 | grep -c '"processing_completed_at"')
+echo "Audit entries: $AUDIT_COUNT, Processed events: $PROCESSED_COUNT"
+
+# Check recent audit entries
+tail -10 /var/log/expanso/payment-pii-audit.log 2>/dev/null || echo "No audit log"
+```
+
+**Solutions:**
+
+**1. Create Audit Log Directory**
+```bash
+# Ensure audit log directory exists with proper permissions
+sudo mkdir -p /var/log/expanso
+sudo chown $(whoami):$(whoami) /var/log/expanso
+sudo chmod 755 /var/log/expanso
+
+# Test log writing
+echo "test" > /var/log/expanso/payment-pii-audit.log
+```
+
+**2. Enhanced Audit Logging**
+```yaml
+# Comprehensive audit trail configuration
+output:
+  broker:
+    outputs:
+      - label: "audit"
+        file:
+          path: "/var/log/expanso/payment-pii-audit.log" 
+          codec: lines
+        processors:
+          - mapping: |
+              # Comprehensive audit record
+              root = {
+                "audit_timestamp": now().format("2006-01-02T15:04:05.000Z"),
+                "transaction_id": this.transaction_id,
+                "original_fields": this.processing_metadata.audit_trail.high_risk_fields_present,
+                "fields_deleted": this.processing_metadata.pii_deletion.fields_deleted,
+                "safe_fields_preserved": this.processing_metadata.audit_trail.safe_fields_present,
+                "compliance_status": this.processing_metadata.compliance_check.pci_dss_compliant,
+                "processing_duration_ms": this.processing_metadata.performance.processing_duration_ms,
+                "pipeline_version": this.processing_metadata.pipeline_version,
+                "node_id": env("NODE_ID")
+              }
+```
+
+---
+
+## Analytics Issues
+
+### Issue: Analytics System Rejecting Events
+
+**Symptoms:**
+```
+HTTP 400/500 errors from analytics endpoint
+Events not appearing in analytics dashboard
+High retry count in pipeline metrics
+```
+
+**Diagnosis:**
+```bash
+# Check analytics endpoint connectivity
+curl -v -X POST "${ANALYTICS_ENDPOINT}" \
+  -H "Authorization: Bearer ${ANALYTICS_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"test": "event"}'
+
+# Check recent output format
+expanso job logs complete-payment-pii-pipeline --tail 5
+
+# Check HTTP response codes
+expanso job logs complete-payment-pii-pipeline --tail 100 | 
+  grep -o 'HTTP response: [0-9]*'
+```
+
+**Solutions:**
+
+**1. Validate Output Format**
+```yaml
+# Add output validation before sending to analytics
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        
+        # Validate required fields for analytics system
+        required_fields = ["transaction_id", "timestamp", "amount"]
+        for field in required_fields {
+          if this.get(field) == null {
+            throw("Missing required analytics field: " + field)
+          }
+        }
+        
+        # Ensure proper data types
+        root.amount = this.amount.number() if this.amount != null
+        root.timestamp = this.timestamp.parse_timestamp("2006-01-02T15:04:05Z").format("2006-01-02T15:04:05.000Z") if this.timestamp != null
+
+# Add schema validation
+output:
+  http_client:
+    url: "${ANALYTICS_ENDPOINT}"
+    verb: POST
+    headers:
+      Content-Type: "application/json"
+      X-Schema-Version: "v1.0"
+```
+
+**2. Implement Output Fallback**
+```yaml
+# Fallback output for analytics failures
+output:
+  try:
+    - http_client:
+        url: "${ANALYTICS_ENDPOINT}"
+        verb: POST
+        retry_period: "5s"
+        max_retries: 3
+  catch:
+    # Fallback to local file if analytics system fails
+    - file:
+        path: "/var/log/expanso/payment-analytics-fallback.log"
+        codec: lines
+```
+
+### Issue: Missing Expected Fields in Analytics
+
+**Symptoms:**
+```
+Analytics dashboard shows null values
+Expected enhanced fields missing  
+Incomplete payment method data
+```
+
+**Solutions:**
+
+**1. Add Field Presence Validation**
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        
+        # Validate enhanced analytics fields exist
+        validation_summary = {
+          "payment_analytics_complete": this.payment_method.analytics != null,
+          "transaction_analytics_complete": this.transaction_analytics != null,  
+          "time_analytics_complete": this.time_analytics != null
+        }
+        
+        # Add missing field warnings
+        if !validation_summary.payment_analytics_complete {
+          root.warnings = (root.warnings.default([])).append("payment_method.analytics missing")
+        }
+        
+        root.validation_summary = validation_summary
+```
+
+---
+
+## Edge Cases
+
+### Issue: Unusual Payment Data Structures
+
+**Symptoms:**
+```
+Processing fails with unexpected data formats
+Missing fields in complex nested structures
+Arrays of payment methods not handled
+```
+
+**Solutions:**
+
+**1. Handle Multiple Payment Methods**
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        
+        # Handle single payment_method (most common)
+        if this.payment_method != null && this.payment_method.type_of() == "object" {
+          root.payment_method = this.payment_method.without("full_number", "expiry", "cvv")
+        }
+        
+        # Handle array of payment methods (split payments)
+        if this.payment_methods != null && this.payment_methods.type_of() == "array" {
+          root.payment_methods = this.payment_methods.map_each(
+            this.without("full_number", "expiry", "cvv", "pan", "pin")
+          )
+        }
+        
+        # Handle alternative field names
+        if this.payment_info != null {
+          root.payment_info = this.payment_info.without("card_number", "exp_date", "cvc")
+        }
+```
+
+**2. Handle Non-Standard Field Types**
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        
+        # Handle payment_method as string (incorrect format)
+        if this.payment_method != null && this.payment_method.type_of() == "string" {
+          # Try to parse as JSON
+          parsed_payment = this.payment_method.parse_json().catch(null)
+          if parsed_payment != null {
+            root.payment_method = parsed_payment.without("full_number", "expiry", "cvv")
+          } else {
+            root.payment_method = {}
+            root.processing_warnings = ["payment_method was string, could not parse"]
+          }
+        }
+```
+
+### Issue: International Payment Formats
+
+**Symptoms:**
+```
+Non-US card numbers not recognized
+Different expiry date formats
+International currency handling issues
+```
+
+**Solutions:**
+
+**1. International Card Number Handling**
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        
+        # Handle various international card number formats
+        if this.payment_method != null {
+          root.payment_method = this.payment_method.without(
+            # US formats
+            "full_number", "card_number",
+            # UK formats  
+            "card_no", "account_number",
+            # European formats
+            "kartennummer", "numero_carte",
+            # Generic patterns
+            "pan", "primary_account_number"
+          )
+        }
+```
+
+**2. International Date Format Handling**
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        # Handle various expiry date formats before deletion
+        if this.payment_method.expiry_date != null {
+          # Log format for analytics before deletion
+          expiry_format = match {
+            this.payment_method.expiry_date.contains("/") => "mm_yy_slash",
+            this.payment_method.expiry_date.contains("-") => "mm_yy_dash", 
+            this.payment_method.expiry_date.length() == 4 => "mmyy",
+            _ => "unknown"
+          }
+          
+          root.payment_method = this.payment_method.without("expiry_date")
+          root.payment_method.expiry_format_detected = expiry_format
+        }
+```
+
+---
+
+## Monitoring and Alerting Issues
+
+### Issue: Metrics Not Being Collected
+
+**Symptoms:**
+```
+Metrics endpoint returns 404
+No data in monitoring dashboard
+Performance metrics missing
+```
+
+**Diagnosis:**
+```bash
+# Check metrics endpoint
+curl -s http://localhost:4195/metrics
+
+# Check if metrics are enabled in configuration
+grep -A 5 "metrics" complete-payment-pii-pipeline.yaml
+
+# Check pipeline status
+expanso job status complete-payment-pii-pipeline
+```
+
+**Solutions:**
+
+**1. Enable Metrics Collection**
+```yaml
+# Ensure metrics are properly configured
+http:
+  enabled: true
+  address: "0.0.0.0:4195"
+  debug_endpoints: false
+  metrics_path: "/metrics"
+  
+# Add custom metrics
+pipeline:
+  processors:
+    - metric:
+        type: counter
+        name: payment_pii_events_processed
+        labels:
+          pipeline: "payment-pii-deletion"
+        
+    - metric:
+        type: histogram  
+        name: payment_pii_processing_duration
+        labels:
+          pipeline: "payment-pii-deletion"
+```
+
+### Issue: Alerts Not Triggering
+
+**Symptoms:**
+```
+No alerts despite obvious issues
+Alert fatigue from false positives
+Missing critical compliance alerts
+```
+
+**Solutions:**
+
+**1. Tune Alert Thresholds**
+```yaml
+# Adjust alerting rules for payment PII pipeline
+groups:
+  - name: payment_pii_critical
+    rules:
+      - alert: PCIComplianceViolation
+        expr: increase(pci_compliance_violations_total[1m]) > 0
+        for: 0s  # Immediate alert
+        labels:
+          severity: critical
+        annotations:
+          description: "PCI-DSS violation detected - immediate action required"
+          
+      - alert: HighPIIProcessingErrorRate  
+        expr: rate(payment_pii_processing_errors_total[5m]) > 0.05  # 5% error rate
+        for: 2m
+        labels:
+          severity: warning
+```
+
+---
+
+## Getting Help
+
+### Escalation Procedures
+
+When issues can't be resolved with this guide:
+
+1. **Collect diagnostic information:**
+```bash
+# Create comprehensive diagnostic report
+./create-diagnostic-report.sh
+```
+
+2. **Check documentation and community:**
+   - [Expanso Documentation](https://docs.expanso.io)
+   - [Community Forum](https://community.expanso.io)
+   - [Known Issues](https://docs.expanso.io/troubleshooting)
+
+3. **Contact support with:**
+   - Pipeline configuration (`complete-payment-pii-pipeline.yaml`)
+   - Recent error logs (last 100 lines)
+   - Diagnostic report output
+   - Description of issue and impact
+
+### Create Diagnostic Report Script
+
+```bash
+cat > create-diagnostic-report.sh << 'EOF'
+#!/bin/bash
+
+REPORT_FILE="payment-pii-diagnostic-$(date +%Y%m%d_%H%M%S).log"
+
+echo "🔍 Payment PII Pipeline Diagnostic Report" > $REPORT_FILE
+echo "=======================================" >> $REPORT_FILE
+echo "Generated: $(date)" >> $REPORT_FILE
+echo "" >> $REPORT_FILE
+
+echo "📋 System Information:" >> $REPORT_FILE
+uname -a >> $REPORT_FILE
+echo "" >> $REPORT_FILE
+
+echo "🔧 Expanso CLI Version:" >> $REPORT_FILE
+expanso version >> $REPORT_FILE 2>&1
+echo "" >> $REPORT_FILE
+
+echo "📊 Pipeline Status:" >> $REPORT_FILE
+expanso job status complete-payment-pii-pipeline >> $REPORT_FILE 2>&1
+echo "" >> $REPORT_FILE
+
+echo "📝 Recent Error Logs:" >> $REPORT_FILE
+expanso job logs complete-payment-pii-pipeline --tail 50 | grep -i error >> $REPORT_FILE 2>&1
+echo "" >> $REPORT_FILE
+
+echo "🔍 PII Leakage Check:" >> $REPORT_FILE
+expanso job logs complete-payment-pii-pipeline --tail 100 | grep -E '"full_number"|"expiry"|"cvv"' >> $REPORT_FILE 2>&1
+echo "" >> $REPORT_FILE
+
+echo "📈 Performance Metrics:" >> $REPORT_FILE
+curl -s http://localhost:4195/metrics | grep payment >> $REPORT_FILE 2>&1
+echo "" >> $REPORT_FILE
+
+echo "✅ Diagnostic report saved to: $REPORT_FILE"
+EOF
+
+chmod +x create-diagnostic-report.sh
+```
+
+---
+
+## Prevention Best Practices
+
+### Development Best Practices
+
+1. **Test with realistic data:** Use actual payment data patterns (sanitized)
+2. **Validate incrementally:** Test each processing stage separately
+3. **Monitor continuously:** Set up alerts before issues become critical
+4. **Document edge cases:** Maintain a list of unusual data formats encountered
+5. **Regular compliance audits:** Schedule weekly PCI-DSS compliance checks
+
+### Operational Best Practices
+
+1. **Staged deployments:** Test changes in staging environment first
+2. **Rollback procedures:** Maintain ability to quickly revert to previous version
+3. **Backup configurations:** Version control all pipeline configurations
+4. **Regular testing:** Weekly end-to-end testing with known data sets
+5. **Documentation updates:** Keep troubleshooting guide updated with new issues
+
+---
+
+## Summary
+
+This comprehensive troubleshooting guide covers the most common issues in payment PII deletion pipelines:
+
+✅ **Deployment issues** - YAML syntax, certificates, resource conflicts  
+✅ **Processing issues** - Input validation, field deletion, enhancement failures  
+✅ **Performance issues** - Latency optimization, memory management  
+✅ **Compliance issues** - PCI-DSS violations, audit trail problems  
+✅ **Analytics issues** - Output format validation, missing fields  
+✅ **Edge cases** - International formats, unusual data structures
+
+**Key Prevention Strategies:**
+- Comprehensive testing with realistic data
+- Continuous monitoring and alerting
+- Regular compliance verification
+- Staged deployment processes
+- Detailed diagnostic procedures
+
+For additional support, use the diagnostic report script and follow the escalation procedures outlined above.

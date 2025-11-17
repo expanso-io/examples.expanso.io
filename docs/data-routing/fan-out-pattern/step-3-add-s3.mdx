@@ -1,0 +1,919 @@
+---
+title: Add S3 for Long-Term Archive Storage
+sidebar_label: Step 3 - Add S3
+sidebar_position: 6
+description: Integrate AWS S3 for cost-effective long-term data archival with intelligent tiering
+keywords: [s3, archive, storage, aws, compliance, cost optimization, compression]
+---
+
+# Step 3: Add S3 for Long-Term Archive Storage
+
+**Transform your fan-out pipeline into a comprehensive data archival system**. This step teaches you how to add AWS S3 as a cost-optimized archive destination with intelligent tiering, compliance features, and edge-aware partitioning strategies.
+
+## Understanding S3 in Multi-Destination Architecture
+
+S3 serves as the **long-term archive destination** in your fan-out architecture. While Kafka handles real-time streaming and Elasticsearch provides search capabilities, S3 enables:
+
+### Archive Storage Benefits
+
+**Cost-Effective Long-Term Retention:**
+- Intelligent tiering automatically moves data to cheaper storage classes
+- Lifecycle policies for automated data transitions and deletion
+- Compression at rest reduces storage costs by 60-80%
+
+**Compliance and Regulatory Support:**
+- Object immutability for WORM (Write Once, Read Many) compliance
+- Encryption at rest and in transit for data protection
+- Audit trails and access logging for regulatory requirements
+
+**Analytics and Data Lake Integration:**
+- Direct integration with AWS Analytics services (Athena, Redshift, EMR)
+- Parquet and columnar format support for analytical workloads
+- Data partitioning for efficient querying and cost optimization
+
+### Edge Computing Considerations
+
+**Bandwidth Optimization:**
+- Large batch sizes reduce API call overhead
+- Compression before upload minimizes network utilization
+- Intelligent retry handling for intermittent connectivity
+
+**Cost Management:**
+- Edge-aware partitioning reduces data scanning costs
+- Intelligent tiering based on access patterns
+- Lifecycle automation reduces manual data management overhead
+
+## Step-by-Step S3 Integration
+
+### Starting Point: Current Pipeline with Kafka
+
+From Step 2, you have Kafka streaming and archive file outputs:
+
+```yaml title="Current outputs configuration"
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Real-time Kafka streaming
+      - kafka:
+          # ... Kafka configuration from Step 2
+          
+      # Archive file destination (to be replaced with S3)
+      - file:
+          path: /var/expanso/archive/events-${!timestamp_unix_date("2006/01/02")}/hour-${!timestamp_unix_hour()}/batch-${!count("archive_batches")}.jsonl
+          # ... existing archive file config
+          
+      # Analytics file destination  
+      - file:
+          path: /var/expanso/analytics/events-${!timestamp_unix_date("2006-01-02")}.jsonl
+          # ... existing analytics config
+```
+
+### Replace Archive File with S3
+
+Replace the archive file destination with an AWS S3 output optimized for long-term storage:
+
+```yaml title="Add S3 as archive destination"
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Real-time Kafka streaming (unchanged)
+      - kafka:
+          # ... keep existing Kafka configuration
+          
+      # Long-term S3 archive  
+      - aws_s3:
+          # S3 bucket configuration
+          bucket: ${S3_BUCKET}
+          region: ${AWS_REGION}
+          
+          # Intelligent partitioning strategy
+          path: sensor-data/year=${!timestamp_unix_date("2006")}/month=${!timestamp_unix_date("01")}/day=${!timestamp_unix_date("02")}/hour=${!timestamp_unix_hour()}/edge=${!env("NODE_ID")}/events-${!count("s3_files")}.jsonl.gz
+          
+          # Archive-optimized batching
+          batching:
+            count: 5000       # Large batches for efficiency
+            period: 30m       # Longer collection window
+            byte_size: 50MB   # Substantial file sizes
+          
+          # Compression for cost savings
+          content_type: "application/x-ndjson"
+          content_encoding: gzip
+          
+          # Storage class optimization
+          storage_class: INTELLIGENT_TIERING
+          
+          # Encryption at rest
+          server_side_encryption: AES256
+          
+          # Metadata for object tagging
+          metadata:
+            static:
+              data_type: "sensor_events"
+              collection_method: "fan_out_archive"
+              edge_pipeline: "kafka-fan-out-v2"
+              compliance: "gdpr_ready"
+            from_message:
+              sensor_count: ${!this.sensor_id}
+              event_type: ${!this.device_type}
+              
+          # AWS credentials
+          credentials:
+            id: ${AWS_ACCESS_KEY_ID}
+            secret: ${AWS_SECRET_ACCESS_KEY}
+            
+          # Advanced S3 settings
+          timeout: 300s       # Extended timeout for large uploads
+          max_retries: 8      # Patient retry for reliability
+          backoff:
+            initial_interval: 2s
+            max_interval: 5m
+            multiplier: 2.0
+            
+      # Analytics file destination (unchanged)  
+      - file:
+          path: /var/expanso/analytics/events-${!timestamp_unix_date("2006-01-02")}.jsonl
+          # ... keep existing config
+```
+
+**Key S3-specific optimizations:**
+
+**Partitioning Strategy:**
+- **Year/Month/Day/Hour**: Standard time-based partitioning for chronological queries  
+- **Edge Node ID**: Separate data by edge location for geographic analysis
+- **Sequential file numbering**: Prevents overwrites and enables incremental processing
+
+**Storage Optimization:**
+- **Intelligent Tiering**: Automatically moves data between access tiers based on usage
+- **Gzip compression**: Reduces storage costs and transfer time
+- **Large batch sizes**: Minimizes S3 API costs and improves compression ratios
+
+**Reliability Configuration:**
+- **Extended timeouts**: Account for large file uploads over limited edge bandwidth
+- **Patient retry logic**: Handle temporary AWS service issues gracefully
+- **Server-side encryption**: Automatic encryption for compliance requirements
+
+### Add S3-Specific Data Processing
+
+Add processing optimized for S3's analytical and compliance requirements:
+
+```yaml title="Add S3-optimized processing"
+pipeline:
+  processors:
+    # Existing processors (edge metadata, Kafka metadata, validation)
+    # ... keep existing processors
+    
+    # Add S3 archive-specific processing
+    - mapping: |
+        root = this
+        
+        # S3 archive metadata
+        root.s3_metadata = {
+          "partition_date": this.timestamp.parse_timestamp().ts_format("2006-01-02"),
+          "partition_hour": this.timestamp.parse_timestamp().ts_hour(),
+          "storage_tier": "intelligent_tiering",
+          "compression": "gzip",
+          "retention_policy": "7_years"
+        }
+        
+        # Compliance and audit information
+        root.compliance_info = {
+          "data_classification": "sensor_telemetry",
+          "retention_required": true,
+          "pii_status": "none",
+          "encryption_required": true,
+          "audit_trail_id": uuid_v4(),
+          "gdpr_article": "6.1.f"  # Legitimate interest
+        }
+        
+        # Analytics preparation
+        root.analytics_tags = {
+          "sensor_location": this.edge_location,
+          "device_family": this.device_type,
+          "data_quality": if this.exists("temperature") && this.exists("humidity") { "complete" } else { "partial" },
+          "event_age_seconds": now() - this.timestamp.parse_timestamp()
+        }
+
+    # Archive-specific validation and enrichment
+    - mapping: |
+        root = this
+        
+        # Ensure data completeness for archival
+        root.archive_validation = {
+          "required_fields_present": true,
+          "timestamp_valid": this.timestamp.parse_timestamp().type() == "number",
+          "sensor_id_format": this.sensor_id.re_match("^sensor-[0-9]+$"),
+          "edge_metadata_complete": this.exists("edge_node_id") && this.exists("edge_location")
+        }
+        
+        # Flag any validation issues for review
+        root.archive_issues = []
+        if !root.archive_validation.timestamp_valid {
+          root.archive_issues = root.archive_issues.append("invalid_timestamp")
+        }
+        if !root.archive_validation.sensor_id_format {
+          root.archive_issues = root.archive_issues.append("invalid_sensor_id_format")
+        }
+        if !root.archive_validation.edge_metadata_complete {
+          root.archive_issues = root.archive_issues.append("incomplete_edge_metadata")
+        }
+```
+
+### Configure Advanced S3 Features
+
+For production environments, add advanced S3 configuration:
+
+```yaml title="Production S3 configuration"
+- aws_s3:
+    bucket: ${S3_BUCKET}
+    region: ${AWS_REGION}
+    
+    # Advanced partitioning with multiple dimensions
+    path: "sensor-data/dt=${!timestamp_unix_date("2006-01-02")}/hr=${!timestamp_unix_hour()}/edge=${!env("NODE_ID")}/type=${!json("device_type")}/batch=${!count("s3_files")}.jsonl.gz"
+    
+    # Optimized batching for cost and performance
+    batching:
+      count: 10000      # Very large batches for maximum efficiency
+      period: 60m       # Hourly archival for cost optimization
+      byte_size: 100MB  # Large files for better compression
+      
+      # Advanced batching options
+      flush_period: 30m # Force flush if approaching retention limits
+      
+    # Content and compression settings
+    content_type: "application/x-ndjson"
+    content_encoding: gzip
+    
+    # Storage class with lifecycle management
+    storage_class: INTELLIGENT_TIERING
+    
+    # Enhanced encryption
+    server_side_encryption: aws:kms
+    kms_key_id: ${S3_KMS_KEY_ID}
+    
+    # Object tagging for lifecycle and cost management
+    tags:
+      Environment: ${ENVIRONMENT}
+      DataType: "SensorTelemetry"
+      RetentionPeriod: "7Years"
+      ComplianceRequired: "true"
+      EdgeCluster: ${EDGE_CLUSTER_ID}
+      CostCenter: "IoT-Operations"
+      
+    # Metadata for searchability
+    metadata:
+      static:
+        schema_version: "sensor-event-v2"
+        pipeline_version: "s3-archive-v1"
+        compression_algorithm: "gzip"
+        created_by: "expanso-edge-pipeline"
+        
+      from_message:
+        edge_node: ${!json("edge_node_id")}
+        sensor_count: ${!this.sensor_id}
+        event_hour: ${!json("s3_metadata.partition_hour")}
+        data_quality: ${!json("analytics_tags.data_quality")}
+        
+    # Credentials and authentication
+    credentials:
+      id: ${AWS_ACCESS_KEY_ID}
+      secret: ${AWS_SECRET_ACCESS_KEY}
+      token: ${AWS_SESSION_TOKEN}  # For temporary credentials
+      
+      # IAM role-based authentication (preferred for production)
+      # role_arn: ${AWS_ROLE_ARN}
+      # external_id: ${AWS_EXTERNAL_ID}
+      
+    # Advanced networking and retry configuration
+    timeout: 600s       # 10 minutes for very large uploads
+    max_retries: 12     # Very patient retry for reliability
+    backoff:
+      initial_interval: 5s
+      max_interval: 10m
+      multiplier: 2.0
+      jitter: 0.2       # Add randomization to prevent thundering herd
+      
+    # Connection management
+    force_path_style: false
+    use_accelerate_endpoint: false  # Set to true if using S3 Transfer Acceleration
+    
+    # Custom endpoint for S3-compatible services
+    # endpoint: https://s3.your-region.amazonaws.com
+    
+    # Multipart upload configuration for large files
+    multipart_upload_threshold: 100MB
+    multipart_upload_chunk_size: 10MB
+```
+
+### Add S3 Lifecycle and Cost Optimization
+
+Configure S3 bucket lifecycle policies for automated cost optimization:
+
+```bash title="Configure S3 lifecycle policies"
+# Create lifecycle policy JSON
+cat > s3-lifecycle-policy.json << 'EOF'
+{
+  "Rules": [
+    {
+      "ID": "sensor-data-lifecycle",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "sensor-data/"
+      },
+      "Transitions": [
+        {
+          "Days": 30,
+          "StorageClass": "STANDARD_IA"
+        },
+        {
+          "Days": 90,
+          "StorageClass": "GLACIER"
+        },
+        {
+          "Days": 365,
+          "StorageClass": "DEEP_ARCHIVE"
+        }
+      ],
+      "Expiration": {
+        "Days": 2555  // 7 years retention
+      },
+      "AbortIncompleteMultipartUpload": {
+        "DaysAfterInitiation": 7
+      }
+    }
+  ]
+}
+EOF
+
+# Apply lifecycle policy
+aws s3api put-bucket-lifecycle-configuration \
+  --bucket $S3_BUCKET \
+  --lifecycle-configuration file://s3-lifecycle-policy.json
+  
+# Verify policy
+aws s3api get-bucket-lifecycle-configuration --bucket $S3_BUCKET
+```
+
+### Add S3 Monitoring and Metrics
+
+Enable detailed monitoring for S3 operations:
+
+```yaml title="S3 monitoring configuration"  
+pipeline:
+  processors:
+    # Add S3 monitoring metadata
+    - mapping: |
+        root = this
+        root.s3_monitoring = {
+          "upload_target_time": now() + duration("30m"),
+          "expected_file_size_mb": 50,
+          "cost_optimization_tier": "intelligent_tiering",
+          "bandwidth_estimate_mbps": 10,
+          "retention_compliance_days": 2555
+        }
+        
+        # Add performance tracking
+        root.performance_metrics = {
+          "batch_start_time": now(),
+          "events_in_batch": 1,  # Will be aggregated during batching
+          "compression_ratio_target": 0.3,  # 70% compression expected
+          "upload_bandwidth_target": "10MB/s"
+        }
+
+# Enhanced S3 output with monitoring
+aws_s3:
+  # ... existing configuration
+  
+  # Monitoring metadata
+  metadata:
+    static:
+      monitoring_enabled: "true"
+      performance_tracking: "enabled"
+      cost_tracking: "enabled"
+      
+    from_message:
+      batch_target_minutes: ${!json("s3_monitoring.upload_target_time")}
+      file_size_target_mb: ${!json("s3_monitoring.expected_file_size_mb")}
+      compression_enabled: "true"
+```
+
+## Complete S3 Integration Configuration
+
+Here's the complete configuration with S3 archive integration:
+
+```yaml title="complete-s3-fan-out-pipeline.yaml"
+name: s3-fan-out-pipeline
+description: Multi-destination pipeline with S3 long-term archival
+type: pipeline
+namespace: production
+labels:
+  environment: production
+  pattern: fan-out-s3
+  version: v3.0
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+      timeout: 5s
+      rate_limit: "15000/s"  # Higher limit for archive workloads
+
+  pipeline:
+    processors:
+      # Edge metadata enrichment  
+      - mapping: |
+          root = this
+          root.edge_node_id = env("NODE_ID").or("unknown")
+          root.edge_location = env("NODE_LOCATION").or("unknown")
+          root.processing_timestamp = now()
+          root.pipeline_version = "s3-archive-v3.0"
+
+      # Multi-destination metadata
+      - mapping: |
+          root = this
+          
+          # Kafka metadata (real-time)
+          root.kafka_metadata = {
+            "partition_key": this.sensor_id,
+            "delivery_mode": "at_least_once",
+            "processing_window": "realtime"
+          }
+          
+          # S3 metadata (archive)
+          root.s3_metadata = {
+            "partition_date": this.timestamp.parse_timestamp().ts_format("2006-01-02"),
+            "storage_tier": "intelligent_tiering", 
+            "retention_policy": "7_years",
+            "compression": "gzip"
+          }
+          
+          # Compliance information
+          root.compliance_info = {
+            "data_classification": "sensor_telemetry",
+            "retention_required": true,
+            "encryption_required": true,
+            "audit_trail_id": uuid_v4()
+          }
+
+      # Enhanced validation
+      - mapping: |
+          # Standard validation
+          if !this.exists("event_id") {
+            throw("missing required field: event_id")
+          }
+          if !this.exists("sensor_id") {
+            throw("missing required field: sensor_id")
+          }
+          if !this.exists("timestamp") {
+            throw("missing required field: timestamp")
+          }
+          
+          # Archive-specific validation
+          if !this.timestamp.parse_timestamp().type() == "number" {
+            throw("invalid timestamp for archival: " + this.timestamp)
+          }
+          
+          root = this
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # Real-time Kafka streaming (unchanged from Step 2)
+        - kafka:
+            addresses:
+              - ${KAFKA_BROKER_1}
+              - ${KAFKA_BROKER_2}
+              - ${KAFKA_BROKER_3}
+            topic: sensor-events
+            key: ${!json("sensor_id")}
+            batching:
+              count: 100
+              period: 2s
+            compression: snappy
+            # ... keep existing Kafka config
+
+        # Long-term S3 archive
+        - aws_s3:
+            bucket: ${S3_BUCKET}
+            region: ${AWS_REGION}
+            
+            # Intelligent partitioning
+            path: "sensor-data/dt=${!timestamp_unix_date("2006-01-02")}/hr=${!timestamp_unix_hour()}/edge=${!env("NODE_ID")}/batch=${!count("s3_files")}.jsonl.gz"
+            
+            # Archive-optimized batching
+            batching:
+              count: 10000
+              period: 60m
+              byte_size: 100MB
+              
+            # Compression and storage optimization
+            content_type: "application/x-ndjson"
+            content_encoding: gzip
+            storage_class: INTELLIGENT_TIERING
+            server_side_encryption: AES256
+            
+            # Object tagging
+            tags:
+              Environment: ${ENVIRONMENT}
+              DataType: "SensorTelemetry"
+              RetentionPeriod: "7Years"
+              EdgeCluster: ${EDGE_CLUSTER_ID}
+              
+            # Metadata
+            metadata:
+              static:
+                schema_version: "sensor-event-v2"
+                pipeline_version: "s3-archive-v3"
+                compression_algorithm: "gzip"
+              from_message:
+                edge_node: ${!json("edge_node_id")}
+                event_hour: ${!json("s3_metadata.partition_date")}
+                
+            # Authentication
+            credentials:
+              id: ${AWS_ACCESS_KEY_ID}
+              secret: ${AWS_SECRET_ACCESS_KEY}
+              
+            # Reliability configuration
+            timeout: 600s
+            max_retries: 12
+            backoff:
+              initial_interval: 5s
+              max_interval: 10m
+
+        # Analytics file destination (unchanged)
+        - file:
+            path: /var/expanso/analytics/events-${!timestamp_unix_date("2006-01-02")}.jsonl
+            codec: lines
+            batching:
+              count: 200
+              period: 5m
+            processors:
+              - mapping: |
+                  root = this
+                  root.destination_type = "analytics"
+                  root.processed_at = now()
+```
+
+## Testing and Verification
+
+### Deploy S3 Integration
+
+```bash title="Deploy S3-enabled pipeline"
+# Verify S3 credentials and bucket access
+aws s3 ls s3://$S3_BUCKET/
+
+# Deploy S3 integration
+expanso job deploy complete-s3-fan-out-pipeline.yaml
+
+# Monitor deployment
+watch -n 5 'expanso job status s3-fan-out-pipeline'
+```
+
+### Test S3 Archive Functionality
+
+```bash title="Test S3 archival"
+# Generate larger dataset for meaningful S3 testing
+./load-test-fan-out.sh http://localhost:8080/events 1800 20  # 30 minutes at 20 msg/s
+
+# Monitor S3 uploads (may take time due to large batching)
+watch -n 30 'aws s3 ls s3://$S3_BUCKET/sensor-data/ --recursive | tail -10'
+
+# Check upload progress in logs
+expanso job logs s3-fan-out-pipeline | grep -i "s3\|upload\|batch"
+```
+
+**Expected S3 structure:**
+```
+s3://your-bucket/sensor-data/
+├── dt=2025-01-20/
+│   ├── hr=10/
+│   │   ├── edge=edge-node-01/
+│   │   │   ├── batch=1.jsonl.gz
+│   │   │   └── batch=2.jsonl.gz
+│   │   └── edge=edge-node-02/
+│   │       └── batch=1.jsonl.gz
+│   └── hr=11/
+│       └── edge=edge-node-01/
+│           └── batch=1.jsonl.gz
+```
+
+### Verify S3 Object Metadata
+
+```bash title="Verify S3 object properties"
+# List recent objects with metadata
+aws s3api list-objects-v2 \
+  --bucket $S3_BUCKET \
+  --prefix "sensor-data/dt=$(date +%Y-%m-%d)" \
+  --query 'Contents[*].[Key,Size,StorageClass,LastModified]' \
+  --output table
+
+# Get detailed metadata for a specific object
+RECENT_OBJECT=$(aws s3api list-objects-v2 \
+  --bucket $S3_BUCKET \
+  --prefix "sensor-data/dt=$(date +%Y-%m-%d)" \
+  --query 'Contents[0].Key' \
+  --output text)
+
+aws s3api head-object \
+  --bucket $S3_BUCKET \
+  --key "$RECENT_OBJECT"
+
+# Verify compression by downloading and checking size
+aws s3 cp s3://$S3_BUCKET/$RECENT_OBJECT /tmp/test-download.jsonl.gz
+gunzip -c /tmp/test-download.jsonl.gz | wc -l
+echo "Compressed size: $(du -h /tmp/test-download.jsonl.gz | cut -f1)"
+echo "Uncompressed size: $(gunzip -c /tmp/test-download.jsonl.gz | wc -c | awk '{print $1/1024/1024 " MB"}')"
+```
+
+### Validate Data Integrity
+
+```bash title="Validate S3 data integrity"
+# Download and verify recent S3 data
+RECENT_OBJECT=$(aws s3api list-objects-v2 \
+  --bucket $S3_BUCKET \
+  --prefix "sensor-data/dt=$(date +%Y-%m-%d)" \
+  --query 'Contents[0].Key' \
+  --output text)
+
+# Download and decompress
+aws s3 cp s3://$S3_BUCKET/$RECENT_OBJECT /tmp/s3-validation.jsonl.gz
+gunzip /tmp/s3-validation.jsonl.gz
+
+# Verify JSON structure
+head -5 /tmp/s3-validation.jsonl | jq '.'
+
+# Check for required metadata
+echo "Verifying S3-specific metadata..."
+jq 'select(.s3_metadata and .compliance_info and .analytics_tags)' /tmp/s3-validation.jsonl | wc -l
+jq 'select(.destination_type == "archive")' /tmp/s3-validation.jsonl | wc -l
+
+# Verify no data corruption
+jq -c '.' /tmp/s3-validation.jsonl > /tmp/parsed.jsonl
+diff_count=$(diff <(wc -l /tmp/s3-validation.jsonl) <(wc -l /tmp/parsed.jsonl) | wc -l)
+if [ $diff_count -eq 0 ]; then
+  echo "✅ All JSON objects valid"
+else
+  echo "❌ JSON parsing errors detected"
+fi
+```
+
+### Performance and Cost Analysis
+
+```bash title="Analyze S3 performance and costs"
+# Create cost analysis script
+cat > s3-cost-analysis.sh << 'EOF'
+#!/bin/bash
+
+BUCKET=$S3_BUCKET
+PREFIX="sensor-data/dt=$(date +%Y-%m-%d)"
+
+echo "S3 Archive Performance Analysis"
+echo "=============================="
+
+# Storage analysis
+echo "Storage Statistics:"
+aws s3api list-objects-v2 \
+  --bucket $BUCKET \
+  --prefix $PREFIX \
+  --query '[sum(Contents[].Size), length(Contents[])]' \
+  --output text | awk '{
+    size_bytes=$1; 
+    object_count=$2; 
+    size_mb=size_bytes/1024/1024;
+    avg_size_mb=size_mb/object_count;
+    printf "Total Size: %.2f MB\n", size_mb;
+    printf "Object Count: %d\n", object_count;
+    printf "Average Object Size: %.2f MB\n", avg_size_mb
+  }'
+
+# Cost estimation (rough)
+echo ""
+echo "Cost Estimation (Intelligent Tiering):"
+TOTAL_SIZE_GB=$(aws s3api list-objects-v2 \
+  --bucket $BUCKET \
+  --prefix $PREFIX \
+  --query 'sum(Contents[].Size)' \
+  --output text | awk '{print $1/1024/1024/1024}')
+
+echo "Daily Storage: ${TOTAL_SIZE_GB} GB"
+echo "Monthly Storage Cost (Standard): \$$(echo "$TOTAL_SIZE_GB * 0.023" | bc -l | cut -c1-6)"
+echo "Monthly Storage Cost (IA after 30d): \$$(echo "$TOTAL_SIZE_GB * 0.0125" | bc -l | cut -c1-6)"
+
+# Compression analysis
+echo ""
+echo "Compression Analysis:"
+OBJECT=$(aws s3api list-objects-v2 --bucket $BUCKET --prefix $PREFIX --query 'Contents[0].Key' --output text)
+aws s3 cp s3://$BUCKET/$OBJECT /tmp/compression-test.gz 2>/dev/null
+COMPRESSED_SIZE=$(du -b /tmp/compression-test.gz | cut -f1)
+UNCOMPRESSED_SIZE=$(gunzip -c /tmp/compression-test.gz | wc -c)
+COMPRESSION_RATIO=$(echo "scale=3; $COMPRESSED_SIZE / $UNCOMPRESSED_SIZE" | bc)
+echo "Compression Ratio: ${COMPRESSION_RATIO} ($(echo "scale=1; (1-$COMPRESSION_RATIO)*100" | bc)% savings)"
+EOF
+
+chmod +x s3-cost-analysis.sh
+./s3-cost-analysis.sh
+```
+
+## Production Optimization Strategies
+
+### Multi-Region Replication
+
+For disaster recovery and compliance:
+
+```yaml title="S3 cross-region replication"
+# Primary S3 destination (existing)
+- aws_s3:
+    bucket: ${S3_BUCKET_PRIMARY}
+    region: ${AWS_REGION_PRIMARY}
+    # ... existing config
+
+# Secondary S3 destination for DR
+- aws_s3:
+    bucket: ${S3_BUCKET_SECONDARY}
+    region: ${AWS_REGION_SECONDARY}
+    
+    # Same partitioning scheme
+    path: "sensor-data/dt=${!timestamp_unix_date("2006-01-02")}/hr=${!timestamp_unix_hour()}/edge=${!env("NODE_ID")}/batch=${!count("s3_secondary_files")}.jsonl.gz"
+    
+    # Larger batches for cross-region efficiency
+    batching:
+      count: 20000
+      period: 120m
+      byte_size: 200MB
+      
+    # Same optimization settings
+    content_encoding: gzip
+    storage_class: INTELLIGENT_TIERING
+    
+    # Different credentials for security isolation
+    credentials:
+      id: ${AWS_ACCESS_KEY_ID_SECONDARY}
+      secret: ${AWS_SECRET_ACCESS_KEY_SECONDARY}
+```
+
+### Storage Class Optimization
+
+Choose storage classes based on access patterns:
+
+```yaml title="Storage class strategies"
+# Hot data (frequent access first 30 days)
+- aws_s3:
+    storage_class: STANDARD
+    
+# Warm data (infrequent access)  
+- aws_s3:
+    storage_class: STANDARD_IA
+    
+# Cold data (rarely accessed)
+- aws_s3:
+    storage_class: GLACIER
+    
+# Archived data (long-term retention)
+- aws_s3:
+    storage_class: DEEP_ARCHIVE
+    
+# Intelligent automatic tiering (recommended)
+- aws_s3:
+    storage_class: INTELLIGENT_TIERING
+```
+
+**Storage class cost comparison:**
+```
+Class                | Cost/GB/month | Retrieval Cost | Min Duration | Use Case
+--------------------|---------------|----------------|---------------|----------
+STANDARD            | $0.023        | None           | None          | Active data
+STANDARD_IA         | $0.0125       | $0.01/GB       | 30 days       | Backup, DR
+GLACIER             | $0.004        | $0.03/GB       | 90 days       | Archive
+DEEP_ARCHIVE        | $0.00099      | $0.02/GB       | 180 days      | Long-term
+INTELLIGENT_TIERING | $0.023-0.004  | None           | 30 days       | Unknown patterns
+```
+
+## Common Issues and Solutions
+
+### Issue: S3 Upload Timeouts
+
+**Symptom:** Large batches fail to upload due to timeout errors.
+
+**Diagnosis:**
+```bash
+# Check batch sizes and upload times
+expanso job logs s3-fan-out-pipeline | grep -i "timeout\|upload\|s3" | tail -20
+
+# Check available bandwidth
+iperf3 -c speedtest.net -t 30
+```
+
+**Solutions:**
+
+1. **Reduce batch size and increase timeout:**
+```yaml
+batching:
+  count: 5000      # Reduce from 10000
+  byte_size: 50MB  # Reduce from 100MB
+timeout: 900s      # Increase to 15 minutes
+```
+
+2. **Enable multipart uploads for large files:**
+```yaml
+multipart_upload_threshold: 50MB  # Lower threshold
+multipart_upload_chunk_size: 5MB  # Smaller chunks
+```
+
+3. **Use S3 Transfer Acceleration:**
+```yaml
+use_accelerate_endpoint: true
+endpoint: "https://s3-accelerate.amazonaws.com"
+```
+
+### Issue: High S3 Costs
+
+**Symptom:** S3 storage costs are higher than expected.
+
+**Solutions:**
+
+1. **Optimize compression:**
+```yaml
+content_encoding: gzip  # Better than snappy for storage
+# Consider xz or brotli for maximum compression
+```
+
+2. **Increase batch sizes:**
+```yaml
+batching:
+  count: 20000     # Larger batches
+  period: 120m     # Less frequent uploads
+```
+
+3. **Implement lifecycle policies:**
+```bash
+# Automatic transition to cheaper tiers
+aws s3api put-bucket-lifecycle-configuration \
+  --bucket $S3_BUCKET \
+  --lifecycle-configuration file://lifecycle-aggressive.json
+```
+
+### Issue: Partitioning Query Performance
+
+**Symptom:** Athena or analytics queries are slow and expensive.
+
+**Solutions:**
+
+1. **Optimize partition structure:**
+```yaml
+# Good: Time-based partitions
+path: "data/year=${!timestamp_unix_date("2006")}/month=${!timestamp_unix_date("01")}/day=${!timestamp_unix_date("02")}/file.json"
+
+# Better: Include common query dimensions
+path: "data/dt=${!timestamp_unix_date("2006-01-02")}/device_type=${!json("device_type")}/file.json"
+```
+
+2. **Use columnar formats for analytics:**
+```yaml
+# Consider Parquet for analytical workloads
+processors:
+  - parquet:
+      compression: snappy
+      schema: sensor_event_schema_v1
+```
+
+## Key Concepts Recap
+
+**S3 Archive Benefits:**
+- ✅ **Cost optimization**: Intelligent tiering and lifecycle policies reduce costs by 70-90%
+- ✅ **Compliance ready**: Encryption, immutability, and audit trails for regulatory requirements
+- ✅ **Analytics integration**: Direct querying with Athena, Redshift, and EMR
+- ✅ **Durability**: 99.999999999% (11 9's) durability for critical data
+
+**Optimization Guidelines:**
+- **Batch sizing**: Large batches (5K-20K events) for cost efficiency
+- **Compression**: Always use gzip or better for 60-80% storage savings  
+- **Partitioning**: Time + geographic + device type for query optimization
+- **Storage classes**: Intelligent tiering for unknown access patterns
+
+**Edge Computing Best Practices:**
+- **Bandwidth awareness**: Large batches reduce API overhead on limited connections
+- **Retry patience**: Long timeouts and many retries handle connectivity issues
+- **Local fallback**: Buffer locally during extended S3 outages
+
+## Next Steps
+
+✅ **S3 archival complete!** Your pipeline now provides comprehensive long-term data storage with cost optimization and compliance features.
+
+**Ready for search and analytics?** Continue with the final destination:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./step-4-add-elasticsearch" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Step 4: Add Elasticsearch
+  </a>
+  <a href="./troubleshooting" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Troubleshooting Guide  
+  </a>
+</div>
+
+---
+
+**Next:** [Add Elasticsearch for search and analytics](./step-4-add-elasticsearch)

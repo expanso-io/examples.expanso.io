@@ -1,0 +1,105 @@
+---
+title: Interactive Field Encryption Explorer
+sidebar_label: Interactive Explorer
+sidebar_position: 2
+description: Explore 6 stages of field-level encryption with live before/after comparisons
+keywords: [field-encryption, interactive, aes, demo, compliance]
+---
+
+import DataPipelineExplorer from '@site/src/components/DataPipelineExplorer';
+import { encryptDataStages } from '../encrypt-data-full.stages';
+
+# Interactive Field Encryption Explorer
+
+**See field-level encryption in action!** Use the interactive explorer below to step through 6 stages of data transformation. Watch as sensitive fields like credit card numbers, SSNs, and PII are progressively encrypted while preserving analytics utility.
+
+## How to Use This Explorer
+
+1. **Navigate** using arrow keys (← →) or click the numbered stage buttons
+2. **Compare** the Input (left) and Output (right) JSON at each stage
+3. **Observe** how sensitive fields are encrypted (red strikethrough) or preserved (green highlight)
+4. **Inspect** the YAML code showing exactly what mapping processor was added
+5. **Learn** from the stage description explaining the encryption technique and compliance benefit
+
+## Interactive Field Encryption Explorer
+
+<DataPipelineExplorer
+  stages={encryptDataStages}
+  title="FIELD-LEVEL ENCRYPTION"
+  subtitle="6-Stage Progressive Data Protection"
+/>
+
+## Understanding the Stages
+
+### Stage 1: Original Payment Data
+Raw transaction data with all sensitive fields exposed in plaintext. This represents the security risk: credit card numbers, CVV codes, SSNs, and PII are visible to anyone with database access.
+
+### Stage 2: Encrypt Credit Card Data
+The most critical step for PCI-DSS compliance. Credit card numbers and CVV codes are encrypted with AES-256-GCM while preserving the last 4 digits and card brand for customer service and fraud detection.
+
+### Stage 3: Encrypt PII Customer Data
+Personal identifiable information (SSN, email, phone) is encrypted while preserving useful analytics metadata: last 4 digits of SSN, email domain, phone area code, and birth year for demographic analysis.
+
+### Stage 4: Encrypt Address Data
+Geographic privacy protection by encrypting street addresses and detailed zip codes while preserving city, state, and country for regional analytics and compliance reporting.
+
+### Stage 5: Add Encryption Metadata
+Comprehensive audit trail including what was encrypted, when, with which key version, and by which system. Essential for compliance audits and key rotation tracking.
+
+### Stage 6: Complete Encrypted Transaction
+The final encrypted transaction ready for secure transmission and storage. All sensitive data is protected while maintaining full business intelligence capabilities.
+
+## What You've Learned
+
+After exploring all 6 stages, you now understand:
+
+✅ **Selective Encryption** - How to encrypt sensitive fields while preserving analytics utility
+✅ **Multi-Key Strategy** - Using different keys for different data types
+✅ **Compliance Requirements** - PCI-DSS and HIPAA encryption patterns
+✅ **Metadata Preservation** - Keeping useful data attributes for business intelligence
+✅ **Audit Trails** - Tracking encryption operations for compliance and key rotation
+
+## Try It Yourself
+
+Ready to build this encryption pipeline? Follow the step-by-step tutorial:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./setup" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Start Tutorial
+  </a>
+  <a href="./complete-pipeline" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Download Complete Pipeline
+  </a>
+</div>
+
+## Deep Dive into Each Step
+
+Want to understand each encryption technique in depth?
+
+- [**Step 1: Encrypt Credit Card Data**](./step-1-encrypt-payment-data) - PCI-DSS compliant card number and CVV encryption
+- [**Step 2: Encrypt Customer PII**](./step-2-encrypt-customer-data) - SSN, email, and phone number protection
+- [**Step 3: Encrypt Address Data**](./step-3-encrypt-location-data) - Geographic privacy with analytics preservation
+- [**Step 4: Implement Key Management**](./step-4-manage-encryption-keys) - Secure key storage and rotation
+- [**Step 5: Enable Selective Decryption**](./step-5-selective-decryption) - Granular access control
+- [**Step 6: Monitor Compliance**](./step-6-compliance-monitoring) - Audit trails and reporting
+
+## Common Questions
+
+### What happens to the original fields after encryption?
+The original plaintext fields are completely removed and replaced with encrypted versions. Only partial metadata (like last 4 digits) is preserved for business needs.
+
+### How does this affect my analytics?
+Analytics capabilities are preserved through selective metadata. You can still analyze card brands, geographic regions, email domains, and demographic data without accessing the encrypted values.
+
+### Can I decrypt specific fields for authorized services?
+Yes! Each data type uses a separate encryption key, allowing you to grant decryption access for specific data types to specific services (e.g., fraud detection systems get card data, customer service gets contact data).
+
+### How do I rotate the encryption keys?
+The pipeline includes key versioning in the encryption metadata. When you rotate keys, new data uses the new key version while old data can still be decrypted with the previous key.
+
+### What about performance impact?
+Field-level encryption adds minimal latency (typically &lt;5ms per transaction). The encryption operations are performed at the edge, so cloud systems receive pre-encrypted data without performance impact.
+
+---
+
+**Next:** [Set up your environment](./setup) to build this encryption pipeline yourself

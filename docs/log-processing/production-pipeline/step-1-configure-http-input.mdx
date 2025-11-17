@@ -1,0 +1,845 @@
+---
+title: Configure HTTP Input for Production Log Ingestion
+sidebar_label: Step 1 - HTTP Input
+sidebar_position: 3
+description: Configure secure, rate-limited HTTP endpoints for high-throughput log ingestion with proper authentication and monitoring
+keywords: [http, input, rate-limiting, authentication, security, ingestion, production]
+---
+
+# Step 1: Configure HTTP Input for Production Log Ingestion
+
+In this step, you'll configure a production-ready HTTP endpoint for log ingestion. Unlike the simple shell pipeline, this endpoint includes rate limiting, authentication, proper error handling, and monitoring capabilities.
+
+## Why HTTP Input Matters
+
+HTTP endpoints are the most common way applications send logs to aggregation systems. A production endpoint must handle:
+
+- **High throughput** - Thousands of requests per second
+- **Rate limiting** - Prevent abuse and resource exhaustion  
+- **Authentication** - Verify log sources are legitimate
+- **Error handling** - Gracefully handle malformed requests
+- **Monitoring** - Track ingestion metrics and health
+
+## Learning Objectives
+
+By the end of this step, you'll understand:
+
+✅ How to configure secure HTTP servers for log ingestion
+✅ How to implement rate limiting to protect against abuse
+✅ How to add authentication and authorization
+✅ How to handle errors gracefully without dropping data
+✅ How to monitor ingestion performance and health
+
+## Current vs. Target Architecture
+
+**Current (Shell Pipeline):**
+```yaml
+input:
+  http_server:
+    address: "0.0.0.0:8080"
+    path: /logs/ingest
+    allowed_verbs: [POST]
+```
+
+**Target (Production HTTP Input):**
+```yaml
+input:
+  http_server:
+    address: "0.0.0.0:8080"
+    path: /logs/ingest
+    allowed_verbs: [POST]
+    timeout: 10s
+    rate_limit: "1000/1s"
+    auth:
+      type: header
+      header: "X-API-Key"
+      required_value: "${LOG_API_KEY}"
+    cors:
+      enabled: true
+      allowed_origins: ["*"]
+    tls:
+      enabled: false  # Enable in production
+```
+
+## Step 1.1: Create Production HTTP Configuration
+
+Create a new pipeline configuration with enhanced HTTP input settings:
+
+```yaml title="http-input-pipeline.yaml"
+name: log-processing-http-input
+description: Production HTTP input configuration for log processing
+type: pipeline
+namespace: default
+
+# Target specific log collector nodes
+selector:
+  match_labels:
+    role: log-collector
+    environment: production
+
+# Production deployment strategy
+deployment:
+  strategy: rolling
+  max_parallel: 2
+  health_check:
+    type: http
+    endpoint: /health
+    interval: 30s
+  auto_rollback: true
+
+config:
+  # Production HTTP input configuration
+  input:
+    http_server:
+      # Bind to all interfaces for external access
+      address: "0.0.0.0:8080"
+      
+      # Standard log ingestion endpoint
+      path: /logs/ingest
+      
+      # Only allow POST requests
+      allowed_verbs:
+        - POST
+      
+      # Request timeout (prevents hanging connections)
+      timeout: 10s
+      
+      # Rate limiting (1000 requests per second per node)
+      rate_limit: "1000/1s"
+      
+      # CORS configuration for web applications
+      cors:
+        enabled: true
+        allowed_origins: ["*"]  # Restrict in production
+        allowed_methods: ["POST"]
+        allowed_headers: ["Content-Type", "X-API-Key", "X-Request-ID"]
+        max_age: 3600
+      
+      # Health check endpoint
+      health_check:
+        enabled: true
+        path: /health
+        response_body: '{"status":"healthy","pipeline":"log-processing"}'
+      
+      # Metrics endpoint
+      metrics:
+        enabled: true
+        path: /metrics
+        
+      # Request size limits
+      max_request_size: 1048576  # 1MB maximum request
+      max_header_size: 8192      # 8KB maximum headers
+      
+      # Connection settings
+      read_timeout: 10s
+      write_timeout: 10s
+      idle_timeout: 120s
+      max_connections: 1000
+
+  # Minimal processing for this step
+  pipeline:
+    processors:
+      # Basic JSON parsing
+      - json_documents:
+          parts: []
+
+      # Add HTTP metadata
+      - mapping: |
+          root = this
+          
+          # Add ingestion metadata
+          root.http_metadata = {
+            "received_at": now(),
+            "node_id": env("NODE_ID").or("unknown"),
+            "request_id": meta("http_request_id").or("unknown"),
+            "user_agent": meta("http_user_agent").or("unknown"),
+            "content_length": meta("http_content_length").or(0),
+            "remote_addr": meta("http_remote_addr").or("unknown")
+          }
+
+  # Simple file output for testing
+  output:
+    file:
+      path: "/var/log/expanso/http-input-${!timestamp_unix()}.jsonl"
+      codec: lines
+      batching:
+        count: 100
+        period: 5s
+
+# Logging configuration  
+logger:
+  level: INFO
+  format: json
+  add_timestamp: true
+
+# Metrics configuration
+metrics:
+  prometheus:
+    path: /metrics
+  mapping: |
+    root = this
+    meta pipeline = "http-input-test"
+    meta step = "1"
+```
+
+## Step 1.2: Deploy and Test Basic HTTP Input
+
+Deploy the HTTP input pipeline:
+
+```bash
+# Deploy the pipeline
+expanso job deploy http-input-pipeline.yaml
+
+# Check deployment status
+expanso job status log-processing-http-input
+
+# Wait for healthy status
+sleep 10
+expanso job status log-processing-http-input
+```
+
+**Expected output:**
+```
+Job: log-processing-http-input
+Status: running
+Type: pipeline
+Executions:
+  - Node: edge-node-001
+    State: running
+    Since: 15 seconds ago
+    Health: healthy
+```
+
+Test the basic endpoint:
+
+```bash
+# Test health check
+curl -v http://localhost:8080/health
+
+# Send a test log
+curl -X POST http://localhost:8080/logs/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-Request-ID: test-001" \
+  -d '{
+    "timestamp": "2025-10-20T10:30:45.123Z",
+    "level": "INFO", 
+    "service": "test",
+    "message": "HTTP input test"
+  }'
+```
+
+**Expected health check response:**
+```json
+{
+  "status": "healthy",
+  "pipeline": "log-processing"
+}
+```
+
+Check the processed log:
+
+```bash
+# View processed logs
+tail -1 /var/log/expanso/http-input-*.jsonl | jq .
+```
+
+**Expected output:**
+```json
+{
+  "timestamp": "2025-10-20T10:30:45.123Z",
+  "level": "INFO",
+  "service": "test", 
+  "message": "HTTP input test",
+  "http_metadata": {
+    "received_at": "2025-10-20T10:30:46.234Z",
+    "node_id": "edge-node-001",
+    "request_id": "test-001",
+    "user_agent": "curl/7.68.0",
+    "content_length": 95,
+    "remote_addr": "127.0.0.1:45678"
+  }
+}
+```
+
+## Step 1.3: Add Authentication
+
+Now enhance the pipeline with API key authentication:
+
+```yaml title="Update http-input-pipeline.yaml - Add authentication section"
+config:
+  input:
+    http_server:
+      # ... existing configuration ...
+      
+      # API key authentication
+      auth:
+        type: header
+        header: "X-API-Key"
+        required_value: "${LOG_API_KEY:secret-api-key-12345}"
+        error_response: |
+          {
+            "error": "unauthorized", 
+            "message": "Valid X-API-Key header required",
+            "code": 401
+          }
+```
+
+Set the API key environment variable:
+
+```bash
+# Set API key (in production, use a strong random key)
+export LOG_API_KEY="prod-log-key-$(openssl rand -hex 16)"
+echo "API Key: $LOG_API_KEY"
+
+# Redeploy with authentication
+expanso job deploy http-input-pipeline.yaml
+```
+
+Test authentication:
+
+```bash
+# Test without API key (should fail)
+curl -X POST http://localhost:8080/logs/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"test": "no auth"}'
+
+# Test with wrong API key (should fail)  
+curl -X POST http://localhost:8080/logs/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: wrong-key" \
+  -d '{"test": "wrong auth"}'
+
+# Test with correct API key (should succeed)
+curl -X POST http://localhost:8080/logs/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $LOG_API_KEY" \
+  -d '{
+    "timestamp": "2025-10-20T10:30:45.123Z",
+    "level": "INFO",
+    "service": "test", 
+    "message": "Authenticated request"
+  }'
+```
+
+**Expected responses:**
+- No API key: `401 Unauthorized`
+- Wrong API key: `401 Unauthorized`  
+- Correct API key: `200 OK`
+
+## Step 1.4: Test Rate Limiting
+
+Rate limiting prevents abuse and protects your infrastructure. Test the configured limits:
+
+```bash title="Test rate limiting with a burst of requests"
+#!/bin/bash
+
+echo "Testing rate limit (1000 req/s)..."
+
+# Send requests rapidly to test rate limiting
+for i in {1..20}; do
+  curl -s -X POST http://localhost:8080/logs/ingest \
+    -H "Content-Type: application/json" \
+    -H "X-API-Key: $LOG_API_KEY" \
+    -H "X-Request-ID: burst-$i" \
+    -d "{\"message\":\"Rate limit test $i\",\"timestamp\":\"$(date -u +'%Y-%m-%dT%H:%M:%S.%3NZ')\"}" &
+done
+
+# Wait for all requests to complete
+wait
+
+# Check for rate limit responses
+echo "Checking for rate limit responses..."
+```
+
+With the 1000 req/s limit, these 20 requests should all succeed. To test the actual limit:
+
+```bash
+# Test rate limit by sending 1500 requests in 1 second
+echo "Sending 1500 requests to trigger rate limit..."
+
+for i in {1..1500}; do
+  curl -s -o /dev/null -w "%{http_code} " http://localhost:8080/logs/ingest \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -H "X-API-Key: $LOG_API_KEY" \
+    -d '{"test":"rate limit"}' &
+  
+  # Limit concurrent requests to avoid overwhelming curl
+  if [ $((i % 50)) -eq 0 ]; then
+    wait
+  fi
+done
+
+wait
+echo ""
+echo "Rate limit test complete"
+```
+
+You should see some `429 Too Many Requests` responses after the first 1000 requests.
+
+## Step 1.5: Monitor HTTP Metrics
+
+Check the Prometheus metrics to understand request patterns:
+
+```bash
+# View HTTP metrics
+curl http://localhost:8080/metrics | grep http
+
+# Key metrics to monitor:
+# - http_requests_total
+# - http_request_duration_seconds  
+# - http_requests_rate_limited_total
+# - http_requests_authenticated_total
+```
+
+**Example metrics output:**
+```
+# HELP http_requests_total Total HTTP requests received
+http_requests_total{method="POST",path="/logs/ingest",status="200"} 1523
+
+# HELP http_request_duration_seconds HTTP request duration
+http_request_duration_seconds_bucket{method="POST",path="/logs/ingest",le="0.005"} 1500
+http_request_duration_seconds_bucket{method="POST",path="/logs/ingest",le="0.01"} 1520
+
+# HELP http_requests_rate_limited_total Rate limited requests
+http_requests_rate_limited_total 500
+
+# HELP http_requests_authenticated_total Authenticated requests  
+http_requests_authenticated_total{status="success"} 1523
+```
+
+## Step 1.6: Test Error Handling
+
+Test how the endpoint handles various error conditions:
+
+```bash
+# Test malformed JSON
+curl -X POST http://localhost:8080/logs/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $LOG_API_KEY" \
+  -d 'this is not json'
+
+# Test empty request
+curl -X POST http://localhost:8080/logs/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $LOG_API_KEY" \
+  -d ''
+
+# Test oversized request (>1MB)
+curl -X POST http://localhost:8080/logs/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $LOG_API_KEY" \
+  -d "$(python3 -c 'print("{\"large\":\"" + "x" * 1048577 + "\"}")')"
+
+# Test wrong HTTP method
+curl -X GET http://localhost:8080/logs/ingest \
+  -H "X-API-Key: $LOG_API_KEY"
+
+# Test wrong content type
+curl -X POST http://localhost:8080/logs/ingest \
+  -H "Content-Type: text/plain" \
+  -H "X-API-Key: $LOG_API_KEY" \
+  -d 'plain text data'
+```
+
+**Expected responses:**
+- Malformed JSON: `400 Bad Request`
+- Empty request: `400 Bad Request`
+- Oversized request: `413 Request Entity Too Large`
+- Wrong method: `405 Method Not Allowed`
+- Wrong content type: `415 Unsupported Media Type`
+
+## Step 1.7: Production Security Configuration
+
+For production deployment, enhance security with TLS and stricter settings:
+
+```yaml title="Production security configuration example"
+config:
+  input:
+    http_server:
+      # TLS configuration (production)
+      tls:
+        enabled: true
+        cert_file: "/etc/ssl/certs/log-ingestion.crt"
+        key_file: "/etc/ssl/private/log-ingestion.key"
+        min_version: "1.2"
+        cipher_suites:
+          - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+          - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+      
+      # Stricter CORS (production)
+      cors:
+        enabled: true
+        allowed_origins: 
+          - "https://app.yourcompany.com"
+          - "https://monitoring.yourcompany.com"
+        allowed_methods: ["POST"]
+        allowed_headers: ["Content-Type", "X-API-Key", "X-Request-ID"]
+        
+      # Enhanced authentication (production)
+      auth:
+        type: jwt
+        jwt_secret: "${JWT_SECRET}"
+        jwt_issuer: "log-processing-service"
+        jwt_audience: "log-ingestion"
+        
+      # Request filtering (production)
+      request_filtering:
+        max_header_count: 20
+        forbidden_headers: ["X-Debug", "X-Internal"]
+        required_headers: ["X-Service-Name", "X-Version"]
+```
+
+## Common HTTP Input Patterns
+
+### Pattern 1: Multi-Tenant Ingestion
+
+Route logs based on API key to tenant-specific outputs:
+
+```yaml
+# Add tenant routing
+- mapping: |
+    root = this
+    
+    # Extract tenant from API key
+    root.tenant = match env("LOG_API_KEY") {
+      this.contains("tenant-a-") => "tenant-a",
+      this.contains("tenant-b-") => "tenant-b",
+      _ => "default"
+    }
+    
+    # Add tenant-specific metadata
+    root.metadata.tenant = root.tenant
+    root.metadata.isolation_level = "tenant"
+```
+
+### Pattern 2: Service-Based Routing
+
+Route logs to different pipelines based on service name:
+
+```yaml
+# Add service-based routing
+- mapping: |
+    root = this
+    
+    # Route critical services to high-priority pipeline
+    root.priority = match this.service {
+      "payment-service" => "high",
+      "auth-service" => "high", 
+      "user-service" => "medium",
+      _ => "low"
+    }
+```
+
+### Pattern 3: Geographic Load Balancing
+
+Configure different endpoints for different regions:
+
+```yaml
+# Multiple HTTP inputs for load balancing
+input:
+  broker:
+    pattern: round_robin
+    inputs:
+      - http_server:
+          address: "0.0.0.0:8080"
+          path: /logs/us-west/ingest
+      - http_server:
+          address: "0.0.0.0:8081"  
+          path: /logs/us-east/ingest
+      - http_server:
+          address: "0.0.0.0:8082"
+          path: /logs/eu/ingest
+```
+
+## Performance Optimization
+
+### Tuning for High Throughput
+
+For high-volume environments, optimize these settings:
+
+```yaml
+config:
+  input:
+    http_server:
+      # Increase connection limits
+      max_connections: 5000
+      
+      # Optimize timeouts
+      read_timeout: 5s
+      write_timeout: 5s
+      idle_timeout: 60s
+      
+      # Increase rate limits
+      rate_limit: "10000/1s"
+      
+      # Optimize request size limits
+      max_request_size: 10485760  # 10MB
+      
+      # Enable keepalive
+      keepalive: true
+      keepalive_timeout: 75s
+```
+
+### Connection Pooling
+
+For applications sending many logs, use connection pooling:
+
+```bash title="Example: Connection pooling in application"
+# Configure your application to reuse connections
+curl_config="
+--keepalive-time 60
+--max-time 30 
+--retry 3
+--retry-delay 1
+"
+
+# Send multiple logs on same connection
+for log in "${logs[@]}"; do
+  curl $curl_config -X POST http://localhost:8080/logs/ingest \
+    -H "Content-Type: application/json" \
+    -H "X-API-Key: $LOG_API_KEY" \
+    -d "$log"
+done
+```
+
+## Troubleshooting
+
+### Issue: High Request Latency
+
+**Symptom:** HTTP requests take >100ms to complete
+
+**Diagnosis:**
+```bash
+# Check processing metrics
+curl http://localhost:8080/metrics | grep duration
+
+# Check system resources
+top -p $(pgrep expanso)
+
+# Check network latency
+ping localhost
+```
+
+**Solutions:**
+1. **Reduce timeout values:**
+```yaml
+timeout: 5s
+read_timeout: 3s
+write_timeout: 3s
+```
+
+2. **Increase connection pool:**
+```yaml
+max_connections: 2000
+```
+
+3. **Optimize JSON parsing:**
+```yaml
+processors:
+  - json_documents:
+      parts: [0]  # Only parse first part for better performance
+```
+
+### Issue: Rate Limiting Too Aggressive
+
+**Symptom:** Legitimate requests getting 429 responses
+
+**Diagnosis:**
+```bash
+# Check rate limit metrics
+curl http://localhost:8080/metrics | grep rate_limited
+
+# Check request patterns
+grep "rate_limited" /var/log/expanso/*.log
+```
+
+**Solutions:**
+1. **Increase rate limit:**
+```yaml
+rate_limit: "5000/1s"  # Increase from 1000
+```
+
+2. **Use burst allowance:**
+```yaml
+rate_limit: "1000/1s"
+burst_limit: 100  # Allow bursts up to 100 requests
+```
+
+3. **Implement tiered rate limiting:**
+```yaml
+rate_limit: "${RATE_LIMIT:1000}/1s"  # Make configurable
+```
+
+### Issue: Authentication Failures
+
+**Symptom:** Valid API keys being rejected
+
+**Diagnosis:**
+```bash
+# Check authentication logs
+expanso job logs log-processing-http-input | grep auth
+
+# Test API key format
+echo "API Key: '$LOG_API_KEY'"
+echo "Length: ${#LOG_API_KEY}"
+```
+
+**Solutions:**
+1. **Check environment variable:**
+```bash
+# Ensure variable is set correctly
+export LOG_API_KEY="your-actual-key"
+expanso job deploy http-input-pipeline.yaml
+```
+
+2. **Use multiple valid keys:**
+```yaml
+auth:
+  type: header
+  header: "X-API-Key"
+  valid_values: 
+    - "${LOG_API_KEY_1}"
+    - "${LOG_API_KEY_2}"
+    - "${LOG_API_KEY_3}"
+```
+
+3. **Add debug logging:**
+```yaml
+logger:
+  level: DEBUG  # Temporarily enable debug logging
+```
+
+### Issue: CORS Blocking Browser Requests
+
+**Symptom:** Browser applications can't send logs due to CORS
+
+**Diagnosis:**
+```bash
+# Check browser console for CORS errors
+# Test CORS preflight
+curl -X OPTIONS http://localhost:8080/logs/ingest \
+  -H "Origin: https://app.example.com" \
+  -H "Access-Control-Request-Method: POST"
+```
+
+**Solutions:**
+1. **Add specific origins:**
+```yaml
+cors:
+  enabled: true
+  allowed_origins: 
+    - "https://app.example.com"
+    - "https://dashboard.example.com"
+```
+
+2. **Add required headers:**
+```yaml
+cors:
+  allowed_headers: 
+    - "Content-Type"
+    - "X-API-Key"
+    - "Authorization"
+```
+
+## Security Best Practices
+
+### 1. API Key Management
+
+```bash
+# Generate strong API keys
+openssl rand -base64 32
+
+# Rotate keys regularly
+export LOG_API_KEY_OLD="$LOG_API_KEY"
+export LOG_API_KEY="$(openssl rand -base64 32)"
+
+# Update configuration to accept both keys during rotation
+```
+
+### 2. Request Size Limits
+
+```yaml
+# Prevent DoS attacks with large payloads
+max_request_size: 1048576  # 1MB max
+max_header_size: 8192      # 8KB max headers
+```
+
+### 3. Input Validation
+
+```yaml
+# Validate content type
+processors:
+  - mapping: |
+      root = if meta("http_content_type").contains("application/json") {
+        this
+      } else {
+        throw("Invalid content type")
+      }
+```
+
+### 4. IP-Based Rate Limiting
+
+For advanced rate limiting by IP address:
+
+```yaml
+# Rate limit per source IP
+rate_limit: "100/1m"  # 100 requests per minute per IP
+rate_limit_key: "${!meta(\"http_remote_addr\")}"
+```
+
+## What You've Accomplished
+
+✅ **Configured secure HTTP endpoints** with authentication and CORS
+✅ **Implemented rate limiting** to protect against abuse and overload
+✅ **Added request validation** with proper error handling
+✅ **Set up monitoring** with Prometheus metrics
+✅ **Tested error conditions** to ensure robustness
+✅ **Applied security best practices** for production deployment
+
+## Key Takeaways
+
+1. **Authentication is Critical** - Never expose log ingestion endpoints without proper authentication
+2. **Rate Limiting Protects Resources** - Prevent single sources from overwhelming your system
+3. **Error Handling Matters** - Graceful error responses help applications handle failures
+4. **Monitoring Enables Operations** - Metrics are essential for understanding system behavior
+5. **Security is Layered** - Combine authentication, rate limiting, and input validation
+
+## Next Steps
+
+Your HTTP input configuration is now production-ready! Next, you'll add data validation and quality assurance:
+
+**Next:** [Parse and Validate Logs](./step-2-parse-validate-logs) - Add JSON schema validation and required field checking.
+
+## Configuration Summary
+
+Here's the complete HTTP input configuration you've built:
+
+```yaml
+input:
+  http_server:
+    address: "0.0.0.0:8080"
+    path: /logs/ingest
+    allowed_verbs: [POST]
+    timeout: 10s
+    rate_limit: "1000/1s"
+    auth:
+      type: header
+      header: "X-API-Key"
+      required_value: "${LOG_API_KEY}"
+    cors:
+      enabled: true
+      allowed_origins: ["*"]
+      allowed_methods: ["POST"]
+      allowed_headers: ["Content-Type", "X-API-Key", "X-Request-ID"]
+    health_check:
+      enabled: true
+      path: /health
+    metrics:
+      enabled: true
+      path: /metrics
+    max_request_size: 1048576
+    max_connections: 1000
+```
+
+This configuration provides enterprise-grade log ingestion capabilities with security, performance, and monitoring built-in.

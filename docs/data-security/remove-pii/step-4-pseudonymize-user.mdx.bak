@@ -1,0 +1,615 @@
+---
+title: "Step 4: Pseudonymize User Names"
+sidebar_label: "Step 4: Pseudonymize"
+sidebar_position: 7
+description: Replace user names with consistent pseudonymous IDs for tracking without revealing identity
+keywords: [gdpr, pseudonymization, privacy, user-tracking, anonymization]
+---
+
+# Step 4: Pseudonymize User Names
+
+**Learn to create consistent user IDs** that preserve user journey tracking while completely removing direct identifiers like names.
+
+## The Concept: Pseudonymization
+
+User names are **direct identifiers** under GDPR. Pseudonymization replaces them with **consistent but meaningless IDs**.
+
+**Use pseudonymization when:**
+- ✅ You need to track user behavior across sessions ("user_xyz visited 10 pages")
+- ✅ You want to remove direct identifiers (names, usernames)
+- ✅ You need GDPR compliance (pseudonymous data has reduced restrictions)
+- ✅ Same user should always get the same ID (consistency matters)
+
+**Don't use pseudonymization when:**
+- ❌ You don't need cross-session tracking (use deletion instead)
+- ❌ You need to display user's actual name in UI
+- ❌ You're already using email hash for user identification
+
+## What We're Transforming
+
+From this event:
+
+```json
+{
+  "event_id": "evt_20240115_1030",
+  "user_name": "Sarah Johnson",  // ❌ Direct identifier (GDPR PII)
+  // ... other fields
+}
+```
+
+To this:
+
+```json
+{
+  "event_id": "evt_20240115_1030",
+  "user_id": "user_8f3e7a9c2d1b",  // ✅ Pseudonymous ID
+  // ... other fields
+}
+```
+
+## The Bloblang Pseudonymization Pattern
+
+**Create user ID from hashed name:**
+```bloblang
+# Hash the name with salt, then format as user_id
+"user_" + user_name.hash("sha256", env("USER_SALT").or("")).slice(0, 12)
+```
+
+**Example:**
+```bloblang
+root = this
+
+# Create consistent pseudonymous user ID
+root.user_id = "user_" + this.user_name.hash(
+  "sha256",
+  env("USER_SALT").or("")
+).slice(0, 12)
+
+# Remove original user name
+root = this.without("user_name")
+```
+
+**How it works:**
+1. Takes original name: `"Sarah Johnson"`
+2. Hashes with salt: `hash("Sarah Johnson" + salt)` → `8f3e7a9c2d1b4e6f...` (64 chars)
+3. Takes first 12 characters: `8f3e7a9c2d1b`
+4. Formats as ID: `user_8f3e7a9c2d1b`
+5. **Same name always produces same ID** (deterministic)
+
+## Step-by-Step Implementation
+
+### 1. Verify Environment Variable
+
+Ensure `USER_SALT` is set from the [Setup guide](./setup):
+
+```bash
+# Check salt is configured
+echo "USER_SALT length: ${#USER_SALT}"  # Should print 64
+
+# If not set, generate one
+export USER_SALT=$(openssl rand -hex 32)
+```
+
+### 2. Create the Pipeline Configuration
+
+Create `step-4-pseudonymize-user.yaml`:
+
+```yaml title="step-4-pseudonymize-user.yaml"
+name: pii-step-4-pseudonymize
+description: "Step 4: Pseudonymize user names (GDPR)"
+type: pipeline
+namespace: default
+priority: 100
+
+config:
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /events/ingest
+      allowed_verbs: [POST]
+
+  pipeline:
+    processors:
+      # Processor 1: Delete payment PII (from Step 1)
+      - mapping: |
+          root = this
+          root.payment_method = this.payment_method.without(
+            "full_number",
+            "expiry"
+          )
+
+      # Processor 2: Hash IP address (from Step 2)
+      - mapping: |
+          root.ip_hash = this.ip_address.hash(
+            "sha256",
+            env("IP_SALT").or("")
+          )
+          root = this.without("ip_address")
+
+      # Processor 3: Hash email + extract domain (from Step 3)
+      - mapping: |
+          root.email_hash = this.email.hash(
+            "sha256",
+            env("EMAIL_SALT").or("")
+          )
+          root.email_domain = this.email.split("@").index(1)
+          root = this.without("email")
+
+      # Processor 4: Pseudonymize user name
+      - mapping: |
+          # Create consistent pseudonymous user ID from name
+          root.user_id = "user_" + this.user_name.hash(
+            "sha256",
+            env("USER_SALT").or("")
+          ).slice(0, 12)
+
+          # Remove original user name
+          root = this.without("user_name")
+
+  output:
+    file:
+      path: /var/log/expanso/step-4-output.jsonl
+      codec: lines
+
+logger:
+  level: INFO
+```
+
+### 3. Deploy the Pipeline
+
+```bash
+# Deploy to edge nodes
+expanso job deploy step-4-pseudonymize-user.yaml
+
+# Verify deployment
+expanso job status pii-step-4-pseudonymize
+```
+
+### 4. Test with Sample Data
+
+```bash
+# Send the sample event
+curl -X POST http://localhost:8080/events/ingest \
+  -H "Content-Type: application/json" \
+  -d @sample-data.json
+
+# Check the output
+tail -1 /var/log/expanso/step-4-output.jsonl | jq .
+```
+
+### 5. Verify Pseudonymization
+
+**Expected output:**
+
+```json
+{
+  "event_id": "evt_20240115_1030",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "event_type": "purchase",
+  // "user_name" removed            ✅ Original name deleted
+  "user_id": "user_8f3e7a9c2d1b",   // ✅ Pseudonymous ID
+  // ... other fields
+}
+```
+
+**Verification checklist:**
+- ✅ `user_name` field is **not present** in output
+- ✅ `user_id` field is **present** with format `user_[12-hex-chars]`
+- ✅ Same name always produces **same user_id** (run test twice to verify)
+- ✅ Different names produce **different user_ids**
+- ✅ User ID is **meaningless** (cannot reverse to get original name)
+
+## Why This Works for GDPR
+
+### GDPR and Direct Identifiers
+
+**User names are personal data under GDPR Article 4(1):**
+- 🔴 Directly identify an individual
+- 🔴 Can be combined with other data to re-identify users
+- 🔴 Subject to GDPR's strictest requirements
+
+### Pseudonymization vs Anonymization
+
+**Two approaches to privacy:**
+
+**Anonymization (irreversible):**
+- Cannot re-identify data subject by any means
+- **No longer personal data** under GDPR
+- Example: Our hashed IPs, hashed emails (without mapping table)
+
+**Pseudonymization (reversible with key):**
+- Can re-identify if you have the salt/key
+- **Still personal data** but with reduced GDPR requirements
+- Example: Our user_ids (if attacker has salt)
+
+### GDPR Article 4(5) - Pseudonymization
+
+GDPR defines pseudonymization as:
+> "processing of personal data in such a manner that the personal data can no longer be attributed to a specific data subject **without the use of additional information**"
+
+**Our approach qualifies because:**
+- ✅ User ID alone doesn't identify individual
+- ✅ Need salt to reverse-engineer (which we protect)
+- ✅ Reduced GDPR obligations (Article 32 - security measures)
+- ✅ Enables user tracking without storing actual names
+
+### Benefits Under GDPR
+
+**With pseudonymization, you can:**
+- ✅ Store data longer (reduced retention requirements)
+- ✅ Share data more easily (within legal bounds)
+- ✅ Use for secondary purposes (e.g., analytics)
+- ✅ Reduce breach notification obligations (if salt not compromised)
+
+## Analytics Impact
+
+### Before (with real names):
+```json
+"user_name": "Sarah Johnson"
+```
+
+**Analytics queries:**
+- ✅ Track user behavior
+- ✅ User journey analysis
+- ❌ **But violates GDPR** without consent!
+
+### After (with pseudonymous IDs):
+```json
+"user_id": "user_8f3e7a9c2d1b"
+```
+
+**Analytics queries you CAN still run:**
+
+**User Journey Tracking:**
+```sql
+-- Track user across sessions
+SELECT user_id, COUNT(*) AS page_views, SUM(purchase_amount) AS total_spent
+FROM events
+WHERE user_id = 'user_8f3e7a9c2d1b'
+GROUP BY user_id;
+```
+
+**Cohort Analysis:**
+```sql
+-- Users who made first purchase this month
+SELECT user_id, MIN(timestamp) AS first_purchase
+FROM events
+WHERE event_type = 'purchase'
+GROUP BY user_id
+HAVING MIN(timestamp) >= '2024-01-01';
+```
+
+**Funnel Analysis:**
+```sql
+-- Conversion funnel
+SELECT
+  COUNT(DISTINCT CASE WHEN event_type = 'page_view' THEN user_id END) AS viewed,
+  COUNT(DISTINCT CASE WHEN event_type = 'add_to_cart' THEN user_id END) AS added,
+  COUNT(DISTINCT CASE WHEN event_type = 'purchase' THEN user_id END) AS purchased
+FROM events;
+```
+
+**Retention Analysis:**
+```sql
+-- Weekly active users
+SELECT DATE_TRUNC('week', timestamp) AS week, COUNT(DISTINCT user_id) AS active_users
+FROM events
+GROUP BY week
+ORDER BY week;
+```
+
+**Analytics you CANNOT run:**
+- ❌ Display user's actual name
+- ❌ Send personalized emails (unless you have separate mapping)
+- ❌ Identify individual without salt
+
+## Common Variations
+
+### Variation 1: UUID-Style IDs
+
+Use full hash formatted as UUID:
+
+```yaml
+- mapping: |
+    root = this
+
+    # Create UUID-style ID from hash
+    let hash = this.user_name.hash("sha256", env("USER_SALT").or(""))
+    root.user_id = hash.slice(0, 8) + "-" +
+                   hash.slice(8, 12) + "-" +
+                   hash.slice(12, 16) + "-" +
+                   hash.slice(16, 20) + "-" +
+                   hash.slice(20, 32)
+
+    root = this.without("user_name")
+```
+
+**Result:** `"user_id": "8f3e7a9c-2d1b-4e6f-1a2c-3d4e5f6a7b8c"`
+
+### Variation 2: Numeric IDs
+
+Convert hash to numeric ID:
+
+```yaml
+- mapping: |
+    root = this
+
+    # Take first 8 hex chars and convert to integer
+    let hash = this.user_name.hash("sha256", env("USER_SALT").or(""))
+    root.user_id = hash.slice(0, 8).parse_uint(16)  # Hex to int
+
+    root = this.without("user_name")
+```
+
+**Result:** `"user_id": 2401566108` (numeric ID)
+
+**Use when:** Downstream systems require integer IDs.
+
+### Variation 3: Prefixed by Account Type
+
+Add account type prefix to ID:
+
+```yaml
+- mapping: |
+    root = this
+
+    # Hash the name
+    let hash = this.user_name.hash("sha256", env("USER_SALT").or("")).slice(0, 12)
+
+    # Prefix based on account type
+    root.user_id = if this.account_type == "premium" {
+      "premium_" + hash
+    } else {
+      "free_" + hash
+    }
+
+    root = this.without("user_name")
+```
+
+**Result:**
+- Premium user: `"user_id": "premium_8f3e7a9c2d1b"`
+- Free user: `"user_id": "free_8f3e7a9c2d1b"`
+
+### Variation 4: Normalize Names Before Hashing
+
+Handle name variations (case, spacing, accents):
+
+```yaml
+- mapping: |
+    root = this
+
+    # Normalize name before hashing
+    let normalized = this.user_name.lowercase().trim().replace_all("  ", " ")
+
+    # Create ID from normalized name
+    root.user_id = "user_" + $normalized.hash(
+      "sha256",
+      env("USER_SALT").or("")
+    ).slice(0, 12)
+
+    root = this.without("user_name")
+```
+
+**Why this matters:**
+- `"Sarah Johnson"` → user_abc123
+- `"sarah johnson"` → user_abc123 (same ID!)
+- `"SARAH  JOHNSON"` → user_abc123 (same ID!)
+
+### Variation 5: Keep First Name Initial
+
+Preserve some human context while removing PII:
+
+```yaml
+- mapping: |
+    root = this
+
+    # Extract first initial
+    let first_initial = this.user_name.slice(0, 1).uppercase()
+
+    # Hash full name for ID
+    let hash = this.user_name.hash("sha256", env("USER_SALT").or("")).slice(0, 10)
+
+    # Combine: "S_8f3e7a9c2d"
+    root.user_id = first_initial + "_" + hash
+
+    root = this.without("user_name")
+```
+
+**Result:** `"user_id": "S_8f3e7a9c2d"`
+
+**Use when:** UI needs some human context (e.g., "User S made a purchase").
+
+## Troubleshooting
+
+### Issue: Different IDs for same user
+
+**Symptom:**
+```
+Event 1: "Sarah Johnson" → user_abc123
+Event 2: "Sarah Johnson" → user_xyz789  (different!)
+```
+
+**Cause 1:** Salt changed between events
+
+**Fix:** Ensure salt is consistent:
+```bash
+# Verify salt hasn't changed
+echo $USER_SALT
+
+# Check salt in pipeline
+expanso job inspect pii-step-4-pseudonymize | grep -i "USER_SALT"
+```
+
+**Cause 2:** Name has different capitalization/spacing
+
+**Fix:** Normalize before hashing (see Variation 4):
+```yaml
+let normalized = this.user_name.lowercase().trim()
+root.user_id = "user_" + $normalized.hash("sha256", env("USER_SALT").or("")).slice(0, 12)
+```
+
+### Issue: user_id is too long
+
+**Symptom:** `"user_id": "user_8f3e7a9c2d1b4e6f1a2c3d4e5f6a7b8c..."` (full 64 char hash)
+
+**Cause:** Forgot to slice the hash
+
+**Wrong:**
+```yaml
+root.user_id = "user_" + this.user_name.hash("sha256", env("USER_SALT").or(""))  # ❌ Full hash
+```
+
+**Correct:**
+```yaml
+root.user_id = "user_" + this.user_name.hash("sha256", env("USER_SALT").or("")).slice(0, 12)  # ✅
+```
+
+**Recommendation:** Use 8-16 characters for balance between uniqueness and brevity.
+
+### Issue: user_id collisions (two users, same ID)
+
+**Probability:** With 12 hex characters (48 bits), collision probability:
+- 1,000 users: ~0.00000001%
+- 1,000,000 users: ~0.01%
+- 1,000,000,000 users: ~10%
+
+**Solution:** Use longer IDs for larger user bases:
+```yaml
+# For 1M+ users, use 16 characters (64 bits)
+root.user_id = "user_" + this.user_name.hash("sha256", env("USER_SALT").or("")).slice(0, 16)
+
+# For 1B+ users, use 24 characters (96 bits)
+root.user_id = "user_" + this.user_name.hash("sha256", env("USER_SALT").or("")).slice(0, 24)
+```
+
+### Issue: Want to map user_id back to name
+
+**Problem:** Need pseudonymous IDs for analytics but also need to contact users
+
+**Solution:** Maintain separate mapping table (highly secured):
+
+**Analytics pipeline (PII-free):**
+```yaml
+- mapping: |
+    root = this
+    root.user_id = "user_" + this.user_name.hash("sha256", env("USER_SALT").or("")).slice(0, 12)
+    root = this.without("user_name")
+```
+
+**Separate mapping service (PII stored):**
+```python
+# Highly secured, access-controlled mapping service
+mapping_db = {
+    "user_8f3e7a9c2d1b": {"name": "Sarah Johnson", "email": "sarah@example.com"}
+}
+
+# CRITICAL: This mapping must be:
+# - Stored separately from analytics data
+# - Encrypted at rest
+# - Accessible only to authorized personnel
+# - Audit-logged
+# - Subject to strict retention policies
+```
+
+### Issue: USER_SALT environment variable not found
+
+**Debug:**
+```bash
+# Check salt is set
+echo $USER_SALT
+
+# Generate if missing
+export USER_SALT=$(openssl rand -hex 32)
+```
+
+**Add fallback in pipeline:**
+```yaml
+root.user_id = "user_" + this.user_name.hash(
+  "sha256",
+  env("USER_SALT").or("MISSING_SALT_WARNING")
+).slice(0, 12)
+```
+
+## Security Considerations
+
+### Salt Protection is Critical
+
+**If attacker obtains salt:**
+1. Build table: `hash("Common Name" + salt) → user_id`
+2. Match your user_ids against table
+3. Reverse-engineer user names
+
+**Defense:**
+- 🔒 Store salt in secret management (Vault, AWS Secrets Manager)
+- 🔒 Never log or expose salt
+- 🔒 Rotate every 90 days (accept ID discontinuity)
+- 🔒 Use different salts per environment
+
+### Inference Attacks
+
+Even with pseudonymous IDs, context can reveal identity:
+
+**Example:**
+```json
+{
+  "user_id": "user_8f3e7a9c2d1b",
+  "email_domain": "stanford.edu",
+  "location_city": "Palo Alto",
+  "purchase_item": "Physics PhD textbook",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+**Combined data might identify individual!**
+
+**Mitigation:**
+- Generalize location (Step 5)
+- Remove or generalize rare combinations
+- Apply k-anonymity (ensure ≥k users per combination)
+
+### Difference from Email Hash
+
+You might ask: "We already have `email_hash`. Why also `user_id`?"
+
+**Good question!** Use cases differ:
+
+**email_hash:**
+- ✅ Unique per email address
+- ❌ Changes if user changes email
+- ❌ Different for same person with multiple emails
+
+**user_id (from name):**
+- ✅ Stable across email changes
+- ✅ Represents individual (if name is stable)
+- ❌ Might collide if two people have same name
+
+**Best practice:** Use both for different purposes:
+- `user_id` - primary tracking
+- `email_hash` - dedupe by email
+
+## Key Takeaways
+
+✅ **Pseudonymization replaces names** with consistent, meaningless IDs
+✅ **Same name = same ID** enables user tracking without identity
+✅ **Hash + slice pattern** creates short, unique IDs
+✅ **Normalize names** before hashing to handle variations
+✅ **Protect salt rigorously** - it's the key to reverse-engineering
+✅ **Still personal data** under GDPR, but with reduced obligations
+
+## Next Step
+
+Now that you've pseudonymized user names, complete the pipeline with **location generalization** - removing precise GPS coordinates while keeping city/country for regional analytics.
+
+<div className="margin-top--lg margin-bottom--lg">
+  <a href="./step-5-generalize-location" className="button button--primary button--lg">
+    Step 5: Generalize Location →
+  </a>
+</div>
+
+### Or Jump Ahead:
+- [**Complete Pipeline**](./complete-pipeline)
+
+### Related Resources:
+- [**Interactive Explorer**](./explorer) - See this transformation visually
+- [**Bloblang String Functions**](https://docs.expanso.io/components/processors/mapping#string-manipulation) - slice, trim, lowercase
+- [**GDPR Pseudonymization Guide**](https://gdpr-info.eu/art-4-gdpr/) - Legal definitions

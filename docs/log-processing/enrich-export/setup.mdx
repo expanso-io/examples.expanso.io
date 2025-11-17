@@ -1,0 +1,379 @@
+---
+title: Setup Environment for Log Enrichment
+sidebar_label: Setup
+sidebar_position: 3
+description: Configure AWS credentials, S3 bucket, and deploy a shell log pipeline
+keywords: [setup, aws, s3, credentials, environment, deployment]
+---
+
+# Setup Environment for Log Enrichment
+
+Before building the log enrichment pipeline, you'll set up AWS credentials, create an S3 bucket, and deploy a minimal test pipeline to verify everything works.
+
+## Prerequisites
+
+- ✅ AWS CLI installed ([Installation Guide](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html))
+- ✅ Expanso platform access ([Sign Up](https://expanso.io))
+- ✅ Basic familiarity with AWS S3 and JSON
+
+## Step 1: Configure AWS Credentials
+
+Set up AWS credentials for S3 access. You can use either AWS profiles or environment variables.
+
+### Option A: AWS Profile (Recommended)
+
+```bash
+# Configure AWS profile
+aws configure --profile expanso-demo
+# Enter your AWS Access Key ID, Secret Key, and region
+```
+
+### Option B: Environment Variables
+
+```bash
+# Set AWS credentials as environment variables
+export AWS_ACCESS_KEY_ID="your-access-key-id"
+export AWS_SECRET_ACCESS_KEY="your-secret-access-key"
+export AWS_DEFAULT_REGION="us-east-1"
+```
+
+Verify your credentials work:
+
+```bash
+# Test AWS credentials
+aws s3 ls --profile expanso-demo
+# Should list your S3 buckets without errors
+```
+
+## Step 2: Create S3 Bucket
+
+Create an S3 bucket for storing enriched logs:
+
+```bash
+# Create S3 bucket (replace with unique name)
+aws s3 mb s3://your-company-logs-demo --profile expanso-demo
+
+# Verify bucket creation
+aws s3 ls --profile expanso-demo | grep your-company-logs-demo
+```
+
+**Expected output:**
+```
+2024-01-15 10:30:00 your-company-logs-demo
+```
+
+### Configure Bucket Policy (Optional)
+
+For production deployments, add a bucket policy to restrict access:
+
+```bash
+# Create bucket policy file
+cat > bucket-policy.json << 'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::YOUR-ACCOUNT-ID:root"
+      },
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::your-company-logs-demo/*"
+    }
+  ]
+}
+EOF
+
+# Apply bucket policy
+aws s3api put-bucket-policy --bucket your-company-logs-demo --policy file://bucket-policy.json --profile expanso-demo
+```
+
+## Step 3: Deploy Shell Pipeline
+
+Before adding enrichment, deploy a minimal "shell" pipeline that just generates and outputs logs. This verifies your setup works.
+
+Create `shell-enrich-export.yaml`:
+
+```yaml title="shell-enrich-export.yaml"
+input:
+  generate:
+    interval: 5s
+    mapping: |
+      root.id = uuid_v4()
+      root.timestamp = now()
+      root.level = "INFO"
+      root.message = "Test message from shell pipeline"
+
+output:
+  stdout: {}
+```
+
+Deploy the shell pipeline:
+
+```bash
+# Deploy to Expanso platform
+expanso pipeline deploy shell-enrich-export.yaml --name shell-log-test
+
+# Verify deployment
+expanso pipeline list | grep shell-log-test
+```
+
+**Expected output:**
+```
+shell-log-test    RUNNING    2024-01-15T10:30:00Z
+```
+
+## Step 4: Test Shell Pipeline
+
+Verify the shell pipeline is generating logs:
+
+```bash
+# View pipeline logs
+expanso pipeline logs shell-log-test --follow --lines 10
+
+# Check the output
+expanso pipeline output shell-log-test --limit 5
+```
+
+**Expected output:**
+```json
+{"id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","timestamp":"2024-01-15T10:30:00Z","level":"INFO","message":"Test message from shell pipeline"}
+{"id":"b2c3d4e5-f6a7-8901-bcde-f12345678901","timestamp":"2024-01-15T10:30:05Z","level":"INFO","message":"Test message from shell pipeline"}
+```
+
+:::tip Success!
+If you see JSON logs appearing every 5 seconds, your environment is correctly configured!
+
+**Next step:** Add S3 output to verify cloud integration works.
+:::
+
+## Step 5: Test S3 Integration
+
+Upgrade the shell pipeline to include S3 output:
+
+Create `shell-s3-test.yaml`:
+
+```yaml title="shell-s3-test.yaml"
+input:
+  generate:
+    interval: 10s
+    mapping: |
+      root.id = uuid_v4()
+      root.timestamp = now()
+      root.level = "INFO"
+      root.message = "S3 test message"
+
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Keep stdout for monitoring
+      - stdout: {}
+      
+      # Add S3 output for testing
+      - aws_s3:
+          bucket: your-company-logs-demo  # Replace with your bucket
+          path: test/shell_${!timestamp_unix()}.json
+          batching:
+            count: 3  # Small batch for quick testing
+            period: 30s
+          credentials:
+            profile: expanso-demo  # Use your AWS profile
+```
+
+Deploy the S3 test:
+
+```bash
+# Stop previous pipeline
+expanso pipeline stop shell-log-test
+
+# Deploy S3 test pipeline
+expanso pipeline deploy shell-s3-test.yaml --name shell-s3-test
+
+# Wait for 3 messages to accumulate (30 seconds max)
+sleep 35
+
+# Check if files appear in S3
+aws s3 ls s3://your-company-logs-demo/test/ --profile expanso-demo
+```
+
+**Expected output:**
+```
+2024-01-15 10:30:00    156 shell_1705315800.json
+```
+
+Download and verify the S3 file:
+
+```bash
+# Download the file
+aws s3 cp s3://your-company-logs-demo/test/shell_1705315800.json . --profile expanso-demo
+
+# Check contents
+cat shell_1705315800.json
+```
+
+**Expected output:** 3 JSON objects (one per line):
+```json
+{"id":"...","timestamp":"...","level":"INFO","message":"S3 test message"}
+{"id":"...","timestamp":"...","level":"INFO","message":"S3 test message"}
+{"id":"...","timestamp":"...","level":"INFO","message":"S3 test message"}
+```
+
+## Step 6: Verify Environment Variables
+
+Set environment variables that will be used in the enrichment steps:
+
+```bash
+# Set node identification
+export NODE_ID="edge-node-demo"
+
+# Set pipeline identification
+export PIPELINE_NAME="log-enrichment-s3-demo"
+
+# Set AWS region (if using environment variables)
+export AWS_REGION="us-east-1"
+
+# Verify variables are set
+echo "Node ID: $NODE_ID"
+echo "Pipeline: $PIPELINE_NAME"
+echo "Region: $AWS_REGION"
+```
+
+## Step 7: Clean Up Test Resources
+
+Remove test files and stop the test pipeline:
+
+```bash
+# Stop test pipeline
+expanso pipeline stop shell-s3-test
+
+# Remove test files from S3
+aws s3 rm s3://your-company-logs-demo/test/ --recursive --profile expanso-demo
+
+# Verify cleanup
+aws s3 ls s3://your-company-logs-demo/test/ --profile expanso-demo
+# Should show no files
+```
+
+## Troubleshooting Setup Issues
+
+### AWS Credentials Not Working
+
+**Problem:** `aws s3 ls` fails with "Unable to locate credentials"
+
+**Solutions:**
+
+1. **Check profile configuration:**
+```bash
+aws configure list --profile expanso-demo
+```
+
+2. **Recreate profile:**
+```bash
+aws configure --profile expanso-demo
+```
+
+3. **Use environment variables instead:**
+```bash
+export AWS_ACCESS_KEY_ID="your-key"
+export AWS_SECRET_ACCESS_KEY="your-secret"
+```
+
+### S3 Bucket Creation Fails
+
+**Problem:** "BucketAlreadyExists" error
+
+**Solutions:**
+
+1. **Choose a unique bucket name:**
+```bash
+# Add timestamp for uniqueness
+BUCKET_NAME="your-company-logs-$(date +%s)"
+aws s3 mb s3://$BUCKET_NAME --profile expanso-demo
+```
+
+2. **Use existing bucket:**
+```bash
+# List existing buckets
+aws s3 ls --profile expanso-demo
+# Use one of your existing buckets
+```
+
+### Pipeline Deployment Fails
+
+**Problem:** Expanso CLI not authenticated
+
+**Solutions:**
+
+1. **Login to Expanso:**
+```bash
+expanso auth login
+```
+
+2. **Check platform status:**
+```bash
+expanso status
+```
+
+3. **Verify YAML syntax:**
+```bash
+# Use a YAML validator
+python -c "import yaml; yaml.safe_load(open('shell-enrich-export.yaml'))"
+```
+
+### S3 Files Not Appearing
+
+**Problem:** Pipeline runs but no files in S3
+
+**Solutions:**
+
+1. **Check pipeline status:**
+```bash
+expanso pipeline status shell-s3-test
+expanso pipeline logs shell-s3-test --lines 20
+```
+
+2. **Verify bucket permissions:**
+```bash
+aws s3api get-bucket-policy --bucket your-company-logs-demo --profile expanso-demo
+```
+
+3. **Check batching settings:**
+```yaml
+# Ensure small batch for testing
+batching:
+  count: 1  # Single message
+  period: 5s  # Short timeout
+```
+
+## Next Steps
+
+✅ Your environment is now configured for log enrichment!
+
+The next tutorial will show you how to add lineage metadata to track data processing:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./step-1-generate-test-data" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Start Step 1: Generate Test Data
+  </a>
+  <a href="./complete-log-enrichment" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Skip to Complete Pipeline
+  </a>
+</div>
+
+## What We Accomplished
+
+- ✅ AWS credentials configured and tested
+- ✅ S3 bucket created and accessible
+- ✅ Shell pipeline deployed and verified
+- ✅ S3 integration confirmed working
+- ✅ Environment variables set for enrichment
+- ✅ Troubleshooting knowledge gained
+
+---
+
+**Next:** [Generate test data](./step-1-generate-test-data) for building the enrichment pipeline

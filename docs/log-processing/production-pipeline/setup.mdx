@@ -1,0 +1,481 @@
+---
+title: Setup Environment for Production Log Processing
+sidebar_label: Setup
+sidebar_position: 2
+description: Configure environment variables, dependencies, and deploy a shell pipeline for production log processing
+keywords: [setup, environment, configuration, deployment, prerequisites]
+---
+
+# Setup Environment for Production Log Processing
+
+Before building the production log processing pipeline, you'll set up your environment, configure required services, and deploy a minimal "shell" pipeline to verify everything works.
+
+## Prerequisites
+
+- ✅ **Expanso installed and running** ([Installation Guide](https://docs.expanso.io/getting-started))
+- ✅ **Edge node connected** to your orchestrator
+- ✅ **Basic familiarity with JSON** log formats
+- ✅ **Terminal access** with `curl` and `jq` installed
+
+## Optional Services
+
+The following services enhance the pipeline but aren't required:
+
+- **Elasticsearch** - For real-time log search and dashboarding
+- **AWS S3** - For long-term log archival and compliance storage
+- **Prometheus/Grafana** - For monitoring pipeline metrics
+
+:::tip Don't Have External Services?
+You can complete this entire tutorial using local file outputs. We'll show you how to configure file-based alternatives for all destinations.
+:::
+
+## Step 1: Verify Expanso Installation
+
+Ensure Expanso is running and you have at least one edge node available:
+
+```bash
+# Check orchestrator status
+expanso status
+
+# List available nodes
+expanso node list
+
+# Verify nodes are healthy
+expanso node describe <your-node-id>
+```
+
+**Expected output:**
+```
+Orchestrator: running
+Nodes: 2 connected, 2 healthy
+Services: scheduler, resource-manager, metrics-collector
+```
+
+If you see any issues, complete [Getting Started](https://docs.expanso.io/getting-started) first.
+
+## Step 2: Configure Environment Variables
+
+Set up environment variables for external services. Create a file called `.env`:
+
+```bash title="Create .env file"
+cat > .env << 'EOF'
+# Elasticsearch configuration (optional)
+ELASTICSEARCH_URL="http://localhost:9200"
+ELASTICSEARCH_USERNAME=""
+ELASTICSEARCH_PASSWORD=""
+
+# AWS S3 configuration (optional)
+S3_BUCKET="your-company-logs-$(date +%s)"
+AWS_PROFILE="default"
+AWS_REGION="us-west-2"
+
+# Node metadata (automatically set by Expanso)
+NODE_ID="edge-node-$(hostname)"
+NODE_REGION="datacenter-1"
+
+# Pipeline configuration
+LOG_PROCESSING_PORT="8080"
+LOG_PROCESSING_TIMEOUT="10s"
+LOG_PROCESSING_RATE_LIMIT="1000/1s"
+EOF
+```
+
+Load the environment variables:
+
+```bash
+# Load environment variables
+source .env
+
+# Export them for the current session
+export ELASTICSEARCH_URL S3_BUCKET AWS_PROFILE AWS_REGION
+export NODE_ID NODE_REGION
+export LOG_PROCESSING_PORT LOG_PROCESSING_TIMEOUT LOG_PROCESSING_RATE_LIMIT
+```
+
+## Step 3: Test External Services (Optional)
+
+If you're using external services, verify they're accessible:
+
+### Test Elasticsearch Connection
+
+```bash
+# Test Elasticsearch connectivity
+if [ ! -z "$ELASTICSEARCH_URL" ]; then
+    curl -X GET "$ELASTICSEARCH_URL/_cluster/health?pretty"
+fi
+```
+
+**Expected response:**
+```json
+{
+  "cluster_name": "elasticsearch",
+  "status": "yellow",
+  "timed_out": false,
+  "number_of_nodes": 1
+}
+```
+
+### Test AWS S3 Access
+
+```bash
+# Create S3 bucket if it doesn't exist
+if [ ! -z "$S3_BUCKET" ]; then
+    aws s3 mb s3://$S3_BUCKET --region $AWS_REGION 2>/dev/null || echo "Bucket already exists"
+    
+    # Test write permissions
+    echo "test" | aws s3 cp - s3://$S3_BUCKET/test.txt
+    aws s3 rm s3://$S3_BUCKET/test.txt
+    
+    echo "✅ S3 access verified"
+fi
+```
+
+### Alternative: Local File Configuration
+
+If you don't have external services, update your `.env` file:
+
+```bash title="Update .env for local files only"
+cat >> .env << 'EOF'
+
+# Local file alternatives
+ELASTICSEARCH_URL=""  # Disable Elasticsearch
+S3_BUCKET=""          # Disable S3
+LOCAL_LOG_DIR="/var/log/expanso"
+LOCAL_BACKUP_DIR="/var/log/expanso/backup"
+EOF
+
+# Reload environment
+source .env
+```
+
+## Step 4: Download Sample Log Data
+
+Create sample log data for testing:
+
+```bash
+# Create sample logs directory
+mkdir -p sample-logs
+
+# Create diverse log samples
+cat > sample-logs/app-logs.json << 'EOF'
+{"timestamp":"2025-10-20T10:30:45.123Z","level":"INFO","service":"api-gateway","message":"User login successful","request_id":"req_001","user_id":"user_123","endpoint":"/auth/login","method":"POST","status_code":200,"duration_ms":45,"ip_address":"192.168.1.100"}
+{"timestamp":"2025-10-20T10:31:12.456Z","level":"WARN","service":"api-gateway","message":"Slow database query detected","request_id":"req_002","user_id":"user_456","endpoint":"/api/v1/reports","method":"GET","status_code":200,"duration_ms":1850,"ip_address":"192.168.1.105"}
+{"timestamp":"2025-10-20T10:32:30.789Z","level":"ERROR","service":"payment-service","message":"Payment processing failed","request_id":"req_003","user_id":"user_789","endpoint":"/api/v1/payments","method":"POST","status_code":500,"duration_ms":3200,"error_code":"PAYMENT_GATEWAY_TIMEOUT","ip_address":"192.168.1.110"}
+{"timestamp":"2025-10-20T10:33:00.000Z","level":"DEBUG","service":"api-gateway","message":"Cache hit for user profile","request_id":"req_004","user_id":"user_123","cache_key":"profile:user_123","ip_address":"192.168.1.100"}
+EOF
+
+# Create malformed logs for testing error handling
+cat > sample-logs/malformed-logs.json << 'EOF'
+{"level":"ERROR","message":"Missing timestamp field"}
+{"timestamp":"invalid-date","level":"INFO","service":"test","message":"Invalid timestamp format"}
+not-json-at-all
+{"timestamp":"2025-10-20T10:30:45.123Z","level":"INFO"}
+EOF
+
+echo "✅ Sample log data created in sample-logs/"
+```
+
+## Step 5: Deploy Shell Pipeline
+
+Before adding complex processing, deploy a minimal "shell" pipeline that just accepts HTTP logs and writes them to a local file. This verifies your setup works.
+
+Create `shell-pipeline.yaml`:
+
+```yaml title="shell-pipeline.yaml"
+name: log-processing-shell
+description: Minimal log processing pipeline for testing setup
+type: pipeline
+namespace: default
+
+# Deploy to any available log collector node
+selector:
+  match_labels:
+    role: log-collector
+
+# Basic HTTP input and file output
+config:
+  input:
+    http_server:
+      address: "0.0.0.0:${LOG_PROCESSING_PORT:8080}"
+      path: /logs/ingest
+      allowed_verbs:
+        - POST
+      timeout: "${LOG_PROCESSING_TIMEOUT:10s}"
+
+  pipeline:
+    processors:
+      # Basic JSON parsing (no validation yet)
+      - json_documents:
+          parts: []
+
+      # Add minimal metadata
+      - mapping: |
+          root = this
+          root.received_at = now()
+          root.node_id = env("NODE_ID").or("unknown")
+
+  output:
+    file:
+      path: "/tmp/shell-logs-${!timestamp_unix()}.jsonl"
+      codec: lines
+
+logger:
+  level: INFO
+  format: json
+```
+
+Deploy the shell pipeline:
+
+```bash
+# Deploy to edge nodes
+expanso job deploy shell-pipeline.yaml
+
+# Check deployment status
+expanso job status log-processing-shell
+```
+
+**Expected output:**
+```
+Job: log-processing-shell
+Status: running
+Type: pipeline
+Executions:
+  - Node: edge-node-001
+    State: running
+    Since: 5 seconds ago
+    Health: healthy
+```
+
+## Step 6: Test Shell Pipeline
+
+Send test logs to verify the shell pipeline works:
+
+```bash
+# Send a simple log
+curl -X POST http://localhost:${LOG_PROCESSING_PORT:-8080}/logs/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"timestamp":"2025-10-20T10:30:45.123Z","level":"INFO","service":"test","message":"Shell pipeline test"}'
+
+# Check response (should be 200 OK)
+echo "Response: $?"
+```
+
+Verify logs were written:
+
+```bash
+# Check if log file was created
+ls /tmp/shell-logs-*.jsonl
+
+# View the processed log
+tail -1 /tmp/shell-logs-*.jsonl | jq .
+```
+
+**Expected output:**
+```json
+{
+  "timestamp": "2025-10-20T10:30:45.123Z",
+  "level": "INFO",
+  "service": "test",
+  "message": "Shell pipeline test",
+  "received_at": "2025-10-20T10:30:46.234Z",
+  "node_id": "edge-node-001"
+}
+```
+
+:::tip Success!
+If you see the enriched log with `received_at` and `node_id` fields, your environment is correctly configured!
+
+**Next step:** Proceed to [Step 1: Configure HTTP Input](./step-1-configure-http-input)
+:::
+
+## Step 7: Verify Port Availability
+
+Ensure the port is available for the main pipeline:
+
+```bash
+# Check if anything is using the port
+netstat -tlnp | grep :${LOG_PROCESSING_PORT:-8080} || echo "Port available"
+
+# If needed, find and kill processes using the port
+lsof -ti :${LOG_PROCESSING_PORT:-8080} | xargs kill -9 2>/dev/null || true
+```
+
+## Step 8: Create Directories for Local Storage
+
+Set up local directories for log storage:
+
+```bash
+# Create log directories with proper permissions
+sudo mkdir -p ${LOCAL_LOG_DIR:-/var/log/expanso}
+sudo mkdir -p ${LOCAL_BACKUP_DIR:-/var/log/expanso/backup}
+
+# Set ownership (adjust user as needed)
+sudo chown -R $USER:$USER ${LOCAL_LOG_DIR:-/var/log/expanso}
+
+# Verify directory permissions
+ls -la ${LOCAL_LOG_DIR:-/var/log/expanso}
+```
+
+## Step 9: Test Log Sending Script
+
+Create a utility script for sending test logs throughout the tutorial:
+
+```bash title="Create send-test-logs.sh"
+cat > send-test-logs.sh << 'EOF'
+#!/bin/bash
+
+# Configuration
+LOG_ENDPOINT="http://localhost:${LOG_PROCESSING_PORT:-8080}/logs/ingest"
+SAMPLE_LOGS="sample-logs/app-logs.json"
+
+echo "Sending sample logs to $LOG_ENDPOINT..."
+
+# Send each line as a separate HTTP request
+while IFS= read -r log_line; do
+    if [ ! -z "$log_line" ]; then
+        curl -s -X POST "$LOG_ENDPOINT" \
+            -H "Content-Type: application/json" \
+            -d "$log_line" && echo " ✅ Sent: $(echo $log_line | jq -r '.message')"
+        sleep 0.1  # Small delay between requests
+    fi
+done < "$SAMPLE_LOGS"
+
+echo "✅ All sample logs sent"
+EOF
+
+chmod +x send-test-logs.sh
+```
+
+Test the script:
+
+```bash
+# Send sample logs to the shell pipeline
+./send-test-logs.sh
+
+# Check how many logs were processed
+ls /tmp/shell-logs-*.jsonl | xargs wc -l
+```
+
+## Step 10: Clean Up Shell Pipeline
+
+Once you've verified everything works, clean up the shell pipeline:
+
+```bash
+# Stop the shell pipeline
+expanso job delete log-processing-shell
+
+# Remove temporary log files
+rm -f /tmp/shell-logs-*.jsonl
+
+# Verify cleanup
+expanso job list | grep shell || echo "Shell pipeline cleaned up"
+```
+
+## Troubleshooting
+
+### Issue: Port Already in Use
+
+**Symptom:** `address already in use` error when deploying pipeline
+
+**Solution:**
+```bash
+# Find process using the port
+lsof -i :${LOG_PROCESSING_PORT:-8080}
+
+# Kill the process (replace PID)
+kill -9 <PID>
+
+# Or use a different port
+export LOG_PROCESSING_PORT=8081
+```
+
+### Issue: Permission Denied for Log Directories
+
+**Symptom:** Cannot write to `/var/log/expanso`
+
+**Solution:**
+```bash
+# Create directories with correct ownership
+sudo mkdir -p /var/log/expanso
+sudo chown -R expanso:expanso /var/log/expanso
+
+# Alternative: Use home directory
+export LOCAL_LOG_DIR="$HOME/logs"
+export LOCAL_BACKUP_DIR="$HOME/logs/backup"
+mkdir -p $LOCAL_LOG_DIR $LOCAL_BACKUP_DIR
+```
+
+### Issue: Elasticsearch Connection Failed
+
+**Symptom:** `connection refused` when testing Elasticsearch
+
+**Solution:**
+```bash
+# Start Elasticsearch locally (if using Docker)
+docker run -d --name elasticsearch \
+    -p 9200:9200 \
+    -e "discovery.type=single-node" \
+    elasticsearch:7.17.0
+
+# Or disable Elasticsearch for this tutorial
+export ELASTICSEARCH_URL=""
+```
+
+### Issue: AWS Credentials Not Found
+
+**Symptom:** `NoCredentialsError` when testing S3
+
+**Solution:**
+```bash
+# Configure AWS credentials
+aws configure
+
+# Or use IAM role (if running on EC2)
+# Or disable S3 for this tutorial
+export S3_BUCKET=""
+```
+
+### Issue: Sample Logs Not Sending
+
+**Symptom:** `curl` command fails or returns errors
+
+**Solution:**
+```bash
+# Check if pipeline is running
+expanso job status log-processing-shell
+
+# Check if port is accessible
+telnet localhost ${LOG_PROCESSING_PORT:-8080}
+
+# Verify JSON format
+cat sample-logs/app-logs.json | jq .
+```
+
+---
+
+## Environment Summary
+
+Your environment should now have:
+
+✅ **Expanso running** with at least one healthy edge node
+✅ **Environment variables configured** for services and metadata  
+✅ **Sample log data created** for testing throughout the tutorial
+✅ **Shell pipeline tested** and working correctly
+✅ **External services verified** (or local alternatives configured)
+✅ **Log directories created** with proper permissions
+✅ **Port availability confirmed** for the main pipeline
+
+---
+
+**Next:** [Configure HTTP Input](./step-1-configure-http-input) to build a production-ready log ingestion endpoint.
+
+## What You'll Build Next
+
+In the following steps, you'll transform the simple shell pipeline into a production-ready system with:
+
+1. **Secure HTTP input** with rate limiting and authentication
+2. **Data validation** to ensure log quality and prevent corruption
+3. **Metadata enrichment** for debugging and audit trails
+4. **Filtering and scoring** to reduce noise and prioritize events
+5. **Privacy protection** through automatic PII redaction
+6. **Multi-destination routing** for real-time and archival storage

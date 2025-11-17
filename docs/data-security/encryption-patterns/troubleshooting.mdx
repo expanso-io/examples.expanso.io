@@ -1,0 +1,1211 @@
+---
+title: Troubleshooting Field-Level Encryption
+sidebar_label: Troubleshooting
+sidebar_position: 11
+description: Comprehensive troubleshooting guide for field-level encryption issues, performance problems, and compliance failures
+keywords: [troubleshooting, encryption, debugging, performance, compliance, issues]
+---
+
+# Troubleshooting Field-Level Encryption
+
+This comprehensive troubleshooting guide covers common issues, diagnostic techniques, and solutions for field-level encryption implementations. Use this guide to quickly identify and resolve problems in your encryption pipeline.
+
+## Quick Issue Diagnosis
+
+### Diagnostic Checklist
+
+Run through this checklist to quickly identify the category of your issue:
+
+```bash title="Quick diagnostic script"
+#!/bin/bash
+# Quick diagnostic script for encryption issues
+
+echo "=== Field-Level Encryption Diagnostic ==="
+
+# 1. Environment check
+echo "🔍 Checking environment variables..."
+REQUIRED_VARS=(PAYMENT_ENCRYPTION_KEY PII_ENCRYPTION_KEY ADDRESS_ENCRYPTION_KEY TEMPORAL_ENCRYPTION_KEY)
+
+for var in "${REQUIRED_VARS[@]}"; do
+  if [ -z "${!var}" ]; then
+    echo "❌ Missing: $var"
+    ENV_ISSUES=true
+  else
+    echo "✅ Present: $var (${!var:0:8}...)"
+  fi
+done
+
+# 2. Pipeline status
+echo "🔍 Checking pipeline status..."
+if expanso job status encryption-patterns-complete > /dev/null 2>&1; then
+  echo "✅ Pipeline is running"
+else
+  echo "❌ Pipeline is not running or not found"
+  PIPELINE_ISSUES=true
+fi
+
+# 3. Recent errors
+echo "🔍 Checking for recent errors..."
+ERROR_COUNT=$(grep -c "ERROR" /var/log/expanso/encryption.log 2>/dev/null || echo "0")
+if [ "$ERROR_COUNT" -gt 0 ]; then
+  echo "⚠️  Found $ERROR_COUNT recent errors"
+  PIPELINE_ERRORS=true
+else
+  echo "✅ No recent errors found"
+fi
+
+# 4. Output file check
+echo "🔍 Checking output files..."
+if ls encrypted-data-*.jsonl > /dev/null 2>&1; then
+  echo "✅ Output files found"
+else
+  echo "❌ No output files found"
+  OUTPUT_ISSUES=true
+fi
+
+# Provide guidance based on findings
+echo ""
+echo "📋 Issue Category:"
+if [ "$ENV_ISSUES" = true ]; then
+  echo "  → Environment Configuration Issues (see section below)"
+fi
+if [ "$PIPELINE_ISSUES" = true ]; then
+  echo "  → Pipeline Deployment Issues (see section below)"
+fi
+if [ "$PIPELINE_ERRORS" = true ]; then
+  echo "  → Runtime Encryption Errors (see section below)"
+fi
+if [ "$OUTPUT_ISSUES" = true ]; then
+  echo "  → Output and Processing Issues (see section below)"
+fi
+
+if [ "$ENV_ISSUES" != true ] && [ "$PIPELINE_ISSUES" != true ] && [ "$PIPELINE_ERRORS" != true ] && [ "$OUTPUT_ISSUES" != true ]; then
+  echo "  ✅ No obvious issues detected - check performance section"
+fi
+```
+
+---
+
+## Environment Configuration Issues
+
+### Issue: "Encryption key not found" or "Invalid key format"
+
+**Symptoms:**
+- Pipeline fails to start
+- Error: `env("PAYMENT_ENCRYPTION_KEY") returned null`
+- Encryption operations throw key-related errors
+
+**Diagnosis:**
+```bash
+# Check if all encryption keys are set
+echo "Payment key: ${PAYMENT_ENCRYPTION_KEY:0:8}..."
+echo "PII key: ${PII_ENCRYPTION_KEY:0:8}..."
+echo "Address key: ${ADDRESS_ENCRYPTION_KEY:0:8}..."
+echo "Temporal key: ${TEMPORAL_ENCRYPTION_KEY:0:8}..."
+
+# Verify key lengths (should be 64 characters each)
+echo "Payment key length: ${#PAYMENT_ENCRYPTION_KEY}"
+echo "PII key length: ${#PII_ENCRYPTION_KEY}"
+```
+
+**Solutions:**
+
+**1. Generate new encryption keys:**
+```bash
+# Generate proper 256-bit (64-character) keys
+export PAYMENT_ENCRYPTION_KEY=$(openssl rand -hex 32)
+export PII_ENCRYPTION_KEY=$(openssl rand -hex 32)
+export ADDRESS_ENCRYPTION_KEY=$(openssl rand -hex 32)
+export TEMPORAL_ENCRYPTION_KEY=$(openssl rand -hex 32)
+
+# Verify lengths
+echo "All key lengths: ${#PAYMENT_ENCRYPTION_KEY}, ${#PII_ENCRYPTION_KEY}, ${#ADDRESS_ENCRYPTION_KEY}, ${#TEMPORAL_ENCRYPTION_KEY}"
+```
+
+**2. Fix key format issues:**
+```bash
+# Remove any whitespace or special characters
+export PAYMENT_ENCRYPTION_KEY=$(echo "$PAYMENT_ENCRYPTION_KEY" | tr -d ' \n\r\t')
+
+# Validate hex format
+if [[ ! "$PAYMENT_ENCRYPTION_KEY" =~ ^[a-fA-F0-9]{64}$ ]]; then
+  echo "❌ Invalid hex format"
+  export PAYMENT_ENCRYPTION_KEY=$(openssl rand -hex 32)
+fi
+```
+
+**3. Persistent environment setup:**
+```bash
+# Add to shell profile for persistence
+cat >> ~/.bashrc << 'EOF'
+# Expanso Encryption Keys
+export PAYMENT_ENCRYPTION_KEY="your-payment-key-here"
+export PII_ENCRYPTION_KEY="your-pii-key-here"
+export ADDRESS_ENCRYPTION_KEY="your-address-key-here"
+export TEMPORAL_ENCRYPTION_KEY="your-temporal-key-here"
+EOF
+
+source ~/.bashrc
+```
+
+### Issue: "Node ID or version not set"
+
+**Symptoms:**
+- Audit logs show "unknown" for node_id or pipeline_version
+- Monitoring dashboards missing node identification
+
+**Solutions:**
+```bash
+# Set operational metadata
+export NODE_ID="encryption-node-$(hostname)-$(date +%s)"
+export PIPELINE_VERSION="2.1.0"
+export SESSION_ID="session-$(date +%s)"
+
+# Verify settings
+echo "Node ID: $NODE_ID"
+echo "Pipeline Version: $PIPELINE_VERSION"
+```
+
+---
+
+## Pipeline Deployment Issues
+
+### Issue: "Pipeline fails to deploy"
+
+**Symptoms:**
+- `expanso job deploy` command fails
+- Error: "Configuration validation failed"
+- Pipeline status shows "failed" or "error"
+
+**Diagnosis:**
+```bash
+# Check pipeline configuration syntax
+expanso job validate encryption-patterns-complete.yaml
+
+# Check detailed deployment logs
+expanso job logs encryption-patterns-complete --since 10m
+
+# Check resource availability
+kubectl describe node | grep -A 5 "Allocated resources"
+```
+
+**Solutions:**
+
+**1. Fix YAML syntax errors:**
+```bash
+# Validate YAML syntax
+yaml-lint encryption-patterns-complete.yaml
+
+# Check for common issues
+grep -n "processors:" encryption-patterns-complete.yaml
+grep -n "mapping:" encryption-patterns-complete.yaml
+```
+
+**2. Fix resource constraints:**
+```yaml
+# Add resource limits to pipeline config
+resources:
+  max_memory: "4GB"  # Increase if needed
+  max_cpu: "4000m"   # Increase if needed
+  
+# Or reduce resource usage
+resources:
+  max_memory: "1GB"  # Reduce for smaller environments
+  max_cpu: "1000m"
+```
+
+**3. Fix network connectivity issues:**
+```bash
+# Test connectivity to required services
+curl -I $MONITORING_WEBHOOK_URL
+ping your-key-management-service.com
+
+# Check firewall rules
+iptables -L | grep 8080
+```
+
+### Issue: "Input source unavailable"
+
+**Symptoms:**
+- Pipeline starts but processes no data
+- Error: "Input source timeout" or "Connection refused"
+- No data appears in output files
+
+**Solutions:**
+
+**1. HTTP Server Input Issues:**
+```yaml
+# Fix HTTP input configuration
+input:
+  http_server:
+    address: "0.0.0.0:8080"  # Listen on all interfaces
+    path: "/encrypt"
+    allowed_verbs: ["POST"]
+    timeout: "60s"          # Increase timeout if needed
+    read_timeout: "30s"     # Add read timeout
+    write_timeout: "30s"    # Add write timeout
+```
+
+**2. File Input Issues:**
+```bash
+# Check file permissions
+ls -la ./data/*.json
+chmod 644 ./data/*.json
+
+# Verify file format
+head -5 ./data/sample.json | jq '.'  # Should parse without errors
+```
+
+**3. Test input connectivity:**
+```bash
+# Test HTTP input
+curl -X POST http://localhost:8080/encrypt \
+  -H "Content-Type: application/json" \
+  -d '{"test": "data"}'
+
+# Check if port is available
+netstat -tlnp | grep 8080
+```
+
+---
+
+## Runtime Encryption Errors
+
+### Issue: "Encryption function fails"
+
+**Symptoms:**
+- Error: `encrypt_aes failed` or `decrypt_aes failed`
+- Data processing stops at encryption step
+- Output contains unencrypted sensitive data
+
+**Diagnosis:**
+```bash
+# Test encryption function directly
+echo "test data" | openssl enc -aes-256-gcm -K $PAYMENT_ENCRYPTION_KEY -iv $(openssl rand -hex 12) | base64
+
+# Check Expanso encryption capability
+cat > test-encrypt.yaml << 'EOF'
+input:
+  generate:
+    count: 1
+    interval: "1s"
+    mapping: 'root.test = "hello world"'
+
+pipeline:
+  processors:
+    - mapping: |
+        root.encrypted = this.test.encrypt_aes("gcm", env("PAYMENT_ENCRYPTION_KEY"))
+        root.decrypted = root.encrypted.decrypt_aes("gcm", env("PAYMENT_ENCRYPTION_KEY"))
+
+output:
+  stdout: {}
+EOF
+
+expanso job deploy test-encrypt.yaml
+```
+
+**Solutions:**
+
+**1. Key validation and regeneration:**
+```bash
+# Validate key format
+if [[ ! "$PAYMENT_ENCRYPTION_KEY" =~ ^[a-fA-F0-9]{64}$ ]]; then
+  echo "❌ Invalid key format, regenerating..."
+  export PAYMENT_ENCRYPTION_KEY=$(openssl rand -hex 32)
+  echo "✅ New key: ${PAYMENT_ENCRYPTION_KEY:0:8}..."
+fi
+
+# Test key with simple encryption
+echo "test" | openssl enc -aes-256-gcm -K $PAYMENT_ENCRYPTION_KEY -iv 123456789012
+```
+
+**2. Fix encryption processor configuration:**
+```yaml
+# Ensure proper error handling in encryption mapping
+- mapping: |
+    root = this
+    
+    # Validate input before encryption
+    root.payment.card_number_encrypted = if this.payment.card_number.exists() &&
+                                           this.payment.card_number.length() > 0 {
+      try {
+        this.payment.card_number.encrypt_aes("gcm", env("PAYMENT_ENCRYPTION_KEY"))
+      } catch {
+        throw("Card number encryption failed: " + error())
+      }
+    } else {
+      throw("Missing or empty card number")
+    }
+```
+
+**3. Debugging encryption issues:**
+```yaml
+# Add debugging output to identify issues
+- mapping: |
+    root = this
+    
+    # Debug logging before encryption
+    meta debug_info = {
+      "field_exists": this.payment.card_number.exists(),
+      "field_length": this.payment.card_number.length(),
+      "key_available": env("PAYMENT_ENCRYPTION_KEY").exists(),
+      "key_length": env("PAYMENT_ENCRYPTION_KEY").length()
+    }
+    
+    # Proceed with encryption
+    root.payment.card_number_encrypted = this.payment.card_number.encrypt_aes("gcm", env("PAYMENT_ENCRYPTION_KEY"))
+```
+
+### Issue: "Field parsing or validation errors"
+
+**Symptoms:**
+- Error: `mapping execution failed`
+- Data processing stops at specific fields
+- Invalid data format errors
+
+**Diagnosis:**
+```bash
+# Check input data format
+head -5 encrypted-data-*.jsonl | jq '.'
+
+# Look for specific parsing errors
+grep "parsing failed" /var/log/expanso/encryption.log
+
+# Test with minimal data
+echo '{"payment":{"card_number":"4532123456789010"}}' | \
+  expanso process --config encryption-patterns-complete.yaml
+```
+
+**Solutions:**
+
+**1. Add robust input validation:**
+```yaml
+# Input validation processor
+- mapping: |
+    root = this
+    
+    # Validate required structure
+    let required_fields = [
+      "payment.card_number",
+      "customer.email"
+    ]
+    
+    let missing_fields = required_fields.filter(field -> 
+      this.get(field) == null || this.get(field) == ""
+    )
+    
+    root = if missing_fields.length() > 0 {
+      throw("Missing required fields: " + missing_fields.join(", "))
+    } else {
+      this
+    }
+```
+
+**2. Handle optional fields gracefully:**
+```yaml
+# Safe field processing
+- mapping: |
+    root = this
+    
+    # Handle optional phone number
+    root.customer.phone_encrypted = if this.customer.phone.exists() &&
+                                      this.customer.phone != null &&
+                                      this.customer.phone != "" {
+      this.customer.phone.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
+    }
+    
+    # Only remove field if it existed
+    root.customer.phone = if this.customer.phone.exists() {
+      deleted()
+    }
+```
+
+**3. Add error recovery:**
+```yaml
+# Error recovery processor
+- mapping: |
+    root = this
+    
+    # Try encryption, fallback to error state
+    try {
+      root.customer.email_encrypted = this.customer.email.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
+      root.customer.email = deleted()
+    } catch {
+      root.processing_errors = (this.processing_errors.or([])).append({
+        "field": "customer.email",
+        "error": error(),
+        "timestamp": now()
+      })
+    }
+```
+
+### Issue: "Key rotation failures"
+
+**Symptoms:**
+- Error: "Key version mismatch"
+- Unable to decrypt previously encrypted data
+- Rotation process hangs or fails
+
+**Diagnosis:**
+```bash
+# Check current key versions
+echo "Payment: ${PAYMENT_KEY_VERSION}"
+echo "PII: ${PII_KEY_VERSION}"
+
+# Check for old encrypted data
+grep -c "AES256GCM:v1" encrypted-data-*.jsonl
+grep -c "AES256GCM:v2" encrypted-data-*.jsonl
+
+# Test decryption with old key
+export PAYMENT_ENCRYPTION_KEY_OLD="old-key-here"
+```
+
+**Solutions:**
+
+**1. Implement gradual key transition:**
+```yaml
+# Support multiple key versions during rotation
+- mapping: |
+    root = this
+    
+    # Try current key first, fallback to old key
+    root.payment.card_number_decrypted = try {
+      this.payment.card_number_encrypted.decrypt_aes("gcm", env("PAYMENT_ENCRYPTION_KEY"))
+    } catch {
+      # Fallback to old key
+      this.payment.card_number_encrypted.decrypt_aes("gcm", env("PAYMENT_ENCRYPTION_KEY_OLD"))
+    }
+    
+    # Re-encrypt with new key
+    root.payment.card_number_encrypted = root.payment.card_number_decrypted.encrypt_aes("gcm", env("PAYMENT_ENCRYPTION_KEY"))
+```
+
+**2. Track key versions in data:**
+```yaml
+# Add key version tracking
+- mapping: |
+    root = this
+    
+    root.encryption_metadata.key_versions = {
+      "payment": env("PAYMENT_KEY_VERSION"),
+      "encrypted_with_payment": env("PAYMENT_KEY_VERSION")
+    }
+```
+
+**3. Safe key rotation procedure:**
+```bash
+#!/bin/bash
+# Safe key rotation script
+
+OLD_KEY=$PAYMENT_ENCRYPTION_KEY
+NEW_KEY=$(openssl rand -hex 32)
+
+# 1. Set both keys temporarily
+export PAYMENT_ENCRYPTION_KEY_OLD=$OLD_KEY
+export PAYMENT_ENCRYPTION_KEY=$NEW_KEY
+export PAYMENT_KEY_VERSION="v$(date +%Y%m%d_%H%M%S)"
+
+# 2. Deploy with dual-key support
+expanso job deploy encryption-patterns-complete.yaml
+
+# 3. Wait for all old data to be re-encrypted
+sleep 300
+
+# 4. Remove old key after verification
+unset PAYMENT_ENCRYPTION_KEY_OLD
+```
+
+---
+
+## Performance Issues
+
+### Issue: "High encryption latency"
+
+**Symptoms:**
+- Processing time > 100ms per record
+- Pipeline throughput < 1000 records/second
+- Timeout errors under load
+
+**Diagnosis:**
+```bash
+# Check current performance
+curl http://localhost:9090/metrics | grep encryption_latency
+
+# Monitor resource usage
+kubectl top pods encryption-pipeline
+
+# Check processing queue
+expanso job status encryption-patterns-complete --verbose
+```
+
+**Solutions:**
+
+**1. Optimize encryption operations:**
+```yaml
+# Batch encryption operations
+- mapping: |
+    root = this
+    
+    # Process multiple fields in single processor
+    let pii_key = env("PII_ENCRYPTION_KEY")
+    
+    root.customer.email_encrypted = this.customer.email.encrypt_aes("gcm", pii_key)
+    root.customer.phone_encrypted = this.customer.phone.encrypt_aes("gcm", pii_key)
+    root.customer.ssn_encrypted = this.customer.ssn.encrypt_aes("gcm", pii_key)
+    
+    # Remove plaintext fields together
+    root.customer = this.customer.without("email", "phone", "ssn")
+```
+
+**2. Scale pipeline resources:**
+```yaml
+# Increase pipeline resources
+resources:
+  max_memory: "4GB"    # Increase from 2GB
+  max_cpu: "4000m"     # Increase from 2000m
+
+# Add parallel processing
+pipeline:
+  threads: 4           # Process in parallel
+```
+
+**3. Implement horizontal scaling:**
+```bash
+# Scale deployment
+kubectl scale deployment encryption-pipeline --replicas=3
+
+# Add load balancer
+kubectl expose deployment encryption-pipeline \
+  --type=LoadBalancer \
+  --port=8080 \
+  --target-port=8080
+```
+
+### Issue: "Memory usage too high"
+
+**Symptoms:**
+- Out of memory errors
+- Pod restarts due to resource limits
+- Gradual memory increase over time
+
+**Diagnosis:**
+```bash
+# Check memory usage patterns
+kubectl top pods --containers | grep encryption
+
+# Look for memory leaks
+watch -n 5 'kubectl top pods encryption-pipeline'
+
+# Check for large objects in memory
+curl http://localhost:9090/metrics | grep memory
+```
+
+**Solutions:**
+
+**1. Optimize data processing:**
+```yaml
+# Reduce memory footprint
+- mapping: |
+    root = this
+    
+    # Remove large unnecessary fields early
+    root = this.without("large_metadata", "debugging_info", "temporary_fields")
+    
+    # Process and remove fields immediately
+    root.payment.card_number_encrypted = this.payment.card_number.encrypt_aes("gcm", env("PAYMENT_ENCRYPTION_KEY"))
+    root.payment = this.payment.without("card_number")  # Remove immediately
+```
+
+**2. Implement batching:**
+```yaml
+# Add batching configuration
+input:
+  http_server:
+    address: "0.0.0.0:8080"
+    path: "/encrypt"
+    batch:
+      count: 100          # Process in batches of 100
+      period: "1s"        # Or every second
+      byte_size: "10MB"   # Or when batch reaches 10MB
+```
+
+**3. Add resource monitoring:**
+```yaml
+# Memory usage monitoring
+- mapping: |
+    # Log memory usage periodically
+    meta memory_check = if random() < 0.01 {  # 1% of records
+      {
+        "timestamp": now(),
+        "memory_usage": env("MEMORY_USAGE_MB").or("unknown"),
+        "record_size": this.string().length()
+      }
+    }
+```
+
+### Issue: "CPU utilization too high"
+
+**Symptoms:**
+- CPU usage consistently > 90%
+- Pipeline becomes unresponsive
+- Processing delays increase over time
+
+**Solutions:**
+
+**1. Optimize processing logic:**
+```yaml
+# Reduce CPU-intensive operations
+- mapping: |
+    root = this
+    
+    # Cache expensive computations
+    let card_num = this.payment.card_number.re_replace_all("[^0-9]", "")
+    
+    # Use pre-computed values
+    root.payment.card_brand = if card_num.has_prefix("4") {
+      "visa"
+    } else if card_num.has_prefix("5") {
+      "mastercard"
+    } else {
+      "other"
+    }
+```
+
+**2. Implement CPU throttling:**
+```yaml
+# Add processing delays for CPU relief
+resources:
+  max_cpu: "2000m"      # Limit CPU usage
+  
+rate_limit:
+  resource: "cpu"
+  count: 1000           # Max 1000 operations/second
+  period: "1s"
+```
+
+**3. Use async processing:**
+```yaml
+# Async output to reduce blocking
+output:
+  file:
+    path: "./output.jsonl"
+    codec: "lines"
+    sync: false         # Don't wait for disk writes
+```
+
+---
+
+## Output and Data Issues
+
+### Issue: "Output files not generated"
+
+**Symptoms:**
+- No encrypted-data-*.jsonl files created
+- Empty output directory
+- Pipeline runs but produces no output
+
+**Diagnosis:**
+```bash
+# Check pipeline output configuration
+grep -A 10 "outputs:" encryption-patterns-complete.yaml
+
+# Check file permissions
+ls -la ./
+touch test-output.jsonl && rm test-output.jsonl
+
+# Check disk space
+df -h ./
+```
+
+**Solutions:**
+
+**1. Fix output path issues:**
+```yaml
+# Ensure output directory exists and is writable
+output:
+  file:
+    path: "./output/encrypted-data-${!timestamp_unix()}.jsonl"  # Absolute path
+    codec: "lines"
+```
+
+**2. Add output validation:**
+```bash
+# Create output directory
+mkdir -p ./output
+chmod 755 ./output
+
+# Test write permissions
+echo "test" > ./output/test.txt && rm ./output/test.txt
+```
+
+**3. Debug output pipeline:**
+```yaml
+# Add debug output
+outputs:
+  - label: debug
+    stdout: {}  # Output to console for debugging
+    
+  - label: main
+    file:
+      path: "./encrypted-data-${!timestamp_unix()}.jsonl"
+      codec: "lines"
+```
+
+### Issue: "Incomplete or corrupted output data"
+
+**Symptoms:**
+- Output files contain partial records
+- JSON parsing errors in output
+- Missing encrypted fields
+
+**Diagnosis:**
+```bash
+# Check output file integrity
+jq empty encrypted-data-*.jsonl  # Should complete without errors
+
+# Look for incomplete records
+tail -10 encrypted-data-*.jsonl | jq '.'
+
+# Check for missing fields
+grep -c "card_number_encrypted" encrypted-data-*.jsonl
+grep -c "email_encrypted" encrypted-data-*.jsonl
+```
+
+**Solutions:**
+
+**1. Add output validation:**
+```yaml
+# Validate output before writing
+- mapping: |
+    root = this
+    
+    # Verify all expected encrypted fields exist
+    let expected_encrypted = [
+      "payment.card_number_encrypted",
+      "customer.email_encrypted",
+      "customer.ssn_encrypted"
+    ]
+    
+    let missing_encrypted = expected_encrypted.filter(field ->
+      this.get(field) == null
+    )
+    
+    root = if missing_encrypted.length() > 0 {
+      throw("Missing encrypted fields: " + missing_encrypted.join(", "))
+    } else {
+      this
+    }
+```
+
+**2. Implement output buffering:**
+```yaml
+# Add buffering to prevent partial writes
+output:
+  file:
+    path: "./encrypted-data-${!timestamp_unix()}.jsonl"
+    codec: "lines"
+    buffer:
+      lines: 1000      # Buffer 1000 lines before writing
+      period: "10s"    # Or flush every 10 seconds
+```
+
+**3. Add data integrity checks:**
+```bash
+# Validate output data integrity
+#!/bin/bash
+
+for file in encrypted-data-*.jsonl; do
+  echo "Checking $file..."
+  
+  # Count total records
+  TOTAL=$(wc -l < "$file")
+  
+  # Count encrypted fields
+  ENCRYPTED=$(grep -c "encrypted" "$file")
+  
+  # Validate JSON format
+  if jq empty "$file" 2>/dev/null; then
+    echo "✅ $file: $TOTAL records, JSON valid"
+  else
+    echo "❌ $file: Invalid JSON format"
+  fi
+done
+```
+
+---
+
+## Compliance and Audit Issues
+
+### Issue: "Audit trail not generated"
+
+**Symptoms:**
+- Missing audit-trail-*.jsonl files
+- Compliance reports show no data
+- Audit metadata missing from records
+
+**Diagnosis:**
+```bash
+# Check for audit outputs
+ls -la audit-trail-*.jsonl
+ls -la compliance-reports-*.jsonl
+
+# Verify audit metadata in main output
+grep "encryption_audit_record" encrypted-data-*.jsonl | head -5
+
+# Check pipeline audit configuration
+grep -A 20 "audit" encryption-patterns-complete.yaml
+```
+
+**Solutions:**
+
+**1. Enable audit output:**
+```yaml
+# Ensure audit output is configured
+outputs:
+  - label: audit_trail
+    processors:
+      - mapping: |
+          root = meta("encryption_audit_record").or({})
+    file:
+      path: "./audit-trail-${!timestamp_unix()}.jsonl"
+      codec: "lines"
+```
+
+**2. Add audit metadata:**
+```yaml
+# Generate audit metadata
+- mapping: |
+    # Create audit record
+    meta encryption_audit_record = {
+      "audit_id": "enc_" + uuid_v4(),
+      "timestamp": now(),
+      "event_type": "field_level_encryption",
+      "node_id": env("NODE_ID").or("unknown"),
+      "encryption_operations": [
+        {
+          "field": "payment.card_number",
+          "algorithm": "AES-256-GCM",
+          "compliance": "PCI-DSS"
+        }
+      ]
+    }
+```
+
+**3. Test audit generation:**
+```bash
+# Verify audit records are created
+head -1 audit-trail-*.jsonl | jq '.audit_id, .timestamp'
+
+# Check for required audit fields
+jq '.encryption_operations[0].compliance' audit-trail-*.jsonl | head -5
+```
+
+### Issue: "Compliance validation failures"
+
+**Symptoms:**
+- Compliance reports show "non-compliant" status
+- Plaintext sensitive data found in output
+- Missing required encryption fields
+
+**Diagnosis:**
+```bash
+# Run compliance verification
+./compliance-verification.sh
+
+# Look for plaintext violations
+grep -i "4532123456789010" encrypted-data-*.jsonl  # Sample card number
+grep -E "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}" encrypted-data-*.jsonl  # Email patterns
+
+# Check encryption coverage
+grep -c "_encrypted" encrypted-data-*.jsonl
+```
+
+**Solutions:**
+
+**1. Add compliance validation:**
+```yaml
+# Compliance validation processor
+- mapping: |
+    root = this
+    
+    # Verify no plaintext sensitive data remains
+    let violations = [
+      if this.payment.card_number.exists() { "payment.card_number" },
+      if this.customer.email.exists() && !this.customer.email_domain.exists() { "customer.email" },
+      if this.customer.ssn.exists() && !this.customer.ssn_last_four.exists() { "customer.ssn" }
+    ].filter(v -> v != null)
+    
+    root = if violations.length() > 0 {
+      throw("Compliance violation: plaintext sensitive data found in " + violations.join(", "))
+    } else {
+      this
+    }
+```
+
+**2. Implement mandatory field encryption:**
+```yaml
+# Ensure all sensitive fields are encrypted
+- mapping: |
+    # Check payment card encryption (PCI-DSS requirement)
+    root = if this.payment.card_number.exists() && !this.payment.card_number_encrypted.exists() {
+      throw("PCI-DSS violation: unencrypted card number")
+    } else { this }
+    
+    # Check PII encryption (GDPR requirement)  
+    root = if this.customer.email.exists() && !this.customer.email_encrypted.exists() {
+      throw("GDPR violation: unencrypted email address")
+    } else { this }
+```
+
+**3. Generate compliance reports:**
+```yaml
+# Compliance report generation
+- mapping: |
+    meta compliance_report = {
+      "report_id": uuid_v4(),
+      "timestamp": now(),
+      "pci_dss_compliance": {
+        "status": if this.payment.card_number_encrypted.exists() { "compliant" } else { "violation" },
+        "requirements_met": ["3.4.1"]
+      },
+      "gdpr_compliance": {
+        "status": if this.customer.email_encrypted.exists() { "compliant" } else { "violation" },
+        "article": "Article 32"
+      }
+    }
+```
+
+---
+
+## Advanced Debugging Techniques
+
+### Enable Debug Logging
+
+```yaml title="Debug configuration"
+# Add comprehensive debugging
+pipeline:
+  processors:
+    # Debug input data
+    - mapping: |
+        meta input_debug = {
+          "timestamp": now(),
+          "record_id": this.transaction_id.or("unknown"),
+          "input_fields": this.keys(),
+          "sensitive_fields_detected": [
+            if this.payment.card_number.exists() { "payment.card_number" },
+            if this.customer.email.exists() { "customer.email" },
+            if this.customer.ssn.exists() { "customer.ssn" }
+          ].filter(v -> v != null)
+        }
+    
+    # ... encryption processors ...
+    
+    # Debug output data
+    - mapping: |
+        meta output_debug = {
+          "timestamp": now(),
+          "record_id": this.transaction_id.or("unknown"),
+          "encrypted_fields": [
+            if this.payment.card_number_encrypted.exists() { "payment.card_number_encrypted" },
+            if this.customer.email_encrypted.exists() { "customer.email_encrypted" },
+            if this.customer.ssn_encrypted.exists() { "customer.ssn_encrypted" }
+          ].filter(v -> v != null),
+          "preserved_fields": [
+            if this.payment.card_last_four.exists() { "payment.card_last_four" },
+            if this.customer.email_domain.exists() { "customer.email_domain" }
+          ].filter(v -> v != null)
+        }
+
+# Debug output
+outputs:
+  - label: debug_input
+    processors:
+      - mapping: root = meta("input_debug").or({})
+    file:
+      path: "./debug-input-${!timestamp_unix()}.jsonl"
+      
+  - label: debug_output  
+    processors:
+      - mapping: root = meta("output_debug").or({})
+    file:
+      path: "./debug-output-${!timestamp_unix()}.jsonl"
+```
+
+### Performance Profiling
+
+```bash title="Performance profiling script"
+#!/bin/bash
+# Performance profiling for encryption pipeline
+
+echo "=== Encryption Pipeline Performance Profile ==="
+
+# Start monitoring
+START_TIME=$(date +%s)
+
+# Monitor resource usage
+(
+  while true; do
+    echo "$(date +%H:%M:%S),$(ps aux | grep expanso | grep -v grep | awk '{print $3,$4}')" >> cpu_memory.log
+    sleep 5
+  done
+) &
+MONITOR_PID=$!
+
+# Send test data and measure latency
+for i in {1..100}; do
+  START_REQ=$(date +%s%N)
+  
+  curl -s -X POST http://localhost:8080/encrypt \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"transaction_id\": \"perf-test-$i\",
+      \"payment\": {\"card_number\": \"4532123456789010\"},
+      \"customer\": {\"email\": \"test$i@example.com\"}
+    }" > /dev/null
+    
+  END_REQ=$(date +%s%N)
+  LATENCY=$(( (END_REQ - START_REQ) / 1000000 ))  # Convert to milliseconds
+  echo "$i,$LATENCY" >> latency.log
+done
+
+# Stop monitoring
+kill $MONITOR_PID
+
+# Analyze results
+echo "📊 Performance Results:"
+echo "Average latency: $(awk -F',' '{sum+=$2} END {print sum/NR}' latency.log) ms"
+echo "Max latency: $(awk -F',' 'max<$2 {max=$2} END {print max}' latency.log) ms"
+echo "Min latency: $(awk -F',' 'NR==1{min=$2} $2<min {min=$2} END {print min}' latency.log) ms"
+
+# Check for memory leaks
+echo "Memory usage trend:"
+tail -10 cpu_memory.log
+```
+
+### Error Analysis Tools
+
+```bash title="Error analysis script"
+#!/bin/bash
+# Comprehensive error analysis
+
+echo "=== Encryption Pipeline Error Analysis ==="
+
+# 1. Check Expanso logs
+echo "🔍 Checking Expanso logs..."
+if [ -f /var/log/expanso/encryption.log ]; then
+  # Count error types
+  echo "Error summary:"
+  grep "ERROR" /var/log/expanso/encryption.log | \
+    awk '{print $4}' | sort | uniq -c | sort -nr
+    
+  # Show recent errors
+  echo "Recent errors:"
+  tail -20 /var/log/expanso/encryption.log | grep "ERROR"
+else
+  echo "⚠️  No Expanso log file found"
+fi
+
+# 2. Check system logs
+echo "🔍 Checking system logs..."
+journalctl -u expanso --since "1 hour ago" --no-pager | grep -i error | tail -10
+
+# 3. Check pipeline status
+echo "🔍 Checking pipeline status..."
+expanso job status encryption-patterns-complete 2>&1
+
+# 4. Check resource constraints
+echo "🔍 Checking resource constraints..."
+if command -v kubectl > /dev/null; then
+  kubectl describe pod -l app=encryption-pipeline | grep -A 5 "Events:"
+fi
+
+# 5. Validate configuration
+echo "🔍 Validating configuration..."
+if [ -f encryption-patterns-complete.yaml ]; then
+  # Check for common configuration issues
+  if ! grep -q "encrypt_aes" encryption-patterns-complete.yaml; then
+    echo "❌ No encryption functions found in configuration"
+  fi
+  
+  if ! grep -q "PAYMENT_ENCRYPTION_KEY" encryption-patterns-complete.yaml; then
+    echo "❌ No payment encryption key reference found"
+  fi
+else
+  echo "❌ Configuration file not found"
+fi
+
+# 6. Test connectivity
+echo "🔍 Testing connectivity..."
+if ! curl -f http://localhost:8080/health 2>/dev/null; then
+  echo "❌ Health check failed - pipeline may not be responding"
+fi
+```
+
+---
+
+## Getting Help
+
+### Documentation Resources
+
+1. **Expanso Documentation**
+   - [Core Concepts](https://docs.expanso.io/concepts)
+   - [Processing Functions](https://docs.expanso.io/guides/bloblang)
+   - [Encryption Functions](https://docs.expanso.io/guides/bloblang#encrypt_aes)
+
+2. **Related Examples**
+   - [Remove PII](../remove-pii) - Alternative to encryption using hashing
+   - [Delete Payment PII](../delete-payment-pii) - Simple deletion patterns
+   - [Encrypt Data](../encrypt-data) - Basic encryption tutorial
+
+### Support Channels
+
+1. **Community Support**
+   - Expanso Community Forum
+   - GitHub Issues
+   - Stack Overflow (tag: expanso)
+
+2. **Provide These Details When Asking for Help:**
+   - Expanso version: `expanso version`
+   - Operating system and architecture
+   - Complete error messages with stack traces
+   - Configuration file (with sensitive keys redacted)
+   - Sample input data (with sensitive information removed)
+   - Environment variables (names only, not values)
+
+### Emergency Procedures
+
+**For Production Issues:**
+
+1. **Immediate Actions:**
+   ```bash
+   # Stop processing new data
+   expanso job pause encryption-patterns-complete
+   
+   # Backup current state
+   cp encrypted-data-*.jsonl backup/
+   cp audit-trail-*.jsonl backup/
+   
+   # Check for data corruption
+   ./compliance-verification.sh
+   ```
+
+2. **Rollback Procedure:**
+   ```bash
+   # Revert to previous configuration
+   git checkout HEAD~1 encryption-patterns-complete.yaml
+   expanso job deploy encryption-patterns-complete.yaml
+   
+   # Verify rollback success
+   expanso job status encryption-patterns-complete
+   ```
+
+3. **Contact Information:**
+   - Security Team: security@yourcompany.com
+   - On-call Engineer: +1-XXX-XXX-XXXX
+   - Expanso Support: support@expanso.io
+
+---
+
+**Remember:** Always test fixes in a staging environment before applying to production. Keep backups of configuration files and encryption keys. Document any custom solutions for future reference.
+
+For issues not covered in this guide, consult the Expanso documentation or contact support with the diagnostic information from the scripts above.

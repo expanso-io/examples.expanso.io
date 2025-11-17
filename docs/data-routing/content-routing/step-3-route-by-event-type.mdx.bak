@@ -1,0 +1,1418 @@
+---
+title: Route Data by Event Type
+sidebar_label: Step 3 - Event Type Routing  
+sidebar_position: 6
+description: Route authentication events to security systems, payment events to fraud detection, and telemetry to local storage for specialized processing
+keywords: [event-type, routing, authentication, payment, telemetry, analytics, specialized-processing]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+
+# Step 3: Route Data by Event Type
+
+**Send events to systems optimized for their specific purpose.** This step teaches you how to route different event types to specialized processing systems that understand and optimize for each data type's unique requirements.
+
+## Why Event Type Routing Matters
+
+Without specialized routing, all events get generic processing:
+
+```mermaid
+graph LR
+    A[Auth Events] --> B[Generic Queue]
+    C[Payment Events] --> B
+    D[Telemetry Data] --> B
+    E[Analytics Events] --> B
+    
+    B --> F[❌ Generic Processing]
+    F --> G[❌ Missed Fraud Detection]
+    F --> H[❌ Poor Security Monitoring]
+    F --> I[❌ Inefficient Analytics]
+    
+    style B fill:#ff6b6b
+    style F fill:#ff6b6b
+```
+
+**Problems:**
+- ❌ **Security blind spots:** Authentication events lost among general logs
+- ❌ **Missed fraud:** Payment events not processed by specialized fraud detection
+- ❌ **Bandwidth waste:** High-volume telemetry unnecessarily sent to cloud
+- ❌ **Poor analytics:** Business events mixed with system noise
+
+With event type routing, each event goes to its optimal processor:
+
+```mermaid
+graph LR
+    A[Auth Events] --> B[Security Monitoring]
+    C[Payment Events] --> D[Fraud Detection]
+    E[Telemetry Data] --> F[Local Storage]
+    G[Analytics Events] --> H[Analytics Engine]
+    
+    B --> I[✅ Threat Detection]
+    D --> J[✅ Real-time Fraud Check]
+    F --> K[✅ Bandwidth Savings]
+    H --> L[✅ Business Intelligence]
+    
+    style B fill:#4caf50
+    style D fill:#4caf50
+    style F fill:#4caf50
+    style H fill:#4caf50
+```
+
+**Benefits:**
+- ✅ **Enhanced security:** Authentication events go to specialized security systems
+- ✅ **Fraud prevention:** Payment events processed by fraud detection algorithms
+- ✅ **Cost optimization:** Telemetry stays local, reducing cloud bandwidth by 60%
+- ✅ **Better analytics:** Business events get proper dimensional analysis
+
+## Understanding Event Type Patterns
+
+Different event types have different processing requirements:
+
+| Event Type | Processing Need | Optimal Destination | Performance Requirement |
+|------------|----------------|--------------------|-----------------------|
+| **Authentication** | Security analysis, threat detection | SIEM, security monitoring | < 100ms, audit trail |
+| **Payment** | Fraud detection, compliance | Real-time fraud systems | < 50ms, exactly-once |
+| **User Actions** | Analytics, personalization | Analytics pipeline | < 500ms, high throughput |
+| **System Telemetry** | Monitoring, alerting | Local storage, metrics | < 1s, bandwidth efficient |
+| **Application Logs** | Debugging, troubleshooting | Search engine | < 2s, full-text search |
+| **Audit Events** | Compliance, investigation | Long-term archive | < 5s, immutable storage |
+
+## Implementation Overview
+
+Event type routing uses pattern matching on the `event_type` field:
+
+```yaml
+output:
+  switch:
+    cases:
+      # Authentication events to security systems
+      - check: this.event_type.has_prefix("auth.")
+        output: security_monitoring
+        
+      # Payment events to fraud detection
+      - check: this.event_type.has_prefix("payment.")
+        output: fraud_detection_pipeline
+        
+      # Telemetry to local storage (bandwidth optimization)
+      - check: this.event_type.has_prefix("telemetry.")
+        output: local_storage
+        
+      # Default: General processing
+      - output: default_pipeline
+```
+
+**Key principle:** Route based on processing requirements, not just event names.
+
+## Step-by-Step Implementation
+
+### Phase 1: Basic Event Type Classification
+
+Start with fundamental event type routing:
+
+```yaml title="event-type-router-v1.yaml"
+name: event-type-router
+description: Route events based on type to specialized processors
+type: pipeline
+namespace: production
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+      timeout: 5s
+      cors:
+        enabled: true
+
+  pipeline:
+    processors:
+      # Carry forward previous routing enhancements
+      - mapping: |
+          root = this
+          
+          # Normalize severity (from step 1)
+          root.severity = this.severity.string().uppercase().or("INFO")
+          
+          # Geographic metadata (from step 2)  
+          root.region = this.region.string().lowercase().or(env("EDGE_REGION")).or("unknown")
+          root.requires_gdpr_compliance = ["eu-west", "eu-central", "eu-north"].contains(root.region)
+
+      # Event type classification and enrichment
+      - mapping: |
+          root = this
+          
+          # Normalize event type
+          root.event_type = this.event_type.string().lowercase().or("unknown")
+          
+          # Classify event families
+          root.event_family = match root.event_type {
+            # Authentication and security events
+            "user.login" | "user.logout" | "user.password_reset" | "user.account_locked" => "authentication"
+            "session.created" | "session.expired" | "session.terminated" => "authentication"
+            "auth.failed" | "auth.success" | "auth.mfa_challenge" => "authentication"
+            
+            # Payment and financial events
+            "payment.initiated" | "payment.authorized" | "payment.captured" | "payment.failed" => "payment"
+            "refund.initiated" | "refund.processed" | "chargeback.created" => "payment"
+            "subscription.created" | "subscription.renewed" | "subscription.cancelled" => "payment"
+            
+            # User behavior and analytics
+            "user.action" | "user.click" | "user.view" | "user.purchase" => "analytics"
+            "page.viewed" | "feature.used" | "conversion.completed" => "analytics"
+            "experiment.exposure" | "experiment.conversion" => "analytics"
+            
+            # System telemetry and monitoring
+            "cpu.usage" | "memory.usage" | "disk.usage" | "network.traffic" => "telemetry"
+            "service.health" | "service.latency" | "service.error_rate" => "telemetry"
+            "database.query_time" | "cache.hit_rate" | "queue.depth" => "telemetry"
+            
+            # Application events
+            "app.started" | "app.shutdown" | "app.error" | "app.warning" => "application"
+            "job.started" | "job.completed" | "job.failed" => "application"
+            
+            # Audit and compliance events
+            "data.accessed" | "data.modified" | "data.deleted" => "audit"
+            "permission.granted" | "permission.revoked" | "admin.action" => "audit"
+            
+            _ => "unknown"
+          }
+          
+          # Processing requirements based on event family
+          root.processing_requirements = match root.event_family {
+            "authentication" => {
+              "security_sensitive": true,
+              "requires_audit": true,
+              "max_latency_ms": 100,
+              "retention_years": 3
+            }
+            "payment" => {
+              "financial_data": true,
+              "exactly_once": true,
+              "max_latency_ms": 50,
+              "retention_years": 7
+            }
+            "analytics" => {
+              "high_volume": true,
+              "batch_friendly": true,
+              "max_latency_ms": 500,
+              "retention_days": 90
+            }
+            "telemetry" => {
+              "very_high_volume": true,
+              "local_processing": true,
+              "max_latency_ms": 1000,
+              "retention_days": 30
+            }
+            "audit" => {
+              "compliance_critical": true,
+              "immutable_storage": true,
+              "max_latency_ms": 5000,
+              "retention_years": 10
+            }
+            _ => {
+              "standard_processing": true,
+              "max_latency_ms": 2000,
+              "retention_days": 30
+            }
+          }
+          
+          # Add event metadata
+          root.event_metadata = {
+            "classified_at": now(),
+            "classification_version": "v1",
+            "processing_priority": match root.event_family {
+              "payment" => "critical"
+              "authentication" => "high"
+              "audit" => "high"
+              "analytics" => "normal"
+              "telemetry" => "low"
+              _ => "normal"
+            }
+          }
+
+  output:
+    switch:
+      cases:
+        # Authentication events: Security monitoring and audit
+        - check: this.event_family == "authentication"
+          output:
+            broker:
+              pattern: fan_out
+              outputs:
+                # Primary: Security monitoring system
+                - http_client:
+                    url: ${SECURITY_MONITORING_URL:https://security.example.com/auth-events}
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                      X-Event-Source: content-router
+                      X-Security-Level: high
+                    
+                    body: |
+                      {
+                        "event_id": this.event_id,
+                        "event_type": this.event_type,
+                        "timestamp": this.timestamp.or(now()),
+                        "severity": this.severity,
+                        "user_id": this.user_id,
+                        "source_ip": this.source_ip,
+                        "user_agent": this.user_agent,
+                        "session_id": this.session_id,
+                        "region": this.region,
+                        "security_context": {
+                          "event_family": this.event_family,
+                          "requires_audit": this.processing_requirements.requires_audit,
+                          "classification_timestamp": this.event_metadata.classified_at
+                        }
+                      }
+                    
+                    # Fast delivery for security events
+                    batching:
+                      count: 10
+                      period: 5s
+                    
+                    max_retries: 3
+                    timeout: 10s
+
+                # Secondary: Security audit archive
+                - aws_s3:
+                    bucket: ${SECURITY_AUDIT_BUCKET:security-audit-logs}
+                    region: ${AWS_REGION:us-east-1}
+                    path: auth-events/${!timestamp_date("2006/01/02")}/auth_${!count("files")}.jsonl
+                    
+                    # Long-term compliance storage
+                    content_encoding: gzip
+                    storage_class: GLACIER_IR  # Immediate retrieval for investigations
+                    
+                    # Security audit tags
+                    tags:
+                      DataType: "SecurityAudit"
+                      EventFamily: "Authentication"
+                      RetentionYears: "3"
+                      ComplianceRequired: "Yes"
+                      
+                    batching:
+                      count: 500
+                      period: 10m
+
+        # Payment events: Fraud detection and financial processing
+        - check: this.event_family == "payment"
+          output:
+            broker:
+              pattern: fan_out
+              outputs:
+                # Primary: Real-time fraud detection
+                - http_client:
+                    url: ${FRAUD_DETECTION_URL:https://fraud-detection.example.com/analyze}
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                      X-Processing-Priority: critical
+                      X-Financial-Data: "true"
+                    
+                    body: |
+                      {
+                        "transaction_id": this.event_id,
+                        "event_type": this.event_type,
+                        "timestamp": this.timestamp.or(now()),
+                        "amount": this.amount,
+                        "currency": this.currency,
+                        "user_id": this.user_id,
+                        "merchant_id": this.merchant_id,
+                        "payment_method": this.payment_method,
+                        "billing_address": this.billing_address,
+                        "shipping_address": this.shipping_address,
+                        "risk_factors": {
+                          "user_tier": this.user_tier,
+                          "region": this.region,
+                          "device_fingerprint": this.device_fingerprint,
+                          "previous_failures": this.previous_failures
+                        },
+                        "compliance_context": {
+                          "gdpr_required": this.requires_gdpr_compliance,
+                          "financial_data": this.processing_requirements.financial_data
+                        }
+                      }
+                    
+                    # No batching for real-time fraud detection
+                    batching:
+                      count: 1
+                      period: 0s
+                    
+                    max_retries: 2  # Quick failure for real-time processing
+                    timeout: 2s
+
+                # Secondary: Financial transaction queue  
+                - kafka:
+                    addresses: [${KAFKA_BROKERS}]
+                    topic: payment-events
+                    
+                    # Financial data reliability requirements
+                    ack_replicas: true
+                    max_in_flight: 1         # Exactly-once processing
+                    idempotent_write: true
+                    compression: gzip
+                    
+                    # Small batches for financial data
+                    batching:
+                      count: 25
+                      period: 1s
+                    
+                    # Financial compliance metadata
+                    metadata:
+                      include_patterns:
+                        - "^processing_requirements$"
+                        - "^event_metadata$"
+
+        # Analytics events: Business intelligence pipeline
+        - check: this.event_family == "analytics"
+          output:
+            http_client:
+              url: ${ANALYTICS_API_URL:https://analytics.example.com/events}
+              verb: POST
+              headers:
+                Content-Type: application/json
+                X-Data-Type: analytics
+                X-Batch-Friendly: "true"
+              
+              body: |
+                {
+                  "event_id": this.event_id,
+                  "event_type": this.event_type,
+                  "timestamp": this.timestamp.or(now()),
+                  "user_id": this.user_id,
+                  "session_id": this.session_id,
+                  "properties": this.properties.or({}),
+                  "traits": this.traits.or({}),
+                  "context": {
+                    "region": this.region,
+                    "user_agent": this.user_agent,
+                    "referrer": this.referrer,
+                    "campaign": this.campaign
+                  },
+                  "processing_context": {
+                    "event_family": this.event_family,
+                    "batch_friendly": this.processing_requirements.batch_friendly,
+                    "classified_at": this.event_metadata.classified_at
+                  }
+                }
+              
+              # Larger batches for analytics (efficiency over latency)
+              batching:
+                count: 200
+                period: 30s
+                byte_size: 1MB
+              
+              # Enable gzip for large analytics payloads
+              gzip_compression: true
+              max_retries: 3
+              timeout: 10s
+
+        # Telemetry events: Local storage for bandwidth optimization
+        - check: this.event_family == "telemetry"
+          output:
+            file:
+              path: /var/expanso/telemetry/telemetry-${!timestamp_date("2006-01-02")}.jsonl
+              codec: lines
+              
+              # Large batches for high-volume telemetry
+              batching:
+                count: 1000
+                period: 60s
+                byte_size: 10MB
+              
+              # Compress telemetry data for storage efficiency
+              gzip_compression: true
+
+        # Audit events: Compliance archive with immutable storage
+        - check: this.event_family == "audit"
+          output:
+            broker:
+              pattern: fan_out
+              outputs:
+                # Primary: Compliance monitoring
+                - http_client:
+                    url: ${COMPLIANCE_MONITORING_URL:https://compliance.example.com/audit}
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                      X-Compliance-Event: "true"
+                      X-Immutable-Required: "true"
+                    
+                    body: |
+                      {
+                        "audit_id": this.event_id,
+                        "event_type": this.event_type,
+                        "timestamp": this.timestamp.or(now()),
+                        "actor": this.actor.or(this.user_id),
+                        "action": this.action,
+                        "resource": this.resource,
+                        "outcome": this.outcome,
+                        "details": this.details.or({}),
+                        "compliance_context": {
+                          "retention_years": this.processing_requirements.retention_years,
+                          "immutable_storage": this.processing_requirements.immutable_storage,
+                          "gdpr_scope": this.requires_gdpr_compliance
+                        }
+                      }
+                    
+                    batching:
+                      count: 50
+                      period: 30s
+
+                # Secondary: Long-term immutable archive
+                - aws_s3:
+                    bucket: ${AUDIT_ARCHIVE_BUCKET:compliance-audit-archive}
+                    region: ${AWS_REGION:us-east-1}
+                    path: audit-events/${!timestamp_date("2006/01/02")}/audit_${!count("files")}.jsonl
+                    
+                    # Long-term retention configuration
+                    content_encoding: gzip
+                    storage_class: GLACIER    # Cost-effective long-term storage
+                    object_lock_mode: GOVERNANCE  # Immutable storage
+                    
+                    # Compliance tags
+                    tags:
+                      DataType: "AuditLog"
+                      ImmutableStorage: "Required"
+                      RetentionYears: "10"
+                      ComplianceFramework: "SOX,GDPR,PCI"
+                      
+                    batching:
+                      count: 200
+                      period: 15m
+
+        # Application events: Standard log processing
+        - check: this.event_family == "application"
+          output:
+            elasticsearch:
+              hosts:
+                - ${ELASTICSEARCH_HOST:http://localhost:9200}
+              
+              # Time-based index for efficient querying
+              index: application-logs-${!timestamp_date("2006-01-02")}
+              type: _doc
+              id: ${!this.event_id.or(uuid_v4())}
+              
+              batching:
+                count: 150
+                period: 15s
+                byte_size: 2MB
+              
+              # Include event classification metadata
+              metadata:
+                include_patterns:
+                  - "^event_family$"
+                  - "^event_metadata$"
+                  - "^processing_requirements$"
+
+        # Unknown event types: Investigation and fallback
+        - output:
+            broker:
+              pattern: fan_out
+              outputs:
+                # Log unknown event types for classification improvement
+                - file:
+                    path: /var/log/expanso/unknown-event-types-${!timestamp_date("2006-01-02")}.jsonl
+                    codec: lines
+                    
+                # Alert about unclassified events
+                - http_client:
+                    url: ${MONITORING_WEBHOOK_URL}
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                    
+                    body: |
+                      {
+                        "alert_type": "unknown_event_type",
+                        "event_id": this.event_id,
+                        "event_type": this.event_type,
+                        "timestamp": this.event_metadata.classified_at,
+                        "classification_failed": true,
+                        "recommended_action": "add_classification_rule"
+                      }
+
+                # Fallback to general processing
+                - kafka:
+                    addresses: [${KAFKA_BROKERS}]
+                    topic: unknown-event-types
+                    compression: snappy
+                    
+                    metadata:
+                      include_patterns:
+                        - "^event_type$"
+                        - "^event_metadata$"
+
+  # Enhanced metrics for event type monitoring
+  metrics:
+    prometheus:
+      enabled: true
+      path: /metrics
+      labels:
+        pipeline: event-type-router
+        version: v1
+
+  logger:
+    level: INFO
+    format: json
+    fields:
+      pipeline: event-type-router
+      routing_type: event-type
+```
+
+### Phase 2: Deploy and Test Event Type Routing
+
+Deploy the event type router:
+
+```bash
+# Stop previous router
+expanso pipeline stop geographic-router
+
+# Deploy event type router
+expanso pipeline create event-type-router-v1.yaml
+
+# Verify deployment
+expanso pipeline status event-type-router
+```
+
+Test with different event types:
+
+```bash
+# Test authentication event (should go to security monitoring)
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id": "auth-001",
+    "timestamp": "2025-10-20T10:00:00Z",
+    "event_type": "user.login", 
+    "severity": "INFO",
+    "user_id": "user123",
+    "source_ip": "192.168.1.100",
+    "region": "us-east",
+    "session_id": "sess_abc123"
+  }'
+
+# Test payment event (should go to fraud detection)
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id": "payment-001",
+    "timestamp": "2025-10-20T10:01:00Z",
+    "event_type": "payment.authorized",
+    "severity": "INFO",
+    "amount": 99.99,
+    "currency": "USD",
+    "user_id": "user123",
+    "merchant_id": "merchant_456",
+    "payment_method": "credit_card",
+    "region": "us-east"
+  }'
+
+# Test telemetry event (should go to local storage)
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id": "telemetry-001", 
+    "timestamp": "2025-10-20T10:02:00Z",
+    "event_type": "cpu.usage",
+    "severity": "DEBUG",
+    "cpu_percent": 75.5,
+    "hostname": "server01",
+    "region": "us-east"
+  }'
+
+# Test unknown event type (should trigger classification alert)
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id": "unknown-001",
+    "timestamp": "2025-10-20T10:03:00Z",
+    "event_type": "custom.business_event",
+    "severity": "INFO",
+    "message": "Custom business logic event",
+    "region": "us-east"
+  }'
+```
+
+### Phase 3: Verify Event Type Routing
+
+**Check Security Monitoring:**
+Monitor security system logs for authentication events or check the webhook endpoint.
+
+**Check Fraud Detection:**
+Verify fraud detection system received the payment event for analysis.
+
+**Check Telemetry Storage:**
+```bash
+# Check local telemetry file
+cat /var/expanso/telemetry/telemetry-$(date +%Y-%m-%d).jsonl | grep "telemetry-001"
+
+# Should contain the CPU usage event
+```
+
+**Check Unknown Event Classification:**
+```bash
+# Check unknown event type log
+cat /var/log/expanso/unknown-event-types-$(date +%Y-%m-%d).jsonl | grep "custom.business_event"
+
+# Should log the unknown business event
+```
+
+## Advanced Event Type Processing
+
+### Phase 4: Enhanced Event Classification
+
+Add sophisticated event classification logic:
+
+```yaml title="event-type-router-v2.yaml"
+# Enhanced event type router with advanced classification
+name: event-type-router-enhanced
+description: Advanced event type routing with machine learning classification hints
+type: pipeline
+namespace: production
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+      timeout: 5s
+      cors:
+        enabled: true
+
+  pipeline:
+    processors:
+      # Previous processing (severity, geography)
+      - mapping: |
+          root = this
+          root.severity = this.severity.string().uppercase().or("INFO")
+          root.region = this.region.string().lowercase().or(env("EDGE_REGION")).or("unknown")
+
+      # Advanced event type classification
+      - mapping: |
+          root = this
+          
+          # Normalize and extract event type information
+          root.event_type = this.event_type.string().lowercase().or("unknown")
+          root.event_source = this.source.string().or("unknown")
+          
+          # Extract event type components
+          let event_parts = root.event_type.split(".")
+          root.event_namespace = event_parts.get(0).or("unknown")
+          root.event_action = event_parts.get(1).or("unknown") 
+          root.event_target = event_parts.get(2).or("")
+          
+          # Enhanced classification logic
+          root.event_family = if root.event_namespace == "user" && 
+                                ["login", "logout", "signup", "password_reset"].contains(root.event_action) {
+            "authentication"
+          } else if root.event_namespace == "payment" || 
+                   root.event_namespace == "transaction" ||
+                   root.event_namespace == "billing" {
+            "payment"  
+          } else if root.event_namespace == "telemetry" ||
+                   root.event_namespace == "metrics" ||
+                   root.event_namespace == "monitoring" {
+            "telemetry"
+          } else if root.event_namespace == "audit" ||
+                   root.event_namespace == "compliance" ||
+                   root.event_action.contains("audit") {
+            "audit"
+          } else if root.event_source.contains("analytics") ||
+                   root.event_namespace == "track" ||
+                   root.event_action.contains("view") ||
+                   root.event_action.contains("click") {
+            "analytics"
+          } else if root.event_namespace.contains("app") ||
+                   root.event_namespace.contains("service") ||
+                   root.event_namespace.contains("system") {
+            "application"
+          } else {
+            "unknown"
+          }
+          
+          # Context-aware classification enhancement
+          if root.event_family == "unknown" {
+            # Look for additional classification hints in the data
+            
+            # Financial indicators
+            if this.amount.exists() || this.currency.exists() || 
+               this.payment_method.exists() || this.merchant_id.exists() {
+              root.event_family = "payment"
+              root.classification_reason = "financial_data_detected"
+            }
+            
+            # Security indicators
+            else if this.source_ip.exists() || this.session_id.exists() ||
+                   this.user_agent.exists() || this.login_attempt.exists() {
+              root.event_family = "authentication" 
+              root.classification_reason = "security_data_detected"
+            }
+            
+            # Performance indicators
+            else if this.cpu_percent.exists() || this.memory_usage.exists() ||
+                   this.response_time.exists() || this.error_rate.exists() {
+              root.event_family = "telemetry"
+              root.classification_reason = "performance_data_detected"
+            }
+            
+            # Audit indicators
+            else if this.actor.exists() || this.action.exists() ||
+                   this.resource.exists() || this.outcome.exists() {
+              root.event_family = "audit"
+              root.classification_reason = "audit_data_detected"
+            }
+          }
+          
+          # Business impact scoring
+          root.business_impact = match root.event_family {
+            "payment" => match this.amount.number().or(0) {
+              x if x > 1000 => "high"
+              x if x > 100 => "medium"
+              _ => "low"
+            }
+            "authentication" => match this.severity {
+              "CRITICAL" | "ERROR" => "high"
+              "WARN" => "medium" 
+              _ => "low"
+            }
+            "audit" => "high"    # All audit events are high impact
+            "analytics" => "low"  # Analytics generally low business impact
+            "telemetry" => match this.severity {
+              "CRITICAL" => "high"
+              _ => "low"
+            }
+            _ => "medium"
+          }
+          
+          # Enhanced processing requirements
+          root.processing_requirements = match root.event_family {
+            "authentication" => {
+              "security_sensitive": true,
+              "requires_audit": true,
+              "max_latency_ms": if this.severity == "CRITICAL" { 50 } else { 100 },
+              "retention_years": 3,
+              "encryption_required": true,
+              "anonymization_after_days": 90
+            }
+            "payment" => {
+              "financial_data": true,
+              "exactly_once": true,
+              "max_latency_ms": if root.business_impact == "high" { 25 } else { 50 },
+              "retention_years": 7,
+              "pci_compliance": true,
+              "fraud_check_required": true
+            }
+            "analytics" => {
+              "high_volume": true,
+              "batch_friendly": true,
+              "max_latency_ms": 500,
+              "retention_days": 90,
+              "sampling_allowed": true,
+              "aggregation_preferred": true
+            }
+            "telemetry" => {
+              "very_high_volume": true,
+              "local_processing": true,
+              "max_latency_ms": 1000,
+              "retention_days": 30,
+              "compression_required": true,
+              "downsampling_allowed": true
+            }
+            "audit" => {
+              "compliance_critical": true,
+              "immutable_storage": true,
+              "max_latency_ms": 1000,
+              "retention_years": 10,
+              "integrity_check_required": true,
+              "tamper_proof": true
+            }
+            _ => {
+              "standard_processing": true,
+              "max_latency_ms": 2000,
+              "retention_days": 30
+            }
+          }
+          
+          # Routing hints for complex scenarios
+          root.routing_hints = {
+            "high_priority": root.business_impact == "high" || 
+                           this.severity == "CRITICAL" ||
+                           root.event_family == "payment",
+            "local_storage_preferred": root.event_family == "telemetry" ||
+                                      (root.event_family == "analytics" && this.volume == "high"),
+            "real_time_required": root.event_family == "payment" ||
+                                 (root.event_family == "authentication" && this.severity == "CRITICAL"),
+            "compliance_sensitive": root.event_family == "audit" ||
+                                   root.event_family == "authentication" ||
+                                   root.event_family == "payment"
+          }
+
+  output:
+    switch:
+      cases:
+        # High-priority payment events: Enhanced fraud detection pipeline
+        - check: this.event_family == "payment" && this.business_impact == "high"
+          output:
+            broker:
+              pattern: fan_out
+              outputs:
+                # Real-time fraud detection (no batching)
+                - http_client:
+                    url: ${FRAUD_DETECTION_URL}/high-value
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                      X-Priority: critical
+                      X-Business-Impact: high
+                      X-PCI-Scope: "true"
+                    
+                    body: |
+                      {
+                        "transaction_id": this.event_id,
+                        "event_details": {
+                          "type": this.event_type,
+                          "timestamp": this.timestamp.or(now()),
+                          "amount": this.amount,
+                          "currency": this.currency,
+                          "business_impact": this.business_impact
+                        },
+                        "risk_factors": {
+                          "amount": this.amount,
+                          "user_tier": this.user_tier,
+                          "region": this.region,
+                          "payment_method": this.payment_method,
+                          "merchant_category": this.merchant_category
+                        },
+                        "processing_context": {
+                          "max_latency_ms": this.processing_requirements.max_latency_ms,
+                          "fraud_check_required": this.processing_requirements.fraud_check_required,
+                          "pci_compliance": this.processing_requirements.pci_compliance
+                        }
+                      }
+                    
+                    # Immediate processing for high-value transactions
+                    batching:
+                      count: 1
+                      period: 0s
+                    
+                    max_retries: 1  # Fail fast for real-time processing
+                    timeout: 1s
+
+                # Compliance monitoring for high-value payments
+                - http_client:
+                    url: ${COMPLIANCE_MONITORING_URL}/payment-compliance
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                      X-Compliance-Type: pci-dss
+                    
+                    body: |
+                      {
+                        "compliance_event": {
+                          "transaction_id": this.event_id,
+                          "amount": this.amount,
+                          "timestamp": this.timestamp.or(now()),
+                          "compliance_requirements": this.processing_requirements,
+                          "business_impact": this.business_impact
+                        }
+                      }
+
+        # Standard payment events: Normal fraud detection
+        - check: this.event_family == "payment"
+          output:
+            broker:
+              pattern: fan_out
+              outputs:
+                - http_client:
+                    url: ${FRAUD_DETECTION_URL}/analyze
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                      X-Business-Impact: this.business_impact
+                    
+                    body: |
+                      {
+                        "transaction_id": this.event_id,
+                        "event_type": this.event_type,
+                        "timestamp": this.timestamp.or(now()),
+                        "amount": this.amount,
+                        "currency": this.currency,
+                        "user_id": this.user_id,
+                        "risk_context": {
+                          "business_impact": this.business_impact,
+                          "region": this.region,
+                          "classification_reason": this.classification_reason
+                        }
+                      }
+                    
+                    batching:
+                      count: if this.business_impact == "medium" { 5 } else { 10 }
+                      period: if this.business_impact == "medium" { 2s } else { 5s }
+
+                - kafka:
+                    addresses: [${KAFKA_BROKERS}]
+                    topic: payment-events
+                    ack_replicas: true
+                    max_in_flight: 1
+                    idempotent_write: true
+
+        # Critical authentication events: Enhanced security monitoring
+        - check: this.event_family == "authentication" && this.severity == "CRITICAL"
+          output:
+            broker:
+              pattern: fan_out
+              outputs:
+                # Immediate security alert
+                - http_client:
+                    url: ${SECURITY_ALERT_URL}/critical
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                      X-Security-Level: critical
+                      X-Response-Time: immediate
+                    
+                    body: |
+                      {
+                        "security_alert": {
+                          "event_id": this.event_id,
+                          "event_type": this.event_type,
+                          "timestamp": this.timestamp.or(now()),
+                          "severity": this.severity,
+                          "user_context": {
+                            "user_id": this.user_id,
+                            "source_ip": this.source_ip,
+                            "session_id": this.session_id,
+                            "user_agent": this.user_agent
+                          },
+                          "threat_indicators": {
+                            "business_impact": this.business_impact,
+                            "region": this.region,
+                            "classification_confidence": if this.classification_reason.exists() { "high" } else { "medium" }
+                          }
+                        }
+                      }
+                    
+                    # No batching for critical security events
+                    batching:
+                      count: 1
+                      period: 0s
+                    
+                    timeout: 2s
+
+                # SIEM integration
+                - http_client:
+                    url: ${SIEM_URL}/security-events
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                      X-Event-Category: authentication
+                      X-Severity: this.severity
+                    
+                    body: |
+                      {
+                        "siem_event": {
+                          "category": "authentication",
+                          "severity": this.severity,
+                          "event_data": this,
+                          "processing_metadata": this.processing_requirements
+                        }
+                      }
+
+        # Standard authentication events: Normal security processing
+        - check: this.event_family == "authentication"
+          output:
+            http_client:
+              url: ${SECURITY_MONITORING_URL}/auth-events
+              verb: POST
+              headers:
+                Content-Type: application/json
+                X-Security-Level: standard
+              
+              body: |
+                {
+                  "event_id": this.event_id,
+                  "event_type": this.event_type,
+                  "timestamp": this.timestamp.or(now()),
+                  "user_context": {
+                    "user_id": this.user_id,
+                    "source_ip": this.source_ip,
+                    "session_id": this.session_id
+                  },
+                  "security_context": {
+                    "business_impact": this.business_impact,
+                    "requires_audit": this.processing_requirements.requires_audit,
+                    "retention_years": this.processing_requirements.retention_years
+                  }
+                }
+              
+              batching:
+                count: 20
+                period: 10s
+
+        # High-volume telemetry: Intelligent local storage
+        - check: this.event_family == "telemetry"
+          output:
+            switch:
+              cases:
+                # Critical telemetry still goes to monitoring
+                - check: this.severity == "CRITICAL"
+                  output:
+                    broker:
+                      pattern: fan_out
+                      outputs:
+                        - http_client:
+                            url: ${MONITORING_ALERT_URL}/telemetry-critical
+                            verb: POST
+                            body: |
+                              {
+                                "critical_telemetry": {
+                                  "event_id": this.event_id,
+                                  "metric_name": this.event_type,
+                                  "value": this.value,
+                                  "threshold_exceeded": true,
+                                  "timestamp": this.timestamp.or(now())
+                                }
+                              }
+                            
+                            batching:
+                              count: 1
+                              period: 0s
+
+                        # Also store locally
+                        - file:
+                            path: /var/expanso/telemetry/critical-telemetry-${!timestamp_date("2006-01-02")}.jsonl
+
+                # Normal telemetry: Local storage only
+                - output:
+                    file:
+                      path: /var/expanso/telemetry/${!this.event_namespace}-${!timestamp_date("2006-01-02")}.jsonl
+                      codec: lines
+                      gzip_compression: true
+                      
+                      # Large batches for telemetry efficiency
+                      batching:
+                        count: 2000
+                        period: 120s
+                        byte_size: 20MB
+
+        # Analytics events: Enhanced business intelligence
+        - check: this.event_family == "analytics"
+          output:
+            http_client:
+              url: ${ANALYTICS_API_URL}/events
+              verb: POST
+              headers:
+                Content-Type: application/json
+                X-Data-Classification: analytics
+                X-Business-Impact: this.business_impact
+              
+              body: |
+                {
+                  "event_id": this.event_id,
+                  "event_type": this.event_type,
+                  "timestamp": this.timestamp.or(now()),
+                  "user_context": {
+                    "user_id": this.user_id,
+                    "session_id": this.session_id,
+                    "user_tier": this.user_tier
+                  },
+                  "event_properties": this.properties.or({}),
+                  "analytics_context": {
+                    "business_impact": this.business_impact,
+                    "sampling_allowed": this.processing_requirements.sampling_allowed,
+                    "aggregation_preferred": this.processing_requirements.aggregation_preferred
+                  }
+                }
+              
+              batching:
+                count: if this.business_impact == "high" { 100 } else { 500 }
+                period: if this.business_impact == "high" { 15s } else { 60s }
+              
+              gzip_compression: true
+
+        # Audit events: Enhanced compliance processing
+        - check: this.event_family == "audit"
+          output:
+            broker:
+              pattern: fan_out
+              outputs:
+                # Real-time compliance monitoring
+                - http_client:
+                    url: ${COMPLIANCE_MONITORING_URL}/audit-events
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                      X-Compliance-Critical: "true"
+                      X-Immutable-Required: "true"
+                    
+                    body: |
+                      {
+                        "audit_event": {
+                          "event_id": this.event_id,
+                          "event_type": this.event_type,
+                          "timestamp": this.timestamp.or(now()),
+                          "actor": this.actor.or(this.user_id),
+                          "action": this.action,
+                          "resource": this.resource,
+                          "outcome": this.outcome,
+                          "audit_context": {
+                            "business_impact": this.business_impact,
+                            "compliance_requirements": this.processing_requirements,
+                            "integrity_check_required": this.processing_requirements.integrity_check_required
+                          }
+                        }
+                      }
+                    
+                    batching:
+                      count: 25
+                      period: 15s
+
+                # Immutable compliance archive
+                - aws_s3:
+                    bucket: ${AUDIT_ARCHIVE_BUCKET:compliance-audit-archive}
+                    path: audit/${!timestamp_date("2006/01/02")}/audit_${!count("files")}.jsonl
+                    content_encoding: gzip
+                    storage_class: GLACIER
+                    object_lock_mode: GOVERNANCE
+                    
+                    # Enhanced compliance tags
+                    tags:
+                      DataType: "ComplianceAudit"
+                      BusinessImpact: this.business_impact
+                      ImmutableStorage: "Required"
+                      IntegrityCheck: "Required"
+                      RetentionYears: "10"
+
+        # Application events: Enhanced logging
+        - check: this.event_family == "application"
+          output:
+            elasticsearch:
+              hosts: [${ELASTICSEARCH_HOST:http://localhost:9200}]
+              index: app-logs-${!timestamp_date("2006-01-02")}
+              type: _doc
+              id: ${!this.event_id.or(uuid_v4())}
+              
+              batching:
+                count: 200
+                period: 20s
+                byte_size: 3MB
+
+        # Unknown event types: Enhanced investigation
+        - output:
+            broker:
+              pattern: fan_out
+              outputs:
+                # Enhanced unknown event logging
+                - file:
+                    path: /var/log/expanso/classification/unknown-events-${!timestamp_date("2006-01-02")}.jsonl
+                    codec: lines
+                    
+                # Machine learning training data collection
+                - http_client:
+                    url: ${ML_TRAINING_URL}/unknown-events
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                      X-Training-Data: "true"
+                    
+                    body: |
+                      {
+                        "training_example": {
+                          "event_type": this.event_type,
+                          "event_source": this.event_source,
+                          "event_namespace": this.event_namespace,
+                          "event_action": this.event_action,
+                          "field_indicators": {
+                            "has_amount": this.amount.exists(),
+                            "has_user_id": this.user_id.exists(),
+                            "has_source_ip": this.source_ip.exists(),
+                            "has_session_id": this.session_id.exists(),
+                            "has_performance_data": this.cpu_percent.exists() || this.memory_usage.exists()
+                          },
+                          "suggested_classification": "unknown",
+                          "confidence": 0.0
+                        }
+                      }
+
+                # Fallback processing
+                - kafka:
+                    addresses: [${KAFKA_BROKERS}]
+                    topic: unknown-event-types
+                    compression: snappy
+
+  metrics:
+    prometheus:
+      enabled: true
+      path: /metrics
+      labels:
+        pipeline: event-type-router-enhanced
+        version: v2
+
+  logger:
+    level: INFO
+    format: json
+    fields:
+      pipeline: event-type-router-enhanced
+      classification_version: v2
+```
+
+## Production Optimization Strategies
+
+### 1. Performance-Based Routing
+
+Adapt routing based on system performance:
+
+```yaml
+# Performance-aware routing decisions
+- mapping: |
+    # Check system performance metrics
+    let cpu_usage = env("CURRENT_CPU_USAGE").number().or(50)
+    let memory_usage = env("CURRENT_MEMORY_USAGE").number().or(50) 
+    
+    # Adjust processing based on system load
+    if cpu_usage > 80 || memory_usage > 85 {
+      # High load: More aggressive local processing
+      root.local_processing_preferred = true
+      root.batch_sizes_increased = true
+    } else if cpu_usage < 30 && memory_usage < 50 {
+      # Low load: More real-time processing
+      root.real_time_processing_preferred = true
+      root.batch_sizes_decreased = true
+    }
+```
+
+### 2. Intelligent Sampling
+
+Sample high-volume events intelligently:
+
+```yaml
+# Smart sampling for telemetry
+- check: this.event_family == "telemetry" && this.volume == "high"
+  processor:
+    - mapping: |
+        # Sample based on severity and business importance
+        let sampling_rate = match this.severity {
+          "CRITICAL" => 1.0    # Keep all critical events
+          "ERROR" => 0.8       # Keep 80% of errors
+          "WARN" => 0.3        # Keep 30% of warnings
+          "INFO" => 0.1        # Keep 10% of info
+          "DEBUG" => 0.01      # Keep 1% of debug
+          _ => 0.1
+        }
+        
+        # Use deterministic sampling based on event ID
+        let sample_hash = this.event_id.hash() % 100
+        let should_process = sample_hash < (sampling_rate * 100)
+        
+        if !should_process {
+          # Skip this event
+          deleted()
+        }
+```
+
+### 3. Cost-Optimized Storage
+
+Route to cost-appropriate storage based on event importance:
+
+```yaml
+# Cost-optimized storage routing
+storage_tier: match this.business_impact {
+  "high" => {
+    "storage_class": "STANDARD",
+    "replication": 3,
+    "backup_required": true
+  }
+  "medium" => {
+    "storage_class": "INTELLIGENT_TIERING", 
+    "replication": 2,
+    "backup_required": true
+  }
+  "low" => {
+    "storage_class": "GLACIER_IR",
+    "replication": 1,
+    "backup_required": false
+  }
+}
+```
+
+## Verification and Monitoring
+
+### Event Classification Accuracy
+
+Monitor how well your classification is working:
+
+```bash
+# Check event family distribution
+curl -s http://localhost:8080/metrics | grep "event_family" | sort
+
+# Expected distribution (example):
+# event_router_classified_total{event_family="analytics"} 1500
+# event_router_classified_total{event_family="authentication"} 250
+# event_router_classified_total{event_family="payment"} 150
+# event_router_classified_total{event_family="telemetry"} 5000
+# event_router_classified_total{event_family="unknown"} 25  # Should be low
+```
+
+### Processing Latency by Event Type
+
+Monitor that each event type meets its latency requirements:
+
+```bash
+# Check latency metrics by event type
+curl -s http://localhost:8080/metrics | grep "processing_latency" | head -10
+
+# Should show:
+# - Payment events: < 50ms 
+# - Authentication events: < 100ms
+# - Analytics events: < 500ms
+# - Telemetry events: < 1000ms
+```
+
+### Business Impact Analysis
+
+Track the business impact of your routing decisions:
+
+```bash
+# Generate daily event processing report
+cat /var/log/expanso/event-processing-$(date +%Y-%m-%d).log | \
+  jq -r '[.event_family, .business_impact, .processing_latency_ms] | @csv' | \
+  sort | uniq -c | head -20
+
+# Example output:
+# 150 "authentication","high",45
+# 1200 "analytics","low",350
+# 50 "payment","high",25
+# 3000 "telemetry","low",800
+```
+
+## Next Steps
+
+You've successfully implemented event type routing! Your pipeline now:
+- ✅ Routes authentication events to security monitoring systems
+- ✅ Sends payment events to fraud detection with real-time processing
+- ✅ Keeps high-volume telemetry local to save bandwidth
+- ✅ Processes analytics events for business intelligence
+- ✅ Handles audit events with compliance-grade immutable storage
+- ✅ Intelligently classifies unknown events for continuous improvement
+
+<div style={{display: 'flex', gap: '1rem', marginTop: '2rem', marginBottom: '2rem', flexWrap: 'wrap'}}>
+  <a href="./step-4-create-priority-queues" className="button button--primary button--lg" style={{flex: '1', minWidth: '200px'}}>
+    Next: Priority Queue Routing
+  </a>
+  <a href="./troubleshooting" className="button button--secondary button--lg" style={{flex: '1', minWidth: '200px'}}>
+    Troubleshooting Guide
+  </a>
+</div>
+
+**Next up:** [Step 4: Create Priority Queues](./step-4-create-priority-queues) - Implement multi-tier service levels based on user priority and message urgency.
+
+## Key Takeaways
+
+1. **Classify intelligently** - Use multiple data points for accurate event type detection
+2. **Route to specialized systems** - Each event type has optimal processing requirements
+3. **Optimize for business impact** - High-value events get premium processing
+4. **Monitor classification accuracy** - Unknown events indicate missing classification rules
+5. **Balance performance and cost** - Route high-volume data locally when appropriate
+6. **Plan for growth** - Build classification that can handle new event types

@@ -1,0 +1,359 @@
+---
+title: Log Enrichment & S3 Export
+description: Enrich logs with metadata and export to Amazon S3 in batches
+sidebar_position: 6
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../examples/log-processing/enrich-export.yaml';
+
+
+# Log Enrichment & S3 Export
+
+This example demonstrates enriching log data with lineage metadata and exporting it to Amazon S3. It shows how to add processing context, restructure data, and efficiently batch uploads to cloud storage.
+
+## What This Pipeline Does
+
+1. **Generates** synthetic log messages every 2 seconds
+2. **Enriches** with lineage metadata (node ID, pipeline name, timestamp)
+3. **Restructures** into event/metadata format
+4. **Batches** 10 messages or 10 seconds, whichever comes first
+5. **Exports** to Amazon S3 as JSON lines files
+
+## Complete Pipeline
+
+<CodeBlock language="yaml" title="enrich-export.yaml" showLineNumbers>
+  {pipelineYaml}
+</CodeBlock>
+
+<a
+  href="/files/log-processing/enrich-export.yaml"
+  download
+  className="button button--primary button--lg margin-top--md"
+>
+  📥 Download Pipeline
+</a>
+
+---
+
+
+## Configuration Breakdown
+
+### Input: Generate Logs
+
+```yaml
+input:
+  generate:
+    interval: 2s
+    mapping: |
+      root.id = uuid_v4()
+      root.timestamp = now()
+      root.level = "INFO"
+      root.service = "demo-service"
+      root.message = "Demo log message from edge"
+      root.user_id = "user_123"
+      root.request_id = uuid_v4()
+```
+
+Generates log events every 2 seconds with:
+- Unique ID and request ID (UUIDs)
+- Timestamp
+- Log level, service name, message
+- User context
+
+**See:** [Generate Input](https://docs.expanso.io/components/inputs/generate)
+
+### Processors: Enrich & Transform
+
+#### 1. Add Lineage Metadata
+
+```yaml
+- mapping: |
+    root = this
+    root.lineage_node_id = env("NODE_ID").or("edge-node-demo")
+    root.lineage_pipeline = "log-enrichment-s3-demo"
+    root.lineage_timestamp = now()
+```
+
+Adds tracking metadata:
+- `lineage_node_id`: Which edge node processed this
+- `lineage_pipeline`: Which pipeline processed this
+- `lineage_timestamp`: When processing occurred
+
+This enables tracing data through your edge infrastructure.
+
+#### 2. Restructure to Event/Metadata Format
+
+```yaml
+- mapping: |
+    root.event = {
+      "id": this.id,
+      "timestamp": this.timestamp,
+      "level": this.level,
+      "service": this.service,
+      "message": this.message,
+      "user_id": this.user_id,
+      "request_id": this.request_id
+    }
+    root.metadata = {
+      "node_id": this.lineage_node_id,
+      "pipeline": this.lineage_pipeline,
+      "processed_at": this.lineage_timestamp
+    }
+```
+
+Reorganizes data into two sections:
+- `event`: Original log data
+- `metadata`: Processing context and lineage
+
+**See:** [Mapping Processor](https://docs.expanso.io/components/processors/mapping) | [Bloblang Guide](https://docs.expanso.io/guides/bloblang)
+
+### Output: Amazon S3
+
+```yaml
+output:
+  aws_s3:
+    bucket: expanso-demo-logs
+    path: logs/demo_${!timestamp_unix()}.jsonl
+    batching:
+      count: 10
+      period: 10s
+    credentials:
+      profile: expanso-demo
+```
+
+Uploads to S3 with:
+- **Bucket**: `expanso-demo-logs`
+- **Path**: `logs/demo_<unix-timestamp>.jsonl` (unique per batch)
+- **Batching**: 10 messages or 10 seconds
+- **Auth**: AWS profile named `expanso-demo`
+
+**See:** [AWS S3 Output](https://docs.expanso.io/components/outputs/aws_s3)
+
+## Example Output
+
+### Original Log (Generated)
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "level": "INFO",
+  "service": "demo-service",
+  "message": "Demo log message from edge",
+  "user_id": "user_123",
+  "request_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+}
+```
+
+### Enriched & Structured (Exported to S3)
+
+```json
+{
+  "event": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "level": "INFO",
+    "service": "demo-service",
+    "message": "Demo log message from edge",
+    "user_id": "user_123",
+    "request_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+  },
+  "metadata": {
+    "node_id": "edge-node-01",
+    "pipeline": "log-enrichment-s3-demo",
+    "processed_at": "2024-01-15T10:30:00.123Z"
+  }
+}
+```
+
+### S3 File Format
+
+Files in S3 are JSON Lines format (one JSON object per line):
+
+```
+logs/demo_1705315800.jsonl
+```
+
+Content:
+```jsonl
+{"event":{"id":"...","timestamp":"..."},"metadata":{...}}
+{"event":{"id":"...","timestamp":"..."},"metadata":{...}}
+{"event":{"id":"...","timestamp":"..."},"metadata":{...}}
+```
+
+## Common Variations
+
+### Use Real Log Input
+
+Replace generated data with actual file input:
+
+```yaml
+input:
+  file:
+    paths:
+      - /var/log/app/*.log
+    codec: lines
+
+pipeline:
+  processors:
+    # Parse JSON logs
+    - mapping: |
+        root = this.parse_json()
+
+    # Add lineage
+    - mapping: |
+        root.metadata.node_id = env("NODE_ID").or("unknown")
+        root.metadata.pipeline = "production-logs"
+        root.metadata.processed_at = now()
+```
+
+### Partition by Date
+
+Organize S3 files by date:
+
+```yaml
+output:
+  aws_s3:
+    bucket: expanso-logs
+    path: logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/logs_${!timestamp_unix()}.jsonl
+    batching:
+      count: 100
+      period: 1m
+```
+
+Creates paths like: `logs/year=2024/month=01/day=15/logs_1705315800.jsonl`
+
+### Add Compression
+
+Compress before uploading to reduce costs:
+
+```yaml
+output:
+  aws_s3:
+    bucket: expanso-logs
+    path: logs/${!timestamp_unix()}.jsonl.gz
+    content_type: application/gzip
+    content_encoding: gzip
+    batching:
+      count: 1000
+      period: 5m
+      processors:
+        - compress:
+            algorithm: gzip
+```
+
+### Multiple Output Destinations
+
+Send to both S3 and local file:
+
+```yaml
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Cloud storage
+      - aws_s3:
+          bucket: expanso-logs
+          path: logs/${!timestamp_unix()}.jsonl
+          batching:
+            count: 100
+            period: 1m
+
+      # Local backup
+      - file:
+          path: /var/log/expanso/backup_${!timestamp_unix()}.jsonl
+          codec: lines
+```
+
+### Filter Before Export
+
+Only export ERROR and WARN logs to S3:
+
+```yaml
+pipeline:
+  processors:
+    # Parse and enrich
+    - mapping: |
+        root = this.parse_json()
+        root.metadata.node_id = env("NODE_ID").or("unknown")
+        root.metadata.processed_at = now()
+
+    # Filter to errors and warnings only
+    - mapping: |
+        root = if this.event.level == "ERROR" || this.event.level == "WARN" {
+          this
+        } else {
+          deleted()
+        }
+```
+
+### Add Custom Metadata
+
+Include environment and region information:
+
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        root.metadata.node_id = env("NODE_ID").or("unknown")
+        root.metadata.environment = env("ENVIRONMENT").or("production")
+        root.metadata.region = env("AWS_REGION").or("us-east-1")
+        root.metadata.pipeline = "log-enrichment"
+        root.metadata.version = "1.0.0"
+        root.metadata.processed_at = now()
+```
+
+### Batch by Size
+
+Batch by byte size instead of count:
+
+```yaml
+output:
+  aws_s3:
+    bucket: expanso-logs
+    path: logs/${!timestamp_unix()}.jsonl
+    batching:
+      byte_size: 10485760  # 10 MB
+      period: 5m
+```
+
+### Use IAM Role
+
+Use EC2 instance role instead of profile:
+
+```yaml
+output:
+  aws_s3:
+    bucket: expanso-logs
+    path: logs/${!timestamp_unix()}.jsonl
+    region: us-east-1
+    # No credentials section - uses IAM role
+```
+
+### Add S3 Tags
+
+Tag uploaded objects for cost tracking:
+
+```yaml
+output:
+  aws_s3:
+    bucket: expanso-logs
+    path: logs/${!timestamp_unix()}.jsonl
+    tags:
+      Environment: production
+      Pipeline: log-enrichment
+      Source: edge-nodes
+```
+
+## AWS Setup
+```
+
+For IAM policies and detailed AWS configuration, see the [AWS S3 Output documentation](https://docs.expanso.io/components/outputs/aws_s3).
+
+## Next Steps
+
+- **[AWS S3 Output](https://docs.expanso.io/components/outputs/aws_s3)** - Complete configuration and IAM setup
+- **[Mapping Processor](https://docs.expanso.io/components/processors/mapping)** - Data transformation with Bloblang
+- **[Bloblang Guide](https://docs.expanso.io/guides/bloblang)** - Advanced transformation patterns

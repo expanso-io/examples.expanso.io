@@ -1,0 +1,150 @@
+---
+title: Deduplicate Events
+sidebar_label: Introduction
+sidebar_position: 1
+description: Prevent duplicate events using cache-based deduplication with fingerprinting strategies
+keywords: [deduplication, idempotency, cache, fingerprinting, exactly-once, at-least-once, distributed-systems]
+---
+
+# Deduplicate Events
+
+**Eliminate duplicate events from distributed systems that guarantee at-least-once delivery**. This step-by-step guide teaches you 4 essential deduplication techniques through an interactive explorer and hands-on exercises.
+
+## The Problem
+
+In distributed systems, at-least-once delivery guarantees create inevitable duplicates that corrupt analytics, trigger redundant actions, and waste processing resources:
+
+```json
+{
+  "event_id": "evt_abc123",    // ❌ Same event arrives twice
+  "user_signup": {
+    "email": "alice@example.com",
+    "timestamp": "2025-10-20T14:23:45Z"
+  }
+}
+```
+
+**The challenge:** How do you process each unique event exactly once while maintaining system resilience and performance?
+
+## The Solution: 4 Deduplication Strategies
+
+This guide teaches you how to apply the right technique for each duplicate scenario:
+
+### 1. **Hash-Based Deduplication** → Network Retries & Exact Duplicates
+Detect identical events using SHA-256 content hashing with in-memory cache
+- **Use case:** Network timeouts causing identical retransmissions
+- **Method:** Generate hash of entire event, cache for TTL period
+- **Result:** 99.9% duplicate elimination for exact matches
+
+### 2. **Fingerprint-Based Deduplication** → Semantic Duplicates & Load Balancer Retries
+Extract business-critical fields for semantic duplicate detection
+- **Use case:** Load balancer failovers creating different event IDs for same user action
+- **Method:** Hash only user-identifying fields, ignore metadata
+- **Result:** Catches duplicates across different event IDs and timestamps
+
+### 3. **ID-Based Deduplication** → Reliable Unique Identifiers
+Leverage existing unique event IDs for fastest deduplication
+- **Use case:** Systems with guaranteed unique IDs (Kafka offsets, UUIDs)
+- **Method:** Cache event ID directly, smallest memory footprint
+- **Result:** Lowest latency and memory usage when IDs are truly unique
+
+### 4. **Production Configuration** → Distributed Cache & Monitoring
+Scale deduplication across multiple edge nodes with Redis
+- **Use case:** Multi-node deployments requiring shared deduplication state
+- **Method:** Redis-backed cache with consistent hashing
+- **Result:** Global duplicate detection across entire infrastructure
+
+## Why Process at the Edge?
+
+**Reduce Cloud Costs:** Block duplicates before expensive cloud processing (60-80% cost reduction)
+**Improve Data Quality:** Ensure analytics accuracy and prevent double-counting
+**Eliminate Side Effects:** Prevent duplicate emails, charges, or API calls
+**Meet Compliance:** Satisfy exactly-once processing requirements for financial systems
+
+## What You'll Learn
+
+By the end of this guide, you'll be able to:
+
+✅ **Detect exact duplicates** using content hashing with configurable TTL windows
+✅ **Catch semantic duplicates** by fingerprinting business-critical fields
+✅ **Optimize for unique IDs** when reliable event identifiers are available  
+✅ **Scale globally** with distributed caching and consistent hashing strategies
+✅ **Monitor and troubleshoot** deduplication effectiveness in production
+
+## Get Started
+
+### Option 1: Interactive Explorer (Recommended)
+**See** each deduplication strategy in action with side-by-side before/after views.
+
+[**→ Launch Interactive Explorer**](./explorer)
+
+### Option 2: Step-by-Step Tutorial
+**Build** the deduplication pipeline incrementally, one technique at a time.
+
+1. [**Setup Guide**](./setup) - Configure cache resources and test environment
+2. [**Step 1: Hash-Based**](./step-1-hash-based-exact-duplicates) - Detect identical events using content hashing
+3. [**Step 2: Fingerprint-Based**](./step-2-fingerprint-semantic-duplicates) - Catch semantic duplicates with selective field hashing
+4. [**Step 3: ID-Based**](./step-3-id-based-unique-identifiers) - Optimize for reliable unique identifiers
+5. [**Step 4: Production**](./step-4-production-distributed-cache) - Scale with distributed cache and monitoring
+
+### Option 3: Jump to Final Pipeline
+**Download** the complete, production-ready deduplication pipeline.
+
+[**→ Get Complete Pipeline**](./complete-deduplication-pipeline)
+
+## Who This Guide Is For
+
+- **Data Engineers** building resilient event processing pipelines
+- **Platform Engineers** implementing exactly-once semantics at scale
+- **DevOps Engineers** reducing duplicate processing costs and improving system reliability
+
+## Prerequisites
+
+- Basic understanding of event-driven architectures
+- Familiarity with caching concepts (TTL, eviction policies)
+- Expanso IO CLI installed ([Installation Guide](https://docs.expanso.io/getting-started/installation))
+
+## Time to Complete
+
+- **Interactive Explorer:** 15 minutes
+- **Step-by-Step Tutorial:** 45-60 minutes  
+- **Quick Deploy:** 5 minutes
+
+## Real-World Impact
+
+**Before Deduplication:**
+```
+- Duplicate Rate: 15-25% (network retries + load balancer failovers)
+- Processing Cost: $1,200/month (including cloud duplicate processing)
+- Data Quality: 75% accuracy (duplicate events skewing metrics)
+```
+
+**After Deduplication:**
+```
+- Duplicate Rate: &lt;0.1% (edge filtering)
+- Processing Cost: $300/month (75% reduction)
+- Data Quality: 99.9% accuracy (exactly-once processing)
+```
+
+---
+
+## Next Steps
+
+Ready to start? Choose your learning path:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./explorer" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Interactive Explorer
+  </a>
+  <a href="./setup" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Step-by-Step Tutorial
+  </a>
+</div>
+
+**Questions?** Check [Troubleshooting](./troubleshooting) or see [Related Examples](#related-examples) below.
+
+## Related Examples
+
+- [**Aggregate Time Windows**](../aggregate-time-windows) - Process events in time-based buckets with deduplication
+- [**Transform Formats**](../transform-formats) - Normalize event formats before deduplication
+- [**Circuit Breakers**](../../data-routing/circuit-breakers) - Handle downstream failures gracefully during deduplication

@@ -1,0 +1,719 @@
+---
+title: "Step 2: Filter Logs by Severity Level"
+sidebar_label: "Step 2: Filter by Severity"
+sidebar_position: 4
+description: Eliminate log noise by filtering to only ERROR and WARN levels, dramatically reducing volume while preserving critical information
+keywords: [severity-filtering, log-levels, noise-reduction, error-filtering, log-volume]
+---
+
+# Step 2: Filter Logs by Severity Level
+
+**Transform high-volume, noisy logs into actionable intelligence by filtering on severity levels**. In this step, you'll implement smart filtering that eliminates 80-95% of log volume while ensuring no critical errors or warnings are lost.
+
+## Why Severity Filtering Matters
+
+Most application logs are dominated by informational noise:
+- **DEBUG logs:** Development troubleshooting information
+- **INFO logs:** Normal application flow events  
+- **TRACE logs:** Detailed execution traces
+- **WARN logs:** Potential issues that need attention
+- **ERROR logs:** Actual problems requiring immediate action
+
+Without filtering, your monitoring systems become overwhelmed with noise, making it difficult to identify actual problems and increasing storage/processing costs significantly.
+
+## What You'll Build
+
+A smart severity filter that:
+1. **Preserves critical logs** (ERROR and WARN levels)
+2. **Eliminates noise** (INFO, DEBUG, TRACE levels)
+3. **Handles mixed formats** from Step 1's parsing
+4. **Maintains audit trail** with filtering statistics
+5. **Provides fallback handling** for logs without severity levels
+
+## Step 1: Understand Your Current Log Distribution
+
+Before implementing filtering, analyze your current log distribution to understand the impact:
+
+```bash
+# Create analysis script to understand current log patterns
+cat > analyze-logs.sh << 'EOF'
+#!/bin/bash
+
+echo "=== Log Severity Distribution Analysis ==="
+echo
+
+# Analyze JSON logs
+echo "📊 JSON Logs (application.log):"
+if [ -f /var/log/app/application.log ]; then
+    echo "Total JSON log entries: $(wc -l < /var/log/app/application.log)"
+    echo "ERROR entries: $(grep -c '"level":"ERROR"' /var/log/app/application.log)"
+    echo "WARN entries: $(grep -c '"level":"WARN"' /var/log/app/application.log)"
+    echo "INFO entries: $(grep -c '"level":"INFO"' /var/log/app/application.log)"
+    echo "DEBUG entries: $(grep -c '"level":"DEBUG"' /var/log/app/application.log)"
+else
+    echo "No JSON logs found"
+fi
+echo
+
+# Analyze plain text logs
+echo "📊 Plain Text Logs (legacy.log):"
+if [ -f /var/log/app/legacy.log ]; then
+    echo "Total plain text log entries: $(wc -l < /var/log/app/legacy.log)"
+    echo "ERROR entries: $(grep -c '\[ERROR\]' /var/log/app/legacy.log)"
+    echo "WARN entries: $(grep -c '\[WARN\]' /var/log/app/legacy.log)"
+    echo "INFO entries: $(grep -c '\[INFO\]' /var/log/app/legacy.log)"
+    echo "DEBUG entries: $(grep -c '\[DEBUG\]' /var/log/app/legacy.log)"
+else
+    echo "No plain text logs found"
+fi
+echo
+
+echo "=== Analysis Complete ==="
+EOF
+
+chmod +x analyze-logs.sh
+./analyze-logs.sh
+rm analyze-logs.sh
+```
+
+**Expected output:**
+```
+=== Log Severity Distribution Analysis ===
+
+📊 JSON Logs (application.log):
+Total JSON log entries: 10
+ERROR entries: 3
+WARN entries: 2
+INFO entries: 3
+DEBUG entries: 2
+
+📊 Plain Text Logs (legacy.log):
+Total plain text log entries: 8
+ERROR entries: 3
+WARN entries: 2
+INFO entries: 2
+DEBUG entries: 1
+
+=== Analysis Complete ===
+```
+
+## Step 2: Basic Severity Filtering
+
+Start with a simple filter that only passes ERROR and WARN level logs:
+
+```yaml title="step2-filter-basic.yaml"
+input:
+  file:
+    paths:
+      - /var/log/app/*.log
+    codec: lines
+
+pipeline:
+  processors:
+    # Parse JSON logs with fallback (from Step 1)
+    - mapping: |
+        root = this
+        let parsed = this.parse_json().catch(null)
+        root = if parsed != null { parsed } else { {"original_message": this} }
+        root.processed_at = now()
+        root.node_id = env("NODE_ID").or("unknown")
+        root.parsed_as_json = parsed != null
+
+    # Filter by severity level
+    - mapping: |
+        # Only pass ERROR and WARN logs
+        root = if this.level == "ERROR" || this.level == "WARN" {
+          this
+        } else {
+          deleted()
+        }
+
+output:
+  stdout:
+    codec: lines
+```
+
+Deploy and test the basic filter:
+
+```bash
+# Deploy the filtering pipeline
+expanso run step2-filter-basic.yaml
+
+# Add test logs at different severity levels
+echo '{"timestamp":"2024-01-15T11:00:00Z","level":"ERROR","message":"Database connection failed"}' >> /var/log/app/application.log
+echo '{"timestamp":"2024-01-15T11:00:01Z","level":"WARN","message":"High memory usage detected"}' >> /var/log/app/application.log  
+echo '{"timestamp":"2024-01-15T11:00:02Z","level":"INFO","message":"User logged in successfully"}' >> /var/log/app/application.log
+echo '{"timestamp":"2024-01-15T11:00:03Z","level":"DEBUG","message":"Query execution took 5ms"}' >> /var/log/app/application.log
+
+# Check output - should only see ERROR and WARN
+expanso logs step2-filter-basic --tail=5
+```
+
+**Expected output:** Only ERROR and WARN logs should appear:
+```json
+{"timestamp":"2024-01-15T11:00:00Z","level":"ERROR","message":"Database connection failed","processed_at":"2024-01-15T11:00:01.123Z","node_id":"edge-001","parsed_as_json":true}
+{"timestamp":"2024-01-15T11:00:01Z","level":"WARN","message":"High memory usage detected","processed_at":"2024-01-15T11:00:01.456Z","node_id":"edge-001","parsed_as_json":true}
+```
+
+Notice that INFO and DEBUG logs are completely filtered out using the `deleted()` function.
+
+## Step 3: Handle Plain Text Logs with Extracted Levels
+
+Extend the filter to handle plain text logs where severity was extracted in Step 1:
+
+```yaml title="step2-filter-mixed-formats.yaml"
+input:
+  file:
+    paths:
+      - /var/log/app/*.log
+    codec: lines
+
+pipeline:
+  processors:
+    # Enhanced parsing with plain text level extraction
+    - mapping: |
+        let original = this
+        let parsed = original.parse_json().catch(null)
+        
+        if parsed != null {
+          # JSON log with existing level field
+          root = parsed
+          root.original_format = "json"
+        } else {
+          # Plain text log - attempt to extract level
+          let log_match = original.re_find_all("(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}) \\[([A-Z]+)\\] (.+)")
+          
+          if log_match.length() > 0 {
+            root.timestamp = log_match.0.1
+            root.level = log_match.0.2
+            root.message = log_match.0.3
+            root.original_format = "structured_text"
+          } else {
+            root.original_message = original
+            root.level = "UNKNOWN"
+            root.original_format = "unstructured_text"
+          }
+        }
+        
+        # Add processing metadata
+        root.processed_at = now()
+        root.node_id = env("NODE_ID").or("unknown")
+
+    # Enhanced severity filtering
+    - mapping: |
+        # Filter logic with fallback handling
+        let log_level = this.level.string().uppercase()
+        
+        root = if log_level == "ERROR" || log_level == "WARN" {
+          this
+        } else if log_level == "UNKNOWN" {
+          # For logs without clear severity, apply heuristics
+          let content = this.get("message").string() + this.get("original_message").string()
+          
+          # Check for error/warning keywords in content
+          let error_keywords = ["error", "fail", "exception", "crash", "critical"]
+          let warn_keywords = ["warn", "warning", "alert", "caution", "deprecat"]
+          
+          if error_keywords.any(keyword -> content.lowercase().contains(keyword)) {
+            this.level = "ERROR"
+            this.severity_detected_by = "keyword_analysis"
+            this
+          } else if warn_keywords.any(keyword -> content.lowercase().contains(keyword)) {
+            this.level = "WARN" 
+            this.severity_detected_by = "keyword_analysis"
+            this
+          } else {
+            deleted()
+          }
+        } else {
+          # INFO, DEBUG, TRACE, etc. - filter out
+          deleted()
+        }
+
+output:
+  stdout:
+    codec: lines
+```
+
+**Key Enhancements:**
+- **Level extraction** from plain text logs using regex
+- **Keyword-based detection** for logs without clear severity levels
+- **Fallback handling** for unstructured logs
+- **Enhanced metadata** tracking how severity was determined
+
+Test with mixed log formats:
+
+```bash
+# Stop previous pipeline
+expanso stop step2-filter-basic
+
+# Deploy enhanced filter
+expanso run step2-filter-mixed-formats.yaml
+
+# Test with plain text logs
+echo '2024-01-15 11:01:00 [ERROR] System crash detected' >> /var/log/app/legacy.log
+echo '2024-01-15 11:01:01 [WARN] Disk space running low' >> /var/log/app/legacy.log
+echo '2024-01-15 11:01:02 [INFO] Application started normally' >> /var/log/app/legacy.log
+
+# Test with unstructured logs containing error keywords
+echo 'Critical database failure occurred at 11:01:03' >> /var/log/app/legacy.log
+echo 'System warning: memory usage is high' >> /var/log/app/legacy.log
+echo 'Regular operation completed successfully' >> /var/log/app/legacy.log
+
+# Check filtered output
+expanso logs step2-filter-mixed-formats --tail=10
+```
+
+**Expected output:** Should include ERROR/WARN from both structured and keyword-detected logs:
+```json
+{"timestamp":"2024-01-15 11:01:00","level":"ERROR","message":"System crash detected","original_format":"structured_text","processed_at":"...","node_id":"edge-001"}
+{"timestamp":"2024-01-15 11:01:01","level":"WARN","message":"Disk space running low","original_format":"structured_text","processed_at":"...","node_id":"edge-001"}
+{"original_message":"Critical database failure occurred at 11:01:03","level":"ERROR","severity_detected_by":"keyword_analysis","original_format":"unstructured_text","processed_at":"...","node_id":"edge-001"}
+{"original_message":"System warning: memory usage is high","level":"WARN","severity_detected_by":"keyword_analysis","original_format":"unstructured_text","processed_at":"...","node_id":"edge-001"}
+```
+
+## Step 4: Add Filtering Statistics and Monitoring
+
+Enhance the pipeline to track filtering statistics for monitoring and optimization:
+
+```yaml title="step2-filter-with-stats.yaml"
+input:
+  file:
+    paths:
+      - /var/log/app/*.log
+    codec: lines
+
+pipeline:
+  processors:
+    # Parsing (same as before)
+    - mapping: |
+        let original = this
+        let parsed = original.parse_json().catch(null)
+        
+        if parsed != null {
+          root = parsed
+          root.original_format = "json"
+        } else {
+          let log_match = original.re_find_all("(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}) \\[([A-Z]+)\\] (.+)")
+          if log_match.length() > 0 {
+            root.timestamp = log_match.0.1
+            root.level = log_match.0.2
+            root.message = log_match.0.3
+            root.original_format = "structured_text"
+          } else {
+            root.original_message = original
+            root.level = "UNKNOWN"
+            root.original_format = "unstructured_text"
+          }
+        }
+        root.processed_at = now()
+        root.node_id = env("NODE_ID").or("unknown")
+
+    # Enhanced filtering with statistics
+    - mapping: |
+        let log_level = this.level.string().uppercase()
+        let should_pass = false
+        let filter_reason = ""
+        
+        # Determine if log should pass filter
+        if log_level == "ERROR" || log_level == "WARN" {
+          should_pass = true
+          filter_reason = "severity_match"
+        } else if log_level == "UNKNOWN" {
+          let content = this.get("message").string() + this.get("original_message").string()
+          let error_keywords = ["error", "fail", "exception", "crash", "critical", "fatal"]
+          let warn_keywords = ["warn", "warning", "alert", "caution", "deprecat"]
+          
+          if error_keywords.any(keyword -> content.lowercase().contains(keyword)) {
+            this.level = "ERROR"
+            this.severity_detected_by = "keyword_analysis"
+            should_pass = true
+            filter_reason = "keyword_detected_error"
+          } else if warn_keywords.any(keyword -> content.lowercase().contains(keyword)) {
+            this.level = "WARN"
+            this.severity_detected_by = "keyword_analysis" 
+            should_pass = true
+            filter_reason = "keyword_detected_warn"
+          } else {
+            should_pass = false
+            filter_reason = "unknown_severity_no_keywords"
+          }
+        } else {
+          should_pass = false
+          filter_reason = "info_debug_filtered"
+        }
+        
+        # Add filtering metadata
+        root.filter_metadata = {
+          "passed_filter": should_pass,
+          "filter_reason": filter_reason,
+          "original_level": log_level,
+          "filtering_timestamp": now()
+        }
+        
+        # Apply filter decision
+        root = if should_pass { this } else { deleted() }
+
+output:
+  stdout:
+    codec: lines
+```
+
+Deploy and test the enhanced filtering with statistics:
+
+```bash
+# Stop previous pipeline
+expanso stop step2-filter-mixed-formats
+
+# Deploy stats-enabled filter
+expanso run step2-filter-with-stats.yaml
+
+# Add various log types to test filtering stats
+echo '{"timestamp":"2024-01-15T11:02:00Z","level":"ERROR","message":"Critical error"}' >> /var/log/app/application.log
+echo '{"timestamp":"2024-01-15T11:02:01Z","level":"INFO","message":"Info message"}' >> /var/log/app/application.log
+echo 'System failure detected - immediate attention required' >> /var/log/app/legacy.log
+echo 'Normal operation proceeding as expected' >> /var/log/app/legacy.log
+
+# Check output with filtering metadata
+expanso logs step2-filter-with-stats --tail=5
+```
+
+**Expected output:** Should show filter metadata for passed logs:
+```json
+{"timestamp":"2024-01-15T11:02:00Z","level":"ERROR","message":"Critical error","filter_metadata":{"passed_filter":true,"filter_reason":"severity_match","original_level":"ERROR","filtering_timestamp":"..."}}
+{"original_message":"System failure detected - immediate attention required","level":"ERROR","severity_detected_by":"keyword_analysis","filter_metadata":{"passed_filter":true,"filter_reason":"keyword_detected_error","original_level":"UNKNOWN","filtering_timestamp":"..."}}
+```
+
+## Advanced Filtering Strategies
+
+### Severity Level Customization
+
+Different applications may use different severity level schemes. Configure custom mappings:
+
+```yaml
+- mapping: |
+    # Custom severity level mapping
+    let level_mappings = {
+      "FATAL": "ERROR",
+      "SEVERE": "ERROR", 
+      "CRITICAL": "ERROR",
+      "WARNING": "WARN",
+      "NOTICE": "WARN",
+      "ALERT": "WARN"
+    }
+    
+    let original_level = this.level.string().uppercase()
+    let mapped_level = level_mappings.get(original_level).or(original_level)
+    
+    this.level = mapped_level
+    this.original_level = original_level
+    
+    # Apply filtering with mapped levels
+    root = if mapped_level == "ERROR" || mapped_level == "WARN" {
+      this
+    } else {
+      deleted()
+    }
+```
+
+### Context-Aware Filtering
+
+Filter based on service context or other metadata:
+
+```yaml
+- mapping: |
+    let log_level = this.level.string().uppercase()
+    let service = this.get("service").string()
+    
+    # Critical services: pass INFO+ logs
+    # Non-critical services: only ERROR/WARN
+    let critical_services = ["payments", "auth", "security"]
+    
+    let should_pass = if critical_services.contains(service) {
+      log_level == "ERROR" || log_level == "WARN" || log_level == "INFO"
+    } else {
+      log_level == "ERROR" || log_level == "WARN"
+    }
+    
+    root = if should_pass { this } else { deleted() }
+```
+
+### Time-Based Filtering
+
+Apply different filtering rules based on time of day:
+
+```yaml
+- mapping: |
+    let current_hour = now().format_timestamp("%H").number()
+    let log_level = this.level.string().uppercase()
+    
+    # During business hours (9-17): stricter filtering
+    # Outside business hours: more permissive
+    let business_hours = current_hour >= 9 && current_hour <= 17
+    
+    let should_pass = if business_hours {
+      log_level == "ERROR" || log_level == "WARN"
+    } else {
+      log_level == "ERROR" || log_level == "WARN" || log_level == "INFO"
+    }
+    
+    this.filtered_during_business_hours = business_hours
+    root = if should_pass { this } else { deleted() }
+```
+
+## Performance Optimization
+
+### Efficient Level Checking
+
+For high-volume processing, optimize level checking:
+
+```yaml
+- mapping: |
+    # Use case-insensitive comparison with early exit
+    let level_upper = this.level.string().uppercase()
+    
+    # Quick check for most common cases first
+    root = if level_upper == "ERROR" {
+      this
+    } else if level_upper == "WARN" || level_upper == "WARNING" {
+      this
+    } else if level_upper == "INFO" || level_upper == "DEBUG" || level_upper == "TRACE" {
+      deleted()
+    } else {
+      # Handle edge cases and custom levels
+      if ["FATAL", "CRITICAL", "SEVERE"].contains(level_upper) {
+        this.level = "ERROR"
+        this
+      } else if ["NOTICE", "ALERT"].contains(level_upper) {
+        this.level = "WARN"
+        this  
+      } else {
+        deleted()
+      }
+    }
+```
+
+### Batch Processing for Statistics
+
+For monitoring, collect filtering statistics in batches:
+
+```yaml
+- mapping: |
+    # Existing filtering logic...
+    
+    # Emit periodic statistics (every 1000th log)
+    let counter = meta("global_counter").or(0) + 1
+    meta global_counter = counter
+    
+    if counter % 1000 == 0 {
+      # Emit statistics log
+      root.stats = {
+        "total_processed": counter,
+        "filter_stats_interval": 1000,
+        "timestamp": now()
+      }
+    }
+```
+
+## Analytics Impact
+
+### Log Volume Reduction
+
+Track the impact of filtering on log volume:
+
+```bash
+# Create monitoring script
+cat > filter-impact.sh << 'EOF'
+#!/bin/bash
+
+echo "=== Filtering Impact Analysis ==="
+
+# Count total logs before filtering
+total_logs=$(wc -l /var/log/app/*.log | tail -1 | awk '{print $1}')
+echo "Total input logs: $total_logs"
+
+# Estimate logs that would pass filter
+error_warn_count=$(grep -c -E '("level":"(ERROR|WARN)"|\\[(ERROR|WARN)\\])' /var/log/app/*.log)
+echo "ERROR/WARN logs: $error_warn_count"
+
+# Calculate reduction
+if [ $total_logs -gt 0 ]; then
+    reduction_percent=$(echo "scale=2; (($total_logs - $error_warn_count) / $total_logs) * 100" | bc)
+    echo "Volume reduction: ${reduction_percent}%"
+    echo "Logs preserved: $(echo "scale=2; 100 - $reduction_percent" | bc)%"
+fi
+
+echo "=== Analysis Complete ==="
+EOF
+
+chmod +x filter-impact.sh
+./filter-impact.sh
+rm filter-impact.sh
+```
+
+### Before Severity Filtering
+```
+- Log volume: 10,000 entries/hour
+- Storage usage: 50MB/hour  
+- Processing time: 15 seconds/hour
+- Alert noise: 50+ false positives/day
+- Investigation overhead: 2-3 hours/day
+```
+
+### After Severity Filtering  
+```
+- Log volume: 800 entries/hour (92% reduction)
+- Storage usage: 4MB/hour (92% reduction)
+- Processing time: 1.2 seconds/hour (92% reduction)  
+- Alert noise: 2-3 false positives/day (95% reduction)
+- Investigation overhead: 15-20 minutes/day (90% reduction)
+```
+
+## Compliance and Security Considerations
+
+### Audit Trail for Filtered Logs
+
+For compliance requirements, consider logging filter decisions:
+
+```yaml
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Main filtered output
+      - stdout:
+          codec: lines
+          
+      # Audit trail of filter decisions
+      - file:
+          path: /var/log/expanso/filter-audit.log
+          codec: lines
+        processors:
+          - mapping: |
+              # Create audit record
+              root = {
+                "timestamp": now(),
+                "original_level": this.filter_metadata.original_level,
+                "passed_filter": this.filter_metadata.passed_filter,
+                "filter_reason": this.filter_metadata.filter_reason,
+                "node_id": this.node_id,
+                "log_sample": this.get("message").or(this.get("original_message")).string().slice(0, 100)
+              }
+```
+
+### GDPR and Data Retention
+
+Ensure filtered logs comply with data retention policies:
+
+```yaml
+- mapping: |
+    # Check for personal data indicators
+    let content = this.get("message").string() + this.get("original_message").string()
+    let pii_indicators = ["email", "@", "ssn", "phone", "address"]
+    
+    this.contains_potential_pii = pii_indicators.any(indicator -> 
+      content.lowercase().contains(indicator)
+    )
+    
+    if this.contains_potential_pii {
+      this.data_retention_policy = "gdpr_applicable"
+      this.auto_delete_after = "30_days"
+    }
+```
+
+## Troubleshooting
+
+### Issue: Important Logs Being Filtered Out
+
+**Symptom:** Expected ERROR/WARN logs not appearing in output
+
+**Diagnosis:**
+```bash
+# Check if logs have correct level format
+grep -n "ERROR\|WARN" /var/log/app/*.log
+
+# Test filter logic manually  
+echo '{"level":"ERROR","message":"test"}' | expanso test step2-filter-with-stats.yaml
+```
+
+**Solutions:**
+
+1. **Check level field names:**
+```yaml
+# Handle different level field names
+- mapping: |
+    let level = this.get("level").or(this.get("severity")).or(this.get("priority")).string().uppercase()
+    this.level = level
+```
+
+2. **Add debugging output:**
+```yaml
+- mapping: |
+    # Log filter decisions for debugging
+    if env("DEBUG_FILTER") == "true" {
+      this.debug_filter = {
+        "original_level": this.level,
+        "level_after_uppercase": this.level.string().uppercase(),
+        "would_pass": this.level.string().uppercase() == "ERROR" || this.level.string().uppercase() == "WARN"
+      }
+    }
+```
+
+### Issue: Too Many False Positives from Keyword Detection
+
+**Symptom:** Non-error logs being classified as errors due to keyword matching
+
+**Solution:** Improve keyword detection logic:
+
+```yaml
+- mapping: |
+    let content = this.get("message").string().lowercase()
+    
+    # More precise keyword matching with context
+    let error_patterns = [
+      "error:", "exception:", "failed to", "cannot", "unable to",
+      "critical:", "fatal:", "crash"
+    ]
+    
+    let warn_patterns = [
+      "warning:", "warn:", "deprecated", "will be removed",
+      "high usage", "approaching limit"
+    ]
+    
+    # Avoid false positives
+    let false_positive_patterns = [
+      "error handling", "error recovery", "no error",
+      "warning: this is normal"
+    ]
+    
+    let has_false_positive = false_positive_patterns.any(pattern -> content.contains(pattern))
+    
+    if !has_false_positive {
+      # Apply keyword detection...
+    }
+```
+
+## Summary
+
+You've successfully implemented intelligent severity filtering that:
+
+✅ **Eliminates 80-95% of log noise** while preserving all critical information  
+✅ **Handles mixed log formats** from JSON to plain text to unstructured logs  
+✅ **Uses keyword detection** for logs without explicit severity levels  
+✅ **Provides filtering statistics** for monitoring and optimization  
+✅ **Maintains audit trails** for compliance and debugging  
+✅ **Optimizes performance** for high-volume log processing
+
+**Key Benefits:**
+- **Cost reduction:** 90%+ savings in storage and processing costs
+- **Faster incident response:** Focus only on actionable logs  
+- **Compliance:** Complete audit trail of filtering decisions
+- **Flexibility:** Handles diverse log formats and severity schemes
+
+## What's Next
+
+In the next step, you'll implement conditional routing to send ERROR logs to dedicated files while directing WARN logs to stdout for monitoring.
+
+**Continue to:** [Step 3: Route by Severity](./step-3-route-by-severity)
+
+**Need help?** Check the [Troubleshooting Guide](./troubleshooting) for solutions to filtering issues.
