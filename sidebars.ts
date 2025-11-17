@@ -29,7 +29,16 @@ const sidebars: SidebarsConfig = {
         'data-security/encryption-patterns',
         'data-security/encrypt-data',
         'data-security/remove-pii',
-        'data-security/enforce-schema',
+        {
+          type: 'category',
+          label: 'Enforce Data Schema Validation',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'data-security/enforce-schema/index',
+            'data-security/enforce-schema/explorer',
+          ],
+        },
       ],
     },
     {
