@@ -1,0 +1,811 @@
+---
+title: Step 3 - Restructure Format
+sidebar_label: Step 3 - Restructure Format
+sidebar_position: 6
+description: Transform logs into analytics-ready event/metadata structure for efficient querying and processing
+keywords: [data-restructure, analytics, event-metadata, format-transformation, query-optimization]
+---
+
+# Step 3: Restructure Format
+
+Learn how to restructure enriched logs into an optimized event/metadata format that separates business data from operational context. This transformation enables efficient analytics queries, better data organization, and improved query performance.
+
+## What You'll Build
+
+In this step, you'll restructure your enriched logs into:
+
+- **Event section** - Core business data (user actions, transactions, errors)
+- **Metadata section** - Operational context (lineage, processing, infrastructure)
+- **Analytics optimization** - Structure optimized for time-series and business queries
+- **Schema consistency** - Standardized format across all log sources
+
+## Why Restructure Data?
+
+**Query Performance:** Separate concerns allow targeted queries on business vs operational data
+**Analytics Efficiency:** Business analysts can focus on event data without operational noise
+**Cost Optimization:** Different sections can use different storage/compression strategies
+**Schema Evolution:** Event and metadata schemas can evolve independently
+
+## Data Structure Concepts
+
+### Before: Flat Log Structure
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "level": "INFO",
+  "service": "payment-service",
+  "message": "Payment processed successfully",
+  "user_id": "user_123",
+  "request_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+  "lineage_node_id": "edge-node-01",
+  "lineage_pipeline": "log-enrichment-s3-demo",
+  "lineage_processed_at": "2024-01-15T10:30:00.167Z",
+  "lineage_processing_duration_ms": 2.3
+}
+```
+
+### After: Structured Event/Metadata Format
+
+```json
+{
+  "event": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "level": "INFO",
+    "service": "payment-service",
+    "message": "Payment processed successfully",
+    "user_id": "user_123",
+    "request_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+  },
+  "metadata": {
+    "node_id": "edge-node-01",
+    "pipeline": "log-enrichment-s3-demo",
+    "processed_at": "2024-01-15T10:30:00.167Z",
+    "processing_duration_ms": 2.3
+  }
+}
+```
+
+## Implementation
+
+### Basic Event/Metadata Separation
+
+Start by creating a simple separation of business and operational data:
+
+```yaml title="step3-basic-restructure.yaml"
+input:
+  generate:
+    interval: 2s
+    mapping: |
+      root.id = uuid_v4()
+      root.timestamp = now()
+      root.level = ["INFO", "WARN", "ERROR"].index(random_int() % 3)
+      root.service = ["auth-service", "payment-service", "user-service"].index(random_int() % 3)
+      root.message = "Demo log from " + this.service
+      root.user_id = "user_" + (random_int() % 10)
+      root.request_id = uuid_v4()
+
+pipeline:
+  processors:
+    # Add lineage metadata (from previous step)
+    - mapping: |
+        root = this
+        root.lineage_node_id = env("NODE_ID").or("edge-node-demo")
+        root.lineage_pipeline = "log-enrichment-s3-demo"
+        root.lineage_processed_at = now()
+        root.lineage_processing_duration_ms = 2.5
+
+    # Restructure into event/metadata format
+    - mapping: |
+        # Create event section with business data
+        root.event = {
+          "id": this.id,
+          "timestamp": this.timestamp,
+          "level": this.level,
+          "service": this.service,
+          "message": this.message,
+          "user_id": this.user_id,
+          "request_id": this.request_id
+        }
+        
+        # Create metadata section with operational data
+        root.metadata = {
+          "node_id": this.lineage_node_id,
+          "pipeline": this.lineage_pipeline,
+          "processed_at": this.lineage_processed_at,
+          "processing_duration_ms": this.lineage_processing_duration_ms
+        }
+
+output:
+  stdout: {}
+```
+
+Deploy and test basic restructuring:
+
+```bash
+# Set node identification
+export NODE_ID="edge-node-01"
+
+# Deploy restructuring pipeline
+expanso pipeline deploy step3-basic-restructure.yaml --name basic-restructure
+
+# Monitor restructured output
+expanso pipeline logs basic-restructure --follow --lines 3 | jq '.'
+```
+
+**Expected output:**
+```json
+{
+  "event": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "level": "INFO",
+    "service": "payment-service",
+    "message": "Demo log from payment-service",
+    "user_id": "user_5",
+    "request_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+  },
+  "metadata": {
+    "node_id": "edge-node-01",
+    "pipeline": "log-enrichment-s3-demo",
+    "processed_at": "2024-01-15T10:30:00.167Z",
+    "processing_duration_ms": 2.5
+  }
+}
+```
+
+### Enhanced Restructuring with Schema Validation
+
+Add comprehensive restructuring with schema validation and enrichment:
+
+```yaml title="step3-enhanced-restructure.yaml"
+input:
+  generate:
+    interval: 1s
+    mapping: |
+      # Generate realistic application logs
+      root.id = uuid_v4()
+      root.timestamp = now()
+      root.level = ["INFO", "INFO", "INFO", "WARN", "ERROR"].index(random_int() % 5)
+      
+      let services = ["auth-service", "payment-service", "user-service", "notification-service"]
+      root.service = $services.index(random_int() % 4)
+      root.user_id = "user_" + (random_int() % 100)
+      root.request_id = uuid_v4()
+      
+      # Add service-specific data
+      root.duration_ms = random_int() % 5000 + 100
+      root.status_code = if this.level == "ERROR" { 500 } else { 200 }
+      
+      # Generate contextual messages
+      root.message = match {
+        this.service == "auth-service" => "Authentication " + (if this.level == "ERROR" { "failed" } else { "successful" })
+        this.service == "payment-service" => "Payment " + (if this.level == "ERROR" { "failed" } else { "processed" }) + " for $" + (random_int() % 1000 + 10)
+        this.service == "user-service" => "User profile " + (if this.level == "ERROR" { "update failed" } else { "updated" })
+        this.service == "notification-service" => "Notification " + (if this.level == "ERROR" { "delivery failed" } else { "sent" })
+        _ => "Operation completed"
+      }
+
+pipeline:
+  processors:
+    # Add comprehensive lineage (from previous step)
+    - mapping: |
+        root = this
+        
+        # Add lineage with performance metrics
+        let processing_start = now()
+        root.lineage = {
+          "node_id": env("NODE_ID").or("edge-node-" + uuid_v4().slice(0, 8)),
+          "node_region": env("AWS_REGION").or("us-east-1"),
+          "pipeline": "log-enrichment-s3-demo",
+          "pipeline_version": env("PIPELINE_VERSION").or("1.0.0"),
+          "processed_at": $processing_start,
+          "processing_duration_ms": 2.7,
+          "sequence_number": counter("processed_messages"),
+          "environment": env("ENVIRONMENT").or("production")
+        }
+
+    # Enhanced restructuring with validation
+    - mapping: |
+        # Validate required fields exist
+        if this.id == null || this.timestamp == null {
+          error("Missing required fields: id or timestamp")
+        }
+        
+        # Create structured event section
+        root.event = {
+          # Core event identification
+          "id": this.id,
+          "timestamp": this.timestamp,
+          "type": "application_log",
+          
+          # Application context
+          "application": {
+            "service": this.service,
+            "level": this.level,
+            "message": this.message,
+            "status_code": this.status_code,
+            "duration_ms": this.duration_ms
+          },
+          
+          # User context (if present)
+          "user": if this.user_id != null {
+            {
+              "id": this.user_id,
+              "session_id": this.request_id
+            }
+          } else { null },
+          
+          # Request tracking
+          "request": {
+            "id": this.request_id,
+            "trace_id": this.request_id,  # Could be different in microservices
+            "parent_id": null
+          }
+        }
+        
+        # Create structured metadata section
+        root.metadata = {
+          # Data lineage
+          "lineage": this.lineage,
+          
+          # Data quality metrics
+          "quality": {
+            "completeness_score": (
+              (if this.user_id != null { 1 } else { 0 }) +
+              (if this.request_id != null { 1 } else { 0 }) +
+              (if this.message != null && this.message != "" { 1 } else { 0 })
+            ) / 3.0,
+            "has_user_context": this.user_id != null,
+            "has_request_context": this.request_id != null,
+            "message_length": this.message.length()
+          },
+          
+          # Processing context
+          "processing": {
+            "transformation_applied": ["lineage_enrichment", "format_restructuring"],
+            "schema_version": "2.0",
+            "format": "event_metadata_v2",
+            "compression_eligible": true
+          }
+        }
+
+output:
+  stdout: {}
+```
+
+Deploy enhanced restructuring:
+
+```bash
+# Set comprehensive environment
+export NODE_ID="edge-node-prod-01"
+export AWS_REGION="us-west-2"
+export PIPELINE_VERSION="2.0.0"
+export ENVIRONMENT="production"
+
+# Deploy enhanced pipeline
+expanso pipeline stop basic-restructure
+expanso pipeline deploy step3-enhanced-restructure.yaml --name enhanced-restructure
+
+# Monitor enhanced structure
+expanso pipeline logs enhanced-restructure --follow --lines 1 | jq '.event.application'
+expanso pipeline logs enhanced-restructure --follow --lines 1 | jq '.metadata.quality'
+```
+
+### Production-Ready Restructuring with Multiple Formats
+
+Create a production-ready restructuring that supports multiple output formats:
+
+```yaml title="step3-production-restructure.yaml"
+input:
+  generate:
+    interval: 500ms
+    mapping: |
+      # Generate production-like logs with rich context
+      root.id = uuid_v4()
+      root.timestamp = now()
+      root.level = ["INFO", "INFO", "INFO", "WARN", "ERROR", "DEBUG"].index(random_int() % 6)
+      
+      # Realistic service distribution
+      let services = [
+        {"name": "auth-service", "version": "1.2.3", "team": "security"},
+        {"name": "payment-service", "version": "2.1.0", "team": "fintech"}, 
+        {"name": "user-service", "version": "1.5.2", "team": "platform"},
+        {"name": "notification-service", "version": "3.0.1", "team": "communications"},
+        {"name": "analytics-service", "version": "1.0.0", "team": "data"}
+      ]
+      let selected_service = $services.index(random_int() % 5)
+      
+      root.service = $selected_service.name
+      root.service_version = $selected_service.version
+      root.team = $selected_service.team
+      
+      # Rich application context
+      root.user_id = "user_" + (random_int() % 1000)
+      root.session_id = "session_" + (random_int() % 100)
+      root.request_id = uuid_v4()
+      root.trace_id = uuid_v4()
+      root.span_id = uuid_v4().slice(0, 16)
+      
+      # Performance metrics
+      root.duration_ms = random_int() % 10000 + 50
+      root.status_code = match {
+        this.level == "INFO" => [200, 201, 202].index(random_int() % 3)
+        this.level == "WARN" => [400, 401, 403, 429].index(random_int() % 4)
+        this.level == "ERROR" => [500, 502, 503, 504].index(random_int() % 4)
+        _ => 200
+      }
+      
+      # Rich contextual data
+      root.endpoint = "/" + this.service.replace("-service", "") + "/v1/endpoint"
+      root.method = ["GET", "POST", "PUT", "DELETE"].index(random_int() % 4)
+      root.user_agent = "ExpansoClient/1.0"
+      root.ip_address = (random_int() % 255) + "." + (random_int() % 255) + ".xxx.xxx"
+      
+      # Business context based on service
+      root.business_context = match {
+        this.service == "payment-service" => {
+          "amount": random_int() % 10000 + 100,
+          "currency": "USD",
+          "payment_method": "credit_card"
+        }
+        this.service == "user-service" => {
+          "action": "profile_update",
+          "fields_updated": ["email", "preferences"]
+        }
+        this.service == "notification-service" => {
+          "notification_type": "email",
+          "template_id": "welcome_" + (random_int() % 5)
+        }
+        _ => {}
+      }
+
+pipeline:
+  processors:
+    # Add comprehensive lineage metadata
+    - mapping: |
+        root = this
+        
+        root.lineage = {
+          "node_id": env("NODE_ID").or("edge-node-" + uuid_v4().slice(0, 8)),
+          "node_region": env("AWS_REGION").or("us-east-1"), 
+          "node_zone": env("AVAILABILITY_ZONE").or("us-east-1a"),
+          "pipeline": "log-enrichment-s3-demo",
+          "pipeline_version": env("PIPELINE_VERSION").or("3.0.0"),
+          "processed_at": now(),
+          "processing_duration_ms": 3.2,
+          "sequence_number": counter("processed_messages"),
+          "environment": env("ENVIRONMENT").or("production"),
+          "deployment_id": env("DEPLOYMENT_ID").or("unknown"),
+          "config_hash": "abc123def456"
+        }
+
+    # Production restructuring with multiple format support
+    - mapping: |
+        # Create comprehensive event structure
+        root.event = {
+          # Event identification
+          "id": this.id,
+          "timestamp": this.timestamp,
+          "event_type": "application_log",
+          "event_version": "3.0",
+          
+          # Application context
+          "application": {
+            "service": {
+              "name": this.service,
+              "version": this.service_version,
+              "team": this.team
+            },
+            "level": this.level,
+            "message": this.message,
+            "endpoint": this.endpoint,
+            "method": this.method,
+            "status_code": this.status_code,
+            "duration_ms": this.duration_ms
+          },
+          
+          # User and session context
+          "user": {
+            "id": this.user_id,
+            "session_id": this.session_id,
+            "ip_address": this.ip_address,
+            "user_agent": this.user_agent
+          },
+          
+          # Request tracing
+          "trace": {
+            "request_id": this.request_id,
+            "trace_id": this.trace_id,
+            "span_id": this.span_id,
+            "parent_span_id": null
+          },
+          
+          # Business context (service-specific)
+          "business": if this.business_context != {} { this.business_context } else { null }
+        }
+        
+        # Create comprehensive metadata structure
+        root.metadata = {
+          # Complete lineage information
+          "lineage": this.lineage,
+          
+          # Data quality assessment
+          "quality": {
+            "completeness_score": (
+              (if this.user_id != null { 1 } else { 0 }) +
+              (if this.request_id != null { 1 } else { 0 }) +
+              (if this.trace_id != null { 1 } else { 0 }) +
+              (if this.business_context != {} { 1 } else { 0 })
+            ) / 4.0,
+            "data_freshness_ms": (now().ts_unix_nano() - this.timestamp.parse_timestamp("2006-01-02T15:04:05Z").ts_unix_nano()) / 1000000,
+            "schema_violations": [],
+            "enrichment_applied": ["lineage", "format_restructure", "quality_assessment"]
+          },
+          
+          # Processing metadata
+          "processing": {
+            "transformations": [
+              {
+                "name": "lineage_enrichment",
+                "version": "2.0",
+                "applied_at": this.lineage.processed_at
+              },
+              {
+                "name": "format_restructuring",
+                "version": "3.0", 
+                "applied_at": now()
+              }
+            ],
+            "schema": {
+              "version": "3.0",
+              "format": "event_metadata_v3",
+              "compatibility": ["v2", "v1"]
+            }
+          },
+          
+          # Storage optimization hints
+          "storage": {
+            "compression_eligible": true,
+            "partition_key": this.service + "_" + this.timestamp.format_timestamp("2006-01-02", "UTC"),
+            "retention_class": if this.level == "ERROR" { "extended" } else { "standard" },
+            "analytics_priority": if this.business_context != {} { "high" } else { "normal" }
+          }
+        }
+
+    # Add format-specific outputs
+    - branch:
+        request_map: 'root = this'
+        result_map: 'root = this'
+        processors:
+          # Create analytics-optimized format
+          - mapping: |
+              root.analytics_format = {
+                # Flattened for time-series analysis
+                "timestamp": this.event.timestamp,
+                "service": this.event.application.service.name,
+                "level": this.event.application.level,
+                "duration_ms": this.event.application.duration_ms,
+                "status_code": this.event.application.status_code,
+                "user_id": this.event.user.id,
+                "node_id": this.metadata.lineage.node_id,
+                "environment": this.metadata.lineage.environment
+              }
+              
+              # Keep original structured format
+              root.structured_format = {
+                "event": this.event,
+                "metadata": this.metadata
+              }
+
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Console output for monitoring
+      - stdout: {}
+      
+      # File outputs for different use cases
+      - file:
+          path: /tmp/structured-logs.jsonl
+          codec: lines
+      
+      # Analytics format for time-series analysis
+      - file:
+          path: /tmp/analytics-logs.jsonl
+          codec: lines
+          processors:
+            - mapping: 'root = this.analytics_format'
+```
+
+Deploy production restructuring:
+
+```bash
+# Deploy production pipeline
+expanso pipeline stop enhanced-restructure  
+expanso pipeline deploy step3-production-restructure.yaml --name production-restructure
+
+# Monitor different output formats
+echo "=== Structured Format ==="
+expanso pipeline logs production-restructure --lines 1 | jq '.structured_format'
+
+echo "=== Analytics Format ===" 
+expanso pipeline logs production-restructure --lines 1 | jq '.analytics_format'
+
+# Check file outputs
+tail -1 /tmp/structured-logs.jsonl | jq '.event'
+tail -1 /tmp/analytics-logs.jsonl | jq '.'
+```
+
+## Advanced Restructuring Patterns
+
+### Schema Evolution Support
+
+Handle multiple schema versions gracefully:
+
+```yaml
+# Support multiple input schema versions
+root.event = match {
+  # Handle v1 schema (flat structure)
+  this.schema_version == "1.0" || this.schema_version == null => {
+    "id": this.id,
+    "timestamp": this.timestamp,
+    "service": this.service,
+    "message": this.message
+  }
+  
+  # Handle v2 schema (partially structured)
+  this.schema_version == "2.0" => {
+    "id": this.id,
+    "timestamp": this.timestamp,
+    "application": this.application,
+    "user": this.user_context
+  }
+  
+  # Handle v3 schema (fully structured)
+  this.schema_version == "3.0" => this.event
+  
+  _ => error("Unsupported schema version: " + this.schema_version)
+}
+```
+
+### Dynamic Field Mapping
+
+Map fields dynamically based on service type:
+
+```yaml
+# Dynamic field mapping based on service
+let field_mappings = {
+  "auth-service": {
+    "business_fields": ["user_id", "auth_method", "session_duration"],
+    "sensitive_fields": ["password_hash", "token"]
+  },
+  "payment-service": {
+    "business_fields": ["amount", "currency", "payment_method"],
+    "sensitive_fields": ["card_number", "cvv"]
+  }
+}
+
+let service_mapping = $field_mappings.get(this.service).or({
+  "business_fields": [],
+  "sensitive_fields": []
+})
+
+# Map fields dynamically
+root.event.business = this.without("timestamp", "id", "service").filter_object(field, value -> 
+  $service_mapping.business_fields.contains(field)
+)
+```
+
+### Multi-Tenant Data Separation
+
+Structure data for multi-tenant environments:
+
+```yaml
+# Multi-tenant restructuring
+root.event.tenant = {
+  "id": env("TENANT_ID").or("default"),
+  "region": env("TENANT_REGION").or("global"),
+  "tier": env("TENANT_TIER").or("standard")
+}
+
+root.metadata.tenant = {
+  "isolation_level": "strict",
+  "data_residency": env("DATA_RESIDENCY").or("global"),
+  "compliance_requirements": env("COMPLIANCE_REQS").or("standard").split(",")
+}
+```
+
+## Validation and Testing
+
+### Validate Restructured Data
+
+Ensure restructuring produces the expected format:
+
+```bash
+# Check event structure completeness
+cat /tmp/structured-logs.jsonl | jq '.event | keys' | sort | uniq
+
+# Verify metadata presence
+cat /tmp/structured-logs.jsonl | jq '.metadata | keys' | sort | uniq
+
+# Check for required fields
+cat /tmp/structured-logs.jsonl | jq 'select(.event.id == null or .event.timestamp == null)' | wc -l
+
+# Validate schema consistency
+cat /tmp/structured-logs.jsonl | jq '.metadata.processing.schema.version' | sort | uniq -c
+```
+
+### Performance Testing
+
+Test restructuring performance with different data volumes:
+
+```bash
+# Generate high-volume test data
+echo '{"id":"test","timestamp":"2024-01-15T10:30:00Z","service":"test"}' | \
+  bloblang 'root.event = {"id": this.id, "timestamp": this.timestamp}; root.metadata = {"service": this.service}'
+
+# Measure processing latency
+time (echo '{"test": "data"}' | bloblang 'root.event = this; root.metadata = {}')
+```
+
+### Schema Validation
+
+Validate output against expected schemas:
+
+```bash
+# Create JSON schema for validation
+cat > event_schema.json << 'EOF'
+{
+  "type": "object",
+  "required": ["event", "metadata"],
+  "properties": {
+    "event": {
+      "type": "object",
+      "required": ["id", "timestamp"],
+      "properties": {
+        "id": {"type": "string"},
+        "timestamp": {"type": "string", "format": "date-time"}
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["lineage"],
+      "properties": {
+        "lineage": {"type": "object"}
+      }
+    }
+  }
+}
+EOF
+
+# Validate against schema (using jsonschema tool)
+tail -1 /tmp/structured-logs.jsonl | jsonschema event_schema.json
+```
+
+## Troubleshooting Restructuring Issues
+
+### Field Mapping Errors
+
+**Problem:** Fields missing in restructured output
+
+**Solutions:**
+
+1. **Debug field mapping:**
+```yaml
+# Add debug logging
+- mapping: |
+    # Log original fields
+    let original_fields = this.keys()
+    
+    # Perform mapping
+    root.event = this.pick("id", "timestamp", "service")
+    root.metadata = this.pick("lineage")
+    
+    # Add debug info
+    root.debug = {
+      "original_fields": $original_fields,
+      "mapped_event_fields": root.event.keys(),
+      "mapped_metadata_fields": root.metadata.keys()
+    }
+```
+
+2. **Use defensive mapping:**
+```yaml
+# Handle missing fields gracefully
+root.event = {
+  "id": this.id.or("missing_id"),
+  "timestamp": this.timestamp.or(now()),
+  "service": this.service.or("unknown_service")
+}
+```
+
+### Performance Issues
+
+**Problem:** Restructuring adds significant latency
+
+**Solutions:**
+
+1. **Optimize mapping logic:**
+```yaml
+# Pre-calculate commonly used values
+let timestamp_val = this.timestamp
+let service_val = this.service
+
+root.event = {
+  "timestamp": $timestamp_val,
+  "service": $service_val
+}
+```
+
+2. **Batch restructuring:**
+```yaml
+# Process in batches
+batching:
+  count: 100
+  processors:
+    - mapping: |
+        root = this.map_each(item -> {
+          "event": $item.pick("id", "timestamp"),
+          "metadata": $item.pick("lineage")
+        })
+```
+
+### Schema Consistency Issues
+
+**Problem:** Inconsistent output schemas
+
+**Solutions:**
+
+1. **Schema validation:**
+```yaml
+# Validate output schema
+- mapping: |
+    # Ensure required fields exist
+    if !this.event.has("id") || !this.event.has("timestamp") {
+      error("Invalid event schema: missing required fields")
+    }
+    
+    # Set schema version
+    root = this
+    root.metadata.schema_version = "3.0"
+```
+
+2. **Schema migration:**
+```yaml
+# Migrate between schema versions
+root = match {
+  env("OUTPUT_SCHEMA") == "v1" => this.event
+  env("OUTPUT_SCHEMA") == "v2" => this
+  _ => this
+}
+```
+
+## Key Takeaways
+
+After completing this step, you understand:
+
+✅ **Data Structuring:** How to separate business events from operational metadata
+✅ **Analytics Optimization:** Restructuring data for efficient querying and analysis
+✅ **Schema Management:** Handling multiple schema versions and evolution
+✅ **Performance Optimization:** Efficient restructuring patterns for production use
+✅ **Validation Techniques:** Testing and validating restructured data quality
+
+## Next Steps
+
+Your data is now optimized for analytics! The next step configures batching for efficient cloud storage:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./step-4-configure-batching" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Step 4: Configure Batching
+  </a>
+  <a href="./complete-log-enrichment" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Skip to Complete Pipeline
+  </a>
+</div>
+
+---
+
+**Next:** [Configure batching](./step-4-configure-batching) to optimize cloud storage costs and performance

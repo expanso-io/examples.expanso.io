@@ -1,0 +1,1181 @@
+---
+title: Complete Production-Ready Fan-Out Pipeline
+sidebar_label: Complete Pipeline
+sidebar_position: 9
+description: Production-ready multi-destination pipeline with comprehensive fallbacks and monitoring
+keywords: [complete, production, fan-out, pipeline, deployment, monitoring, performance]
+---
+
+# Complete Production-Ready Fan-Out Pipeline
+
+**Deploy a bulletproof multi-destination pipeline ready for production workloads**. This complete solution combines all previous steps into a single, production-grade configuration with comprehensive monitoring, security, and operational features.
+
+## Complete Pipeline Overview
+
+This production pipeline demonstrates the full fan-out pattern with:
+
+### **Real-Time Streaming (Kafka)**
+- High-throughput event streaming for immediate processing
+- Optimized batching and compression for edge bandwidth constraints
+- SASL authentication and TLS encryption for security
+- Multi-level fallback with local buffering
+
+### **Long-Term Archive (S3)**
+- Cost-optimized storage with intelligent tiering and lifecycle policies  
+- Edge-aware partitioning for efficient analytics queries
+- Large batch sizes and compression for bandwidth efficiency
+- Compliance-ready encryption and audit trails
+
+### **Search & Analytics (Elasticsearch)**
+- Real-time indexing for operational dashboards and alerting
+- Search-optimized field mappings and document routing
+- Index lifecycle management for automated data retention
+- Local search fallback during cluster outages
+
+### **Comprehensive Resilience**
+- Multi-layer fallback strategies for each destination
+- Global emergency mode for complete network isolation
+- Intelligent resource monitoring and adaptive behavior
+- Automated recovery and replay mechanisms
+
+## Complete Production Configuration
+
+```yaml title="production-fan-out-pipeline.yaml"
+name: production-multi-destination-pipeline
+description: Production-ready fan-out pipeline for IoT sensor data with comprehensive fallbacks
+type: pipeline
+namespace: production
+labels:
+  environment: production
+  data-type: sensor-telemetry
+  pattern: fan-out-complete
+  version: v5.0
+  criticality: high
+  compliance: gdpr-ready
+
+metadata:
+  created_by: edge-platform-team
+  documentation_url: "https://docs.expanso.io/examples/data-routing/fan-out-pattern"
+  runbook_url: "https://runbooks.expanso.io/fan-out-pipeline"
+  alert_contact: "edge-platform-oncall@company.com"
+
+config:
+  # High-performance input for edge environments
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+      timeout: 5s
+      
+      # Production rate limiting
+      rate_limit: "50000/s"
+      burst_limit: 1000
+      
+      # Security configuration
+      cors:
+        enabled: false  # Disabled for production security
+        
+      # Request validation
+      allowed_verbs: ["POST"]
+      
+      # Production monitoring
+      sync_response:
+        headers:
+          X-Pipeline-Version: "v5.0"
+          X-Processing-Node: "${!env(\"NODE_ID\")}"
+
+  # Comprehensive data processing pipeline
+  pipeline:
+    processors:
+      # 1. Edge context enrichment
+      - mapping: |
+          root = this
+          
+          # Essential edge metadata
+          root.edge_node_id = env("NODE_ID").or("unknown")
+          root.edge_location = env("NODE_LOCATION").or("unknown")
+          root.edge_cluster = env("EDGE_CLUSTER_ID").or("default")
+          root.processing_timestamp = now()
+          root.pipeline_version = "production-v5.0"
+          
+          # Network and resource monitoring
+          root.edge_status = {
+            "network_quality": env("NETWORK_QUALITY").or("good"),
+            "bandwidth_mbps": env("BANDWIDTH_MBPS").number().or(100),
+            "disk_usage_percent": env("DISK_USAGE_PERCENT").number().or(30),
+            "memory_usage_percent": env("MEMORY_USAGE_PERCENT").number().or(40),
+            "cpu_usage_percent": env("CPU_USAGE_PERCENT").number().or(25)
+          }
+
+      # 2. Multi-destination metadata preparation
+      - mapping: |
+          root = this
+          
+          # Kafka streaming metadata
+          root.kafka_metadata = {
+            "partition_key": this.sensor_id,
+            "topic": "sensor-events",
+            "delivery_mode": "at_least_once",
+            "compression": "snappy",
+            "priority": if this.device_type == "critical_sensor" { "high" } else { "normal" }
+          }
+          
+          # S3 archive metadata
+          root.s3_metadata = {
+            "partition_date": this.timestamp.parse_timestamp().ts_format("2006-01-02"),
+            "partition_hour": this.timestamp.parse_timestamp().ts_hour(),
+            "storage_tier": "intelligent_tiering",
+            "retention_policy": "7_years",
+            "compression": "gzip_level_9"
+          }
+          
+          # Elasticsearch search metadata
+          root.search_metadata = {
+            "index_name": "sensor-events-" + this.timestamp.parse_timestamp().ts_format("2006-01-02"),
+            "document_type": "sensor_event",
+            "routing_key": this.edge_node_id,
+            "search_tags": [this.device_type, this.edge_location, "telemetry"],
+            "pipeline": "sensor-events-ingest-pipeline"
+          }
+
+      # 3. Analytics and monitoring preparation
+      - mapping: |
+          root = this
+          
+          # Time-based analytics fields
+          root.analytics = {
+            "event_hour": this.timestamp.parse_timestamp().ts_hour(),
+            "event_day_of_week": this.timestamp.parse_timestamp().ts_weekday(),
+            "event_month": this.timestamp.parse_timestamp().ts_month(),
+            "is_business_hour": this.timestamp.parse_timestamp().ts_hour() >= 8 && this.timestamp.parse_timestamp().ts_hour() <= 17,
+            "is_weekend": this.timestamp.parse_timestamp().ts_weekday() > 5,
+            "quarter": if this.timestamp.parse_timestamp().ts_month() <= 3 { "Q1" }
+                      else if this.timestamp.parse_timestamp().ts_month() <= 6 { "Q2" }
+                      else if this.timestamp.parse_timestamp().ts_month() <= 9 { "Q3" }
+                      else { "Q4" }
+          }
+          
+          # Numeric metrics for aggregations
+          root.metrics = {
+            "temperature_celsius": this.temperature.number(),
+            "humidity_percent": this.humidity.number(),
+            "battery_level_percent": this.metadata.battery_level.number().or(100),
+            "processing_latency_ms": (now() - this.timestamp.parse_timestamp()) * 1000,
+            "event_age_seconds": now() - this.timestamp.parse_timestamp(),
+            "data_size_bytes": this.string().length()
+          }
+          
+          # Geographic information for mapping
+          root.location = {
+            "edge_node": this.edge_node_id,
+            "region": this.edge_location,
+            "building": this.location.building.or("unknown"),
+            "floor": this.location.floor.or(0),
+            "zone": this.location.zone.or("unknown"),
+            "coordinates": if this.exists("latitude") && this.exists("longitude") {
+              {"lat": this.latitude, "lon": this.longitude}
+            } else { null }
+          }
+
+      # 4. Alert and monitoring conditions
+      - mapping: |
+          root = this
+          
+          # Environmental alerts
+          root.alerts = {
+            "temperature_status": if this.metrics.temperature_celsius > 40 { "critical" }
+                                 else if this.metrics.temperature_celsius > 35 { "high" }
+                                 else if this.metrics.temperature_celsius < 0 { "low" }
+                                 else { "normal" },
+            "humidity_status": if this.metrics.humidity_percent > 90 { "critical" }
+                              else if this.metrics.humidity_percent > 80 { "high" }
+                              else if this.metrics.humidity_percent < 10 { "low" }
+                              else { "normal" },
+            "battery_status": if this.metrics.battery_level_percent < 10 { "critical" }
+                             else if this.metrics.battery_level_percent < 25 { "low" }
+                             else if this.metrics.battery_level_percent < 50 { "medium" }
+                             else { "normal" },
+            "data_quality": if this.exists("temperature") && this.exists("humidity") && this.exists("sensor_id") { "complete" }
+                           else if this.exists("sensor_id") { "partial" }
+                           else { "incomplete" },
+            "processing_status": if this.metrics.processing_latency_ms > 10000 { "delayed" }
+                                else if this.metrics.processing_latency_ms > 5000 { "slow" }
+                                else { "normal" }
+          }
+          
+          # Operational monitoring
+          root.monitoring = {
+            "pipeline_health": "healthy",
+            "data_completeness_score": if this.alerts.data_quality == "complete" { 100 }
+                                      else if this.alerts.data_quality == "partial" { 60 }
+                                      else { 20 },
+            "anomaly_detection": {
+              "temperature_anomaly": abs(this.metrics.temperature_celsius - 22) > 20,
+              "humidity_anomaly": abs(this.metrics.humidity_percent - 45) > 40,
+              "timing_anomaly": this.metrics.processing_latency_ms > 15000,
+              "data_anomaly": this.alerts.data_quality == "incomplete"
+            },
+            "performance_metrics": {
+              "throughput_target_rps": 1000,
+              "latency_target_ms": 100,
+              "availability_target_percent": 99.9
+            }
+          }
+
+      # 5. Fallback decision logic
+      - mapping: |
+          root = this
+          
+          # Determine operational mode based on edge status
+          network_quality = this.edge_status.network_quality
+          disk_usage = this.edge_status.disk_usage_percent
+          memory_usage = this.edge_status.memory_usage_percent
+          
+          # Fallback level determination
+          root.fallback_decision = {
+            "network_available": network_quality != "poor" && network_quality != "offline",
+            "resources_healthy": disk_usage < 85 && memory_usage < 80,
+            "emergency_mode": disk_usage > 95 || memory_usage > 90,
+            "degraded_mode": disk_usage > 80 || memory_usage > 75 || network_quality == "degraded"
+          }
+          
+          # Set operational mode
+          root.operational_mode = if this.fallback_decision.emergency_mode { "emergency" }
+                                 else if !this.fallback_decision.network_available { "offline" }
+                                 else if this.fallback_decision.degraded_mode { "degraded" }
+                                 else { "normal" }
+          
+          # Recovery and replay metadata
+          root.recovery_metadata = {
+            "mode": this.operational_mode,
+            "fallback_active": this.operational_mode != "normal",
+            "replay_required": this.operational_mode != "normal",
+            "priority": if this.alerts.temperature_status == "critical" || this.alerts.humidity_status == "critical" { "critical" }
+                       else if this.kafka_metadata.priority == "high" { "high" }
+                       else { "normal" }
+          }
+
+      # 6. Data validation and quality assurance
+      - mapping: |
+          # Comprehensive validation for production
+          if !this.exists("event_id") {
+            throw("missing required field: event_id")
+          }
+          if !this.exists("sensor_id") {
+            throw("missing required field: sensor_id")
+          }
+          if !this.exists("timestamp") {
+            throw("missing required field: timestamp")
+          }
+          if !this.exists("device_type") {
+            throw("missing required field: device_type")
+          }
+          
+          # Validate data types
+          if this.sensor_id.type() != "string" {
+            throw("sensor_id must be string")
+          }
+          if !this.timestamp.parse_timestamp().type() == "number" {
+            throw("invalid timestamp format: " + this.timestamp)
+          }
+          
+          # Validate data freshness (reject events older than 1 hour)
+          event_age = now() - this.timestamp.parse_timestamp()
+          if event_age > 3600 {
+            throw("event too old for processing: " + this.timestamp + " (age: " + event_age.string() + "s)")
+          }
+          
+          # Validate numeric ranges
+          if this.exists("temperature") && (this.temperature.number() < -50 || this.temperature.number() > 80) {
+            throw("temperature out of valid range: " + this.temperature.string())
+          }
+          if this.exists("humidity") && (this.humidity.number() < 0 || this.humidity.number() > 100) {
+            throw("humidity out of valid range: " + this.humidity.string())
+          }
+          
+          root = this
+
+  # Multi-destination output with comprehensive fallbacks
+  output:
+    # Global operational mode switch
+    switch:
+      # Normal mode: Full fan-out with comprehensive fallbacks
+      - condition: ${!json("operational_mode")} == "normal"
+        output:
+          broker:
+            pattern: fan_out
+            
+            # Global broker configuration
+            batching:
+              count: 2000
+              period: 60s
+              
+            outputs:
+              # === KAFKA REAL-TIME STREAMING ===
+              - fallback:
+                  # Primary: Production Kafka cluster
+                  - kafka:
+                      # Multi-broker high availability
+                      addresses:
+                        - ${KAFKA_BROKER_1}
+                        - ${KAFKA_BROKER_2}
+                        - ${KAFKA_BROKER_3}
+                      
+                      # Topic and partitioning
+                      topic: sensor-events
+                      key: ${!json("sensor_id")}
+                      
+                      # Real-time optimized batching
+                      batching:
+                        count: 100
+                        period: 2s
+                        byte_size: 2MB
+                      
+                      # Performance and reliability
+                      compression: snappy
+                      idempotent_write: true
+                      ack_replicas: true
+                      max_in_flight: 1
+                      
+                      # Production timeouts
+                      timeout: 15s
+                      max_retries: 3
+                      backoff:
+                        initial_interval: 200ms
+                        max_interval: 5s
+                        multiplier: 2.0
+                      
+                      # Security configuration
+                      sasl:
+                        mechanism: SCRAM-SHA-512
+                        user: ${KAFKA_USERNAME}
+                        password: ${KAFKA_PASSWORD}
+                      tls:
+                        enabled: true
+                        skip_cert_verify: false
+                      
+                      # Monitoring and metadata
+                      client_id: "expanso-${!env(\"NODE_ID\")}-kafka"
+                      metadata:
+                        static:
+                          producer_version: "production-v5"
+                          edge_deployment: ${ENVIRONMENT}
+                        from_message:
+                          sensor_priority: ${!json("kafka_metadata.priority")}
+                          alert_level: ${!json("alerts.temperature_status")}
+
+                  # Fallback Level 1: High-priority Kafka buffer
+                  - file:
+                      path: /var/expanso/kafka-buffer/priority-${!json("recovery_metadata.priority")}-${!timestamp_unix_date("2006-01-02")}-${!timestamp_unix_hour()}.jsonl
+                      codec: lines
+                      batching:
+                        count: 200
+                        period: 2m
+                        byte_size: 5MB
+                      processors:
+                        - mapping: |
+                            root = this
+                            root.kafka_fallback_metadata = {
+                              "reason": "kafka_primary_unavailable",
+                              "buffered_at": now(),
+                              "intended_topic": "sensor-events",
+                              "intended_key": this.sensor_id,
+                              "replay_priority": this.recovery_metadata.priority,
+                              "buffer_level": "level_1_priority"
+                            }
+
+                  # Fallback Level 2: Compressed Kafka buffer
+                  - file:
+                      path: /var/expanso/kafka-buffer/compressed-${!timestamp_unix_date("2006-01-02")}-${!count("kafka_compressed")}.jsonl.gz
+                      codec: lines
+                      batching:
+                        count: 1000
+                        period: 10m
+                        byte_size: 20MB
+                      processors:
+                        - compress:
+                            algorithm: gzip
+                            level: 6
+                        - mapping: |
+                            root = this
+                            root.kafka_fallback_metadata = {
+                              "reason": "kafka_all_buffers_full",
+                              "buffered_at": now(),
+                              "compression": "gzip_level_6",
+                              "buffer_level": "level_2_compressed"
+                            }
+
+              # === S3 LONG-TERM ARCHIVE ===
+              - fallback:
+                  # Primary: Production S3 storage
+                  - aws_s3:
+                      # S3 configuration
+                      bucket: ${S3_BUCKET}
+                      region: ${AWS_REGION}
+                      
+                      # Advanced partitioning for analytics
+                      path: sensor-data/year=${!timestamp_unix_date("2006")}/month=${!timestamp_unix_date("01")}/day=${!timestamp_unix_date("02")}/hour=${!timestamp_unix_hour()}/edge=${!env("NODE_ID")}/device=${!json("device_type")}/events-${!count("s3_files")}.jsonl.gz
+                      
+                      # Archive-optimized batching
+                      batching:
+                        count: 10000
+                        period: 30m
+                        byte_size: 100MB
+                      
+                      # Storage optimization
+                      content_type: application/x-ndjson
+                      content_encoding: gzip
+                      storage_class: INTELLIGENT_TIERING
+                      server_side_encryption: AES256
+                      
+                      # Object tagging for lifecycle management
+                      tags:
+                        Environment: ${ENVIRONMENT}
+                        DataType: SensorTelemetry
+                        EdgeCluster: ${EDGE_CLUSTER_ID}
+                        RetentionPeriod: 7Years
+                        Compliance: GDPR-Ready
+                        CostCenter: IoT-Operations
+                      
+                      # Rich metadata for discoverability
+                      metadata:
+                        static:
+                          schema_version: sensor-event-v5
+                          pipeline_version: production-v5.0
+                          compression_algorithm: gzip_level_9
+                          created_by: expanso-edge-pipeline
+                        from_message:
+                          edge_node: ${!json("edge_node_id")}
+                          edge_cluster: ${!json("edge_cluster")}
+                          data_quality: ${!json("alerts.data_quality")}
+                          event_priority: ${!json("recovery_metadata.priority")}
+                      
+                      # Production credentials
+                      credentials:
+                        id: ${AWS_ACCESS_KEY_ID}
+                        secret: ${AWS_SECRET_ACCESS_KEY}
+                        token: ${AWS_SESSION_TOKEN}
+                      
+                      # Reliable upload settings
+                      timeout: 600s
+                      max_retries: 8
+                      backoff:
+                        initial_interval: 5s
+                        max_interval: 10m
+                        multiplier: 2.0
+                        jitter: 0.2
+
+                  # Fallback Level 1: Local S3 structure mirror
+                  - file:
+                      path: /var/expanso/s3-buffer/mirror/year=${!timestamp_unix_date("2006")}/month=${!timestamp_unix_date("01")}/day=${!timestamp_unix_date("02")}/hour=${!timestamp_unix_hour()}/events-${!count("s3_mirror")}.jsonl.gz
+                      codec: lines
+                      batching:
+                        count: 10000
+                        period: 45m
+                        byte_size: 150MB
+                      processors:
+                        - compress:
+                            algorithm: gzip
+                            level: 9
+                        - mapping: |
+                            root = this
+                            root.s3_fallback_metadata = {
+                              "reason": "s3_primary_unavailable",
+                              "buffered_at": now(),
+                              "intended_bucket": env("S3_BUCKET"),
+                              "intended_path": "sensor-data/year=" + this.timestamp.parse_timestamp().ts_year().string() + "/month=" + this.timestamp.parse_timestamp().ts_month().string() + "/day=" + this.timestamp.parse_timestamp().ts_format("02"),
+                              "mirror_structure": true,
+                              "sync_priority": "high"
+                            }
+
+                  # Fallback Level 2: Minimal archive
+                  - file:
+                      path: /var/expanso/s3-buffer/minimal/daily-${!timestamp_unix_date("2006-01-02")}.jsonl.xz
+                      codec: lines
+                      batching:
+                        count: 50000
+                        period: 24h
+                      processors:
+                        - compress:
+                            algorithm: xz
+                            level: 9
+                        - mapping: |
+                            # Minimal data retention for space efficiency
+                            root = {
+                              "event_id": this.event_id,
+                              "sensor_id": this.sensor_id,
+                              "timestamp": this.timestamp,
+                              "metrics": {
+                                "temperature_celsius": this.metrics.temperature_celsius,
+                                "humidity_percent": this.metrics.humidity_percent
+                              },
+                              "edge_node_id": this.edge_node_id,
+                              "minimal_archive": {
+                                "reason": "storage_space_critical",
+                                "compression": "xz_maximum",
+                                "data_reduced": true
+                              }
+                            }
+
+              # === ELASTICSEARCH SEARCH & ANALYTICS ===
+              - fallback:
+                  # Primary: Production Elasticsearch cluster
+                  - elasticsearch:
+                      # Cluster endpoints
+                      urls:
+                        - ${ES_ENDPOINT_1}
+                        - ${ES_ENDPOINT_2}
+                        - ${ES_ENDPOINT_3}
+                      
+                      # Index strategy
+                      index: sensor-events-${!timestamp_unix_date("2006-01-02")}
+                      id: ${!json("event_id")}
+                      routing: ${!json("edge_node_id")}
+                      
+                      # Analytics-optimized batching
+                      batching:
+                        count: 500
+                        period: 10s
+                        byte_size: 10MB
+                        flush_period: 30s
+                      
+                      # Performance settings
+                      sniff: false
+                      gzip_compression: true
+                      timeout: 60s
+                      max_retries: 5
+                      backoff:
+                        initial_interval: 2s
+                        max_interval: 120s
+                        multiplier: 2.0
+                        jitter: 0.1
+                      
+                      # Security
+                      basic_auth:
+                        enabled: true
+                        username: ${ES_USERNAME}
+                        password: ${ES_PASSWORD}
+                      tls:
+                        enabled: true
+                        skip_cert_verify: false
+                      
+                      # Index processing
+                      pipeline: sensor-events-ingest-pipeline
+                      
+                      # Custom headers for monitoring
+                      headers:
+                        X-Pipeline-Version: production-v5.0
+                        X-Data-Source: expanso-edge
+                        X-Environment: ${ENVIRONMENT}
+
+                  # Fallback Level 1: Local search database
+                  - sql:
+                      driver: sqlite3
+                      dsn: /var/expanso/search-buffer/sensor-events-${!timestamp_unix_date("2006-01-02")}.db
+                      table: sensor_events
+                      columns:
+                        event_id: "TEXT PRIMARY KEY"
+                        sensor_id: "TEXT INDEXED"
+                        timestamp: "DATETIME INDEXED"
+                        edge_node_id: "TEXT INDEXED"
+                        device_type: "TEXT INDEXED"
+                        temperature_celsius: "REAL"
+                        humidity_percent: "REAL"
+                        alert_level: "TEXT INDEXED"
+                        search_content: "TEXT"
+                        data_quality: "TEXT"
+                      batching:
+                        count: 1000
+                        period: 30s
+                      processors:
+                        - mapping: |
+                            # Prepare for local SQLite search
+                            root = {
+                              "event_id": this.event_id,
+                              "sensor_id": this.sensor_id,
+                              "timestamp": this.timestamp,
+                              "edge_node_id": this.edge_node_id,
+                              "device_type": this.device_type,
+                              "temperature_celsius": this.metrics.temperature_celsius,
+                              "humidity_percent": this.metrics.humidity_percent,
+                              "alert_level": this.alerts.temperature_status + "_" + this.alerts.humidity_status,
+                              "search_content": [this.sensor_id, this.device_type, this.edge_location, "temp:" + this.temperature.string(), "humid:" + this.humidity.string()].join(" "),
+                              "data_quality": this.alerts.data_quality
+                            }
+
+                  # Fallback Level 2: Search-optimized file buffer
+                  - file:
+                      path: /var/expanso/search-buffer/searchable-${!timestamp_unix_date("2006-01-02")}-${!timestamp_unix_hour()}.jsonl
+                      codec: lines
+                      batching:
+                        count: 2000
+                        period: 15m
+                      processors:
+                        - mapping: |
+                            root = this
+                            root.search_fallback_metadata = {
+                              "reason": "elasticsearch_and_sqlite_unavailable",
+                              "buffered_at": now(),
+                              "search_fields_preserved": true,
+                              "indexing_priority": "high"
+                            }
+
+      # Degraded mode: Reduced functionality but maintained operations
+      - condition: ${!json("operational_mode")} == "degraded"
+        output:
+          broker:
+            pattern: fan_out
+            outputs:
+              # Kafka with reduced batching
+              - file:
+                  path: /var/expanso/degraded/kafka-${!timestamp_unix_date("2006-01-02")}-${!timestamp_unix_hour()}.jsonl
+                  batching: {count: 500, period: "5m"}
+              # S3 with larger batches for efficiency
+              - file:
+                  path: /var/expanso/degraded/s3-${!timestamp_unix_date("2006-01-02")}.jsonl.gz
+                  batching: {count: 20000, period: "120m"}
+              # Search with reduced frequency
+              - file:
+                  path: /var/expanso/degraded/search-${!timestamp_unix_date("2006-01-02")}.jsonl
+                  batching: {count: 1000, period: "30m"}
+
+      # Offline mode: Local-only processing
+      - condition: ${!json("operational_mode")} == "offline"
+        output:
+          broker:
+            pattern: fan_out
+            outputs:
+              # Offline Kafka buffer
+              - file:
+                  path: /var/expanso/offline/kafka-${!timestamp_unix_date("2006-01-02")}-${!timestamp_unix_hour()}.jsonl
+                  batching: {count: 1000, period: "10m"}
+                  processors:
+                    - mapping: |
+                        root = this
+                        root.offline_metadata = {
+                          "mode": "offline",
+                          "sync_required": true,
+                          "priority": this.recovery_metadata.priority
+                        }
+              # Offline archive buffer
+              - file:
+                  path: /var/expanso/offline/archive-${!timestamp_unix_date("2006-01-02")}.jsonl.gz
+                  batching: {count: 10000, period: "60m"}
+              # Offline search buffer
+              - sql:
+                  driver: sqlite3
+                  dsn: /var/expanso/offline/search-${!timestamp_unix_date("2006-01-02")}.db
+                  table: offline_events
+                  batching: {count: 500, period: "5m"}
+
+      # Emergency mode: Minimal survival processing
+      - default:
+          output:
+            file:
+              path: /var/expanso/emergency/survival-${!timestamp_unix_nano()}.jsonl
+              codec: lines
+              batching:
+                count: 50
+                period: 1m
+              processors:
+                - mapping: |
+                    # Absolute minimal data preservation
+                    root = {
+                      "id": this.event_id,
+                      "sensor": this.sensor_id,
+                      "time": this.timestamp,
+                      "temp": this.temperature,
+                      "emergency": true,
+                      "mode": "survival"
+                    }
+```
+
+## Production Deployment Guide
+
+### 1. Pre-Deployment Validation
+
+```bash title="Pre-deployment validation"
+# Create comprehensive validation script
+cat > validate-production-deployment.sh << 'EOF'
+#!/bin/bash
+set -e
+
+echo "Production Fan-Out Pipeline Deployment Validation"
+echo "================================================"
+
+# Environment validation
+echo "1. Validating environment variables..."
+required_vars=(
+  "KAFKA_BROKER_1" "KAFKA_BROKER_2" "KAFKA_BROKER_3"
+  "KAFKA_USERNAME" "KAFKA_PASSWORD"
+  "S3_BUCKET" "AWS_ACCESS_KEY_ID" "AWS_SECRET_ACCESS_KEY" "AWS_REGION"
+  "ES_ENDPOINT_1" "ES_USERNAME" "ES_PASSWORD"
+  "NODE_ID" "NODE_LOCATION" "EDGE_CLUSTER_ID" "ENVIRONMENT"
+)
+
+for var in "${required_vars[@]}"; do
+  if [ -z "${!var}" ]; then
+    echo "❌ Missing required environment variable: $var"
+    exit 1
+  else
+    echo "✅ $var is set"
+  fi
+done
+
+# Connectivity validation
+echo ""
+echo "2. Validating service connectivity..."
+
+# Test Kafka
+echo "Testing Kafka connectivity..."
+if timeout 10 bash -c "</dev/tcp/${KAFKA_BROKER_1%:*}/${KAFKA_BROKER_1#*:}"; then
+  echo "✅ Kafka broker reachable"
+else
+  echo "❌ Kafka broker unreachable"
+  exit 1
+fi
+
+# Test S3
+echo "Testing S3 connectivity..."
+if aws s3 ls "s3://${S3_BUCKET}/" --region "$AWS_REGION" >/dev/null 2>&1; then
+  echo "✅ S3 bucket accessible"
+else
+  echo "❌ S3 bucket inaccessible"
+  exit 1
+fi
+
+# Test Elasticsearch
+echo "Testing Elasticsearch connectivity..."
+if curl -s -f --max-time 10 -u "${ES_USERNAME}:${ES_PASSWORD}" "${ES_ENDPOINT_1}/_cluster/health" >/dev/null; then
+  echo "✅ Elasticsearch cluster reachable"
+else
+  echo "❌ Elasticsearch cluster unreachable"
+  exit 1
+fi
+
+# Directory structure validation
+echo ""
+echo "3. Validating directory structure..."
+required_dirs=(
+  "/var/expanso/kafka-buffer"
+  "/var/expanso/s3-buffer" 
+  "/var/expanso/search-buffer"
+  "/var/expanso/degraded"
+  "/var/expanso/offline"
+  "/var/expanso/emergency"
+)
+
+for dir in "${required_dirs[@]}"; do
+  if [ ! -d "$dir" ]; then
+    echo "Creating directory: $dir"
+    mkdir -p "$dir"
+  fi
+  echo "✅ Directory exists: $dir"
+done
+
+# Disk space validation
+echo ""
+echo "4. Validating disk space..."
+AVAILABLE_SPACE=$(df /var/expanso/ | awk 'NR==2 {print $4}')
+REQUIRED_SPACE=10485760  # 10GB in KB
+
+if [ "$AVAILABLE_SPACE" -lt "$REQUIRED_SPACE" ]; then
+  echo "❌ Insufficient disk space. Required: 10GB, Available: $((AVAILABLE_SPACE/1024/1024))GB"
+  exit 1
+else
+  echo "✅ Sufficient disk space available: $((AVAILABLE_SPACE/1024/1024))GB"
+fi
+
+# Configuration validation
+echo ""
+echo "5. Validating pipeline configuration..."
+if expanso job validate production-fan-out-pipeline.yaml; then
+  echo "✅ Pipeline configuration valid"
+else
+  echo "❌ Pipeline configuration invalid"
+  exit 1
+fi
+
+echo ""
+echo "🎉 All validations passed! Ready for production deployment."
+EOF
+
+chmod +x validate-production-deployment.sh
+./validate-production-deployment.sh
+```
+
+### 2. Production Deployment
+
+```bash title="Production deployment"
+# Deploy with monitoring
+echo "Deploying production fan-out pipeline..."
+
+# Deploy the pipeline
+expanso job deploy production-fan-out-pipeline.yaml
+
+# Wait for healthy status
+echo "Waiting for deployment to stabilize..."
+timeout 300 bash -c 'until expanso job status production-multi-destination-pipeline | grep -q "Status: Running"; do sleep 5; done'
+
+# Verify healthy deployment
+if expanso job status production-multi-destination-pipeline | grep -q "Health: Healthy"; then
+  echo "✅ Production deployment successful"
+else
+  echo "❌ Production deployment failed"
+  expanso job logs production-multi-destination-pipeline | tail -20
+  exit 1
+fi
+```
+
+### 3. Production Testing
+
+```bash title="Production testing"
+# Create production load test
+cat > production-load-test.sh << 'EOF'
+#!/bin/bash
+
+echo "Production Load Test"
+echo "==================="
+
+ENDPOINT="http://localhost:8080/events"
+DURATION=600    # 10 minutes
+RATE=100        # 100 messages/second
+TOTAL_MESSAGES=$((DURATION * RATE))
+
+echo "Testing production pipeline: ${DURATION}s at ${RATE} msg/s"
+echo "Expected total messages: ${TOTAL_MESSAGES}"
+
+# Start monitoring in background
+echo "Starting monitoring..."
+(
+  while true; do
+    echo "$(date): $(expanso job status production-multi-destination-pipeline | grep -E 'Status|Health')"
+    sleep 30
+  done
+) &
+MONITOR_PID=$!
+
+# Run load test
+echo "Starting load test..."
+./load-test-fan-out.sh $ENDPOINT $DURATION $RATE
+
+# Stop monitoring
+kill $MONITOR_PID
+
+# Verify results
+echo ""
+echo "Verifying results..."
+
+# Check Kafka
+echo "Kafka verification:"
+KAFKA_COUNT=$(kafka_2.13-2.8.1/bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
+  --broker-list $KAFKA_BROKER_1 \
+  --topic sensor-events \
+  --time -1 | awk -F: '{sum += $3} END {print sum}')
+echo "  Messages in Kafka: $KAFKA_COUNT"
+
+# Check S3 (approximate, may be batched)
+echo "S3 verification:"
+S3_OBJECTS=$(aws s3 ls s3://$S3_BUCKET/sensor-data/ --recursive | grep "$(date +%Y-%m-%d)" | wc -l)
+echo "  Objects created in S3: $S3_OBJECTS"
+
+# Check Elasticsearch
+echo "Elasticsearch verification:"
+ES_COUNT=$(curl -s -X GET "${ES_ENDPOINT_1}/sensor-events-$(date +%Y-%m-%d)/_count" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" | jq '.count // 0')
+echo "  Documents in Elasticsearch: $ES_COUNT"
+
+# Performance summary
+echo ""
+echo "Performance Summary:"
+echo "  Target throughput: ${RATE} msg/s"
+echo "  Actual Kafka throughput: $((KAFKA_COUNT / DURATION)) msg/s"
+echo "  Success rate: $((KAFKA_COUNT * 100 / TOTAL_MESSAGES))%"
+
+if [ $((KAFKA_COUNT * 100 / TOTAL_MESSAGES)) -gt 95 ]; then
+  echo "✅ Load test passed (&gt;95% success rate)"
+else
+echo "❌ Load test failed (&lt;95% success rate)"
+fi
+EOF
+
+chmod +x production-load-test.sh
+./production-load-test.sh
+```
+
+## Production Monitoring and Operations
+
+### Set Up Comprehensive Monitoring
+
+```bash title="Setup monitoring dashboards"
+# Create monitoring setup script
+cat > setup-production-monitoring.sh << 'EOF'
+#!/bin/bash
+
+echo "Setting up production monitoring..."
+
+# Create Elasticsearch monitoring queries
+cat > elasticsearch-monitoring-queries.json << 'ESEOF'
+{
+  "pipeline_health": {
+    "query": {
+      "bool": {
+        "filter": [
+          {"range": {"timestamp": {"gte": "now-5m"}}},
+          {"term": {"monitoring.pipeline_health": "healthy"}}
+        ]
+      }
+    },
+    "aggs": {
+      "health_rate": {
+        "value_count": {"field": "event_id"}
+      }
+    }
+  },
+  "alert_summary": {
+    "size": 0,
+    "query": {"range": {"timestamp": {"gte": "now-1h"}}},
+    "aggs": {
+      "temperature_alerts": {
+        "terms": {"field": "alerts.temperature_status"}
+      },
+      "critical_sensors": {
+        "filter": {"term": {"alerts.temperature_status": "critical"}},
+        "aggs": {
+          "sensors": {
+            "terms": {"field": "sensor_id", "size": 10}
+          }
+        }
+      }
+    }
+  },
+  "edge_node_performance": {
+    "size": 0,
+    "query": {"range": {"timestamp": {"gte": "now-1h"}}},
+    "aggs": {
+      "edge_nodes": {
+        "terms": {"field": "edge_node_id"},
+        "aggs": {
+          "avg_latency": {
+            "avg": {"field": "metrics.processing_latency_ms"}
+          },
+          "event_count": {
+            "value_count": {"field": "event_id"}
+          },
+          "error_rate": {
+            "filter": {"term": {"monitoring.pipeline_health": "error"}},
+            "aggs": {
+              "error_count": {"value_count": {"field": "event_id"}}
+            }
+          }
+        }
+      }
+    }
+  }
+}
+ESEOF
+
+# Create Grafana dashboard JSON
+cat > grafana-fan-out-dashboard.json << 'GRAFEOF'
+{
+  "dashboard": {
+    "title": "Fan-Out Pipeline Production Dashboard",
+    "tags": ["expanso", "fan-out", "production"],
+    "panels": [
+      {
+        "title": "Message Throughput",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(expanso_messages_total[5m])",
+            "legendFormat": "{{destination}}"
+          }
+        ]
+      },
+      {
+        "title": "Fallback Activation",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "increase(expanso_fallback_activations_total[1h])",
+            "legendFormat": "Fallbacks"
+          }
+        ]
+      },
+      {
+        "title": "Alert Distribution",
+        "type": "piechart",
+        "targets": [
+          {
+            "query": "sensor-events-*",
+            "queryType": "elasticsearch"
+          }
+        ]
+      }
+    ]
+  }
+}
+GRAFEOF
+
+echo "✅ Monitoring configuration files created"
+echo "📊 Import grafana-fan-out-dashboard.json into Grafana"
+echo "🔍 Use elasticsearch-monitoring-queries.json for Kibana dashboards"
+EOF
+
+chmod +x setup-production-monitoring.sh
+./setup-production-monitoring.sh
+```
+
+### Create Operational Runbooks
+
+```bash title="Create operational runbooks"
+# Create runbook for common operations
+cat > PRODUCTION_RUNBOOK.md << 'EOF'
+# Production Fan-Out Pipeline Runbook
+
+## Quick Status Check
+```bash
+# Check pipeline health
+expanso job status production-multi-destination-pipeline
+
+# Check recent logs
+expanso job logs production-multi-destination-pipeline | tail -50
+
+# Check fallback buffer status
+./monitor-fallback-buffers.sh
+```
+
+## Common Operations
+
+### Restart Pipeline
+```bash
+# Graceful restart
+expanso job stop production-multi-destination-pipeline
+sleep 30
+expanso job start production-multi-destination-pipeline
+```
+
+### Scale Up for High Load
+```bash
+# Increase rate limits
+export RATE_LIMIT="100000/s"
+expanso job update production-fan-out-pipeline.yaml
+```
+
+### Emergency Fallback Mode
+```bash
+# Force offline mode
+export NETWORK_STATUS="offline"
+expanso job update production-fan-out-pipeline.yaml
+```
+
+### Recover from Outages
+```bash
+# Run automated recovery
+./automated-recovery.sh
+
+# Manual buffer replay
+./replay-kafka-buffers.sh
+./sync-s3-buffers.sh
+./index-search-buffers.sh
+```
+
+## Troubleshooting
+
+### High Memory Usage
+1. Check fallback buffer sizes: `./monitor-fallback-buffers.sh`
+2. Reduce batch sizes in configuration
+3. Enable emergency cleanup: `export DISK_USAGE_PERCENT="96"`
+
+### Network Connectivity Issues
+1. Verify service connectivity: `./validate-production-deployment.sh`
+2. Check fallback activation in logs
+3. Monitor buffer growth rates
+
+### Performance Degradation
+1. Check edge node resources: CPU, memory, disk
+2. Verify network bandwidth and latency
+3. Review recent configuration changes
+4. Check downstream service health
+
+## Alert Responses
+
+### Critical Temperature Alert
+1. Identify affected sensors from Elasticsearch
+2. Check sensor hardware status
+3. Verify temperature readings are accurate
+4. Escalate to facilities team if environmental issue
+
+### Pipeline Failure
+1. Check service connectivity
+2. Review error logs for root cause
+3. Activate manual fallback mode if needed
+4. Contact platform team if persistent
+
+### Disk Space Critical
+1. Run emergency cleanup: `./cleanup-old-buffers.sh`
+2. Archive completed buffers to external storage
+3. Increase disk capacity
+4. Review retention policies
+
+## Performance Targets
+
+- **Throughput**: &gt;1000 messages/second
+- **Latency**: &lt;100ms average processing time
+- **Availability**: &gt;99.9% uptime
+- **Data Loss**: 0% (with fallback systems)
+
+## Escalation Contacts
+
+- **Platform Team**: edge-platform-oncall@company.com
+- **Infrastructure**: infra-oncall@company.com  
+- **Security**: security-team@company.com
+EOF
+
+echo "📚 Production runbook created: PRODUCTION_RUNBOOK.md"
+```
+
+## Key Benefits Summary
+
+This complete production pipeline provides:
+
+### **Reliability & Resilience**
+- ✅ **Zero data loss** through comprehensive fallback strategies
+- ✅ **Automatic recovery** from network and service outages
+- ✅ **Graceful degradation** with reduced functionality during issues
+- ✅ **Emergency survival mode** for extreme resource constraints
+
+### **Performance & Scale**
+- ✅ **High throughput** with optimized batching per destination
+- ✅ **Low latency** real-time streaming to Kafka
+- ✅ **Bandwidth optimization** for edge computing environments
+- ✅ **Resource awareness** with adaptive behavior
+
+### **Security & Compliance**
+- ✅ **End-to-end encryption** for all cloud communications
+- ✅ **Compliance-ready** with GDPR/PCI-DSS audit trails
+- ✅ **Secure credential management** with environment variables
+- ✅ **Data retention policies** with automated lifecycle management
+
+### **Operational Excellence**
+- ✅ **Comprehensive monitoring** with real-time alerting
+- ✅ **Automated operations** with recovery and cleanup scripts
+- ✅ **Production runbooks** for common operational scenarios
+- ✅ **Performance tracking** with SLA monitoring
+
+## Next Steps
+
+✅ **Complete production pipeline ready!** Deploy this configuration to get bulletproof multi-destination data routing with enterprise-grade reliability.
+
+<div style={{display: 'flex', gap: '1rem', marginTop: '2rem', marginBottom: '2rem', flexWrap: 'wrap'}}>
+  <a href="./troubleshooting" className="button button--primary button--lg" style={{flex: '1', minWidth: '200px'}}>
+    Troubleshooting Guide
+  </a>
+  <a href="../content-routing" className="button button--secondary button--lg" style={{flex: '1', minWidth: '200px'}}>
+    Related Patterns
+  </a>
+</div>
+
+---
+
+**Next:** [Learn troubleshooting techniques](./troubleshooting) for production operations

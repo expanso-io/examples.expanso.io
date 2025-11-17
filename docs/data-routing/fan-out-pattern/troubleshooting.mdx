@@ -1,0 +1,1210 @@
+---
+title: Troubleshooting Fan-Out Pattern Issues
+sidebar_label: Troubleshooting
+sidebar_position: 10
+description: Comprehensive troubleshooting guide for fan-out pattern production issues
+keywords: [troubleshooting, debugging, fan-out, production issues, performance, monitoring]
+---
+
+# Troubleshooting Fan-Out Pattern Issues
+
+**Diagnose and resolve production issues in multi-destination fan-out pipelines**. This comprehensive guide covers 25+ common issues with diagnostic commands, root cause analysis, and step-by-step solutions.
+
+## Quick Diagnostic Commands
+
+Start troubleshooting with these essential diagnostic commands:
+
+```bash title="Essential diagnostics"
+# Pipeline health check
+expanso job status production-multi-destination-pipeline
+
+# Recent error logs
+expanso job logs production-multi-destination-pipeline | grep -i error | tail -20
+
+# Resource usage
+df -h /var/expanso/
+free -h
+top -p $(pgrep expanso)
+
+# Network connectivity
+ping -c 3 google.com
+curl -s --max-time 5 "${ES_ENDPOINT_1}/_cluster/health"
+
+# Fallback buffer status
+find /var/expanso/ -name "*.jsonl*" -type f | wc -l
+du -sh /var/expanso/*/
+```
+
+## Configuration Issues
+
+### Issue: Pipeline Fails to Deploy
+
+**Symptom:** `expanso job deploy` returns validation errors or deployment fails.
+
+**Common Causes:**
+- Invalid YAML syntax
+- Missing environment variables  
+- Incorrect field names or types
+- Resource constraints
+
+**Diagnosis:**
+```bash
+# Validate YAML syntax
+yamllint production-fan-out-pipeline.yaml
+
+# Check environment variables
+env | grep -E "(KAFKA|S3|ES|AWS)_"
+
+# Validate configuration
+expanso job validate production-fan-out-pipeline.yaml
+
+# Check resource requirements
+expanso node describe $(expanso node list -o json | jq -r '.[] | select(.id == env.NODE_ID).id')
+```
+
+**Solutions:**
+
+1. **YAML syntax errors:**
+```bash
+# Fix common YAML issues
+sed -i 's/\t/  /g' production-fan-out-pipeline.yaml  # Convert tabs to spaces
+yamllint --fix production-fan-out-pipeline.yaml
+```
+
+2. **Missing environment variables:**
+```bash
+# Create comprehensive .env file
+cat > .env << 'EOF'
+# Kafka Configuration
+KAFKA_BROKER_1=kafka-1.your-cluster.com:9092
+KAFKA_BROKER_2=kafka-2.your-cluster.com:9092
+KAFKA_BROKER_3=kafka-3.your-cluster.com:9092
+KAFKA_USERNAME=your-username
+KAFKA_PASSWORD=your-password
+
+# AWS S3 Configuration
+S3_BUCKET=your-bucket-name
+AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+AWS_REGION=us-west-2
+
+# Elasticsearch Configuration
+ES_ENDPOINT_1=https://es-1.your-cluster.com:9200
+ES_ENDPOINT_2=https://es-2.your-cluster.com:9200
+ES_ENDPOINT_3=https://es-3.your-cluster.com:9200
+ES_USERNAME=your-es-username
+ES_PASSWORD=your-es-password
+
+# Edge Node Configuration
+NODE_ID=edge-node-01
+NODE_LOCATION=factory-floor-west
+EDGE_CLUSTER_ID=production-west
+ENVIRONMENT=production
+EOF
+
+source .env
+```
+
+3. **Resource constraints:**
+```bash
+# Check and increase resource limits
+expanso node update --cpu-limit 4 --memory-limit 8Gi
+```
+
+### Issue: Environment Variable Interpolation Fails
+
+**Symptom:** Configuration shows literal `${VAR_NAME}` instead of interpolated values.
+
+**Diagnosis:**
+```bash
+# Check variable interpolation in deployment
+expanso job describe production-multi-destination-pipeline | grep -E "\\\$\{.*\}"
+
+# Verify environment variables are available to pipeline
+expanso job exec production-multi-destination-pipeline -- env | grep -E "(KAFKA|S3|ES)_"
+```
+
+**Solutions:**
+
+1. **Set variables at deployment time:**
+```bash
+# Export all variables before deployment
+set -a  # Export all variables
+source .env
+set +a  # Stop exporting
+expanso job deploy production-fan-out-pipeline.yaml
+```
+
+2. **Use secrets management:**
+```bash
+# Store sensitive variables in secrets
+expanso secret create kafka-credentials \
+  --from-literal=username="$KAFKA_USERNAME" \
+  --from-literal=password="$KAFKA_PASSWORD"
+
+# Reference in pipeline config
+# credentials:
+#   user: ${!secret("kafka-credentials", "username")}
+#   password: ${!secret("kafka-credentials", "password")}
+```
+
+## Connection and Network Issues
+
+### Issue: Kafka Connection Failures
+
+**Symptom:** Kafka outputs show connection timeout or authentication errors.
+
+**Diagnosis:**
+```bash
+# Test basic connectivity
+telnet ${KAFKA_BROKER_1%:*} ${KAFKA_BROKER_1#*:}
+
+# Test authentication
+kafka_2.13-2.8.1/bin/kafka-broker-api-versions.sh \
+  --bootstrap-server $KAFKA_BROKER_1 \
+  --command-config <(echo -e "security.protocol=SASL_SSL\nsasl.mechanism=SCRAM-SHA-512\nsasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username=\"$KAFKA_USERNAME\" password=\"$KAFKA_PASSWORD\";")
+
+# Check pipeline logs for specific Kafka errors
+expanso job logs production-multi-destination-pipeline | grep -i kafka | tail -10
+```
+
+**Solutions:**
+
+1. **Network connectivity issues:**
+```bash
+# Check firewall rules
+sudo iptables -L | grep 9092
+sudo netstat -tuln | grep 9092
+
+# Test with curl (for REST proxy endpoints)
+curl -s --connect-timeout 5 http://${KAFKA_BROKER_1}/
+
+# Add network troubleshooting to pipeline
+# timeout: 30s  # Increase from default
+# max_retries: 8  # Increase retries
+```
+
+2. **Authentication problems:**
+```bash
+# Verify credentials format
+echo "Username: '$KAFKA_USERNAME'"
+echo "Password length: ${#KAFKA_PASSWORD}"
+
+# Test different SASL mechanisms
+# SCRAM-SHA-256, SCRAM-SHA-512, PLAIN
+# mechanism: SCRAM-SHA-256  # Try different mechanism
+```
+
+3. **SSL/TLS certificate issues:**
+```bash
+# Disable certificate verification temporarily for testing
+# tls:
+#   enabled: true
+#   skip_cert_verify: true  # Only for debugging
+
+# Check certificate validity
+openssl s_client -connect ${KAFKA_BROKER_1} -servername ${KAFKA_BROKER_1%:*} < /dev/null
+```
+
+### Issue: S3 Upload Failures
+
+**Symptom:** S3 outputs fail with permission denied or timeout errors.
+
+**Diagnosis:**
+```bash
+# Test S3 credentials
+aws sts get-caller-identity
+
+# Test bucket access
+aws s3 ls s3://$S3_BUCKET/ --region $AWS_REGION
+
+# Check bucket permissions
+aws s3api get-bucket-acl --bucket $S3_BUCKET
+
+# Test upload with sample file
+echo "test" > /tmp/test.txt
+aws s3 cp /tmp/test.txt s3://$S3_BUCKET/test/ --region $AWS_REGION
+aws s3 rm s3://$S3_BUCKET/test/test.txt
+```
+
+**Solutions:**
+
+1. **IAM permission issues:**
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": [
+        "arn:aws:s3:::your-bucket-name",
+        "arn:aws:s3:::your-bucket-name/*"
+      ]
+    }
+  ]
+}
+```
+
+2. **Region mismatch:**
+```bash
+# Check bucket region
+BUCKET_REGION=$(aws s3api get-bucket-location --bucket $S3_BUCKET --query 'LocationConstraint' --output text)
+echo "Bucket region: $BUCKET_REGION"
+echo "Configured region: $AWS_REGION"
+
+# Update configuration if needed
+# region: us-west-2  # Match bucket region
+```
+
+3. **Upload timeout issues:**
+```bash
+# Increase timeouts for large files
+# timeout: 900s  # 15 minutes for large uploads
+# multipart_upload_threshold: 50MB
+# multipart_upload_chunk_size: 5MB
+```
+
+### Issue: Elasticsearch Connection Problems
+
+**Symptom:** Elasticsearch outputs fail with connection refused or authentication errors.
+
+**Diagnosis:**
+```bash
+# Test basic connectivity
+curl -X GET "${ES_ENDPOINT_1}/_cluster/health"
+
+# Test authentication
+curl -X GET "${ES_ENDPOINT_1}/_cluster/health" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}"
+
+# Check cluster status
+curl -X GET "${ES_ENDPOINT_1}/_cat/nodes?v" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}"
+
+# Test index operations
+curl -X PUT "${ES_ENDPOINT_1}/test-index" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}"
+curl -X DELETE "${ES_ENDPOINT_1}/test-index" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}"
+```
+
+**Solutions:**
+
+1. **Cluster connectivity issues:**
+```bash
+# Try all configured endpoints
+for endpoint in $ES_ENDPOINT_1 $ES_ENDPOINT_2 $ES_ENDPOINT_3; do
+  echo "Testing $endpoint..."
+  curl -s -X GET "$endpoint/_cluster/health" -u "$ES_USERNAME:$ES_PASSWORD" | jq '.status'
+done
+
+# Use only healthy endpoints in configuration
+# urls: ["https://es-healthy-1.com:9200"]
+```
+
+2. **Authentication and authorization:**
+```bash
+# Verify user permissions
+curl -X GET "${ES_ENDPOINT_1}/_security/user/${ES_USERNAME}" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}"
+
+# Check index permissions
+curl -X GET "${ES_ENDPOINT_1}/_security/_authenticate" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}"
+```
+
+3. **Index template issues:**
+```bash
+# Check if index template exists
+curl -X GET "${ES_ENDPOINT_1}/_index_template/sensor-events" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}"
+
+# Recreate index template if missing
+curl -X PUT "${ES_ENDPOINT_1}/_index_template/sensor-events" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" \
+  -H "Content-Type: application/json" \
+  -d @sensor-events-template.json
+```
+
+## Performance Issues
+
+### Issue: Low Throughput
+
+**Symptom:** Pipeline processes significantly fewer messages than expected rate.
+
+**Diagnosis:**
+```bash
+# Check current throughput
+expanso job metrics production-multi-destination-pipeline | grep -i throughput
+
+# Monitor batch processing
+expanso job logs production-multi-destination-pipeline | grep -i "batch\|flush" | tail -10
+
+# Check resource utilization
+top -p $(pgrep expanso)
+iostat -x 5 3
+
+# Check network bandwidth
+iperf3 -c speedtest.net -t 10
+```
+
+**Solutions:**
+
+1. **Increase batch sizes:**
+```yaml
+# Optimize batching for throughput
+batching:
+  count: 1000      # Increase from smaller values
+  period: 10s      # Allow larger batches to form
+  byte_size: 20MB  # Increase payload size
+```
+
+2. **Reduce processing overhead:**
+```yaml
+# Minimize processing in hot path
+processors:
+  # Remove unnecessary mapping operations
+  # Combine multiple mapping operations into one
+  - mapping: |
+      # Do all processing in single operation
+      root = this
+      root.edge_node_id = env("NODE_ID")
+      root.processing_timestamp = now()
+      # ... all enrichment in one block
+```
+
+3. **Optimize compression:**
+```yaml
+# Use faster compression algorithms
+kafka:
+  compression: snappy  # Faster than gzip
+  
+aws_s3:
+  content_encoding: gzip  # Balance of speed and compression
+  
+elasticsearch:
+  gzip_compression: true  # Enable for bandwidth savings
+```
+
+### Issue: High Memory Usage
+
+**Symptom:** Edge node memory consumption grows over time, potentially causing OOM errors.
+
+**Diagnosis:**
+```bash
+# Monitor memory usage over time
+while true; do
+  echo "$(date): $(free -h | grep Mem)"
+  sleep 30
+done
+
+# Check for memory leaks
+valgrind --tool=memcheck --leak-check=full expanso
+
+# Analyze memory allocation by component
+ps aux --sort=-%mem | head -10
+
+# Check swap usage
+swapon --show
+```
+
+**Solutions:**
+
+1. **Reduce batch sizes:**
+```yaml
+# Smaller batches use less memory
+batching:
+  count: 200       # Reduce from 1000+
+  period: 5s       # More frequent flushes
+  byte_size: 5MB   # Smaller payload sizes
+```
+
+2. **Limit concurrent batches:**
+```yaml
+# Restrict memory usage per output
+outputs:
+  - kafka:
+      max_in_flight: 2  # Limit concurrent batches
+  - aws_s3:
+      max_in_flight: 1  # Single upload at a time
+```
+
+3. **Enable aggressive garbage collection:**
+```bash
+# Set JVM options for better memory management
+export EXPANSO_OPTS="-XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Xmx2g"
+```
+
+### Issue: High Latency
+
+**Symptom:** Messages take longer than expected to reach destinations.
+
+**Diagnosis:**
+```bash
+# Check processing latency in logs
+expanso job logs production-multi-destination-pipeline | grep "processing_latency_ms" | tail -10
+
+# Monitor destination-specific latency
+# Kafka
+kafka_2.13-2.8.1/bin/kafka-consumer-perf-test.sh \
+  --bootstrap-server $KAFKA_BROKER_1 \
+  --topic sensor-events \
+  --messages 1000
+
+# Elasticsearch  
+curl -X POST "${ES_ENDPOINT_1}/sensor-events-$(date +%Y-%m-%d)/_search" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" \
+  -d '{"query":{"match_all":{}},"size":1,"sort":[{"timestamp":{"order":"desc"}}]}' | \
+  jq '.took'
+```
+
+**Solutions:**
+
+1. **Optimize batch timing:**
+```yaml
+# Reduce batch periods for lower latency
+batching:
+  count: 50        # Smaller batches
+  period: 1s       # Frequent flushes
+  flush_period: 2s # Force periodic flushes
+```
+
+2. **Reduce processing complexity:**
+```yaml
+# Simplify processing pipeline
+processors:
+  # Remove non-essential enrichment
+  - mapping: |
+      # Keep only essential fields
+      root = {
+        "event_id": this.event_id,
+        "sensor_id": this.sensor_id,
+        "timestamp": this.timestamp,
+        "temperature": this.temperature,
+        "humidity": this.humidity
+      }
+```
+
+3. **Optimize network settings:**
+```yaml
+# Network optimizations
+kafka:
+  linger_ms: 1           # Reduce from default 5ms
+  buffer_memory: 16MB    # Smaller buffer for faster processing
+
+elasticsearch:
+  timeout: 10s           # Reduce timeout
+  max_idle_conns: 20     # More connection pooling
+```
+
+## Data Quality Issues
+
+### Issue: Missing or Incomplete Data
+
+**Symptom:** Some fields are null or missing in destination systems.
+
+**Diagnosis:**
+```bash
+# Check data completeness in Elasticsearch
+curl -X POST "${ES_ENDPOINT_1}/sensor-events-*/_search" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" \
+  -d '{
+    "size": 0,
+    "aggs": {
+      "missing_temperature": {"missing": {"field": "temperature"}},
+      "missing_humidity": {"missing": {"field": "humidity"}},
+      "missing_sensor_id": {"missing": {"field": "sensor_id"}}
+    }
+  }'
+
+# Check validation errors in logs
+expanso job logs production-multi-destination-pipeline | grep -i "validation\|missing\|throw" | tail -10
+
+# Verify input data format
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{"event_id":"test","sensor_id":"test-sensor","timestamp":"2025-01-20T10:00:00Z"}'
+```
+
+**Solutions:**
+
+1. **Add data validation:**
+```yaml
+processors:
+  - mapping: |
+      # Comprehensive validation
+      if !this.exists("event_id") {
+        throw("missing required field: event_id")
+      }
+      if !this.exists("sensor_id") {
+        throw("missing required field: sensor_id")
+      }
+      
+      # Data type validation
+      if this.sensor_id.type() != "string" {
+        throw("sensor_id must be string, got: " + this.sensor_id.type())
+      }
+      
+      # Range validation
+      if this.exists("temperature") {
+        temp = this.temperature.number()
+        if temp < -50 || temp > 80 {
+          throw("temperature out of range: " + temp.string())
+        }
+      }
+      
+      root = this
+```
+
+2. **Add data enrichment:**
+```yaml
+processors:
+  - mapping: |
+      root = this
+      
+      # Provide defaults for missing optional fields
+      root.temperature = this.temperature.or(null)
+      root.humidity = this.humidity.or(null)
+      root.battery_level = this.metadata.battery_level.or(100)
+      
+      # Ensure required metadata exists
+      root.edge_node_id = env("NODE_ID").or("unknown")
+      root.processing_timestamp = now()
+```
+
+### Issue: Data Type Inconsistencies
+
+**Symptom:** Fields have different data types across destinations or contain invalid values.
+
+**Diagnosis:**
+```bash
+# Check Elasticsearch field mappings
+curl -X GET "${ES_ENDPOINT_1}/sensor-events-*/_mapping" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" | jq '.[] | .mappings.properties'
+
+# Check for type conversion errors in logs
+expanso job logs production-multi-destination-pipeline | grep -i "type\|conversion\|parse" | tail -10
+
+# Sample recent data to check consistency
+curl -X POST "${ES_ENDPOINT_1}/sensor-events-*/_search" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" \
+  -d '{"size": 5, "sort": [{"timestamp": {"order": "desc"}}]}' | \
+  jq '.hits.hits[]._source | {temperature: (.temperature | type), humidity: (.humidity | type)}'
+```
+
+**Solutions:**
+
+1. **Enforce data types:**
+```yaml
+processors:
+  - mapping: |
+      root = this
+      
+      # Convert to proper types
+      root.temperature = this.temperature.number()
+      root.humidity = this.humidity.number()
+      root.battery_level = this.metadata.battery_level.number().or(100)
+      
+      # String normalization
+      root.sensor_id = this.sensor_id.string().uppercase()
+      root.device_type = this.device_type.string().lowercase()
+      
+      # Timestamp normalization
+      root.timestamp = this.timestamp.parse_timestamp().ts_format_iso8601()
+```
+
+2. **Add type validation:**
+```yaml
+processors:
+  - mapping: |
+      # Validate types before processing
+      if this.exists("temperature") && this.temperature.type() != "number" {
+        throw("temperature must be number, got: " + this.temperature.type())
+      }
+      if this.exists("humidity") && this.humidity.type() != "number" {
+        throw("humidity must be number, got: " + this.humidity.type())
+      }
+      
+      root = this
+```
+
+### Issue: Duplicate Messages
+
+**Symptom:** Same events appear multiple times in destination systems.
+
+**Diagnosis:**
+```bash
+# Check for duplicates in Elasticsearch
+curl -X POST "${ES_ENDPOINT_1}/sensor-events-*/_search" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" \
+  -d '{
+    "size": 0,
+    "aggs": {
+      "duplicate_events": {
+        "terms": {"field": "event_id", "min_doc_count": 2}
+      }
+    }
+  }'
+
+# Check Kafka for duplicate messages
+kafka_2.13-2.8.1/bin/kafka-console-consumer.sh \
+  --bootstrap-server $KAFKA_BROKER_1 \
+  --topic sensor-events \
+  --from-beginning \
+  --max-messages 1000 | \
+  jq -r '.event_id' | sort | uniq -d
+
+# Check pipeline logs for retry patterns
+expanso job logs production-multi-destination-pipeline | grep -i "retry\|duplicate" | tail -10
+```
+
+**Solutions:**
+
+1. **Enable idempotent operations:**
+```yaml
+# Kafka idempotent configuration
+kafka:
+  idempotent_write: true
+  ack_replicas: true
+  max_in_flight: 1
+
+# Elasticsearch document ID for upserts
+elasticsearch:
+  id: ${!json("event_id")}  # Use event_id as document ID
+```
+
+2. **Add deduplication logic:**
+```yaml
+processors:
+  - mapping: |
+      root = this
+      
+      # Create composite key for true uniqueness
+      root.composite_key = this.event_id + "_" + this.sensor_id + "_" + this.timestamp
+      
+      # Add sequence numbers
+      root.sequence_number = now().ts_unix_nano()
+```
+
+## Fallback and Recovery Issues
+
+### Issue: Fallback Buffers Growing Uncontrollably
+
+**Symptom:** Local fallback files consuming excessive disk space.
+
+**Diagnosis:**
+```bash
+# Check fallback buffer sizes
+du -sh /var/expanso/*/
+find /var/expanso/ -name "*.jsonl*" -type f -exec ls -lh {} \; | sort -k5 -hr
+
+# Check buffer growth rate
+echo "Buffer growth over last 24 hours:"
+find /var/expanso/ -name "*.jsonl*" -type f -mtime -1 | xargs du -ch | tail -1
+
+# Check available disk space
+df -h /var/expanso/
+
+# Monitor buffer creation rate
+watch -n 5 'find /var/expanso/ -name "*.jsonl*" -type f | wc -l'
+```
+
+**Solutions:**
+
+1. **Implement buffer cleanup:**
+```bash
+# Create cleanup script
+cat > cleanup-old-buffers.sh << 'EOF'
+#!/bin/bash
+
+# Clean buffers older than 48 hours
+find /var/expanso/kafka-buffer/ -name "*.jsonl*" -mtime +2 -delete
+find /var/expanso/s3-buffer/ -name "*.jsonl*" -mtime +2 -delete  
+find /var/expanso/search-buffer/ -name "*.jsonl*" -mtime +2 -delete
+
+# Compress old buffers
+find /var/expanso/ -name "*.jsonl" -mtime +1 -exec gzip {} \;
+
+# Remove empty directories
+find /var/expanso/ -type d -empty -delete
+
+echo "Cleanup completed: $(du -sh /var/expanso/ | cut -f1) total"
+EOF
+
+chmod +x cleanup-old-buffers.sh
+
+# Schedule cleanup
+crontab -l 2>/dev/null | { cat; echo "0 2 * * * $(pwd)/cleanup-old-buffers.sh"; } | crontab -
+```
+
+2. **Optimize buffer sizes:**
+```yaml
+# Reduce fallback buffer sizes
+fallback:
+  - file:
+      batching:
+        count: 100      # Reduce from larger values
+        period: 2m      # More frequent smaller files
+        byte_size: 1MB  # Smaller file sizes
+```
+
+3. **Enable compression:**
+```yaml
+# Add compression to all fallback files
+processors:
+  - compress:
+      algorithm: gzip
+      level: 9  # Maximum compression
+```
+
+### Issue: Recovery Process Not Working
+
+**Symptom:** Buffered data is not being replayed to destinations after service recovery.
+
+**Diagnosis:**
+```bash
+# Check for recovery scripts
+ls -la *recovery*.sh
+ls -la automated-recovery.sh
+
+# Test connectivity to services
+./validate-production-deployment.sh
+
+# Check buffer file formats
+head -5 /var/expanso/kafka-buffer/priority-normal-$(date +%Y-%m-%d)-*.jsonl
+
+# Verify recovery metadata
+jq '.kafka_fallback_metadata // .s3_fallback_metadata // .search_fallback_metadata' \
+  /var/expanso/*/recent-file.jsonl | head -5
+```
+
+**Solutions:**
+
+1. **Fix recovery automation:**
+```bash
+# Test manual recovery
+./automated-recovery.sh
+
+# Check recovery script permissions
+chmod +x automated-recovery.sh
+
+# Verify cron job
+crontab -l | grep recovery
+
+# Test individual recovery functions
+source automated-recovery.sh
+replay_kafka_buffers
+sync_s3_buffers
+index_search_buffers
+```
+
+2. **Fix buffer replay logic:**
+```bash
+# Enhanced replay script
+cat > enhanced-recovery.sh << 'EOF'
+#!/bin/bash
+
+echo "Enhanced Recovery Process"
+echo "========================"
+
+# Function to replay with error handling
+replay_with_retry() {
+  local buffer_file=$1
+  local max_attempts=3
+  local attempt=1
+  
+  while [ $attempt -le $max_attempts ]; do
+    echo "Attempt $attempt: Replaying $buffer_file"
+    
+    if replay_buffer_file "$buffer_file"; then
+      echo "Success: $buffer_file replayed"
+      mv "$buffer_file" "${buffer_file}.replayed.$(date +%s)"
+      return 0
+    else
+      echo "Failed: $buffer_file attempt $attempt"
+      ((attempt++))
+      sleep $((attempt * 5))
+    fi
+  done
+  
+  echo "All attempts failed for $buffer_file"
+  return 1
+}
+
+# Process all buffer files
+find /var/expanso/ -name "*.jsonl" -mtime -7 | while read -r file; do
+  replay_with_retry "$file"
+done
+EOF
+
+chmod +x enhanced-recovery.sh
+```
+
+### Issue: Circuit Breaker Not Activating
+
+**Symptom:** Pipeline continues attempting failed destinations instead of failing over to fallbacks.
+
+**Diagnosis:**
+```bash
+# Check retry configuration in current deployment
+expanso job describe production-multi-destination-pipeline | grep -A 5 -B 5 "retry\|backoff"
+
+# Monitor retry attempts in logs
+expanso job logs production-multi-destination-pipeline | grep -i "retry\|attempt\|backoff" | tail -20
+
+# Check fallback activation logs
+expanso job logs production-multi-destination-pipeline | grep -i "fallback" | tail -10
+```
+
+**Solutions:**
+
+1. **Tune retry parameters:**
+```yaml
+# More aggressive failure detection
+kafka:
+  max_retries: 2        # Reduce retries
+  timeout: 5s           # Shorter timeout
+  backoff:
+    initial_interval: 100ms
+    max_interval: 2s    # Faster failure detection
+
+aws_s3:
+  max_retries: 3
+  timeout: 30s          # Reasonable for uploads
+  
+elasticsearch:
+  max_retries: 2
+  timeout: 10s
+```
+
+2. **Add circuit breaker logic:**
+```yaml
+# Add explicit failure handling
+processors:
+  - mapping: |
+      root = this
+      
+      # Track failure rates
+      root.circuit_breaker = {
+        "kafka_failures": env("KAFKA_FAILURE_COUNT").number().or(0),
+        "s3_failures": env("S3_FAILURE_COUNT").number().or(0),
+        "elasticsearch_failures": env("ES_FAILURE_COUNT").number().or(0)
+      }
+      
+      # Activate fallback mode if too many failures
+      root.force_fallback = this.circuit_breaker.kafka_failures > 5 || 
+                           this.circuit_breaker.s3_failures > 3 ||
+                           this.circuit_breaker.elasticsearch_failures > 5
+```
+
+## Monitoring and Alerting Issues
+
+### Issue: Missing or Incorrect Metrics
+
+**Symptom:** Monitoring dashboards show no data or incorrect values.
+
+**Diagnosis:**
+```bash
+# Check if metrics are being generated
+expanso job metrics production-multi-destination-pipeline
+
+# Verify Elasticsearch monitoring queries
+curl -X POST "${ES_ENDPOINT_1}/sensor-events-*/_search" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" \
+  -d '{
+    "size": 0,
+    "query": {"range": {"timestamp": {"gte": "now-1h"}}},
+    "aggs": {
+      "message_count": {"value_count": {"field": "event_id"}},
+      "avg_latency": {"avg": {"field": "metrics.processing_latency_ms"}}
+    }
+  }'
+
+# Check monitoring metadata in recent events
+curl -X POST "${ES_ENDPOINT_1}/sensor-events-*/_search" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" \
+  -d '{"size": 1, "sort": [{"timestamp": {"order": "desc"}}]}' | \
+  jq '.hits.hits[0]._source.monitoring'
+```
+
+**Solutions:**
+
+1. **Fix metrics collection:**
+```yaml
+processors:
+  - mapping: |
+      root = this
+      
+      # Ensure monitoring fields are always present
+      root.monitoring = {
+        "pipeline_health": "healthy",
+        "processing_latency_ms": (now() - this.timestamp.parse_timestamp()) * 1000,
+        "data_completeness_score": if this.exists("temperature") && this.exists("humidity") { 100 } else { 50 },
+        "throughput_current": env("CURRENT_THROUGHPUT").number().or(0),
+        "error_count": env("ERROR_COUNT").number().or(0)
+      }
+```
+
+2. **Add explicit monitoring events:**
+```yaml
+# Add monitoring pipeline
+- switch:
+    # Regular events
+    - condition: ${!json("event_type").or("data")} == "data"
+      output: # ... normal fan-out configuration
+      
+    # Monitoring events  
+    - condition: ${!json("event_type")} == "monitoring"
+      output:
+        elasticsearch:
+          index: monitoring-${!timestamp_unix_date("2006-01-02")}
+          # ... monitoring-specific configuration
+```
+
+### Issue: Alerts Not Firing
+
+**Symptom:** Expected alerts for critical conditions are not being triggered.
+
+**Diagnosis:**
+```bash
+# Check alert conditions in recent data
+curl -X POST "${ES_ENDPOINT_1}/sensor-events-*/_search" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" \
+  -d '{
+    "size": 0,
+    "query": {"range": {"timestamp": {"gte": "now-1h"}}},
+    "aggs": {
+      "critical_temps": {
+        "filter": {"term": {"alerts.temperature_status": "critical"}}
+      },
+      "error_events": {
+        "filter": {"term": {"monitoring.pipeline_health": "error"}}
+      }
+    }
+  }'
+
+# Check alerting service configuration
+curl -X GET "${ES_ENDPOINT_1}/_watcher/watch/critical-temperature-alert" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}"
+
+# Verify alert thresholds
+expanso job logs production-multi-destination-pipeline | grep -i "alert\|critical" | tail -10
+```
+
+**Solutions:**
+
+1. **Fix alert condition logic:**
+```yaml
+processors:
+  - mapping: |
+      root = this
+      
+      # More sensitive alert thresholds
+      root.alerts = {
+        "temperature_status": if this.temperature.number() > 30 { "critical" }    # Lower threshold
+                             else if this.temperature.number() > 25 { "warning" }
+                             else { "normal" },
+        "immediate_action_required": this.temperature.number() > 35 || this.humidity.number() > 90,
+        "alert_severity": if this.temperature.number() > 35 { "P0" }
+                         else if this.temperature.number() > 30 { "P1" }
+                         else { "P3" }
+      }
+```
+
+2. **Add external alerting:**
+```bash
+# Create alerting script
+cat > check-alerts.sh << 'EOF'
+#!/bin/bash
+
+# Check for critical conditions
+CRITICAL_COUNT=$(curl -s -X POST "${ES_ENDPOINT_1}/sensor-events-$(date +%Y-%m-%d)/_count" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" \
+  -d '{"query": {"term": {"alerts.temperature_status": "critical"}}}' | \
+  jq '.count')
+
+if [ "$CRITICAL_COUNT" -gt 0 ]; then
+  echo "CRITICAL: $CRITICAL_COUNT sensors reporting critical temperatures"
+  # Send alert to external system
+  curl -X POST "https://alerts.company.com/webhook" \
+    -d "{\"message\": \"Critical temperature alerts: $CRITICAL_COUNT\", \"severity\": \"critical\"}"
+fi
+EOF
+
+chmod +x check-alerts.sh
+
+# Schedule alert checking
+crontab -l 2>/dev/null | { cat; echo "*/5 * * * * $(pwd)/check-alerts.sh"; } | crontab -
+```
+
+## Emergency Procedures
+
+### Complete Pipeline Reset
+
+When all else fails, use this emergency reset procedure:
+
+```bash title="Emergency pipeline reset"
+#!/bin/bash
+echo "🚨 EMERGENCY PIPELINE RESET 🚨"
+echo "This will stop the pipeline and clear all buffers!"
+read -p "Are you sure? Type 'RESET' to continue: " confirmation
+
+if [ "$confirmation" != "RESET" ]; then
+  echo "Reset cancelled"
+  exit 1
+fi
+
+# 1. Stop the pipeline
+echo "Stopping pipeline..."
+expanso job stop production-multi-destination-pipeline
+
+# 2. Archive existing buffers
+echo "Archiving existing buffers..."
+ARCHIVE_DIR="/var/expanso/archive/emergency-$(date +%s)"
+mkdir -p "$ARCHIVE_DIR"
+mv /var/expanso/kafka-buffer/* "$ARCHIVE_DIR/" 2>/dev/null
+mv /var/expanso/s3-buffer/* "$ARCHIVE_DIR/" 2>/dev/null
+mv /var/expanso/search-buffer/* "$ARCHIVE_DIR/" 2>/dev/null
+
+# 3. Clean up directories
+echo "Cleaning directories..."
+find /var/expanso/ -name "*.jsonl*" -type f -delete
+find /var/expanso/ -type d -empty -delete
+
+# 4. Recreate directory structure
+echo "Recreating directory structure..."
+mkdir -p /var/expanso/{kafka-buffer,s3-buffer,search-buffer,degraded,offline,emergency}
+
+# 5. Restart pipeline
+echo "Restarting pipeline..."
+expanso job start production-multi-destination-pipeline
+
+# 6. Verify restart
+sleep 30
+if expanso job status production-multi-destination-pipeline | grep -q "Running"; then
+  echo "✅ Pipeline restart successful"
+  echo "📁 Archived buffers available in: $ARCHIVE_DIR"
+else
+  echo "❌ Pipeline restart failed"
+  expanso job logs production-multi-destination-pipeline | tail -20
+fi
+```
+
+## Getting Additional Help
+
+### Enable Debug Logging
+
+```yaml title="Debug configuration"
+# Add debug logging to pipeline
+pipeline:
+  processors:
+    - mapping: |
+        # Log detailed debug information
+        root = this
+        root.debug_info = {
+          "processing_node": env("NODE_ID"),
+          "processing_time": now(),
+          "input_size_bytes": this.string().length(),
+          "memory_usage": env("MEMORY_USAGE_PERCENT"),
+          "network_status": env("NETWORK_QUALITY")
+        }
+
+# Enable debug mode in outputs
+output:
+  broker:
+    debug: true  # Enable detailed broker logging
+    outputs:
+      - kafka:
+          debug: true  # Enable Kafka debug logging
+```
+
+### Collect Diagnostic Information
+
+```bash title="Comprehensive diagnostics"
+# Create diagnostic collection script
+cat > collect-diagnostics.sh << 'EOF'
+#!/bin/bash
+
+DIAG_DIR="diagnostics-$(date +%s)"
+mkdir -p "$DIAG_DIR"
+
+echo "Collecting comprehensive diagnostics..."
+
+# Pipeline information
+expanso job describe production-multi-destination-pipeline > "$DIAG_DIR/pipeline-config.yaml"
+expanso job status production-multi-destination-pipeline > "$DIAG_DIR/pipeline-status.txt"
+expanso job logs production-multi-destination-pipeline | tail -1000 > "$DIAG_DIR/pipeline-logs.txt"
+
+# System information
+uname -a > "$DIAG_DIR/system-info.txt"
+free -h > "$DIAG_DIR/memory-info.txt"
+df -h > "$DIAG_DIR/disk-info.txt"
+top -b -n 1 > "$DIAG_DIR/cpu-info.txt"
+
+# Network information
+ip addr show > "$DIAG_DIR/network-interfaces.txt"
+ss -tuln > "$DIAG_DIR/network-ports.txt"
+
+# Service connectivity
+{
+  echo "=== KAFKA ==="
+  timeout 5 bash -c "</dev/tcp/${KAFKA_BROKER_1%:*}/${KAFKA_BROKER_1#*:}" && echo "Kafka: OK" || echo "Kafka: FAIL"
+  
+  echo "=== S3 ==="
+  aws s3 ls s3://$S3_BUCKET/ --region $AWS_REGION >/dev/null 2>&1 && echo "S3: OK" || echo "S3: FAIL"
+  
+  echo "=== ELASTICSEARCH ==="
+  curl -s --max-time 5 -u "$ES_USERNAME:$ES_PASSWORD" "$ES_ENDPOINT_1/_cluster/health" >/dev/null && echo "ES: OK" || echo "ES: FAIL"
+} > "$DIAG_DIR/connectivity-test.txt"
+
+# Buffer information
+du -sh /var/expanso/*/ > "$DIAG_DIR/buffer-sizes.txt"
+find /var/expanso/ -name "*.jsonl*" -type f | wc -l > "$DIAG_DIR/buffer-file-count.txt"
+
+# Configuration
+env | grep -E "(KAFKA|S3|ES|AWS)_" | sed 's/=.*/=***/' > "$DIAG_DIR/environment-vars.txt"
+
+# Create archive
+tar -czf "${DIAG_DIR}.tar.gz" "$DIAG_DIR/"
+echo "Diagnostics collected: ${DIAG_DIR}.tar.gz"
+echo "Share this file with support for assistance"
+EOF
+
+chmod +x collect-diagnostics.sh
+```
+
+### Contact Information
+
+When contacting support, always include:
+
+1. **Diagnostic archive** from `collect-diagnostics.sh`
+2. **Pipeline configuration** (with credentials redacted)
+3. **Recent error logs** (last 100 lines)
+4. **Expected vs actual behavior** description
+5. **Timeline** of when the issue started
+6. **Recent changes** to configuration or environment
+
+**Support Contacts:**
+- **Platform Team**: edge-platform-oncall@company.com
+- **Community Forum**: https://community.expanso.io
+- **Documentation**: https://docs.expanso.io
+- **Emergency Escalation**: Follow your organization's incident response procedures
+
+## Summary
+
+This troubleshooting guide covers the most common production issues with fan-out pattern pipelines. For any issues not covered here:
+
+1. **Check recent logs** for error messages
+2. **Verify service connectivity** with diagnostic commands  
+3. **Test individual components** in isolation
+4. **Use fallback systems** to maintain operations
+5. **Collect diagnostic information** before contacting support
+
+The key to successful troubleshooting is systematic diagnosis starting with the most common causes and progressively investigating more complex scenarios.

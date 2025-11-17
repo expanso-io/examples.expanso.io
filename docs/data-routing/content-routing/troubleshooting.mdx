@@ -1,0 +1,1113 @@
+---
+title: Content Routing Troubleshooting
+sidebar_label: Troubleshooting
+sidebar_position: 9
+description: Comprehensive troubleshooting guide for content routing issues including classification errors, GDPR violations, and performance problems
+keywords: [troubleshooting, debug, content-routing, errors, performance, compliance]
+---
+
+# Content Routing Troubleshooting
+
+**Diagnose and fix common content routing issues.** This guide covers classification errors, compliance violations, performance problems, and routing failures with step-by-step solutions.
+
+## Quick Diagnosis Checklist
+
+When experiencing content routing issues, start here:
+
+```bash
+# 1. Check pipeline status
+expanso pipeline status complete-content-router
+
+# 2. Check recent logs for errors
+expanso pipeline logs complete-content-router --tail 50 --level error
+
+# 3. Test basic connectivity
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{"event_id":"test-123","severity":"INFO","message":"test"}'
+
+# 4. Check key metrics
+curl -s http://localhost:8080/metrics | grep -E "(error|violation|latency)" | head -10
+
+# 5. Verify destinations are reachable
+curl -s -I $FRAUD_DETECTION_URL/health
+curl -s -I $SECURITY_MONITORING_URL/health
+```
+
+---
+
+## Classification Issues
+
+### Issue: Events Not Being Classified Correctly
+
+**Symptom:** Messages going to wrong destinations or ending up in unknown-event-types queue
+
+**Diagnosis:**
+```bash
+# Check classification metrics
+curl -s http://localhost:8080/metrics | grep "event_family"
+
+# Look for high "unknown" classification rate
+curl -s http://localhost:8080/metrics | grep 'event_family="unknown"'
+
+# Check recent unknown events
+cat /var/log/expanso/classification/unknown-events-$(date +%Y-%m-%d).jsonl | tail -10 | jq .
+
+# Look for classification errors in logs
+expanso pipeline logs complete-content-router | grep -i "classification"
+```
+
+**Common Causes & Solutions:**
+
+**1. Missing or Malformed Event Type**
+```bash
+# Problem: event_type field missing
+{
+  "event_id": "123",
+  "message": "user login"
+  # Missing: "event_type": "auth.login"
+}
+
+# Solution: Ensure clients send event_type
+{
+  "event_id": "123",
+  "event_type": "auth.login",  # ✅ Added
+  "message": "user login"
+}
+```
+
+**2. Non-Standard Event Type Format**
+```yaml
+# Problem: Custom event naming that doesn't match patterns
+event_type: "CustomBusinessEvent"  # Doesn't match any pattern
+
+# Solution: Use standard namespace.action format
+event_type: "business.custom_event"  # ✅ Will be classified
+
+# Or add classification rule:
+- mapping: |
+    if this.event_type.contains("CustomBusiness") {
+      root.event_family = "business"
+    }
+```
+
+**3. Event Type Doesn't Match Classification Rules**
+```yaml
+# Add new classification patterns to handle missing event types
+- mapping: |
+    root.event_family = if root.event_type.has_prefix("inventory") {
+      "business"  # Add new family
+    } else if root.event_type.contains("notification") {
+      "communication"  # Add notification family
+    } else {
+      # Existing logic...
+    }
+```
+
+### Issue: Priority Scoring Incorrect
+
+**Symptom:** High-value users getting low priority or vice versa
+
+**Diagnosis:**
+```bash
+# Check priority distribution
+curl -s http://localhost:8080/metrics | grep "priority_level" | sort
+
+# Look for unexpected priority assignments
+expanso pipeline logs complete-content-router | grep "priority_score" | tail -20
+
+# Test specific user tier
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id":"debug-priority",
+    "user_tier":"enterprise",
+    "severity":"CRITICAL",
+    "amount":50000,
+    "event_type":"payment.failed"
+  }'
+```
+
+**Common Causes & Solutions:**
+
+**1. User Tier Not Recognized**
+```yaml
+# Problem: Custom user tier names not in scoring logic
+user_tier: "VIP"  # Not in scoring mapping
+
+# Solution: Add custom tiers to scoring logic
+root.user_tier_score = match root.user_tier {
+  "enterprise" | "platinum" | "vip" => 40  # ✅ Added VIP
+  "premium" | "professional" | "gold" => 35
+  # ... rest of mapping
+}
+```
+
+**2. Missing Business Context**
+```yaml
+# Problem: Missing amount or business impact data
+{
+  "event_type": "payment.failed"
+  # Missing: "amount": 50000
+}
+
+# Solution: Include business context
+{
+  "event_type": "payment.failed",
+  "amount": 50000,           # ✅ For business impact scoring
+  "currency": "USD",
+  "account_type": "enterprise"  # ✅ Additional context
+}
+```
+
+**3. Time-Based Priority Adjustment Issues**
+```bash
+# Check if time-based adjustments are working
+echo "Current hour: $(date +%H)"
+echo "Business hours check: $([ $(date +%H) -ge 8 ] && [ $(date +%H) -le 18 ] && echo 'yes' || echo 'no')"
+
+# Test priority outside business hours
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{"event_id":"time-test","user_tier":"premium","severity":"ERROR","event_type":"user.issue"}'
+```
+
+---
+
+## Geographic Routing Issues
+
+### Issue: GDPR Compliance Violations
+
+**Symptom:** EU data being processed in non-EU systems
+
+**Diagnosis:**
+```bash
+# Check for GDPR violations
+curl -s http://localhost:8080/metrics | grep "gdpr_violation"
+
+# Check EU data routing
+kafka-console-consumer --bootstrap-server $US_EAST_KAFKA \
+  --topic us-east-events --from-beginning --timeout-ms 5000 | \
+  grep '"region":"eu-west"'  # Should be empty!
+
+# Verify EU data in EU systems
+kafka-console-consumer --bootstrap-server $EU_KAFKA \
+  --topic eu-events --from-beginning --timeout-ms 5000 | \
+  grep '"region":"eu-west"' | head -5
+
+# Check compliance routing logs
+expanso pipeline logs complete-content-router | grep -i "gdpr\|compliance"
+```
+
+**Common Causes & Solutions:**
+
+**1. Region Not Detected or Normalized**
+```bash
+# Problem: Region field missing or not normalized
+{
+  "event_id": "123",
+  "user_data": "eu_user@example.com"
+  # Missing: "region": "eu-west"
+}
+
+# Solution 1: Ensure clients send region
+{
+  "event_id": "123",
+  "region": "eu-west",  # ✅ Explicit region
+  "user_data": "eu_user@example.com"
+}
+
+# Solution 2: Add region detection logic
+- mapping: |
+    # Derive region from other data
+    if this.user_email.or("").ends_with(".eu") {
+      root.region = "eu-west"
+    } else if env("EDGE_REGION").exists() {
+      root.region = env("EDGE_REGION")
+    }
+```
+
+**2. Region Normalization Failed**
+```yaml
+# Check region normalization is working
+- mapping: |
+    root.debug_original_region = this.region
+    # ... normalization logic ...
+    root.debug_normalized_region = root.region
+    
+# Look for unhandled region variants
+root.region = match root.region {
+  # Add missing variants
+  "eu" | "europe" | "european-union" => "eu-west"  # ✅ Added
+  "deutschland" | "germany" => "eu-central"        # ✅ Added
+  # ... existing mappings ...
+}
+```
+
+**3. Switch Condition Logic Error**
+```yaml
+# Problem: Condition doesn't match properly
+- check: this.region == "eu-west" && this.requires_gdpr_compliance == true
+
+# Debug: Check intermediate values
+- mapping: |
+    root.debug_gdpr_check = {
+      "region": this.region,
+      "requires_gdpr": this.requires_gdpr_compliance,
+      "condition_result": this.region == "eu-west" && this.requires_gdpr_compliance == true
+    }
+```
+
+### Issue: Regional Performance Problems
+
+**Symptom:** High latency for regional routing
+
+**Diagnosis:**
+```bash
+# Check regional cluster connectivity
+for cluster in $EU_KAFKA $US_EAST_KAFKA $US_WEST_KAFKA; do
+  echo "Testing $cluster..."
+  time kafka-broker-api-versions --bootstrap-server $cluster
+done
+
+# Check regional routing latency
+curl -s http://localhost:8080/metrics | grep "routing_latency" | grep "region="
+
+# Test regional routing performance
+time curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{"event_id":"latency-test","region":"eu-west","message":"test"}'
+```
+
+**Solutions:**
+
+**1. Configure Regional Kafka Clusters Properly**
+```yaml
+# Ensure regional clusters are configured
+output:
+  switch:
+    cases:
+      - check: this.region == "eu-west"
+        output:
+          kafka:
+            addresses: [${EU_KAFKA:eu-kafka.example.com:9092}]  # ✅ Use environment variable
+            # Performance optimizations for regional routing
+            compression: lz4      # Faster compression
+            batching:
+              count: 25          # Smaller batches for speed
+              period: 500ms      # Faster delivery
+```
+
+**2. Add Regional Fallback Logic**
+```yaml
+# Add fallback for regional cluster failures
+- check: this.region == "eu-west"
+  output:
+    switch:
+      cases:
+        # Try primary EU cluster
+        - check: env("EU_KAFKA_HEALTHY") == "true"
+          output:
+            kafka:
+              addresses: [${EU_KAFKA}]
+        
+        # Fallback to EU-Central (still GDPR compliant)
+        - output:
+            kafka:
+              addresses: [${EU_CENTRAL_KAFKA}]
+```
+
+---
+
+## Event Type Routing Issues
+
+### Issue: Authentication Events Not Reaching Security Systems
+
+**Symptom:** Security monitoring not receiving authentication events
+
+**Diagnosis:**
+```bash
+# Check authentication event classification
+expanso pipeline logs complete-content-router | grep '"event_family":"authentication"'
+
+# Test authentication event routing
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id":"auth-test",
+    "event_type":"auth.login",
+    "user_id":"test_user",
+    "source_ip":"192.168.1.100"
+  }'
+
+# Check if security monitoring endpoint is reachable
+curl -s -I $SECURITY_MONITORING_URL/auth-events
+
+# Look for HTTP client errors
+expanso pipeline logs complete-content-router | grep -i "security_monitoring"
+```
+
+**Common Causes & Solutions:**
+
+**1. Authentication Events Not Classified Correctly**
+```yaml
+# Problem: Event type doesn't match authentication patterns
+event_type: "user_login"  # Should be "auth.login" or similar
+
+# Solution: Add more flexible authentication patterns
+root.event_family = if ["user", "auth", "session", "login"].contains(root.event_namespace) ||
+                      root.event_type.contains("auth") || 
+                      root.event_type.contains("login") ||
+                      root.event_type.contains("logout") ||
+                      root.event_type.contains("signin") {  # ✅ Added signin
+  "authentication"
+```
+
+**2. Security Monitoring Endpoint Issues**
+```bash
+# Test endpoint directly
+curl -X POST $SECURITY_MONITORING_URL/auth-events \
+  -H "Content-Type: application/json" \
+  -d '{"test":"auth_event"}' \
+  -v
+
+# Check for authentication or network issues
+# Look for HTTP 401, 403, 500, or connection errors
+```
+
+**3. Authentication Event Format Issues**
+```yaml
+# Ensure authentication events have required fields
+body: |
+  {
+    "auth_event": {
+      "event_id": this.event_id,
+      "event_type": this.event_type,
+      "timestamp": this.timestamp,
+      "user_context": {
+        "user_id": this.user_id.or("unknown"),      # ✅ Provide default
+        "source_ip": this.source_ip.or("unknown"),  # ✅ Provide default
+        "user_agent": this.user_agent.or("unknown") # ✅ Provide default
+      }
+    }
+  }
+```
+
+### Issue: Payment Events Not Triggering Fraud Detection
+
+**Symptom:** High-value transactions bypassing fraud detection
+
+**Diagnosis:**
+```bash
+# Check payment event classification
+expanso pipeline logs complete-content-router | grep '"event_family":"payment"'
+
+# Test payment event routing
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id":"payment-test",
+    "event_type":"payment.authorized",
+    "amount":1000,
+    "currency":"USD",
+    "user_id":"test_user"
+  }'
+
+# Check fraud detection endpoint
+curl -s -I $FRAUD_DETECTION_URL/analyze
+
+# Look for payment routing errors
+expanso pipeline logs complete-content-router | grep -i "fraud"
+```
+
+**Solutions:**
+
+**1. Expand Payment Event Detection**
+```yaml
+# Add more payment event patterns
+root.event_family = if ["payment", "transaction", "billing", "invoice", "charge"].contains(root.event_namespace) ||
+                      root.event_type.contains("payment") || 
+                      root.event_type.contains("transaction") ||
+                      root.event_type.contains("purchase") ||     # ✅ Added
+                      root.event_type.contains("checkout") ||     # ✅ Added  
+                      this.amount.exists() {                      # ✅ Amount-based detection
+  "payment"
+```
+
+**2. Add Payment Context Detection**
+```yaml
+# Detect payment events by context, not just event_type
+if this.amount.exists() || this.currency.exists() || 
+   this.payment_method.exists() || this.merchant_id.exists() {
+  root.event_family = "payment"
+  root.classification_reason = "payment_data_detected"
+}
+```
+
+---
+
+## Priority Queue Issues
+
+### Issue: Critical Events Delayed
+
+**Symptom:** Critical alerts not getting immediate processing
+
+**Diagnosis:**
+```bash
+# Check critical queue depth
+kafka-consumer-groups --bootstrap-server $KAFKA_BROKERS \
+  --describe --group critical-consumer | grep critical-queue
+
+# Check critical priority assignment
+expanso pipeline logs complete-content-router | grep '"priority_level":"critical"'
+
+# Test critical event processing
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id":"critical-test",
+    "severity":"CRITICAL",
+    "user_tier":"enterprise",
+    "amount":100000,
+    "event_type":"payment.processor_down"
+  }'
+
+# Check processing latency
+curl -s http://localhost:8080/metrics | grep 'processing_latency.*critical'
+```
+
+**Common Causes & Solutions:**
+
+**1. Priority Scoring Too Low**
+```bash
+# Check priority calculation
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id":"priority-debug",
+    "severity":"CRITICAL",
+    "user_tier":"enterprise", 
+    "amount":50000
+  }'
+
+# Check logs for priority_score calculation
+expanso pipeline logs complete-content-router | grep "priority-debug" -A 5 -B 5
+```
+
+```yaml
+# Adjust priority thresholds if needed
+root.priority_level = match root.priority_score {
+  x if x >= 75 => "critical"  # ✅ Lowered from 85
+  x if x >= 55 => "high"      # ✅ Lowered from 65
+  # ... rest of thresholds
+}
+```
+
+**2. Critical Queue Consumer Issues**
+```bash
+# Check if critical queue consumers are keeping up
+kafka-consumer-groups --bootstrap-server $KAFKA_BROKERS \
+  --describe --group critical-processor
+
+# Look for consumer lag
+LAG=$(kafka-consumer-groups --bootstrap-server $KAFKA_BROKERS \
+  --describe --group critical-processor | grep critical-queue | awk '{print $5}')
+
+if [ "$LAG" -gt 10 ]; then
+  echo "❌ Critical queue has high lag: $LAG"
+else
+  echo "✅ Critical queue lag normal: $LAG"
+fi
+```
+
+**3. Batching Configuration Issues**
+```yaml
+# Ensure critical events have no batching
+- check: this.priority_level == "critical"
+  output:
+    kafka:
+      addresses: [${KAFKA_BROKERS}]
+      topic: critical-queue
+      
+      # ✅ Absolutely no batching for critical events
+      batching:
+        count: 1
+        period: 0s
+      
+      # ✅ Maximum reliability
+      ack_replicas: true
+      max_in_flight: 1
+      idempotent_write: true
+```
+
+### Issue: Premium Users Getting Poor Performance
+
+**Symptom:** Premium users experiencing delays
+
+**Diagnosis:**
+```bash
+# Check premium user events priority
+expanso pipeline logs complete-content-router | grep '"user_tier":"premium"' | grep priority_score
+
+# Test premium user routing
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id":"premium-test",
+    "user_tier":"premium",
+    "severity":"ERROR",
+    "event_type":"user.issue"
+  }'
+
+# Check high priority queue performance
+curl -s http://localhost:8080/metrics | grep 'processing_latency.*high'
+```
+
+**Solutions:**
+
+**1. Verify Premium User Tier Recognition**
+```yaml
+# Add more premium tier variants
+root.user_tier_score = match root.user_tier {
+  "enterprise" | "platinum" | "ultimate" => 40
+  "premium" | "professional" | "pro" | "paid" => 35  # ✅ Added "paid"
+  "plus" | "silver" | "advanced" => 25               # ✅ Added "advanced"
+  # ... rest of tiers
+}
+```
+
+**2. Add Premium User Boost**
+```yaml
+# Boost priority for premium users
+if ["premium", "platinum", "enterprise", "professional"].contains(root.user_tier) {
+  root.business_impact_score = root.business_impact_score + 10
+  root.premium_user_boost = true
+}
+```
+
+---
+
+## Performance Issues
+
+### Issue: High Processing Latency
+
+**Symptom:** Events taking too long to process
+
+**Diagnosis:**
+```bash
+# Check overall pipeline performance
+curl -s http://localhost:8080/metrics | grep "processing_latency"
+
+# Check pipeline CPU and memory usage
+curl -s http://localhost:8080/metrics | grep -E "(cpu|memory)"
+
+# Look for bottlenecks in logs
+expanso pipeline logs complete-content-router | grep -E "(timeout|retry|slow)"
+
+# Test simple event processing time
+time curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{"event_id":"perf-test","message":"test"}'
+```
+
+**Common Causes & Solutions:**
+
+**1. Complex Classification Logic**
+```yaml
+# Problem: Too many complex string operations
+root.event_family = if this.event_type.string().lowercase().trim().contains("payment") {
+  # Multiple expensive operations
+}
+
+# Solution: Pre-process once
+- mapping: |
+    root.event_type_normalized = this.event_type.string().lowercase().trim()
+
+- mapping: |
+    root.event_family = if root.event_type_normalized.contains("payment") {
+      # Use pre-processed value
+    }
+```
+
+**2. HTTP Client Timeouts**
+```yaml
+# Reduce timeout for non-critical destinations
+- http_client:
+    url: ${ANALYTICS_API_URL}/events
+    timeout: 5s  # ✅ Reduce from 30s default
+    
+    # Add circuit breaker pattern
+    max_retries: 2
+    retry_delay: 1s
+```
+
+**3. Large Batch Processing**
+```yaml
+# Optimize batching for performance
+batching:
+  # Balance between latency and throughput
+  count: 100      # ✅ Not too large
+  period: 10s     # ✅ Reasonable period
+  byte_size: 1MB  # ✅ Size limit to prevent huge batches
+```
+
+### Issue: Memory Usage Growing
+
+**Symptom:** Pipeline memory consumption increasing over time
+
+**Diagnosis:**
+```bash
+# Check memory metrics
+curl -s http://localhost:8080/metrics | grep memory
+
+# Look for memory-related errors
+expanso pipeline logs complete-content-router | grep -i "memory\|oom"
+
+# Check pipeline resource usage
+expanso pipeline resources complete-content-router
+```
+
+**Solutions:**
+
+**1. Optimize Batch Sizes**
+```yaml
+# Prevent memory buildup from large batches
+batching:
+  count: 500
+  period: 60s
+  byte_size: 5MB  # ✅ Add byte size limit
+```
+
+**2. Add Memory Limits**
+```yaml
+# Configure resource limits
+resources:
+  memory_limit: 2GB
+  cpu_limit: 2.0
+```
+
+**3. Reduce Metadata Overhead**
+```yaml
+# Only include necessary metadata
+metadata:
+  include_patterns:
+    - "^priority_level$"
+    - "^event_family$"
+    # Remove unnecessary patterns
+```
+
+---
+
+## Compliance Issues
+
+### Issue: Audit Trail Gaps
+
+**Symptom:** Missing audit events or incomplete compliance logs
+
+**Diagnosis:**
+```bash
+# Check audit event processing
+expanso pipeline logs complete-content-router | grep '"event_family":"audit"'
+
+# Verify S3 audit archives
+aws s3 ls s3://$AUDIT_ARCHIVE_BUCKET/audit/$(date +%Y/%m/%d)/ | head -10
+
+# Check compliance monitoring
+curl -s $COMPLIANCE_MONITORING_URL/status
+```
+
+**Solutions:**
+
+**1. Expand Audit Event Detection**
+```yaml
+# Detect more audit events
+root.event_family = if root.event_namespace == "audit" ||
+                      root.event_type.contains("audit") ||
+                      this.actor.exists() ||           # ✅ Actor indicates audit
+                      this.action.exists() ||          # ✅ Action indicates audit
+                      this.admin_action.exists() {     # ✅ Admin action
+  "audit"
+}
+```
+
+**2. Ensure Reliable Audit Storage**
+```yaml
+# Use fan_out for audit events (multiple destinations)
+- check: this.event_family == "audit"
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # Primary: Compliance monitoring
+        - http_client:
+            url: ${COMPLIANCE_MONITORING_URL}/audit
+            max_retries: 5  # ✅ More retries for audit
+            
+        # Secondary: S3 archive (guaranteed storage)
+        - aws_s3:
+            bucket: ${AUDIT_ARCHIVE_BUCKET}
+            # S3 is highly reliable
+```
+
+### Issue: Data Retention Compliance
+
+**Symptom:** Data kept too long or deleted too soon
+
+**Diagnosis:**
+```bash
+# Check data retention policies
+aws s3api get-bucket-lifecycle-configuration --bucket $AUDIT_ARCHIVE_BUCKET
+
+# Check data classification accuracy
+expanso pipeline logs complete-content-router | grep "data_classification" | head -20
+```
+
+**Solutions:**
+
+**1. Set Proper S3 Lifecycle Policies**
+```yaml
+# Configure retention in S3 tags
+tags:
+  DataClassification: this.data_classification
+  RetentionPolicy: match this.data_classification {
+    "financial" => "7Years"
+    "pii" => "3Years" 
+    "audit" => "10Years"
+    _ => "1Year"
+  }
+```
+
+**2. Add Retention Metadata**
+```yaml
+# Add retention information to events
+root.retention_metadata = {
+  "classification": root.data_classification,
+  "retention_years": match root.data_classification {
+    "financial" => 7
+    "pii" => 3
+    "audit" => 10
+    _ => 1
+  },
+  "delete_after": now().add_years(retention_years).format_timestamp("2006-01-02")
+}
+```
+
+---
+
+## Destination Connectivity Issues
+
+### Issue: PagerDuty Integration Failed
+
+**Symptom:** Critical alerts not reaching PagerDuty
+
+**Diagnosis:**
+```bash
+# Test PagerDuty API directly
+curl -X POST https://events.pagerduty.com/v2/enqueue \
+  -H "Authorization: Token $PAGERDUTY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "routing_key": "'$PAGERDUTY_ROUTING_KEY'",
+    "event_action": "trigger",
+    "payload": {
+      "summary": "Test from troubleshooting",
+      "source": "test"
+    }
+  }' -v
+
+# Check for PagerDuty errors in logs
+expanso pipeline logs complete-content-router | grep -i pagerduty
+```
+
+**Common Causes & Solutions:**
+
+**1. API Key or Routing Key Issues**
+```bash
+# Verify environment variables are set
+echo "PagerDuty API Key: ${PAGERDUTY_API_KEY:0:8}..."
+echo "PagerDuty Routing Key: ${PAGERDUTY_ROUTING_KEY:0:8}..."
+
+# Test with correct credentials
+export PAGERDUTY_API_KEY="your_correct_integration_key"
+export PAGERDUTY_ROUTING_KEY="your_correct_routing_key"
+```
+
+**2. Request Format Issues**
+```yaml
+# Ensure proper PagerDuty event format
+body: |
+  {
+    "routing_key": "${PAGERDUTY_ROUTING_KEY}",
+    "event_action": "trigger",
+    "payload": {
+      "summary": this.message.or("Critical alert"),
+      "source": this.source.or("content-router"),
+      "severity": "critical",
+      "timestamp": this.timestamp.or(now()),
+      "custom_details": {
+        "event_id": this.event_id,
+        "event_type": this.event_type
+      }
+    }
+  }
+```
+
+**3. Rate Limiting Issues**
+```yaml
+# Add proper batching to avoid PagerDuty rate limits
+batching:
+  count: 1        # No batching for critical
+  period: 0s
+
+# But add retry logic
+max_retries: 3
+retry_delay: 2s
+```
+
+### Issue: Kafka Connection Problems
+
+**Symptom:** Events not reaching Kafka queues
+
+**Diagnosis:**
+```bash
+# Test Kafka connectivity
+kafka-broker-api-versions --bootstrap-server $KAFKA_BROKERS
+
+# Check Kafka cluster health
+kafka-topics --bootstrap-server $KAFKA_BROKERS --list
+
+# Look for Kafka errors
+expanso pipeline logs complete-content-router | grep -i kafka
+
+# Check topic exists
+kafka-topics --bootstrap-server $KAFKA_BROKERS --describe --topic critical-queue
+```
+
+**Solutions:**
+
+**1. Verify Kafka Configuration**
+```yaml
+# Ensure correct Kafka settings
+output:
+  kafka:
+    addresses: [${KAFKA_BROKERS}]  # ✅ Use environment variable
+    topic: critical-queue
+    
+    # Add connection timeout
+    timeout: 10s
+    
+    # Verify topic auto-creation is off (use explicit creation)
+    ack_replicas: true
+```
+
+**2. Add Kafka Health Checks**
+```bash
+# Create monitoring script
+#!/bin/bash
+# kafka-health-check.sh
+
+for broker in $(echo $KAFKA_BROKERS | tr ',' ' '); do
+  echo "Testing broker: $broker"
+  if kafka-broker-api-versions --bootstrap-server $broker &>/dev/null; then
+    echo "✅ $broker is healthy"
+  else
+    echo "❌ $broker is unreachable"
+  fi
+done
+```
+
+**3. Add Kafka Fallback**
+```yaml
+# Add fallback for Kafka failures
+- output:
+    switch:
+      cases:
+        # Try primary Kafka
+        - check: env("KAFKA_HEALTHY") == "true"
+          output:
+            kafka:
+              addresses: [${KAFKA_BROKERS}]
+              topic: critical-queue
+        
+        # Fallback to local file
+        - output:
+            file:
+              path: /var/expanso/fallback/critical-events.jsonl
+```
+
+---
+
+## Monitoring and Alerting Issues
+
+### Issue: Missing Metrics
+
+**Symptom:** Pipeline metrics not appearing in monitoring systems
+
+**Diagnosis:**
+```bash
+# Check if metrics endpoint is working
+curl -s http://localhost:8080/metrics | head -20
+
+# Verify Prometheus scraping
+curl -s http://prometheus:9090/api/v1/targets | jq '.data.activeTargets[] | select(.labels.job=="content-router")'
+
+# Check metric export configuration
+expanso pipeline config complete-content-router | grep -A 10 metrics
+```
+
+**Solutions:**
+
+**1. Verify Metrics Configuration**
+```yaml
+# Ensure metrics are enabled
+metrics:
+  prometheus:
+    enabled: true
+    path: /metrics
+    labels:
+      pipeline: complete-content-router
+      version: production-v1
+      environment: ${ENVIRONMENT:production}
+```
+
+**2. Add Custom Metrics**
+```yaml
+# Add business-specific metrics
+post_process:
+  - mapping: |
+      # Export custom metrics
+      root.metrics_export = {
+        "priority_distribution": this.priority_level,
+        "compliance_status": if this.requires_strict_residency { "strict" } else { "standard" },
+        "event_family_distribution": this.event_family
+      }
+```
+
+### Issue: Alerts Not Firing
+
+**Symptom:** Critical conditions not triggering alerts
+
+**Diagnosis:**
+```bash
+# Check alerting rules
+curl -s http://prometheus:9090/api/v1/rules | jq '.data.groups[].rules[] | select(.name | contains("content"))'
+
+# Verify alert manager configuration
+curl -s http://alertmanager:9093/api/v1/alerts
+
+# Test manual alert
+curl -X POST http://alertmanager:9093/api/v1/alerts \
+  -H "Content-Type: application/json" \
+  -d '[{"labels":{"alertname":"TestAlert","severity":"critical"}}]'
+```
+
+**Solutions:**
+
+**1. Add Pipeline Health Metrics**
+```yaml
+# Add health check endpoint
+input:
+  http_server:
+    address: 0.0.0.0:8080
+    path: /events
+    
+    # Add health endpoint
+    health_check:
+      enabled: true
+      path: /health
+```
+
+**2. Create Comprehensive Alerting Rules**
+```yaml
+# alerting-rules.yml
+groups:
+  - name: content-routing
+    rules:
+      - alert: ContentRouterDown
+        expr: up{job="content-router"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Content router is down"
+          
+      - alert: HighErrorRate
+        expr: rate(content_router_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate in content router"
+          
+      - alert: GDPRViolation
+        expr: increase(content_router_gdpr_violations_total[1m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+        annotations:
+          summary: "GDPR compliance violation detected"
+```
+
+---
+
+## Getting Help
+
+If you're still experiencing issues after trying these solutions:
+
+### 1. Enable Debug Logging
+```bash
+# Temporarily enable debug logging
+expanso pipeline update complete-content-router --set logger.level=DEBUG
+
+# Check detailed logs
+expanso pipeline logs complete-content-router --tail 100 --level debug
+```
+
+### 2. Collect Diagnostic Information
+```bash
+#!/bin/bash
+# diagnostic-collection.sh
+
+echo "📋 Content Router Diagnostic Report"
+echo "================================="
+echo "Timestamp: $(date)"
+echo ""
+
+echo "🔧 Pipeline Status:"
+expanso pipeline status complete-content-router
+echo ""
+
+echo "📊 Key Metrics:"
+curl -s http://localhost:8080/metrics | grep -E "(error|violation|latency)" | head -20
+echo ""
+
+echo "🏥 Health Checks:"
+echo "Kafka: $(kafka-broker-api-versions --bootstrap-server $KAFKA_BROKERS &>/dev/null && echo 'OK' || echo 'FAIL')"
+echo "PagerDuty: $(curl -s -o /dev/null -w '%{http_code}' https://events.pagerduty.com/v2/enqueue)"
+echo "Fraud Detection: $(curl -s -o /dev/null -w '%{http_code}' $FRAUD_DETECTION_URL/health)"
+echo ""
+
+echo "📁 Recent Logs:"
+expanso pipeline logs complete-content-router --tail 50 | grep -E "(ERROR|WARN|FATAL)"
+```
+
+### 3. Community Resources
+
+- **Documentation:** [Complete Content Routing Guide](./index)
+- **Examples:** [Interactive Explorer](./explorer) for testing routing logic
+- **Related Guides:** [Circuit Breakers](../circuit-breakers) for handling destination failures
+
+### 4. Escalation Checklist
+
+When escalating issues, include:
+
+✅ Pipeline configuration (sanitized, no secrets)  
+✅ Error messages from logs  
+✅ Metrics showing the problem  
+✅ Steps already tried  
+✅ Expected vs actual behavior  
+✅ Timeline of when the issue started  
+
+---
+
+**Remember:** Content routing issues often involve multiple components (classification, geographic compliance, priority scoring, and destination connectivity). Start with the simplest checks and work systematically through each component.

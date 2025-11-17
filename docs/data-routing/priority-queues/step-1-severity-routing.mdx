@@ -1,0 +1,586 @@
+---
+title: Step 1 - Severity-Based Priority Routing  
+sidebar_label: Step 1 - Severity Routing
+sidebar_position: 4
+description: Implement log severity-based routing to priority queues with differential batching and delivery guarantees
+keywords: [severity, routing, critical, error, warning, info, batching, priority]
+---
+
+# Step 1: Severity-Based Priority Routing
+
+**Transform log chaos into organized priority lanes.** This step implements the foundation of priority queues: routing messages by log severity levels with appropriate batching and delivery policies for each priority tier.
+
+## Why Severity-Based Routing Matters
+
+In production systems, not all log messages deserve the same treatment. A `CRITICAL` security breach alert needs immediate delivery, while `INFO` application startup messages can wait in a large batch. Without priority routing:
+
+- **Critical alerts get buried** behind millions of routine INFO logs
+- **Incident response delays** of 5-30 seconds due to batching
+- **Resource waste** treating debug traces the same as security events
+- **SLA violations** when urgent alerts compete with bulk data
+
+## The Transformation
+
+**Before (No Priority):**
+```json
+{
+  "severity": "CRITICAL",           // ❌ Waits in 1000-message batch
+  "message": "Security breach detected",
+  "processing": "batched with INFO logs"
+}
+```
+
+**After (Severity-Based Routing):**
+```json
+{
+  "severity": "CRITICAL",           // ✅ Routes to immediate delivery
+  "message": "Security breach detected", 
+  "priority": "critical",           // ✅ No batching, max retries
+  "processing": "immediate delivery &lt;100ms"
+}
+```
+
+## Implementation
+
+Replace your shell pipeline with this severity-based priority queue configuration:
+
+```yaml title="severity-priority-queues.yaml"
+name: severity-priority-queues
+description: Route log messages to priority queues based on severity
+type: pipeline
+namespace: production
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /logs
+      timeout: 5s
+      rate_limit: "10000/s"
+
+  pipeline:
+    processors:
+      # Step 1: Parse and validate JSON
+      - json_documents:
+          parts: []
+
+      # Step 2: Classify priority based on severity
+      - mapping: |
+          root = this
+
+          # Validate required fields
+          if !this.severity.exists() {
+            throw("Missing required field: severity")
+          }
+
+          # Normalize severity to uppercase
+          root.severity = this.severity.string().uppercase()
+
+          # Map severity to priority using business logic
+          root.priority = match root.severity {
+            "CRITICAL" => "critical"    # Security breaches, system failures
+            "FATAL" => "critical"       # Application crashes
+            "ERROR" => "high"           # Error conditions needing attention
+            "WARNING" => "normal"       # Warnings that should be reviewed
+            "WARN" => "normal"          # Alternative warning format
+            "INFO" => "low"             # Informational messages
+            "DEBUG" => "low"            # Debug information
+            "TRACE" => "low"            # Detailed trace information
+            _ => "normal"               # Default for unknown severities
+          }
+
+          # Add priority score for monitoring and analytics
+          root.priority_score = match root.priority {
+            "critical" => 100
+            "high" => 75
+            "normal" => 50
+            "low" => 25
+            _ => 0
+          }
+
+          # Add processing metadata
+          root.processed_at = now()
+          root.edge_node_id = env("NODE_ID").or("unknown")
+          root.routing_strategy = "severity-based"
+
+  output:
+    switch:
+      retry_until_success: false
+
+      cases:
+        # Case 1: Critical priority - immediate delivery
+        - check: this.priority == "critical"
+          output:
+            label: critical_queue
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: logs-critical
+
+              # No batching - send immediately for minimum latency
+              batching:
+                count: 1
+                period: 0s
+
+              # Aggressive delivery guarantees for critical messages
+              max_in_flight: 1              # Process one at a time
+              ack_replicas: true            # Wait for replica acknowledgment
+              idempotent_write: true        # Prevent duplicates
+
+              # Maximum retries for critical messages
+              max_retries: 10
+              backoff:
+                initial_interval: 100ms     # Start retrying quickly
+                max_interval: 2s            # Cap retry delay
+
+              # No compression for minimal latency
+              compression: none
+
+        # Case 2: High priority - small batches, fast delivery
+        - check: this.priority == "high"
+          output:
+            label: high_priority_queue
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: logs-high
+
+              # Small batches for balance of latency and efficiency
+              batching:
+                count: 10                   # 10 messages per batch
+                period: 1s                  # Or 1 second, whichever comes first
+
+              # Strong delivery guarantees
+              max_in_flight: 5
+              ack_replicas: true
+
+              # Moderate retries
+              max_retries: 5
+              backoff:
+                initial_interval: 500ms
+                max_interval: 5s
+
+              # Light compression for good throughput
+              compression: snappy
+
+        # Case 3: Normal priority - standard batching
+        - check: this.priority == "normal"
+          output:
+            label: normal_queue
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: logs-normal
+
+              # Standard batching for balanced throughput/latency
+              batching:
+                count: 100                  # 100 messages per batch
+                period: 5s                  # Or 5 seconds timeout
+
+              # Balanced configuration
+              max_in_flight: 10
+
+              # Standard retries
+              max_retries: 3
+              backoff:
+                initial_interval: 1s
+                max_interval: 10s
+
+              compression: snappy
+
+        # Case 4: Low priority - large batches, deferred delivery
+        - check: this.priority == "low"
+          output:
+            label: low_priority_queue
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: logs-low
+
+              # Large batches to minimize overhead for bulk data
+              batching:
+                count: 1000                 # 1000 messages per batch
+                period: 1m                  # Or 1 minute timeout
+
+              # High concurrency for throughput
+              max_in_flight: 20
+
+              # Minimal retries for low-priority data
+              max_retries: 1
+              backoff:
+                initial_interval: 5s
+                max_interval: 30s
+
+              # Aggressive compression for bulk data
+              compression: gzip
+
+        # Default case: Treat unknown priorities as normal
+        - output:
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: logs-normal
+              batching:
+                count: 100
+                period: 5s
+```
+
+## Deploy and Test
+
+Deploy the updated pipeline:
+
+```bash
+# Remove old shell pipeline
+expanso pipeline delete shell-priority-queues
+
+# Deploy severity-based pipeline
+expanso pipeline deploy severity-priority-queues.yaml
+
+# Verify deployment
+expanso pipeline status severity-priority-queues
+```
+
+Test with different severity levels:
+
+```bash
+# Test Critical severity (should route to critical queue, no batching)
+curl -X POST http://localhost:8080/logs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+    "severity": "CRITICAL",
+    "message": "Database connection lost - system critical",
+    "service": "database",
+    "alert_id": "db-001"
+  }'
+
+# Test Error severity (should route to high priority queue)
+curl -X POST http://localhost:8080/logs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+    "severity": "ERROR", 
+    "message": "Failed to process payment for user 12345",
+    "service": "payment-service",
+    "error_code": "PAYMENT_FAILED"
+  }'
+
+# Test Info severity (should route to low priority queue)
+curl -X POST http://localhost:8080/logs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+    "severity": "INFO",
+    "message": "User session created successfully",
+    "service": "auth-service",
+    "session_id": "sess_789xyz"
+  }'
+
+# Bulk test to see batching behavior
+for i in {1..50}; do
+  curl -X POST http://localhost:8080/logs \
+    -H "Content-Type: application/json" \
+    -d '{
+      "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+      "severity": "INFO",
+      "message": "Bulk test message '$i'",
+      "service": "test-service",
+      "message_id": "'$i'"
+    }'
+done
+```
+
+## Verify Priority Routing
+
+Check that messages are routing to the correct topics based on severity:
+
+```bash
+# Check critical queue (should have immediate delivery)
+echo "=== Critical Queue ==="
+timeout 10s $KAFKA_HOME/bin/kafka-console-consumer.sh \
+  --bootstrap-server $KAFKA_BROKERS \
+  --topic logs-critical \
+  --from-beginning
+
+# Check high priority queue  
+echo "=== High Priority Queue ==="
+timeout 10s $KAFKA_HOME/bin/kafka-console-consumer.sh \
+  --bootstrap-server $KAFKA_BROKERS \
+  --topic logs-high \
+  --from-beginning
+
+# Check low priority queue
+echo "=== Low Priority Queue ==="  
+timeout 10s $KAFKA_HOME/bin/kafka-console-consumer.sh \
+  --bootstrap-server $KAFKA_BROKERS \
+  --topic logs-low \
+  --from-beginning
+```
+
+**Expected Behavior:**
+- **Critical messages** appear immediately (no batching delay)
+- **Error messages** appear in small batches within 1-2 seconds
+- **Info messages** appear in large batches, may take up to 1 minute
+
+## Monitor Pipeline Performance
+
+Check priority distribution and performance metrics:
+
+```bash
+# View pipeline metrics
+curl http://localhost:8081/metrics | grep severity_priority_queues
+
+# Check output routing metrics
+curl http://localhost:8081/metrics | grep 'output_sent_total' | grep severity-priority
+
+# Monitor processing latency by priority
+curl http://localhost:8081/metrics | grep 'output_latency' | grep severity-priority
+```
+
+**Healthy metrics should show:**
+- Critical queue: Low message count, high individual importance
+- High priority queue: Moderate message count, fast processing  
+- Normal queue: Standard message count, balanced processing
+- Low priority queue: High message count, efficient batching
+
+## Performance Characteristics
+
+The severity-based routing provides these performance guarantees:
+
+| Severity | Priority | Batching | Delivery Time | Use Case |
+|----------|----------|-----------|---------------|----------|
+| CRITICAL, FATAL | critical | 1 msg, 0s | &lt;100ms | Security alerts, system failures |
+| ERROR | high | 10 msgs, 1s | 1-2s | Application errors, failed operations |
+| WARNING, WARN | normal | 100 msgs, 5s | 5-10s | Warnings needing review |
+| INFO, DEBUG, TRACE | low | 1000 msgs, 1m | 30s-1m | Routine logs, debug information |
+
+## Common Variations
+
+### Variation 1: Application-Specific Severity Mapping
+
+Different applications may use custom severity levels:
+
+```bloblang
+# Map application-specific levels to standard priorities
+root.priority = match this.level.lowercase() {
+  "fatal" => "critical"
+  "panic" => "critical"  
+  "error" => "high"
+  "warn" => "normal"
+  "info" => "low"
+  "debug" => "low"
+  "trace" => "low"
+  _ => "normal"
+}
+```
+
+### Variation 2: Service-Based Adjustments
+
+Boost priority for critical services:
+
+```bloblang
+# Boost priority for critical services
+let service_boost = match this.service {
+  "auth-service" => 1      # Authentication is critical
+  "payment-service" => 1   # Payment processing is critical  
+  "user-service" => 0      # User management is standard
+  _ => 0
+}
+
+# Apply service boost to base priority
+root.priority = match {
+  this.severity == "ERROR" && service_boost == 1 => "critical"
+  this.severity == "ERROR" => "high"
+  this.severity == "WARN" && service_boost == 1 => "high"  
+  this.severity == "WARN" => "normal"
+  _ => "low"
+}
+```
+
+### Variation 3: Time-Based Priority Adjustments
+
+Boost priority during business hours:
+
+```bloblang
+# Check if current time is during business hours (9 AM - 5 PM UTC)
+let business_hours = now().hour() >= 9 && now().hour() < 17
+
+# Boost priority during business hours for better response
+let time_boost = if business_hours { 1 } else { 0 }
+
+root.priority = match {
+  this.severity == "WARN" && business_hours => "high"    # WARN becomes high during business hours
+  this.severity == "WARN" => "normal"                    # WARN stays normal after hours
+  this.severity == "ERROR" => "critical"                 # ERROR always critical
+  _ => "low"
+}
+```
+
+## Troubleshooting
+
+### Issue: All Messages Route to Normal Priority
+
+**Symptom:** All messages appear in `logs-normal` topic regardless of severity.
+
+**Cause:** Severity field missing or not properly normalized.
+
+**Solution:** Add validation and normalization:
+
+```bloblang
+# Enhanced validation
+if !this.severity.exists() {
+  throw("Missing severity field") 
+}
+
+# Handle different severity formats
+root.severity = this.severity.string().uppercase().strip()
+
+# Add debugging
+root.debug_severity = {
+  "original": this.severity,  
+  "normalized": root.severity,
+  "mapped_priority": root.priority
+}
+```
+
+### Issue: Critical Messages Experiencing Latency
+
+**Symptom:** Critical messages take &gt;1 second to deliver.
+
+**Cause:** Batching configuration incorrect or network latency.
+
+**Solutions:**
+
+1. **Verify no batching for critical:**
+```yaml
+# Ensure critical has no batching
+batching:
+  count: 1      # Must be 1
+  period: 0s    # Must be 0s (immediate)
+```
+
+2. **Check network latency:**
+```bash
+# Test Kafka broker connectivity
+ping broker1.kafka.cloud
+traceroute broker1.kafka.cloud
+```
+
+### Issue: Low Priority Queue Overwhelmed
+
+**Symptom:** Low priority queue has millions of unprocessed messages.
+
+**Cause:** Insufficient consumer capacity for bulk data.
+
+**Solutions:**
+
+1. **Increase batch size:**
+```yaml
+batching:
+  count: 5000     # Larger batches
+  period: 5m      # Longer batching window
+```
+
+2. **Add more consumers:**
+```bash
+# Scale consumers for low priority topic
+kubectl scale deployment low-priority-consumer --replicas=5
+```
+
+## Security Considerations
+
+### Log Injection Prevention
+
+Validate severity values to prevent log injection:
+
+```bloblang
+# Whitelist allowed severity values
+let allowed_severities = ["CRITICAL", "FATAL", "ERROR", "WARNING", "WARN", "INFO", "DEBUG", "TRACE"]
+
+if !allowed_severities.contains(this.severity.string().uppercase()) {
+  root.severity = "INFO"      # Default to INFO for unknown severities
+  root.severity_warning = "Unknown severity normalized to INFO"
+}
+```
+
+### Sensitive Data Filtering
+
+Remove sensitive data before priority classification:
+
+```bloblang
+# Remove sensitive fields before processing
+root = this.without("password", "ssn", "credit_card", "api_key")
+
+# Mask personally identifiable information
+if this.email.exists() {
+  root.email = this.email.string().hash("sha256").encode("hex")[0:8] + "@masked.com"
+}
+```
+
+## Compliance Considerations
+
+### GDPR Compliance
+
+Ensure priority routing complies with data protection requirements:
+
+```bloblang
+# Add GDPR compliance metadata
+root.gdpr = {
+  "data_classification": "operational",
+  "retention_period": match root.priority {
+    "critical" => "30d"     # Critical logs for incident investigation
+    "high" => "7d"          # High priority for compliance
+    "normal" => "3d"        # Normal logs short retention
+    "low" => "1d"           # Low priority minimal retention
+    _ => "1d"
+  },
+  "lawful_basis": "legitimate_interest",
+  "processing_purpose": "system_monitoring"
+}
+```
+
+### SOC 2 Compliance
+
+Add audit trail for security monitoring:
+
+```bloblang
+# Add SOC 2 audit trail
+root.audit = {
+  "control_id": "CC6.1",          # Logical access controls
+  "processing_timestamp": now(),
+  "edge_node": env("NODE_ID"),
+  "pipeline_version": "1.0",
+  "priority_classification": root.priority,
+  "security_classification": match root.severity {
+    "CRITICAL" => "high"
+    "ERROR" => "medium"  
+    _ => "low"
+  }
+}
+```
+
+## Next Steps
+
+With severity-based routing implemented, you now have:
+
+✅ **Immediate delivery** for critical security and system alerts
+✅ **Differential batching** optimizing latency vs efficiency by priority
+✅ **Proper resource allocation** with retry and delivery policies per priority
+✅ **Monitoring and metrics** to track priority distribution
+
+**Next:** Add customer tier prioritization to provide differentiated service levels based on subscription plans.
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./step-2-customer-tier-routing" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Step 2: Customer Tier Routing
+  </a>
+  <a href="./troubleshooting" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Troubleshooting Guide  
+  </a>
+</div>
+
+## What You Built
+
+This step established the foundation of priority queues with severity-based routing. Your pipeline now:
+
+- **Routes CRITICAL/FATAL → critical queue** (immediate delivery, max retries)
+- **Routes ERROR → high priority queue** (small batches, fast delivery)  
+- **Routes WARNING/WARN → normal queue** (standard batching)
+- **Routes INFO/DEBUG/TRACE → low priority queue** (large batches, efficient processing)
+
+The next step will layer customer tier prioritization on top of this severity-based foundation.

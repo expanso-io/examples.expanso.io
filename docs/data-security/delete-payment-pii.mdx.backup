@@ -1,0 +1,156 @@
+---
+title: Delete Payment Card PII
+sidebar_label: Delete Payment PII
+sidebar_position: 2
+description: Remove credit card numbers from events at the edge for PCI-DSS compliance
+keywords: [pii, pci-dss, credit-card, payment, compliance, delete]
+---
+
+import DataPipelineExplorer from '@site/src/components/DataPipelineExplorer';
+import { deletePaymentStages } from './delete-payment-pii.stages';
+
+# Delete Payment Card PII
+
+Remove credit card numbers and expiry dates from purchase events **before** they leave the edge. This keeps you PCI-DSS compliant while preserving analytics value.
+
+## The Problem
+
+Your purchase events contain full credit card details:
+
+```json
+{
+  "event_type": "purchase",
+  "payment_method": {
+    "full_number": "4532-1234-5678-9010",  // ❌ PCI-DSS violation
+    "expiry": "12/25",                     // ❌ High-risk PII
+    "last_four": "9010"                    // ✅ Safe for analytics
+  }
+}
+```
+
+**Why this matters:**
+- **PCI-DSS Level 1** requires strict controls on cardholder data
+- Storing full card numbers = expensive audits, security requirements
+- Breach of card data = massive fines, reputation damage
+
+## The Solution
+
+Delete `full_number` and `expiry` at the edge using Expanso's `.without()` function. Keep `last_four` for fraud detection and payment method analytics.
+
+## Interactive Explorer
+
+**Use arrow keys or click** to step through the transformation:
+
+<DataPipelineExplorer
+  stages={deletePaymentStages}
+  title="PCI-DSS COMPLIANCE"
+  subtitle="Delete High-Risk Payment Data"
+/>
+
+## How It Works
+
+### Step 1: Identify High-Risk Fields
+
+Only two fields violate PCI-DSS:
+- `payment_method.full_number` → Full card number
+- `payment_method.expiry` → Expiration date
+
+Everything else is safe:
+- `last_four` → Used for fraud detection, payment method trends
+- `type` → Payment method analytics (credit vs debit)
+- `amount`, `currency` → Business metrics
+
+### Step 2: Use `.without()` to Delete
+
+The Bloblang `.without()` function removes fields from an object:
+
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        
+        # Remove high-risk payment PII
+        root.payment_method = this.payment_method.without(
+          "full_number",
+          "expiry"
+        )
+```
+
+**What this does:**
+1. `root = this` → Copy the entire event
+2. `.without("full_number", "expiry")` → Remove those two fields
+3. `root.payment_method = ...` → Replace payment_method with the cleaned version
+
+### Step 3: Verify Compliance
+
+After processing, your event is PCI-DSS compliant:
+
+```json
+{
+  "event_type": "purchase",
+  "payment_method": {
+    "type": "credit_card",
+    "last_four": "9010"  // ✅ Safe for analytics
+  }
+}
+```
+
+## Deploy This Pipeline
+
+Create `delete-payment-pii.yaml`:
+
+```yaml
+name: delete-payment-pii
+type: pipeline
+config:
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /events/purchase
+  
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+          root.payment_method = this.payment_method.without(
+            "full_number",
+            "expiry"
+          )
+  
+  output:
+    http_client:
+      url: http://analytics:8080/events
+      verb: POST
+```
+
+Deploy to your edge nodes:
+
+```bash
+expanso job deploy delete-payment-pii.yaml
+```
+
+## Why Process at the Edge?
+
+**Compliance:** Card data never reaches your cloud → smaller PCI-DSS scope  
+**Security:** Reduced attack surface, no centralized card data storage  
+**Cost:** Lower bandwidth, simpler infrastructure
+
+## What You Learned
+
+✅ How to identify high-risk payment PII  
+✅ How to use `.without()` to delete specific fields  
+✅ How to keep analytics-safe fields like `last_four`  
+✅ How to deploy PCI-DSS compliant pipelines at the edge
+
+## Next Steps
+
+- **[Hash IP Addresses](./hash-ip-pii)** → Preserve uniqueness for counting
+- **[Hash Email Addresses](./hash-email-pii)** → GDPR-compliant user tracking
+- **[Generalize Location](./generalize-location-pii)** → Keep city, remove coordinates
+
+## Related Examples
+
+- [Encrypt Sensitive Data](./encrypt-data) → For data you need to decrypt later
+- [Schema Enforcement](./enforce-schema) → Validate events before processing
+

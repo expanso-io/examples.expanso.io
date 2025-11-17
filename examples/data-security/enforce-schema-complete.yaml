@@ -1,0 +1,535 @@
+name: complete-schema-validation
+description: Complete production schema validation with DLQ routing and monitoring
+type: pipeline
+namespace: production
+labels:
+  environment: production
+  data-type: sensor-readings
+  validation: enabled
+  monitoring: comprehensive
+  dlq: enabled
+priority: 100  # High priority for data quality
+
+# Deploy to edge nodes that collect sensor data
+selector:
+  match_labels:
+    role: sensor-collector
+    validation: required
+
+# Production deployment strategy
+deployment:
+  strategy: rolling
+  max_parallel: 2
+  health_check:
+    type: http
+    endpoint: /ping
+    interval: 30s
+  auto_rollback: true
+
+# Complete pipeline configuration
+config:
+  # Accept sensor readings via HTTP
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /sensor/readings
+      allowed_verbs:
+        - POST
+      timeout: 5s
+      rate_limit: "1000/1s"
+
+  # Comprehensive processing pipeline
+  pipeline:
+    processors:
+      # Step 1: Initialize comprehensive tracking
+      - mapping: |
+          root = this
+          message_id = uuid_v4()
+          root.message_id = message_id
+          meta original_content = content()
+          meta start_time = now()
+          meta input_size = content().bytes()
+          meta message_id = message_id
+
+      # Step 2: Parse JSON with detailed error tracking
+      - try:
+          - json_documents:
+              parts: []
+          
+          # Track parsing success
+          - mapping: |
+              meta parse_time = now() - meta("start_time")
+              meta parse_status = "success"
+              meta metric_json_parse_success = 1
+              meta metric_json_parse_duration_ms = meta("parse_time").parse_duration().milliseconds()
+        
+        catch:
+          # Comprehensive parse error handling
+          - mapping: |
+              root = {
+                "message_id": meta("message_id"),
+                "error_type": "json_parse_error",
+                "error_details": {
+                  "message": error(),
+                  "parse_failed_at": now(),
+                  "input_size_bytes": meta("input_size"),
+                  "content_preview": meta("original_content").bytes(0, 200)
+                },
+                "pipeline_metadata": {
+                  "received_at": meta("start_time"),
+                  "node_id": env("NODE_ID").or("unknown"),
+                  "pipeline_version": "complete-schema-validation-v1.0.0"
+                },
+                "dlq_metadata": {
+                  "dlq_entry_time": now(),
+                  "dlq_reason": "json_parse_failure",
+                  "retention_class": "short_term",
+                  "investigation_priority": "low"
+                }
+              }
+              meta parse_status = "failed"
+              meta validation_status = "parse_failed"
+              meta metric_json_parse_failure = 1
+
+      # Step 3: Add comprehensive pipeline metadata
+      - switch:
+          - check: 'meta("parse_status") == "success"'
+            processors:
+              - mapping: |
+                  root = this
+                  root.pipeline_metadata = {
+                    "message_id": meta("message_id"),
+                    "received_at": meta("start_time"),
+                    "node_id": env("NODE_ID").or("unknown"),
+                    "pipeline_version": "complete-schema-validation-v1.0.0",
+                    "input_size_bytes": meta("input_size"),
+                    "environment": "production"
+                  }
+
+      # Step 4: Comprehensive schema validation
+      - switch:
+          - check: 'meta("parse_status") == "success"'
+            processors:
+              - mapping: |
+                  meta validation_start_time = now()
+              
+              - try:
+                  # Apply JSON Schema validation
+                  - json_schema:
+                      schema_path: "file:///etc/expanso/schemas/sensor-schema-v1.0.0.json"
+
+                  # Validation success: add comprehensive metadata
+                  - mapping: |
+                      validation_duration = now() - meta("validation_start_time")
+                      
+                      root = this
+                      root.validation = {
+                        "status": "passed",
+                        "schema_version": "1.0.0",
+                        "validated_at": now(),
+                        "validation_duration_ms": validation_duration.parse_duration().milliseconds(),
+                        "total_processing_time_ms": (now() - meta("start_time")).parse_duration().milliseconds()
+                      }
+                      
+                      # Set metrics and routing metadata
+                      meta metric_schema_validation_success = 1
+                      meta metric_schema_validation_duration_ms = validation_duration.parse_duration().milliseconds()
+                      meta validation_status = "passed"
+
+                # Validation failure: intelligent error classification
+                catch:
+                  - mapping: |
+                      validation_duration = now() - meta("validation_start_time")
+                      error_msg = error()
+                      
+                      # Intelligent error classification for DLQ management
+                      error_classification = {
+                        "error_category": if error_msg.contains("required") { "missing_required_field" }
+                                         else if error_msg.contains("type") { "invalid_data_type" }
+                                         else if error_msg.contains("minimum") || error_msg.contains("maximum") { "value_out_of_range" }
+                                         else if error_msg.contains("additionalProperties") { "security_violation" }
+                                         else if error_msg.contains("pattern") { "format_violation" }
+                                         else { "unknown_schema_error" },
+                        "severity": if error_msg.contains("additionalProperties") { "high" }
+                                   else if error_msg.contains("required") { "medium" }
+                                   else { "low" },
+                        "investigation_priority": if error_msg.contains("additionalProperties") { "urgent" }
+                                                else if error_msg.contains("required") { "high" }
+                                                else if this.sensor_id.or("").re_match(".*prod.*") { "high" }
+                                                else { "normal" },
+                        "retention_class": if error_msg.contains("additionalProperties") { "long_term" }
+                                          else if error_msg.contains("required") { "medium_term" }
+                                          else { "short_term" }
+                      }
+                      
+                      root = this
+                      root.validation = {
+                        "status": "failed",
+                        "schema_version": "1.0.0",
+                        "validated_at": now(),
+                        "validation_duration_ms": validation_duration.parse_duration().milliseconds(),
+                        "total_processing_time_ms": (now() - meta("start_time")).parse_duration().milliseconds(),
+                        "error_details": {
+                          "primary_error": error_msg,
+                          "classification": error_classification
+                        }
+                      }
+                      
+                      # Comprehensive DLQ metadata
+                      root.dlq_metadata = {
+                        "dlq_entry_time": now(),
+                        "dlq_reason": "schema_validation_failure",
+                        "error_category": error_classification.error_category,
+                        "severity": error_classification.severity,
+                        "investigation_priority": error_classification.investigation_priority,
+                        "retention_class": error_classification.retention_class,
+                        "auto_retry_eligible": error_classification.error_category == "value_out_of_range" || error_classification.error_category == "format_violation"
+                      }
+                      
+                      # Set metrics and routing metadata
+                      meta metric_schema_validation_failure = 1
+                      meta metric_schema_validation_duration_ms = validation_duration.parse_duration().milliseconds()
+                      meta metric_validation_error_category = error_classification.error_category
+                      meta validation_status = "failed"
+
+      # Step 5: Comprehensive data quality assessment
+      - mapping: |
+          root = this
+          total_processing_time = now() - meta("start_time")
+          
+          # Calculate comprehensive quality score
+          quality_score = if meta("validation_status") == "passed" { 100 }
+                         else if meta("validation_status") == "failed" { 0 }
+                         else { -1 }  # Parse error
+          
+          # Assess data completeness for valid JSON
+          completeness_score = if meta("parse_status") == "success" {
+            field_count = 0
+            field_count = field_count + (if this.sensor_id.exists() { 1 } else { 0 })
+            field_count = field_count + (if this.timestamp.exists() { 1 } else { 0 })
+            field_count = field_count + (if this.location.exists() { 1 } else { 0 })
+            field_count = field_count + (if this.readings.exists() { 1 } else { 0 })
+            field_count = field_count + (if this.metadata.exists() { 1 } else { 0 })
+            field_count * 20  # 5 fields, 20 points each = 100 max
+          } else { 0 }
+          
+          # Calculate processing performance metrics
+          input_size_mb = meta("input_size") / 1024.0 / 1024.0
+          processing_time_sec = total_processing_time.parse_duration().seconds()
+          throughput_mb_per_sec = if processing_time_sec > 0 { input_size_mb / processing_time_sec } else { 0 }
+          
+          root.data_quality = {
+            "message_id": meta("message_id"),
+            "validation_passed": meta("validation_status") == "passed",
+            "quality_score": quality_score,
+            "completeness_score": completeness_score,
+            "processing_node": env("NODE_ID").or("unknown"),
+            "assessment_timestamp": now(),
+            "sensor_id": this.sensor_id.or("unknown"),
+            "performance_metrics": {
+              "total_processing_time_ms": total_processing_time.parse_duration().milliseconds(),
+              "input_size_bytes": meta("input_size"),
+              "throughput_mb_per_sec": throughput_mb_per_sec,
+              "processing_efficiency": if meta("input_size") > 0 { 
+                1000.0 / (total_processing_time.parse_duration().milliseconds() / (meta("input_size") / 1000.0))
+              } else { 0 }
+            }
+          }
+          
+          # Set comprehensive metrics for collection
+          meta metric_total_processing_time_ms = total_processing_time.parse_duration().milliseconds()
+          meta metric_data_quality_score = quality_score
+          meta metric_data_completeness_score = completeness_score
+          meta metric_throughput_mb_per_sec = throughput_mb_per_sec
+          meta metric_input_size_bytes = meta("input_size")
+
+      # Step 6: Generate correlation ID for tracking
+      - mapping: |
+          root = this
+          correlation_id = uuid_v4()
+          root.correlation_id = correlation_id
+          
+          # Add routing metadata
+          root.routing = {
+            "destination": if meta("validation_status") == "passed" { "analytics" } else { "dlq" },
+            "routing_decision_time": now(),
+            "correlation_id": correlation_id,
+            "message_flow": if meta("validation_status") == "passed" { "success_path" } else { "failure_path" },
+            "route_priority": if meta("validation_status") == "failed" && this.dlq_metadata.investigation_priority == "urgent" { "high" } else { "normal" }
+          }
+
+  # Comprehensive multi-destination output routing
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # Analytics pipeline: High-performance valid data processing
+        - label: analytics_pipeline
+          switch:
+            - check: 'meta("validation_status") == "passed"'
+              output:
+                broker:
+                  pattern: greedy  # Try primary, fallback to secondary
+                  outputs:
+                    # Primary analytics endpoint
+                    - http_client:
+                        url: "${ANALYTICS_ENDPOINT:http://analytics-api:8080}/ingest"
+                        verb: POST
+                        headers:
+                          Content-Type: application/json
+                          X-Message-ID: "${!json(\"message_id\")}"
+                          X-Correlation-ID: "${!json(\"correlation_id\")}"
+                          X-Quality-Score: "${!meta(\"metric_data_quality_score\")}"
+                          X-Node-ID: "${!env(\"NODE_ID\").or(\"unknown\")}"
+                        batching:
+                          count: 100
+                          period: 5s
+                          byte_size: 10MB
+                        max_retries: 3
+                        backoff:
+                          initial_interval: 1s
+                          max_interval: 30s
+                        timeout: 10s
+
+                    # Fallback analytics endpoint
+                    - http_client:
+                        url: "${ANALYTICS_FALLBACK_ENDPOINT:http://analytics-fallback:8080}/ingest"
+                        verb: POST
+                        headers:
+                          Content-Type: application/json
+                          X-Message-ID: "${!json(\"message_id\")}"
+                          X-Source: "primary_failed"
+                        max_retries: 1
+                        timeout: 5s
+
+            # Drop messages that failed validation (they go to DLQ)
+            - output:
+                drop: {}
+
+        # DLQ system: Intelligent routing based on priority and classification
+        - label: dlq_system
+          switch:
+            - check: 'meta("validation_status") == "failed" || meta("validation_status") == "parse_failed"'
+              output:
+                switch:
+                  # Urgent priority: Immediate processing and alerting
+                  - check: 'this.dlq_metadata.investigation_priority == "urgent"'
+                    output:
+                      broker:
+                        pattern: fan_out
+                        outputs:
+                          # High-priority DLQ storage
+                          - file:
+                              path: "/var/log/expanso/dlq/urgent/${!timestamp_unix_date('2006/01/02')}/urgent-failures-${!timestamp_unix()}.jsonl"
+                              codec: lines
+                              batching:
+                                count: 1
+                                period: 1s
+
+                          # Immediate alert for urgent issues
+                          - http_client:
+                              url: "${ALERT_ENDPOINT:http://alertmanager:9093}/api/v1/alerts"
+                              verb: POST
+                              headers:
+                                Content-Type: application/json
+                              max_retries: 2
+
+                  # High priority: Faster processing
+                  - check: 'this.dlq_metadata.investigation_priority == "high"'
+                    output:
+                      file:
+                        path: "/var/log/expanso/dlq/high/${!timestamp_unix_date('2006/01/02')}/high-priority-failures-${!timestamp_unix()}.jsonl"
+                        codec: lines
+                        batching:
+                          count: 10
+                          period: 10s
+
+                  # Normal priority: Standard batch processing
+                  - output:
+                      file:
+                        path: "/var/log/expanso/dlq/normal/${!timestamp_unix_date('2006/01/02')}/validation-failures-${!timestamp_unix()}.jsonl"
+                        codec: lines
+                        batching:
+                          count: 50
+                          period: 60s
+
+            # Drop messages that passed validation (they go to analytics)
+            - output:
+                drop: {}
+
+        # Metrics collection: Comprehensive monitoring data
+        - label: metrics_collection
+          processors:
+            # Create comprehensive metrics payload
+            - mapping: |
+                metrics_timestamp = now()
+                
+                root = {
+                  "timestamp": metrics_timestamp,
+                  "message_id": this.message_id,
+                  "correlation_id": this.correlation_id,
+                  "node_id": env("NODE_ID").or("unknown"),
+                  "sensor_id": this.sensor_id.or("unknown"),
+                  
+                  # Processing metrics
+                  "processing_metrics": {
+                    "json_parse_success": meta("metric_json_parse_success").or(0),
+                    "json_parse_failure": meta("metric_json_parse_failure").or(0),
+                    "json_parse_duration_ms": meta("metric_json_parse_duration_ms").or(0),
+                    "schema_validation_success": meta("metric_schema_validation_success").or(0),
+                    "schema_validation_failure": meta("metric_schema_validation_failure").or(0),
+                    "schema_validation_duration_ms": meta("metric_schema_validation_duration_ms").or(0),
+                    "total_processing_time_ms": meta("metric_total_processing_time_ms").or(0)
+                  },
+                  
+                  # Quality metrics
+                  "quality_metrics": {
+                    "data_quality_score": meta("metric_data_quality_score").or(0),
+                    "data_completeness_score": meta("metric_data_completeness_score").or(0),
+                    "validation_status": meta("validation_status"),
+                    "error_category": meta("metric_validation_error_category").or("none")
+                  },
+                  
+                  # Performance metrics
+                  "performance_metrics": {
+                    "throughput_mb_per_sec": meta("metric_throughput_mb_per_sec").or(0),
+                    "input_size_bytes": meta("metric_input_size_bytes").or(0),
+                    "processing_efficiency": this.data_quality.performance_metrics.processing_efficiency.or(0)
+                  },
+                  
+                  # Routing metadata
+                  "routing_metrics": {
+                    "destination": this.routing.destination,
+                    "route_priority": this.routing.route_priority.or("normal"),
+                    "message_flow": this.routing.message_flow
+                  }
+                }
+
+          # Send metrics to monitoring system
+          http_client:
+            url: "${METRICS_ENDPOINT:http://prometheus-pushgateway:9091}/metrics/job/schema-validation/instance/${!env(\"NODE_ID\").or(\"unknown\")}"
+            verb: POST
+            headers:
+              Content-Type: text/plain
+            batching:
+              count: 50
+              period: 15s
+            max_retries: 0  # Fire and forget for metrics
+            timeout: 5s
+
+        # Real-time alerting: Immediate notifications for critical issues
+        - label: real_time_alerting
+          switch:
+            # Security violations: Immediate alert
+            - check: 'meta("metric_validation_error_category") == "security_violation"'
+              output:
+                http_client:
+                  url: "${ALERT_ENDPOINT:http://alertmanager:9093}/api/v1/alerts"
+                  verb: POST
+                  headers:
+                    Content-Type: application/json
+                  body: |
+                    [{
+                      "labels": {
+                        "alertname": "SecurityViolationDetected",
+                        "severity": "critical",
+                        "sensor_id": "${!json(\"sensor_id\").or(\"unknown\")}",
+                        "node_id": "${!env(\"NODE_ID\").or(\"unknown\")}",
+                        "message_id": "${!json(\"message_id\")}"
+                      },
+                      "annotations": {
+                        "summary": "Security violation in schema validation",
+                        "description": "Sensor ${!json(\"sensor_id\").or(\"unknown\")} sent data with additional properties"
+                      }
+                    }]
+                  max_retries: 3
+
+            # Performance degradation: Alert on high processing times
+            - check: 'meta("metric_total_processing_time_ms") > 1000'
+              output:
+                http_client:
+                  url: "${ALERT_ENDPOINT:http://alertmanager:9093}/api/v1/alerts"
+                  verb: POST
+                  headers:
+                    Content-Type: application/json
+                  body: |
+                    [{
+                      "labels": {
+                        "alertname": "ProcessingPerformanceDegraded",
+                        "severity": "warning", 
+                        "node_id": "${!env(\"NODE_ID\").or(\"unknown\")}",
+                        "processing_time": "${!meta(\"metric_total_processing_time_ms\")}"
+                      },
+                      "annotations": {
+                        "summary": "High processing time detected",
+                        "description": "Processing time ${!meta(\"metric_total_processing_time_ms\")}ms exceeds threshold"
+                      }
+                    }]
+                  max_retries: 1
+
+            # Drop other messages (no alert needed)
+            - output:
+                drop: {}
+
+        # Audit logging: Comprehensive audit trail
+        - label: audit_logging
+          processors:
+            # Create audit log entry
+            - mapping: |
+                root = {
+                  "audit_timestamp": now(),
+                  "message_id": this.message_id,
+                  "correlation_id": this.correlation_id,
+                  "node_id": env("NODE_ID").or("unknown"),
+                  "sensor_id": this.sensor_id.or("unknown"),
+                  "validation_status": meta("validation_status"),
+                  "data_quality_score": this.data_quality.quality_score,
+                  "processing_time_ms": this.data_quality.performance_metrics.total_processing_time_ms,
+                  "input_size_bytes": this.data_quality.performance_metrics.input_size_bytes,
+                  "pipeline_version": this.pipeline_metadata.pipeline_version.or("unknown"),
+                  "audit_type": if meta("validation_status") == "passed" { "data_processed" }
+                               else if meta("validation_status") == "failed" { "validation_failed" }
+                               else { "parse_failed" },
+                  "error_details": if meta("validation_status") == "failed" || meta("validation_status") == "parse_failed" {
+                    {
+                      "error_category": this.dlq_metadata.error_category.or("unknown"),
+                      "investigation_priority": this.dlq_metadata.investigation_priority.or("normal"),
+                      "retention_class": this.dlq_metadata.retention_class.or("short_term")
+                    }
+                  } else { null }
+                }
+
+          # Write to audit log
+          file:
+            path: "/var/log/expanso/audit/${!timestamp_unix_date('2006/01')}/schema-validation-audit-${!timestamp_unix_date('2006-01-02')}.jsonl"
+            codec: lines
+            batching:
+              count: 100
+              period: 30s
+
+# Production logging configuration
+logger:
+  level: INFO
+  format: json
+  static_fields:
+    component: complete-schema-validation
+    version: "1.0.0"
+    deployment_env: production
+  add_timestamp: true
+
+# Enhanced Prometheus metrics configuration
+metrics:
+  prometheus:
+    path: /metrics
+    push_interval: 15s
+    push_url: "${PROMETHEUS_PUSHGATEWAY_URL:http://prometheus-pushgateway:9091}"
+    push_job_name: "schema-validation"
+    push_instance: "${NODE_ID:unknown}"
+  mapping: |
+    root = this
+    meta pipeline = "complete-schema-validation"
+    meta environment = "production"
+    meta version = "1.0.0"
+    meta validation_enabled = "true"
+    meta dlq_enabled = "true"
+    meta monitoring_comprehensive = "true"

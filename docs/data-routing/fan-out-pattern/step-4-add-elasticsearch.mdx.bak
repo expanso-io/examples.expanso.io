@@ -1,0 +1,1134 @@
+---
+title: Add Elasticsearch for Search and Analytics
+sidebar_label: Step 4 - Add Elasticsearch
+sidebar_position: 7
+description: Integrate Elasticsearch for real-time search, analytics, and operational monitoring
+keywords: [elasticsearch, search, analytics, monitoring, indexing, real-time, kibana]
+---
+
+# Step 4: Add Elasticsearch for Search and Analytics
+
+**Complete your multi-destination architecture with powerful search capabilities**. This step teaches you how to add Elasticsearch as an analytics destination with optimized indexing, search-friendly data structures, and operational monitoring integration.
+
+## Understanding Elasticsearch in Fan-Out Architecture
+
+Elasticsearch serves as the **search and analytics destination** in your multi-destination architecture. While Kafka handles real-time streaming and S3 provides long-term archival, Elasticsearch enables:
+
+### Search and Analytics Benefits
+
+**Real-Time Search Capabilities:**
+- Full-text search across all sensor data and metadata
+- Complex aggregations for operational dashboards and alerts
+- Geographic queries for location-based analysis and monitoring
+
+**Operational Monitoring:**
+- Real-time alerting on sensor anomalies and system health
+- Performance monitoring for edge nodes and data pipeline health
+- Trend analysis for capacity planning and optimization
+
+**Business Intelligence Integration:**
+- Kibana dashboards for visual analytics and reporting
+- Data exploration for data scientists and analysts
+- Custom applications with Elasticsearch REST API
+
+### Edge Computing Context
+
+**Near Real-Time Analytics:**
+- Balanced batching for search responsiveness without overwhelming the cluster
+- Index optimization for time-series sensor data patterns
+- Memory-efficient aggregations for resource-constrained edge environments
+
+**Operational Visibility:**
+- Monitor edge node performance across distributed deployments
+- Track data quality and pipeline health in real-time
+- Identify and respond to sensor failures quickly
+
+## Step-by-Step Elasticsearch Integration
+
+### Starting Point: Current Multi-Destination Pipeline
+
+From Step 3, you have Kafka streaming, S3 archival, and analytics file outputs:
+
+```yaml title="Current outputs configuration"
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Real-time Kafka streaming
+      - kafka:
+          # ... existing Kafka config
+          
+      # Long-term S3 archival
+      - aws_s3:
+          # ... existing S3 config
+          
+      # Analytics file destination (to be replaced with Elasticsearch)
+      - file:
+          path: /var/expanso/analytics/events-${!timestamp_unix_date("2006-01-02")}.jsonl
+          # ... existing analytics file config
+```
+
+### Replace Analytics File with Elasticsearch
+
+Replace the analytics file destination with an Elasticsearch output optimized for search and analytics:
+
+```yaml title="Add Elasticsearch as analytics destination"
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Real-time Kafka streaming (unchanged)
+      - kafka:
+          # ... keep existing Kafka configuration
+          
+      # Long-term S3 archival (unchanged)  
+      - aws_s3:
+          # ... keep existing S3 configuration
+          
+      # Search and analytics with Elasticsearch
+      - elasticsearch:
+          # Elasticsearch cluster endpoints
+          urls:
+            - ${ES_ENDPOINT_1}
+            - ${ES_ENDPOINT_2}
+            - ${ES_ENDPOINT_3}
+          
+          # Dynamic daily indices for easier management
+          index: sensor-events-${!timestamp_unix_date("2006-01-02")}
+          
+          # Use event ID for idempotent indexing
+          id: ${!json("event_id")}
+          
+          # Analytics-optimized batching
+          batching:
+            count: 250        # Medium batches for search responsiveness
+            period: 10s       # Fast indexing for near real-time search
+            byte_size: 5MB    # Reasonable memory usage
+          
+          # Compression for network efficiency
+          sniff: false        # Disable node discovery for edge security
+          gzip_compression: true
+          
+          # Authentication and security
+          basic_auth:
+            enabled: true
+            username: ${ES_USERNAME}
+            password: ${ES_PASSWORD}
+            
+          tls:
+            enabled: true
+            skip_cert_verify: false
+            
+          # Retry configuration for search cluster stability
+          max_retries: 5
+          backoff:
+            initial_interval: 1s
+            max_interval: 60s
+            multiplier: 2.0
+            
+          # Indexing optimization
+          timeout: 30s
+          document_type: "_doc"
+          
+          # Index management
+          pipeline: "sensor-events-pipeline"  # Elasticsearch ingest pipeline
+          routing: ${!json("edge_node_id")}   # Route to specific shards
+```
+
+**Key Elasticsearch-specific optimizations:**
+
+**Index Strategy:**
+- **Daily indices**: Easier lifecycle management and better search performance
+- **Event ID as document ID**: Enables upserts and prevents duplicates
+- **Shard routing**: Distribute documents by edge node for parallel processing
+
+**Batching Strategy:**
+- **Medium batch size (250)**: Balance between latency and throughput
+- **Short period (10s)**: Fast indexing for near real-time search
+- **Reasonable memory usage**: Prevent overwhelming edge node resources
+
+**Security Configuration:**
+- **Basic auth + TLS**: Standard Elasticsearch security
+- **Node discovery disabled**: Prevent security issues in edge environments
+- **Certificate validation**: Ensure connection to legitimate cluster
+
+### Add Elasticsearch-Optimized Data Processing
+
+Add processing tailored to Elasticsearch's search and analytics requirements:
+
+```yaml title="Add Elasticsearch-optimized processing"
+pipeline:
+  processors:
+    # Existing processors (edge metadata, Kafka metadata, S3 metadata, validation)
+    # ... keep existing processors
+    
+    # Add Elasticsearch search optimization
+    - mapping: |
+        root = this
+        
+        # Search-optimized metadata
+        root.search_metadata = {
+          "indexed_at": now(),
+          "index_name": "sensor-events-" + this.timestamp.parse_timestamp().ts_format("2006-01-02"),
+          "document_type": "sensor_event",
+          "search_tags": [this.device_type, this.edge_location, "telemetry"],
+          "routing_key": this.edge_node_id
+        }
+        
+        # Prepare fields for aggregations and analytics
+        root.analytics = {
+          "event_hour": this.timestamp.parse_timestamp().ts_hour(),
+          "event_day_of_week": this.timestamp.parse_timestamp().ts_weekday(),
+          "event_month": this.timestamp.parse_timestamp().ts_month(),
+          "is_business_hour": this.timestamp.parse_timestamp().ts_hour() >= 8 && this.timestamp.parse_timestamp().ts_hour() <= 17,
+          "is_weekend": this.timestamp.parse_timestamp().ts_weekday() > 5
+        }
+        
+        # Prepare geographic data for Elasticsearch geo queries
+        root.location = {
+          "edge_node": this.edge_node_id,
+          "region": this.edge_location,
+          "coordinates": if this.exists("latitude") && this.exists("longitude") { 
+            {"lat": this.latitude, "lon": this.longitude} 
+          } else { null },
+          "building": this.location.building.or("unknown"),
+          "floor": this.location.floor.or(0),
+          "zone": this.location.zone.or("unknown")
+        }
+
+    # Elasticsearch-specific field optimization
+    - mapping: |
+        root = this
+        
+        # Optimize numeric fields for aggregations
+        root.metrics = {
+          "temperature_celsius": this.temperature.number(),
+          "humidity_percent": this.humidity.number(),
+          "battery_level_percent": this.metadata.battery_level.number().or(100),
+          "processing_latency_ms": (now() - this.timestamp.parse_timestamp()) * 1000,
+          "event_age_seconds": now() - this.timestamp.parse_timestamp()
+        }
+        
+        # Create keyword fields for exact matching and aggregations
+        root.keywords = {
+          "sensor_id_exact": this.sensor_id,
+          "device_type_exact": this.device_type,
+          "edge_node_exact": this.edge_node_id,
+          "edge_location_exact": this.edge_location,
+          "firmware_version_exact": this.metadata.firmware_version.or("unknown")
+        }
+        
+        # Full-text search preparation
+        root.search_content = [
+          this.sensor_id,
+          this.device_type,
+          this.edge_node_id,
+          this.edge_location,
+          this.location.building.or(""),
+          this.location.zone.or(""),
+          "temperature:" + this.temperature.string(),
+          "humidity:" + this.humidity.string()
+        ].join(" ")
+
+    # Add alerting and monitoring metadata  
+    - mapping: |
+        root = this
+        
+        # Prepare for alerting rules
+        root.alerts = {
+          "temperature_status": if this.metrics.temperature_celsius > 35 { "high" } 
+                               else if this.metrics.temperature_celsius < 5 { "low" } 
+                               else { "normal" },
+          "humidity_status": if this.metrics.humidity_percent > 80 { "high" }
+                            else if this.metrics.humidity_percent < 20 { "low" }
+                            else { "normal" },
+          "battery_status": if this.metrics.battery_level_percent < 20 { "critical" }
+                           else if this.metrics.battery_level_percent < 50 { "low" }
+                           else { "normal" },
+          "data_quality": if this.exists("temperature") && this.exists("humidity") { "complete" } 
+                         else { "incomplete" },
+          "processing_status": if this.metrics.processing_latency_ms > 5000 { "delayed" } 
+                              else { "normal" }
+        }
+        
+        # Add operational monitoring fields
+        root.monitoring = {
+          "pipeline_health": "healthy",
+          "data_completeness_score": if this.alerts.data_quality == "complete" { 100 } else { 50 },
+          "anomaly_detection": {
+            "temperature_anomaly": abs(this.metrics.temperature_celsius - 22) > 15,
+            "humidity_anomaly": abs(this.metrics.humidity_percent - 45) > 35,
+            "timing_anomaly": this.metrics.processing_latency_ms > 10000
+          }
+        }
+```
+
+### Configure Advanced Elasticsearch Features
+
+For production environments, add advanced Elasticsearch configuration:
+
+```yaml title="Production Elasticsearch configuration"
+- elasticsearch:
+    urls:
+      - ${ES_ENDPOINT_1}
+      - ${ES_ENDPOINT_2}
+      - ${ES_ENDPOINT_3}
+    
+    # Advanced index management
+    index: sensor-events-${!timestamp_unix_date("2006-01-02")}
+    id: ${!json("event_id")}
+    
+    # Document routing for performance
+    routing: ${!json("edge_node_id")}
+    
+    # Advanced batching configuration
+    batching:
+      count: 500        # Larger batches for high-volume edge deployments
+      period: 15s       # Slightly longer for efficiency
+      byte_size: 10MB   # Larger batches for throughput
+      
+      # Flush conditions
+      flush_period: 30s # Force flush for alerting responsiveness
+      
+    # Performance optimization
+    sniff: false
+    gzip_compression: true
+    
+    # Advanced HTTP settings
+    timeout: 60s
+    max_idle_conns: 10
+    max_conns_per_host: 10
+    
+    # Security configuration
+    basic_auth:
+      enabled: true
+      username: ${ES_USERNAME}
+      password: ${ES_PASSWORD}
+      
+    tls:
+      enabled: true
+      skip_cert_verify: false
+      client_cert_file: ${ES_CLIENT_CERT_PATH}
+      client_key_file: ${ES_CLIENT_KEY_PATH}
+      root_cas_file: ${ES_CA_CERT_PATH}
+    
+    # Retry and circuit breaker
+    max_retries: 8
+    backoff:
+      initial_interval: 2s
+      max_interval: 120s
+      multiplier: 2.0
+      jitter: 0.2
+      
+    # Index template and lifecycle management
+    pipeline: "sensor-events-ingest-pipeline"
+    
+    # Elasticsearch-specific headers
+    headers:
+      X-Pipeline-Version: "elasticsearch-v4.0"
+      X-Data-Source: "expanso-edge"
+      X-Environment: ${ENVIRONMENT}
+    
+    # Custom metadata for index management
+    metadata:
+      static:
+        index_pattern: "sensor-events-*"
+        retention_days: "30"
+        shard_count: "3"
+        replica_count: "1"
+        
+      from_message:
+        edge_cluster: ${!json("edge_node_id").split("-")[0:2].join("-")}
+        data_volume: ${!json("metrics").length()}
+        alert_level: ${!json("alerts.temperature_status")}
+```
+
+### Create Elasticsearch Index Template
+
+Set up an index template optimized for sensor data:
+
+```bash title="Create Elasticsearch index template"
+# Create index template for sensor events
+cat > sensor-events-template.json << 'EOF'
+{
+  "index_patterns": ["sensor-events-*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 3,
+      "number_of_replicas": 1,
+      "index.codec": "best_compression",
+      "index.refresh_interval": "5s",
+      "index.max_result_window": 50000,
+      "analysis": {
+        "analyzer": {
+          "sensor_analyzer": {
+            "type": "custom",
+            "tokenizer": "keyword",
+            "filter": ["lowercase", "stop"]
+          }
+        }
+      }
+    },
+    "mappings": {
+      "properties": {
+        "event_id": {"type": "keyword"},
+        "sensor_id": {"type": "keyword"},
+        "timestamp": {"type": "date"},
+        "processing_timestamp": {"type": "date"},
+        "edge_node_id": {"type": "keyword"},
+        "edge_location": {"type": "keyword"},
+        "device_type": {"type": "keyword"},
+        
+        "metrics": {
+          "properties": {
+            "temperature_celsius": {"type": "float"},
+            "humidity_percent": {"type": "float"},
+            "battery_level_percent": {"type": "integer"},
+            "processing_latency_ms": {"type": "long"},
+            "event_age_seconds": {"type": "long"}
+          }
+        },
+        
+        "location": {
+          "properties": {
+            "coordinates": {"type": "geo_point"},
+            "building": {"type": "keyword"},
+            "floor": {"type": "integer"},
+            "zone": {"type": "keyword"}
+          }
+        },
+        
+        "analytics": {
+          "properties": {
+            "event_hour": {"type": "integer"},
+            "event_day_of_week": {"type": "integer"},
+            "event_month": {"type": "integer"},
+            "is_business_hour": {"type": "boolean"},
+            "is_weekend": {"type": "boolean"}
+          }
+        },
+        
+        "alerts": {
+          "properties": {
+            "temperature_status": {"type": "keyword"},
+            "humidity_status": {"type": "keyword"},
+            "battery_status": {"type": "keyword"},
+            "data_quality": {"type": "keyword"},
+            "processing_status": {"type": "keyword"}
+          }
+        },
+        
+        "search_content": {
+          "type": "text",
+          "analyzer": "sensor_analyzer"
+        },
+        
+        "search_tags": {
+          "type": "keyword"
+        }
+      }
+    }
+  },
+  "composed_of": [],
+  "priority": 100,
+  "version": 1
+}
+EOF
+
+# Apply the template
+curl -X PUT "${ES_ENDPOINT_1}/_index_template/sensor-events" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" \
+  -H "Content-Type: application/json" \
+  -d @sensor-events-template.json
+
+# Verify template creation
+curl -X GET "${ES_ENDPOINT_1}/_index_template/sensor-events" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" | jq '.index_templates[0].name'
+```
+
+### Create Elasticsearch Ingest Pipeline
+
+Set up an ingest pipeline for additional data processing:
+
+```bash title="Create Elasticsearch ingest pipeline"
+# Create ingest pipeline for data enrichment
+cat > sensor-events-ingest-pipeline.json << 'EOF'
+{
+  "description": "Process sensor events for search optimization",
+  "processors": [
+    {
+      "set": {
+        "field": "elasticsearch_metadata.indexed_at",
+        "value": "{{{_ingest.timestamp}}}"
+      }
+    },
+    {
+      "set": {
+        "field": "elasticsearch_metadata.index_name",
+        "value": "{{{_index}}}"
+      }
+    },
+    {
+      "script": {
+        "source": "ctx.elasticsearch_metadata.document_size_bytes = ctx.toString().length()"
+      }
+    },
+    {
+      "grok": {
+        "field": "sensor_id",
+        "patterns": ["sensor-%{NUMBER:sensor_number}"],
+        "ignore_failure": true
+      }
+    },
+    {
+      "convert": {
+        "field": "sensor_number",
+        "type": "integer",
+        "ignore_missing": true
+      }
+    }
+  ]
+}
+EOF
+
+# Apply the ingest pipeline
+curl -X PUT "${ES_ENDPOINT_1}/_ingest/pipeline/sensor-events-ingest-pipeline" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" \
+  -H "Content-Type: application/json" \
+  -d @sensor-events-ingest-pipeline.json
+
+# Test the pipeline
+curl -X POST "${ES_ENDPOINT_1}/_ingest/pipeline/sensor-events-ingest-pipeline/_simulate" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "docs": [
+      {
+        "_source": {
+          "sensor_id": "sensor-42",
+          "temperature": 23.5,
+          "timestamp": "2025-01-20T10:00:00Z"
+        }
+      }
+    ]
+  }'
+```
+
+### Add Elasticsearch Fallback for Resilience
+
+Ensure data availability during Elasticsearch outages:
+
+```yaml title="Elasticsearch with local fallback"
+- fallback:
+    # Primary: Elasticsearch cluster
+    - elasticsearch:
+        urls:
+          - ${ES_ENDPOINT_1}
+          - ${ES_ENDPOINT_2}
+          - ${ES_ENDPOINT_3}
+        
+        index: sensor-events-${!timestamp_unix_date("2006-01-02")}
+        id: ${!json("event_id")}
+        
+        # ... existing Elasticsearch config
+        
+    # Fallback: Local file for Elasticsearch outages
+    - file:
+        path: /var/expanso/elasticsearch-fallback/events-${!timestamp_unix_date("2006-01-02")}-${!timestamp_unix_hour()}.jsonl
+        codec: lines
+        
+        # Optimized for later Elasticsearch replay
+        batching:
+          count: 1000
+          period: 10m
+          
+        processors:
+          - mapping: |
+              root = this
+              root.fallback_metadata = {
+                "reason": "elasticsearch_unavailable",
+                "buffered_at": now(),
+                "intended_index": "sensor-events-" + this.timestamp.parse_timestamp().ts_format("2006-01-02"),
+                "replay_priority": "normal"
+              }
+```
+
+## Complete Elasticsearch Integration Configuration
+
+Here's the complete configuration with Elasticsearch analytics integration:
+
+```yaml title="complete-elasticsearch-fan-out-pipeline.yaml"
+name: elasticsearch-fan-out-pipeline
+description: Complete multi-destination pipeline with Elasticsearch search and analytics
+type: pipeline
+namespace: production
+labels:
+  environment: production
+  pattern: fan-out-complete
+  version: v4.0
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+      timeout: 5s
+      rate_limit: "20000/s"  # Higher limit for complete pipeline
+
+  pipeline:
+    processors:
+      # Edge metadata enrichment
+      - mapping: |
+          root = this
+          root.edge_node_id = env("NODE_ID").or("unknown")
+          root.edge_location = env("NODE_LOCATION").or("unknown")
+          root.processing_timestamp = now()
+          root.pipeline_version = "complete-v4.0"
+
+      # Multi-destination metadata
+      - mapping: |
+          root = this
+          
+          # Kafka metadata (real-time)
+          root.kafka_metadata = {
+            "partition_key": this.sensor_id,
+            "delivery_mode": "at_least_once"
+          }
+          
+          # S3 metadata (archive)
+          root.s3_metadata = {
+            "partition_date": this.timestamp.parse_timestamp().ts_format("2006-01-02"),
+            "storage_tier": "intelligent_tiering"
+          }
+          
+          # Elasticsearch metadata (search/analytics)
+          root.search_metadata = {
+            "index_name": "sensor-events-" + this.timestamp.parse_timestamp().ts_format("2006-01-02"),
+            "document_type": "sensor_event",
+            "routing_key": this.edge_node_id
+          }
+
+      # Elasticsearch search optimization  
+      - mapping: |
+          root = this
+          
+          # Analytics fields
+          root.analytics = {
+            "event_hour": this.timestamp.parse_timestamp().ts_hour(),
+            "event_day_of_week": this.timestamp.parse_timestamp().ts_weekday(),
+            "is_business_hour": this.timestamp.parse_timestamp().ts_hour() >= 8 && this.timestamp.parse_timestamp().ts_hour() <= 17
+          }
+          
+          # Metrics for aggregations
+          root.metrics = {
+            "temperature_celsius": this.temperature.number(),
+            "humidity_percent": this.humidity.number(),
+            "processing_latency_ms": (now() - this.timestamp.parse_timestamp()) * 1000
+          }
+          
+          # Alert conditions
+          root.alerts = {
+            "temperature_status": if this.metrics.temperature_celsius > 35 { "high" } 
+                                 else if this.metrics.temperature_celsius < 5 { "low" } 
+                                 else { "normal" },
+            "data_quality": if this.exists("temperature") && this.exists("humidity") { "complete" } 
+                           else { "incomplete" }
+          }
+
+      # Enhanced validation
+      - mapping: |
+          if !this.exists("event_id") {
+            throw("missing required field: event_id")
+          }
+          if !this.exists("sensor_id") {
+            throw("missing required field: sensor_id")
+          }
+          if !this.exists("timestamp") {
+            throw("missing required field: timestamp")
+          }
+          root = this
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # Real-time Kafka streaming
+        - kafka:
+            addresses:
+              - ${KAFKA_BROKER_1}
+              - ${KAFKA_BROKER_2}
+              - ${KAFKA_BROKER_3}
+            topic: sensor-events
+            key: ${!json("sensor_id")}
+            batching:
+              count: 100
+              period: 2s
+            compression: snappy
+            # ... existing Kafka config
+
+        # Long-term S3 archival
+        - aws_s3:
+            bucket: ${S3_BUCKET}
+            region: ${AWS_REGION}
+            path: "sensor-data/dt=${!timestamp_unix_date("2006-01-02")}/hr=${!timestamp_unix_hour()}/edge=${!env("NODE_ID")}/batch=${!count("s3_files")}.jsonl.gz"
+            batching:
+              count: 10000
+              period: 60m
+            content_encoding: gzip
+            storage_class: INTELLIGENT_TIERING
+            # ... existing S3 config
+
+        # Search and analytics with Elasticsearch
+        - fallback:
+            # Primary: Elasticsearch cluster
+            - elasticsearch:
+                urls:
+                  - ${ES_ENDPOINT_1}
+                  - ${ES_ENDPOINT_2}
+                  - ${ES_ENDPOINT_3}
+                
+                index: sensor-events-${!timestamp_unix_date("2006-01-02")}
+                id: ${!json("event_id")}
+                routing: ${!json("edge_node_id")}
+                
+                batching:
+                  count: 500
+                  period: 15s
+                  byte_size: 10MB
+                  
+                sniff: false
+                gzip_compression: true
+                
+                basic_auth:
+                  enabled: true
+                  username: ${ES_USERNAME}
+                  password: ${ES_PASSWORD}
+                  
+                tls:
+                  enabled: true
+                  skip_cert_verify: false
+                  
+                max_retries: 8
+                backoff:
+                  initial_interval: 2s
+                  max_interval: 120s
+                  
+                pipeline: "sensor-events-ingest-pipeline"
+                
+            # Fallback: Local buffer
+            - file:
+                path: /var/expanso/elasticsearch-fallback/events-${!timestamp_unix_date("2006-01-02")}-${!timestamp_unix_hour()}.jsonl
+                codec: lines
+                batching:
+                  count: 1000
+                  period: 10m
+```
+
+## Testing and Verification
+
+### Deploy Elasticsearch Integration
+
+```bash title="Deploy complete pipeline"
+# Verify Elasticsearch connectivity
+curl -X GET "${ES_ENDPOINT_1}/_cluster/health" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}"
+
+# Deploy complete pipeline
+expanso job deploy complete-elasticsearch-fan-out-pipeline.yaml
+
+# Monitor deployment
+watch -n 5 'expanso job status elasticsearch-fan-out-pipeline'
+```
+
+### Test Elasticsearch Indexing
+
+```bash title="Test Elasticsearch integration"
+# Generate test data
+./load-test-fan-out.sh http://localhost:8080/events 300 15  # 5 minutes at 15 msg/s
+
+# Check index creation (may take time due to batching)
+watch -n 15 'curl -s -X GET "${ES_ENDPOINT_1}/_cat/indices/sensor-events-*" -u "${ES_USERNAME}:${ES_PASSWORD}"'
+
+# Verify document count
+curl -X GET "${ES_ENDPOINT_1}/sensor-events-$(date +%Y-%m-%d)/_count" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" | jq '.count'
+
+# Check recent documents
+curl -X GET "${ES_ENDPOINT_1}/sensor-events-$(date +%Y-%m-%d)/_search" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": {"match_all": {}},
+    "sort": [{"timestamp": {"order": "desc"}}],
+    "size": 5
+  }' | jq '.hits.hits[]._source | {event_id, sensor_id, alerts, metrics}'
+```
+
+### Test Search and Analytics Queries
+
+```bash title="Test Elasticsearch search capabilities"
+# Create search test script  
+cat > test-elasticsearch-queries.sh << 'EOF'
+#!/bin/bash
+
+INDEX="sensor-events-$(date +%Y-%m-%d)"
+ES_URL="${ES_ENDPOINT_1}"
+AUTH="${ES_USERNAME}:${ES_PASSWORD}"
+
+echo "Testing Elasticsearch Search and Analytics"
+echo "========================================"
+
+# Test 1: Basic search
+echo "1. Basic document search:"
+curl -s -X GET "${ES_URL}/${INDEX}/_search" -u "$AUTH" \
+  -H "Content-Type: application/json" \
+  -d '{"query": {"match_all": {}}, "size": 3}' | \
+  jq '.hits.total.value, .hits.hits[0]._source.sensor_id'
+
+# Test 2: Alert aggregation
+echo "2. Alert status aggregation:"
+curl -s -X GET "${ES_URL}/${INDEX}/_search" -u "$AUTH" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "size": 0,
+    "aggs": {
+      "alert_status": {
+        "terms": {"field": "alerts.temperature_status"}
+      }
+    }
+  }' | jq '.aggregations.alert_status.buckets'
+
+# Test 3: Time-based metrics
+echo "3. Hourly temperature averages:"
+curl -s -X GET "${ES_URL}/${INDEX}/_search" -u "$AUTH" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "size": 0,
+    "aggs": {
+      "hourly_temps": {
+        "date_histogram": {
+          "field": "timestamp",
+          "calendar_interval": "hour"
+        },
+        "aggs": {
+          "avg_temp": {
+            "avg": {"field": "metrics.temperature_celsius"}
+          }
+        }
+      }
+    }
+  }' | jq '.aggregations.hourly_temps.buckets[] | {hour: .key_as_string, avg_temp: .avg_temp.value}'
+
+# Test 4: Edge node performance
+echo "4. Edge node performance:"
+curl -s -X GET "${ES_URL}/${INDEX}/_search" -u "$AUTH" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "size": 0,
+    "aggs": {
+      "edge_nodes": {
+        "terms": {"field": "edge_node_id"},
+        "aggs": {
+          "avg_latency": {
+            "avg": {"field": "metrics.processing_latency_ms"}
+          },
+          "event_count": {
+            "value_count": {"field": "event_id"}
+          }
+        }
+      }
+    }
+  }' | jq '.aggregations.edge_nodes.buckets[] | {node: .key, avg_latency_ms: .avg_latency.value, event_count: .event_count.value}'
+
+# Test 5: Sensor status monitoring  
+echo "5. Sensor status monitoring:"
+curl -s -X GET "${ES_URL}/${INDEX}/_search" -u "$AUTH" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": {
+      "bool": {
+        "should": [
+          {"term": {"alerts.temperature_status": "high"}},
+          {"term": {"alerts.humidity_status": "high"}},
+          {"term": {"alerts.battery_status": "critical"}}
+        ]
+      }
+    },
+    "sort": [{"timestamp": {"order": "desc"}}],
+    "size": 10
+  }' | jq '.hits.hits[] | {sensor: ._source.sensor_id, alerts: ._source.alerts, time: ._source.timestamp}'
+
+echo "Search tests completed!"
+EOF
+
+chmod +x test-elasticsearch-queries.sh
+./test-elasticsearch-queries.sh
+```
+
+### Create Kibana Dashboards
+
+Set up basic dashboards for operational monitoring:
+
+```bash title="Create Kibana index pattern"
+# Create index pattern for Kibana
+curl -X POST "${ES_ENDPOINT_1}/_kibana/api/saved_objects/index-pattern/sensor-events-*" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" \
+  -H "Content-Type: application/json" \
+  -H "kbn-xsrf: true" \
+  -d '{
+    "attributes": {
+      "title": "sensor-events-*",
+      "timeFieldName": "timestamp",
+      "fields": "[{\"name\":\"timestamp\",\"type\":\"date\",\"searchable\":true,\"aggregatable\":true},{\"name\":\"sensor_id\",\"type\":\"string\",\"searchable\":true,\"aggregatable\":true},{\"name\":\"metrics.temperature_celsius\",\"type\":\"number\",\"searchable\":true,\"aggregatable\":true},{\"name\":\"alerts.temperature_status\",\"type\":\"string\",\"searchable\":true,\"aggregatable\":true}]"
+    }
+  }'
+
+echo "Kibana index pattern created. Access Kibana to create dashboards."
+echo "Suggested visualizations:"
+echo "  1. Temperature trends over time (line chart)"
+echo "  2. Alert status distribution (pie chart)"  
+echo "  3. Edge node performance (data table)"
+echo "  4. Geographic sensor distribution (map)"
+echo "  5. Real-time sensor status (metric widgets)"
+```
+
+## Production Optimization Strategies
+
+### Index Lifecycle Management
+
+Configure automatic index management:
+
+```bash title="Configure index lifecycle policies"
+# Create ILM policy for sensor data
+cat > sensor-events-ilm-policy.json << 'EOF'
+{
+  "policy": {
+    "phases": {
+      "hot": {
+        "actions": {
+          "set_priority": {"priority": 100},
+          "rollover": {
+            "max_size": "10GB",
+            "max_docs": 10000000,
+            "max_age": "1d"
+          }
+        }
+      },
+      "warm": {
+        "min_age": "2d",
+        "actions": {
+          "set_priority": {"priority": 50},
+          "allocate": {
+            "number_of_replicas": 0
+          },
+          "forcemerge": {
+            "max_num_segments": 1
+          }
+        }
+      },
+      "cold": {
+        "min_age": "7d", 
+        "actions": {
+          "set_priority": {"priority": 0},
+          "allocate": {
+            "number_of_replicas": 0
+          }
+        }
+      },
+      "delete": {
+        "min_age": "30d",
+        "actions": {
+          "delete": {}
+        }
+      }
+    }
+  }
+}
+EOF
+
+# Apply ILM policy
+curl -X PUT "${ES_ENDPOINT_1}/_ilm/policy/sensor-events-policy" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" \
+  -H "Content-Type: application/json" \
+  -d @sensor-events-ilm-policy.json
+
+# Update index template to use ILM
+curl -X PUT "${ES_ENDPOINT_1}/_index_template/sensor-events" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "index_patterns": ["sensor-events-*"],
+    "template": {
+      "settings": {
+        "index.lifecycle.name": "sensor-events-policy",
+        "index.lifecycle.rollover_alias": "sensor-events-write"
+      }
+    }
+  }'
+```
+
+### Performance Tuning
+
+Optimize for sensor data characteristics:
+
+```yaml title="Performance-optimized Elasticsearch config"
+elasticsearch:
+  # ... existing config
+  
+  # Performance optimization
+  batching:
+    count: 1000       # Larger batches for throughput
+    period: 30s       # Longer periods for efficiency
+    byte_size: 20MB   # Larger payload sizes
+    
+  # Index optimization
+  headers:
+    "refresh": "wait_for"  # Wait for refresh for consistency
+    
+  # Bulk indexing optimization  
+  pipeline: "sensor-events-optimized-pipeline"
+  
+  # Routing for performance
+  routing: ${!json("edge_node_id")}  # Consistent shard routing
+```
+
+### Multi-Cluster Setup
+
+For large deployments, consider multiple Elasticsearch clusters:
+
+```yaml title="Multi-cluster Elasticsearch strategy"
+# Hot cluster (recent data, fast queries)
+- elasticsearch:
+    urls: ["${ES_HOT_CLUSTER_1}", "${ES_HOT_CLUSTER_2}"]
+    index: sensor-events-hot-${!timestamp_unix_date("2006-01-02")}
+    batching:
+      count: 250
+      period: 5s    # Fast indexing for real-time queries
+      
+# Warm cluster (older data, analytical queries)  
+- elasticsearch:
+    urls: ["${ES_WARM_CLUSTER_1}", "${ES_WARM_CLUSTER_2}"]
+    index: sensor-events-warm-${!timestamp_unix_date("2006-01-02")}
+    batching:
+      count: 1000
+      period: 60s   # Larger batches for efficiency
+```
+
+## Common Issues and Solutions
+
+### Issue: High Elasticsearch Memory Usage
+
+**Symptom:** Elasticsearch cluster shows high heap usage and slow queries.
+
+**Solutions:**
+
+1. **Optimize field mappings:**
+```json
+{
+  "mappings": {
+    "properties": {
+      "sensor_id": {"type": "keyword", "index": false},  // Disable indexing if not searching
+      "raw_data": {"enabled": false}  // Disable indexing for large text fields
+    }
+  }
+}
+```
+
+2. **Reduce batch sizes:**
+```yaml
+batching:
+  count: 200      # Reduce from 500
+  byte_size: 5MB  # Reduce from 10MB
+```
+
+### Issue: Slow Search Performance
+
+**Symptom:** Dashboard queries and searches take longer than expected.
+
+**Solutions:**
+
+1. **Optimize index structure:**
+```bash
+# Force merge old indices
+curl -X POST "${ES_ENDPOINT_1}/sensor-events-$(date -d '1 day ago' +%Y-%m-%d)/_forcemerge?max_num_segments=1" \
+  -u "${ES_USERNAME}:${ES_PASSWORD}"
+```
+
+2. **Add search-optimized fields:**
+```yaml
+processors:
+  - mapping: |
+      # Create search-optimized keyword fields
+      root.search_keywords = [
+        this.sensor_id, 
+        this.device_type,
+        this.edge_location
+      ]
+```
+
+### Issue: Index Mapping Conflicts
+
+**Symptom:** Documents fail to index due to mapping conflicts.
+
+**Solutions:**
+
+1. **Strict mapping validation:**
+```yaml
+processors:
+  - mapping: |
+      # Ensure consistent data types
+      root.temperature = this.temperature.number()
+      root.humidity = this.humidity.number()
+      root.timestamp = this.timestamp.parse_timestamp().ts_format_iso8601()
+```
+
+2. **Dynamic mapping control:**
+```json
+{
+  "mappings": {
+    "dynamic": "strict",  // Prevent new fields
+    "properties": {
+      // Define all expected fields explicitly
+    }
+  }
+}
+```
+
+## Key Concepts Recap
+
+**Elasticsearch Integration Benefits:**
+- ✅ **Real-time search**: Sub-second search across all sensor data and metadata
+- ✅ **Operational monitoring**: Real-time dashboards and alerting on sensor health
+- ✅ **Advanced analytics**: Complex aggregations and time-series analysis  
+- ✅ **Flexible querying**: Full-text search, geo queries, and structured filters
+
+**Optimization Guidelines:**
+- **Index design**: Daily indices with appropriate sharding and replica strategies
+- **Batching strategy**: Medium batches (250-500) for balanced latency and throughput
+- **Field optimization**: Keyword fields for aggregations, text fields for search
+- **Lifecycle management**: Automated hot/warm/cold transitions for cost control
+
+**Operational Best Practices:**
+- **Monitoring integration**: Detailed metrics and alerting for cluster health
+- **Index templates**: Consistent mapping and settings across all indices
+- **Fallback strategies**: Local buffering during Elasticsearch outages
+- **Performance tuning**: Optimize for sensor data patterns and query requirements
+
+## Next Steps
+
+✅ **Elasticsearch integration complete!** Your multi-destination pipeline now provides comprehensive real-time search and analytics capabilities.
+
+**Ready to add resilience patterns?** Complete your architecture with fallback strategies:
+
+<div style={{display: 'flex', gap: '1rem', marginTop: '2rem', marginBottom: '2rem', flexWrap: 'wrap'}}>
+  <a href="./step-5-implement-fallbacks" className="button button--primary button--lg" style={{flex: '1', minWidth: '200px'}}>
+    Step 5: Implement Fallbacks
+  </a>
+  <a href="./complete-fan-out-pipeline" className="button button--secondary button--lg" style={{flex: '1', minWidth: '200px'}}>
+    View Complete Pipeline
+  </a>
+</div>
+
+---
+
+**Next:** [Implement comprehensive fallback strategies](./step-5-implement-fallbacks)
