@@ -1,0 +1,96 @@
+---
+title: Timestamp Normalization - Setup Guide
+sidebar_label: Setup Guide
+sidebar_position: 3
+description: Set up timestamp normalization pipelines for unified time handling
+keywords: [timestamp, normalization, iso8601, unix-epoch, setup]
+---
+
+# Setup Guide
+
+Normalize multiple timestamp formats (ISO 8601, Unix epoch, custom) into standardized UTC timestamps.
+
+## Prerequisites
+
+- **Expanso CLI** - v1.0+
+- **jq** - For JSON testing
+
+## Quick Start
+
+### 1. Create Pipeline
+
+Create `normalize-timestamps.yaml`:
+
+```yaml
+name: timestamp-normalization
+description: Unify timestamp formats to ISO 8601 UTC
+type: pipeline
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+
+  pipeline:
+    processors:
+      # Detect and normalize timestamp formats
+      - mapping: |
+          # ISO 8601 format
+          root.timestamp = if this.timestamp.type() == "string" {
+            this.timestamp.parse_timestamp("2006-01-02T15:04:05Z07:00").ts_format("2006-01-02T15:04:05Z")
+          
+          # Unix epoch (seconds)
+          } else if this.timestamp.type() == "number" && this.timestamp > 1000000000 {
+            timestamp_unix(this.timestamp).ts_format("2006-01-02T15:04:05Z", "UTC")
+          
+          # Keep original if already valid
+          } else {
+            this.timestamp
+          }
+
+          # Add timezone metadata
+          root.metadata.timezone = "UTC"
+          root.metadata.normalized_at = now().ts_format("2006-01-02T15:04:05Z", "UTC")
+
+  output:
+    http_client:
+      url: http://analytics.example.com/events
+```
+
+### 2. Test Normalization
+
+```bash
+expanso run normalize-timestamps.yaml
+
+# Test ISO 8601
+curl -X POST http://localhost:8080 -d '{"timestamp":"2025-11-18T10:30:00-05:00"}'
+
+# Test Unix epoch
+curl -X POST http://localhost:8080 -d '{"timestamp":1700313000}'
+
+# Test already UTC
+curl -X POST http://localhost:8080 -d '{"timestamp":"2025-11-18T15:30:00Z"}'
+```
+
+## Supported Formats
+
+- **ISO 8601**: `2025-11-18T10:30:00-05:00`
+- **Unix epoch**: `1700313000` (seconds since 1970)
+- **RFC3339**: `2025-11-18T10:30:00Z`
+
+## Troubleshooting
+
+**Invalid timestamp format:**
+```yaml
+# Add fallback for invalid formats
+root.timestamp = this.timestamp.parse_timestamp().catch(now())
+```
+
+## Next Steps
+
+1. [**Interactive Explorer**](./explorer) - See normalization in action
+2. [**Back to Introduction**](./index) - Learn about timestamp handling
+
+---
+
+**Continue:** [Explore the demo](./explorer)
