@@ -1,0 +1,163 @@
+---
+title: Delete Payment Card PII
+sidebar_label: Introduction
+sidebar_position: 1
+description: Remove credit card numbers from purchase events for PCI-DSS compliance while preserving analytics value
+keywords: [pii, pci-dss, credit-card, payment, compliance, delete, payment-processing, card-data, fintech]
+---
+
+# Delete Payment Card PII
+
+**Achieve PCI-DSS compliance by removing credit card numbers at the edge** while preserving essential analytics data. This step-by-step guide teaches you 3 core techniques to handle payment data safely through hands-on exercises.
+
+## The Problem
+
+Your purchase events contain full credit card details that create massive compliance liability:
+
+```json
+{
+  "event_type": "purchase",
+  "transaction_id": "txn_12345",
+  "amount": 89.99,
+  "currency": "USD",
+  "payment_method": {
+    "full_number": "4532-1234-5678-9010",  // ❌ PCI-DSS Level 1 violation
+    "expiry": "12/25",                     // ❌ High-risk cardholder data
+    "cvv": "123",                          // ❌ Sensitive authentication data
+    "type": "credit_card",                 // ✅ Safe for analytics
+    "last_four": "9010"                    // ✅ Safe for fraud detection
+  },
+  "timestamp": "2024-12-15T14:30:00Z"
+}
+```
+
+**The challenge:** Remove high-risk payment PII to achieve PCI-DSS compliance while preserving analytics value for fraud detection, payment method trends, and business intelligence.
+
+## The Solution: 3 Payment Data Techniques
+
+This guide teaches you how to handle each type of payment data correctly:
+
+### 1. **Delete** → Credit Card Numbers, Expiry Dates, CVV
+Remove high-risk cardholder data with zero tolerance.
+- **Use case:** PCI-DSS Level 1 compliance (reduces scope dramatically)
+- **Method:** Bloblang `.without()` function for complete removal
+- **Result:** Data completely eliminated, no storage or processing risk
+
+### 2. **Preserve** → Last Four Digits, Payment Type
+Keep analytics-safe fields for business intelligence.
+- **Use case:** Fraud detection patterns, payment method analytics
+- **Method:** Selective field retention with `.pick()` or structured deletion
+- **Result:** Compliance-safe data retained for analytics value
+
+### 3. **Validate** → PCI-DSS Compliance Verification
+Ensure no cardholder data leaks through your pipeline.
+- **Use case:** Audit trail, compliance verification, testing
+- **Method:** Schema validation and output inspection
+- **Result:** Proof that no restricted data reaches your systems
+
+## Why Process at the Edge?
+
+**Compliance:** Cardholder data never reaches your cloud → dramatically smaller PCI-DSS scope  
+**Security:** No centralized card data storage → reduced breach risk and audit requirements  
+**Cost:** Lower PCI-DSS compliance costs (Level 4 vs Level 1), reduced infrastructure auditing  
+**Audit:** Clear data boundary at edge → simplified compliance documentation
+
+## What You'll Learn
+
+By the end of this guide, you'll be able to:
+
+✅ **Identify** high-risk payment fields that require PCI-DSS controls  
+✅ **Delete** cardholder data completely using `.without()` operations  
+✅ **Preserve** analytics-safe payment data for business intelligence  
+✅ **Deploy** PCI-DSS compliant pipelines with proper field handling  
+✅ **Validate** that no restricted data reaches your cloud systems  
+✅ **Audit** your pipeline for compliance verification
+
+## Get Started
+
+### Option 1: Interactive Learning (Recommended)
+**See** payment data transformation in action with live before/after comparisons.
+
+[**→ Start Interactive Tutorial**](./setup)
+
+### Option 2: Step-by-Step Tutorial
+**Build** the payment pipeline incrementally, one security concept at a time.
+
+1. [**Setup Guide**](./setup) - Configure environment and deploy shell pipeline
+2. [**Step 1: Identify Payment PII**](./step-1-identify-payment-pii) - Learn what data requires PCI-DSS controls
+3. [**Step 2: Delete Card Numbers**](./step-2-delete-card-numbers) - Remove high-risk cardholder data
+4. [**Step 3: Preserve Analytics Data**](./step-3-preserve-analytics-data) - Keep compliance-safe fields
+5. [**Complete Payment Pipeline**](./complete-payment-pipeline) - Deploy production solution
+
+### Option 3: Jump to Final Pipeline
+**Download** the complete, production-ready payment data pipeline.
+
+[**→ Get Complete Payment Pipeline**](./complete-payment-pipeline)
+
+## Who This Guide Is For
+
+- **FinTech Engineers** building payment processing systems
+- **Compliance Officers** implementing PCI-DSS data handling requirements  
+- **Data Engineers** processing transaction data safely
+- **Security Architects** designing payment data flows
+- **DevOps Teams** deploying PCI-compliant infrastructure
+
+## Prerequisites
+
+- Expanso CLI installed ([Installation Guide](https://docs.expanso.io/getting-started/installation))
+- Basic understanding of JSON data structures
+- Familiarity with payment processing concepts
+- Access to sample payment data for testing
+
+## Time to Complete
+
+- **Interactive Learning:** 20 minutes
+- **Step-by-Step Tutorial:** 45-60 minutes  
+- **Quick Deploy:** 10 minutes
+
+## Real-World Impact
+
+**Before Payment PII Removal:**
+```
+- PCI-DSS Scope: Full infrastructure (Level 1)
+- Audit Cost: $50,000-$200,000 annually
+- Breach Risk: Entire payment database
+- Compliance Complexity: All systems require PCI controls
+```
+
+**After Payment PII Removal:**
+```
+- PCI-DSS Scope: Edge processing only (Level 4)
+- Audit Cost: $5,000-$15,000 annually
+- Breach Risk: No cardholder data in cloud
+- Compliance Complexity: Minimal systems require PCI controls
+```
+
+**Business Value:**
+- 85-90% reduction in PCI-DSS compliance costs
+- 95% reduction in cardholder data exposure
+- Faster development (fewer compliance constraints)
+- Simplified architecture (no card data encryption/tokenization)
+
+---
+
+## Next Steps
+
+Ready to start? Choose your learning path:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./setup" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Setup & Tutorial
+  </a>
+  <a href="./complete-payment-pipeline" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Complete Pipeline
+  </a>
+</div>
+
+**Questions?** Check [Troubleshooting](./troubleshooting) or see [Related Examples](#related-examples) below.
+
+## Related Examples
+
+- [**Remove PII**](../remove-pii/) - Comprehensive PII removal across all data types
+- [**Encrypt Sensitive Data**](../encrypt-data) - For data you need to decrypt later
+- [**Enforce Schema**](../enforce-schema) - Validate payment data structure before processing
