@@ -1,0 +1,283 @@
+---
+title: Production Log Pipeline - Setup Guide
+sidebar_label: Setup Guide
+sidebar_position: 3
+description: Set up comprehensive production log processing pipelines
+keywords: [logs, production, pipeline, parse, validate, enrich, filter, redact, route, setup]
+---
+
+# Setup Guide
+
+Build a comprehensive 6-stage production log pipeline: Parse → Validate → Enrich → Filter → Redact → Route.
+
+## Prerequisites
+
+- **Expanso CLI** - v1.0+
+- **GeoIP database** - For IP enrichment (optional)
+- **Schema files** - For validation
+- **Destination systems** - Elasticsearch, S3, etc.
+
+## Quick Start
+
+### 1. Install Expanso
+
+```bash
+curl -sSL https://install.expanso.io | sh
+```
+
+### 2. Download GeoIP Database (Optional)
+
+```bash
+# Download MaxMind GeoLite2
+wget https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb
+```
+
+### 3. Create Log Schema
+
+Create `log-event.schema.json`:
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["timestamp", "level", "message"],
+  "properties": {
+    "timestamp": {"type": "string", "format": "date-time"},
+    "level": {"type": "string", "enum": ["DEBUG", "INFO", "WARN", "ERROR"]},
+    "message": {"type": "string"},
+    "user_id": {"type": "string"}
+  }
+}
+```
+
+### 4. Create Production Pipeline
+
+Create `production-pipeline.yaml`:
+
+```yaml
+name: production-log-pipeline
+description: Comprehensive 6-stage production pipeline
+type: pipeline
+namespace: production
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /logs
+
+  pipeline:
+    processors:
+      # STAGE 1: Parse logs
+      - mapping: |
+          root = this.parse_json()
+
+      # STAGE 2: Validate schema
+      - json_schema:
+          schema_path: "./log-event.schema.json"
+
+      # STAGE 3: Enrich with metadata
+      - mapping: |
+          root.enrichment = {
+            "processed_at": now(),
+            "pipeline_version": "v1.0",
+            "environment": env("ENVIRONMENT").or("production")
+          }
+
+      # STAGE 4: Filter DEBUG logs
+      - mapping: |
+          root = if this.level != "DEBUG" { this } else { deleted() }
+
+      # STAGE 5: Redact sensitive data
+      - mapping: |
+          root.message = this.message.redact("\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b", "[EMAIL]")
+          root.message = this.message.redact("\\b\\d{3}-\\d{2}-\\d{4}\\b", "[SSN]")
+
+      # STAGE 6: Route by severity
+      - switch:
+          - check: 'this.level == "ERROR"'
+            processors:
+              - http_client:
+                  url: http://alerts.example.com/errors
+          
+          - check: 'this.level == "WARN"'
+            processors:
+              - http_client:
+                  url: http://monitoring.example.com/warnings
+          
+          - processors:
+              - http_client:
+                  url: http://logs.example.com/info
+
+logger:
+  level: INFO
+
+metrics:
+  prometheus:
+    enabled: true
+```
+
+### 5. Test Pipeline
+
+```bash
+# Start pipeline
+expanso run production-pipeline.yaml
+
+# Send test log
+curl -X POST http://localhost:8080/logs -d '{
+  "timestamp": "2025-11-18T10:30:00Z",
+  "level": "ERROR",
+  "message": "Database connection failed for user@example.com",
+  "user_id": "user-123"
+}'
+```
+
+## Configuration Options
+
+### Input Sources
+
+**Syslog:**
+```yaml
+input:
+  syslog:
+    protocol: udp
+    address: 0.0.0.0:514
+```
+
+**File tailing:**
+```yaml
+input:
+  file:
+    paths: ["/var/log/**/*.log"]
+    scanner:
+      lines: {}
+```
+
+**Kafka:**
+```yaml
+input:
+  kafka:
+    addresses: ["kafka:9092"]
+    topics: ["application-logs"]
+    consumer_group: log-processor
+```
+
+### Output Destinations
+
+**Elasticsearch:**
+```yaml
+output:
+  elasticsearch:
+    urls: ["http://elasticsearch:9200"]
+    index: logs-${timestamp}
+```
+
+**S3:**
+```yaml
+output:
+  aws_s3:
+    bucket: production-logs
+    path: logs/${timestamp}/${level}
+```
+
+**Multiple outputs:**
+```yaml
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      - elasticsearch: { urls: ["http://es:9200"] }
+      - aws_s3: { bucket: backup-logs }
+```
+
+## Production Deployment
+
+### 1. Environment Variables
+
+```bash
+export ENVIRONMENT="production"
+export GEOIP_DB_PATH="/data/GeoLite2-City.mmdb"
+export ERROR_ALERT_URL="https://alerts.prod.example.com/errors"
+export LOG_STORAGE_URL="https://logs.prod.example.com"
+```
+
+### 2. Deploy Pipeline
+
+```bash
+expanso deploy production-pipeline.yaml --namespace production
+```
+
+### 3. Monitor Pipeline
+
+```bash
+# Check status
+expanso status production-log-pipeline
+
+# View metrics
+expanso metrics production-log-pipeline
+
+# Tail logs
+expanso logs production-log-pipeline --follow
+```
+
+## Performance Tuning
+
+### Batch Processing
+
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        # Batch 1000 events
+        root = this.batch(1000)
+```
+
+### Parallel Processing
+
+```yaml
+pipeline:
+  processors:
+    - parallel:
+        cap: 10  # Process 10 events concurrently
+```
+
+### Buffer Configuration
+
+```yaml
+buffer:
+  memory:
+    max_in_flight: 10000
+    batching:
+      count: 100
+      period: 1s
+```
+
+## Troubleshooting
+
+**High memory usage:**
+```yaml
+buffer:
+  memory:
+    max_in_flight: 1000  # Reduce buffer size
+```
+
+**Slow processing:**
+```yaml
+pipeline:
+  processors:
+    - parallel: { cap: 20 }  # Increase parallelism
+```
+
+**Missing logs:**
+- Check input connectivity
+- Verify schema validation isn't too strict
+- Check filter conditions
+
+## Next Steps
+
+1. [**Interactive Explorer**](./explorer) - See the 6-stage pipeline in action
+2. [**Back to Introduction**](./index) - Learn about production patterns
+
+---
+
+**Continue:** [Explore the demo](./explorer)
