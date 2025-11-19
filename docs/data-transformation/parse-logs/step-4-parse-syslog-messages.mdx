@@ -1,0 +1,895 @@
+---
+title: "Step 4: Parse Syslog Messages"
+sidebar_label: "Step 4: Parse Syslog Messages"
+sidebar_position: 7
+description: Extract system events from RFC3164 syslog messages with priority decomposition, facility classification, and severity-based alerting
+keywords: [syslog, rfc3164, system logs, priority, facility, severity, system events, log parsing]
+---
+
+# Step 4: Parse Syslog Messages
+
+**Transform syslog messages into structured system events with severity-based routing**. This step teaches you to parse RFC3164 syslog messages, decompose priority values into facility and severity, and create intelligent alerting for system events.
+
+## What You'll Build
+
+A syslog parser that processes system messages with these capabilities:
+
+✅ **RFC3164 parsing** - Extract priority, facility, and severity from syslog format  
+✅ **Priority decomposition** - Calculate facility and severity from priority values  
+✅ **Timestamp normalization** - Handle syslog timestamp format variations  
+✅ **System classification** - Categorize events by source and importance  
+✅ **Severity-based routing** - Route critical events to alerting systems  
+✅ **Application context** - Extract process information and context  
+✅ **Security monitoring** - Detect security-relevant events
+
+## Syslog Message Format
+
+Understanding RFC3164 syslog message structure:
+
+### Standard RFC3164 Format
+```
+<Priority>Timestamp Hostname Tag[PID]: Message
+
+Examples:
+&lt;134&gt;Oct 20 14:23:45 edge-node-01 app[12345]: Database connection established
+&lt;131&gt;Oct 20 14:24:12 web-server nginx[8901]: Server started on port 80
+&lt;132&gt;Oct 20 14:24:33 db-server postgres[5432]: Connection from 192.168.1.10
+```
+
+### Priority Calculation
+```
+Priority = Facility × 8 + Severity
+
+Example: Priority 134
+- Facility = 134 ÷ 8 = 16 (local use 0)
+- Severity = 134 % 8 = 6 (informational)
+```
+
+### Facility Codes (RFC3164)
+| Code | Facility | Description |
+|------|----------|-------------|
+| 0 | kernel | Kernel messages |
+| 1 | user | User-level messages |
+| 2 | mail | Mail system |
+| 3 | daemon | System daemons |
+| 4 | security | Security/authorization messages |
+| 5 | syslogd | Messages generated internally by syslogd |
+| 6 | line printer | Line printer subsystem |
+| 7 | network news | Network news subsystem |
+| 8 | uucp | UUCP subsystem |
+| 9 | clock | Clock daemon |
+| 10 | security | Security/authorization messages |
+| 11 | ftp | FTP daemon |
+| 12 | ntp | NTP subsystem |
+| 13 | log audit | Log audit |
+| 14 | log alert | Log alert |
+| 15 | clock | Clock daemon |
+| 16-23 | local0-7 | Local use facilities |
+
+### Severity Levels
+| Code | Severity | Description |
+|------|----------|-------------|
+| 0 | Emergency | System is unusable |
+| 1 | Alert | Action must be taken immediately |
+| 2 | Critical | Critical conditions |
+| 3 | Error | Error conditions |
+| 4 | Warning | Warning conditions |
+| 5 | Notice | Normal but significant condition |
+| 6 | Informational | Informational messages |
+| 7 | Debug | Debug-level messages |
+
+## Implementation
+
+### Basic Syslog Parser
+
+Start with a simple RFC3164 syslog parser:
+
+```yaml title="syslog-parser-basic.yaml"
+name: syslog-parser-basic
+description: Parse RFC3164 syslog messages with priority decomposition
+type: pipeline
+namespace: default
+
+config:
+  input:
+    socket_server:
+      network: udp
+      address: "0.0.0.0:514"  # Standard syslog port
+
+  pipeline:
+    processors:
+      # Parse syslog format (RFC3164)
+      - grok:
+          expressions:
+            - '<%{POSINT:priority}>%{SYSLOGTIMESTAMP:timestamp} %{SYSLOGHOST:hostname} %{DATA:tag}(?:\[%{POSINT:pid}\])?: %{GREEDYDATA:message}'
+          named_captures_only: true
+
+      # Parse priority into facility and severity
+      - mapping: |
+          root = this
+          let pri = this.priority.number()
+          root.facility = (pri / 8).floor()
+          root.severity = pri % 8
+          
+          # Add human-readable names
+          root.facility_name = if this.facility == 0 {
+            "kernel"
+          } else if this.facility == 1 {
+            "user"
+          } else if this.facility == 2 {
+            "mail"
+          } else if this.facility == 3 {
+            "daemon"
+          } else if this.facility == 4 {
+            "security"
+          } else if this.facility == 6 {
+            "line_printer"
+          } else if this.facility >= 16 && this.facility <= 23 {
+            "local" + (this.facility - 16).string()
+          } else {
+            "unknown"
+          }
+          
+          root.severity_name = if this.severity == 0 {
+            "emergency"
+          } else if this.severity == 1 {
+            "alert"
+          } else if this.severity == 2 {
+            "critical"
+          } else if this.severity == 3 {
+            "error"
+          } else if this.severity == 4 {
+            "warning"
+          } else if this.severity == 5 {
+            "notice"
+          } else if this.severity == 6 {
+            "informational"
+          } else {
+            "debug"
+          }
+
+      # Parse timestamp (syslog doesn't include year)
+      - mapping: |
+          root = this
+          let year = now().ts_format("2006")
+          let timestamp_with_year = year + " " + this.timestamp
+          root.timestamp_unix = timestamp_with_year.parse_timestamp("2006 Jan 02 15:04:05").ts_unix()
+          root.timestamp_iso = root.timestamp_unix.ts_format("2006-01-02T15:04:05Z")
+
+      # Extract process information
+      - mapping: |
+          root = this
+          root.application = this.tag
+          root.process_id = this.pid.or("").number().catch(0)
+
+  output:
+    file:
+      path: ~/expanso-logs/output/parsed-syslog-basic.jsonl
+      codec: lines
+```
+
+Deploy and test:
+
+```bash
+# Deploy the parser
+expanso job deploy syslog-parser-basic.yaml
+
+# Test with sample syslog messages (file input for testing)
+echo '&lt;134>Oct 20 14:23:45 edge-node-01 app[12345]: Test message' > ~/expanso-logs/system/test.log
+```
+
+### Enhanced Syslog Parser with Classification
+
+Add event classification and context analysis:
+
+```yaml title="syslog-parser-enhanced.yaml"
+name: syslog-parser-enhanced
+description: Enhanced syslog parser with event classification and analysis
+type: pipeline
+namespace: default
+
+config:
+  input:
+    # For testing, read from file instead of socket
+    file:
+      paths:
+        - "~/expanso-logs/system/*.log"
+      codec: lines
+
+  pipeline:
+    processors:
+      # Parse syslog format with multiple pattern variations
+      - grok:
+          expressions:
+            # Standard RFC3164 with PID
+            - '<%{POSINT:priority}>%{SYSLOGTIMESTAMP:timestamp} %{SYSLOGHOST:hostname} %{DATA:tag}\[%{POSINT:pid}\]: %{GREEDYDATA:message}'
+            # Without PID
+            - '<%{POSINT:priority}>%{SYSLOGTIMESTAMP:timestamp} %{SYSLOGHOST:hostname} %{DATA:tag}: %{GREEDYDATA:message}'
+            # Cisco format variation
+            - '<%{POSINT:priority}>%{SYSLOGTIMESTAMP:timestamp} %{IPORHOST:hostname} %%{DATA:tag}-%{POSINT:severity_code}-%{DATA:mnemonic}: %{GREEDYDATA:message}'
+          named_captures_only: true
+
+      # Priority decomposition and classification
+      - mapping: |
+          root = this
+          let pri = this.priority.number()
+          root.facility = (pri / 8).floor()
+          root.severity = pri % 8
+          
+          # Enhanced facility classification
+          root.facility_info = if this.facility == 0 {
+            {"name": "kernel", "category": "system", "criticality": "critical"}
+          } else if this.facility == 1 {
+            {"name": "user", "category": "user", "criticality": "low"}
+          } else if this.facility == 2 {
+            {"name": "mail", "category": "service", "criticality": "medium"}
+          } else if this.facility == 3 {
+            {"name": "daemon", "category": "service", "criticality": "high"}
+          } else if this.facility == 4 {
+            {"name": "security", "category": "security", "criticality": "critical"}
+          } else if this.facility == 5 {
+            {"name": "syslogd", "category": "logging", "criticality": "medium"}
+          } else if this.facility >= 16 && this.facility <= 23 {
+            {"name": "local" + (this.facility - 16).string(), "category": "application", "criticality": "medium"}
+          } else {
+            {"name": "unknown", "category": "unknown", "criticality": "low"}
+          }
+          
+          # Enhanced severity classification  
+          root.severity_info = if this.severity == 0 {
+            {"name": "emergency", "level": "critical", "alert": true, "immediate": true}
+          } else if this.severity == 1 {
+            {"name": "alert", "level": "critical", "alert": true, "immediate": true}
+          } else if this.severity == 2 {
+            {"name": "critical", "level": "critical", "alert": true, "immediate": false}
+          } else if this.severity == 3 {
+            {"name": "error", "level": "error", "alert": true, "immediate": false}
+          } else if this.severity == 4 {
+            {"name": "warning", "level": "warning", "alert": false, "immediate": false}
+          } else if this.severity == 5 {
+            {"name": "notice", "level": "info", "alert": false, "immediate": false}
+          } else if this.severity == 6 {
+            {"name": "informational", "level": "info", "alert": false, "immediate": false}
+          } else {
+            {"name": "debug", "level": "debug", "alert": false, "immediate": false}
+          }
+
+      # Timestamp parsing with year inference
+      - mapping: |
+          root = this
+          
+          # Parse syslog timestamp and add current year
+          let current_year = now().ts_format("2006")
+          let timestamp_with_year = current_year + " " + this.timestamp
+          
+          root.timestamp_unix = timestamp_with_year.parse_timestamp("2006 Jan 02 15:04:05").catch(
+            # If parsing fails, try without seconds
+            (current_year + " " + this.timestamp).parse_timestamp("2006 Jan 02 15:04").catch(
+              now().ts_unix()  # Fallback to current time
+            )
+          ).ts_unix()
+          
+          root.timestamp_iso = root.timestamp_unix.ts_format("2006-01-02T15:04:05Z")
+
+      # Application and process analysis
+      - mapping: |
+          root = this
+          
+          # Extract application information
+          root.application_info = {
+            "name": this.tag,
+            "process_id": this.pid.or("").number().catch(0),
+            "hostname": this.hostname,
+            "has_pid": this.exists("pid") && this.pid != "",
+            
+            # Classify application type based on tag
+            "type": if this.tag in ["kernel", "init"] {
+              "system"
+            } else if this.tag in ["sshd", "sudo", "auth"] {
+              "security"
+            } else if this.tag in ["nginx", "apache", "httpd"] {
+              "web_server"
+            } else if this.tag in ["postgres", "mysql", "mongodb"] {
+              "database"
+            } else if this.tag in ["docker", "containerd", "kubelet"] {
+              "container"
+            } else {
+              "application"
+            }
+          }
+
+      # Message content analysis
+      - mapping: |
+          root = this
+          
+          let msg = this.message.lowercase()
+          
+          # Classify event type based on message content
+          root.event_classification = {
+            "type": if msg.contains("started") || msg.contains("starting") {
+              "service_start"
+            } else if msg.contains("stopped") || msg.contains("stopping") {
+              "service_stop"
+            } else if msg.contains("failed") || msg.contains("error") {
+              "error_event"
+            } else if msg.contains("connection") {
+              "connection_event"
+            } else if msg.contains("authentication") || msg.contains("login") {
+              "auth_event"
+            } else if msg.contains("configuration") || msg.contains("config") {
+              "config_event"
+            } else {
+              "general_event"
+            },
+            
+            # Security relevance indicators
+            "security_relevant": msg.contains("authentication") || 
+                               msg.contains("login") || 
+                               msg.contains("sudo") ||
+                               msg.contains("permission") ||
+                               msg.contains("access denied") ||
+                               msg.contains("unauthorized"),
+                               
+            # Performance indicators
+            "performance_related": msg.contains("memory") ||
+                                 msg.contains("cpu") ||
+                                 msg.contains("disk") ||
+                                 msg.contains("timeout") ||
+                                 msg.contains("slow"),
+                                 
+            # Network indicators  
+            "network_related": msg.contains("connection") ||
+                             msg.contains("network") ||
+                             msg.contains("tcp") ||
+                             msg.contains("udp") ||
+                             msg.contains("port")
+          }
+
+      # Create alerting rules
+      - mapping: |
+          root = this
+          
+          # Determine if event requires alerting
+          root.alert_required = this.severity_info.alert || 
+                              this.event_classification.security_relevant ||
+                              (this.severity <= 3 && this.facility_info.criticality == "critical")
+          
+          # Create alert metadata if alerting required
+          root.alert_context = if this.alert_required {
+            {
+              "level": if this.severity <= 1 {
+                "critical"
+              } else if this.severity <= 3 {
+                "error"
+              } else {
+                "warning"
+              },
+              "source": {
+                "hostname": this.hostname,
+                "application": this.tag,
+                "facility": this.facility_info.name
+              },
+              "urgency": this.severity_info.immediate,
+              "category": this.event_classification.type,
+              "requires_oncall": this.severity <= 2 || 
+                               (this.facility_info.criticality == "critical" && this.severity <= 3)
+            }
+          }
+
+      # Add metadata
+      - mapping: |
+          root = this
+          root.metadata = {
+            "parsed_by": "syslog-parser",
+            "parsed_at": now().ts_unix(),
+            "rfc": "3164",
+            "source_format": "syslog",
+            "processing_node": env("HOSTNAME").or("unknown")
+          }
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # All parsed syslog messages
+        - file:
+            path: ~/expanso-logs/output/parsed-syslog-enhanced.jsonl
+            codec: lines
+
+        # Critical alerts (Emergency, Alert, Critical)
+        - switch:
+            - check: this.severity <= 2
+              output:
+                file:
+                  path: ~/expanso-logs/output/critical-alerts.jsonl
+                  codec: lines
+            - output:
+                drop: {}
+
+        # Security events
+        - switch:
+            - check: this.event_classification.security_relevant == true
+              output:
+                file:
+                  path: ~/expanso-logs/output/security-events.jsonl
+                  codec: lines
+            - output:
+                drop: {}
+
+        # Performance issues
+        - switch:
+            - check: this.event_classification.performance_related == true
+              output:
+                file:
+                  path: ~/expanso-logs/output/performance-events.jsonl
+                  codec: lines
+            - output:
+                drop: {}
+```
+
+### Advanced Syslog Analysis
+
+Add advanced features like anomaly detection and correlation:
+
+```yaml title="syslog-advanced-analyzer.yaml"
+name: syslog-advanced-analyzer
+description: Advanced syslog analysis with correlation and anomaly detection
+type: pipeline
+namespace: default
+
+config:
+  input:
+    file:
+      paths:
+        - "~/expanso-logs/system/*.log"
+      codec: lines
+
+  pipeline:
+    processors:
+      # Parse syslog (reusing previous logic)
+      - grok:
+          expressions:
+            - '<%{POSINT:priority}>%{SYSLOGTIMESTAMP:timestamp} %{SYSLOGHOST:hostname} %{DATA:tag}(?:\[%{POSINT:pid}\])?: %{GREEDYDATA:message}'
+
+      # Priority and timestamp processing
+      - mapping: |
+          root = this
+          let pri = this.priority.number()
+          root.facility = (pri / 8).floor()
+          root.severity = pri % 8
+          
+          let year = now().ts_format("2006")
+          root.timestamp_unix = (year + " " + this.timestamp).parse_timestamp("2006 Jan 02 15:04:05").ts_unix()
+
+      # Event correlation and pattern detection
+      - mapping: |
+          root = this
+          
+          # Create correlation keys for related events
+          root.correlation = {
+            "hostname_app_key": this.hostname + "_" + this.tag,
+            "time_window": (this.timestamp_unix / 300).floor() * 300,  # 5-minute windows
+            "severity_group": if this.severity <= 2 {
+              "critical"
+            } else if this.severity <= 4 {
+              "warning"
+            } else {
+              "info"
+            }
+          }
+
+      # Anomaly detection based on historical patterns
+      - mapping: |
+          root = this
+          
+          # Simple anomaly detection (in production, use ML models)
+          let msg = this.message.lowercase()
+          
+          root.anomaly_indicators = {
+            # Unusual error patterns
+            "unusual_error": this.severity <= 3 && (
+              msg.contains("segmentation fault") ||
+              msg.contains("out of memory") ||
+              msg.contains("core dumped") ||
+              msg.contains("panic")
+            ),
+            
+            # Security anomalies
+            "security_anomaly": msg.contains("failed login") ||
+                              msg.contains("authentication failure") ||
+                              msg.contains("permission denied") ||
+                              msg.contains("unauthorized access"),
+            
+            # System resource anomalies
+            "resource_anomaly": msg.contains("disk full") ||
+                              msg.contains("memory exhausted") ||
+                              msg.contains("cpu overload") ||
+                              msg.contains("file system"),
+                              
+            # Network anomalies
+            "network_anomaly": msg.contains("connection refused") ||
+                             msg.contains("network unreachable") ||
+                             msg.contains("timeout") ||
+                             msg.contains("connection reset")
+          }
+          
+          # Calculate overall anomaly score
+          let anomaly_count = [
+            root.anomaly_indicators.unusual_error,
+            root.anomaly_indicators.security_anomaly,
+            root.anomaly_indicators.resource_anomaly,
+            root.anomaly_indicators.network_anomaly
+          ].filter(indicator -> indicator == true).length()
+          
+          root.anomaly_score = anomaly_count / 4.0
+          root.is_anomalous = root.anomaly_score > 0.0
+
+      # Event enrichment with system context
+      - mapping: |
+          root = this
+          
+          # Add system context based on hostname patterns
+          root.system_context = if this.hostname.contains("web") {
+            {"tier": "frontend", "environment": "production", "scaling_group": "web"}
+          } else if this.hostname.contains("db") {
+            {"tier": "database", "environment": "production", "scaling_group": "data"}
+          } else if this.hostname.contains("api") {
+            {"tier": "backend", "environment": "production", "scaling_group": "api"}
+          } else if this.hostname.contains("edge") {
+            {"tier": "edge", "environment": "production", "scaling_group": "edge"}
+          } else {
+            {"tier": "unknown", "environment": "unknown", "scaling_group": "unknown"}
+          }
+
+      # Generate recommendations based on event type
+      - mapping: |
+          root = this
+          
+          let msg = this.message.lowercase()
+          
+          root.recommendations = if this.severity <= 2 {
+            # Critical events
+            {
+              "immediate_action": "Contact on-call engineer immediately",
+              "investigation_priority": "highest",
+              "escalation_time": "5 minutes",
+              "runbooks": ["critical-incident-response", "system-recovery"]
+            }
+          } else if this.anomaly_score > 0.5 {
+            # Anomalous events  
+            {
+              "immediate_action": "Monitor for pattern continuation",
+              "investigation_priority": "high",
+              "escalation_time": "15 minutes",
+              "runbooks": ["anomaly-investigation", "pattern-analysis"]
+            }
+          } else if this.event_classification.security_relevant {
+            # Security events
+            {
+              "immediate_action": "Review security logs and context",
+              "investigation_priority": "high", 
+              "escalation_time": "30 minutes",
+              "runbooks": ["security-incident-response", "access-review"]
+            }
+          } else {
+            # Regular events
+            {
+              "immediate_action": "Log for analysis",
+              "investigation_priority": "normal",
+              "escalation_time": "4 hours",
+              "runbooks": ["standard-monitoring"]
+            }
+          }
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # All events with analysis
+        - file:
+            path: ~/expanso-logs/output/syslog-analyzed.jsonl
+            codec: lines
+
+        # Anomalous events requiring investigation
+        - switch:
+            - check: this.is_anomalous == true
+              output:
+                file:
+                  path: ~/expanso-logs/output/anomalous-syslog.jsonl
+                  codec: lines
+            - output:
+                drop: {}
+
+        # Critical events requiring immediate action
+        - switch:
+            - check: this.severity <= 2 || this.anomaly_score > 0.75
+              output:
+                file:
+                  path: ~/expanso-logs/output/immediate-action-required.jsonl
+                  codec: lines
+            - output:
+                drop: {}
+```
+
+## Testing and Validation
+
+### Create Test Syslog Data
+
+Generate syslog messages with various scenarios:
+
+```bash
+# Create comprehensive syslog test data
+cat > ~/expanso-logs/system/test-syslog.log << 'EOF'
+&lt;134&gt;Oct 20 14:23:45 edge-node-01 app[12345]: Database connection established
+&lt;131&gt;Oct 20 14:24:12 web-server nginx[8901]: Server started on port 80
+&lt;132&gt;Oct 20 14:24:33 db-server postgres[5432]: Connection from 192.168.1.10
+&lt;16&gt;Oct 20 14:25:01 api-server kernel: Memory usage at 85%
+&lt;20&gt;Oct 20 14:25:15 auth-server sshd[9876]: Failed login attempt from 203.0.113.45
+&lt;24&gt;Oct 20 14:25:30 mail-server postfix[1111]: Message delivered successfully
+&lt;28&gt;Oct 20 14:25:45 backup-server rsync: Backup completed in 45 minutes
+&lt;165&gt;Oct 20 14:26:00 monitoring-server nagios[2222]: Service check completed
+&lt;0&gt;Oct 20 14:26:15 critical-server kernel: PANIC: System halt imminent
+&lt;1&gt;Oct 20 14:26:30 emergency-server init: Emergency shutdown initiated
+&lt;35&gt;Oct 20 14:26:45 security-server fail2ban[3333]: Blocked IP 198.51.100.67
+&lt;83&gt;Oct 20 14:27:00 docker-server containerd[4444]: Container started successfully
+&lt;149&gt;Oct 20 14:27:15 log-server rsyslog: Configuration reloaded
+&lt;187&gt;Oct 20 14:27:30 dev-server systemd[1]: Service test.service started
+EOF
+
+# Create malformed syslog for error testing
+cat > ~/expanso-logs/system/malformed-syslog.log << 'EOF'
+Invalid syslog line without proper format
+<>Oct 20 14:23:45 hostname app: Missing priority
+<999>Oct 20 14:24:12 hostname app: Invalid priority too high
+Oct 20 14:24:33 hostname app: Missing priority brackets
+<134>invalid_timestamp hostname app: Invalid timestamp format
+<134>Oct 20 14:25:01 : Missing hostname and tag
+EOF
+
+# Create security event syslog data
+cat > ~/expanso-logs/system/security-events.log << 'EOF'
+<38>Oct 20 14:30:00 auth-server sshd[1001]: Failed password for root from 203.0.113.45
+<38>Oct 20 14:30:05 auth-server sshd[1001]: Failed password for admin from 203.0.113.45
+<38>Oct 20 14:30:10 auth-server sshd[1001]: Failed password for user from 203.0.113.45
+<35>Oct 20 14:30:15 security-server fail2ban[2002]: Banned IP 203.0.113.45 for repeated failures
+<36>Oct 20 14:30:20 auth-server sudo[3003]: user123 : authentication failure ; TTY=pts/0
+<33>Oct 20 14:30:25 firewall-server iptables: Dropped packet from 198.51.100.67 to port 22
+<34>Oct 20 14:30:30 auth-server login: Invalid user attempt: hacker from 192.0.2.123
+EOF
+```
+
+### Test Parsing Results
+
+Validate syslog parsing and classification:
+
+```bash
+# Deploy enhanced parser
+expanso job deploy syslog-parser-enhanced.yaml
+
+# Wait for processing
+sleep 10
+
+# Check parsed syslog messages
+echo "=== Parsed Syslog Messages ==="
+head -2 ~/expanso-logs/output/parsed-syslog-enhanced.jsonl | jq .
+
+# Check priority decomposition
+echo "=== Priority Decomposition ==="
+jq -r '"\(.priority) -> Facility: \(.facility) (\(.facility_info.name)), Severity: \(.severity) (\(.severity_info.name))"' ~/expanso-logs/output/parsed-syslog-enhanced.jsonl
+
+# Check critical alerts
+echo "=== Critical Alerts ==="
+cat ~/expanso-logs/output/critical-alerts.jsonl | jq .
+
+# Check security events
+echo "=== Security Events ==="
+cat ~/expanso-logs/output/security-events.jsonl | jq .
+
+# Verify facility distribution  
+echo "=== Facility Distribution ==="
+jq -r '.facility_info.name' ~/expanso-logs/output/parsed-syslog-enhanced.jsonl | sort | uniq -c
+
+# Check severity distribution
+echo "=== Severity Distribution ==="
+jq -r '.severity_info.name' ~/expanso-logs/output/parsed-syslog-enhanced.jsonl | sort | uniq -c
+```
+
+### Performance Testing
+
+Test with high-volume syslog data:
+
+```bash
+# Generate large syslog file (50k messages)
+priorities=(16 20 24 28 32 36 131 132 133 134 135 136)
+apps=(kernel sshd nginx postgres docker systemd)
+hosts=(web-01 db-01 api-01 edge-01)
+
+for i in {1..50000}; do
+  pri=${priorities[$((RANDOM % ${#priorities[@]}))]}
+  app=${apps[$((RANDOM % ${#apps[@]}))]}
+  host=${hosts[$((RANDOM % ${#hosts[@]}))]}
+  pid=$((1000 + RANDOM % 9000))
+  
+  # Generate timestamp with minute increments
+  ts=$(date -u -d "@$((1729433025 + i * 60))" '+%b %d %H:%M:%S')
+  
+  echo "<$pri>$ts $host $app[$pid]: Test message $i from performance test"
+done > ~/expanso-logs/system/performance-test.log
+
+# Deploy advanced analyzer
+expanso job deploy syslog-advanced-analyzer.yaml
+
+# Monitor processing performance
+watch "expanso job stats syslog-advanced-analyzer | grep -E 'Rate|Processed|Memory'"
+
+# Check output volumes
+wc -l ~/expanso-logs/output/syslog-analyzed.jsonl
+ls -la ~/expanso-logs/output/*syslog* | head -5
+```
+
+## Production Considerations
+
+### Real-time Syslog Ingestion
+
+Configure for production syslog ingestion:
+
+```yaml
+# Production syslog configuration
+input:
+  socket_server:
+    network: udp
+    address: "0.0.0.0:514"
+    max_buffer: 65536
+    
+  # Also support TCP syslog
+  broker:
+    pattern: fan_in
+    inputs:
+      - socket_server:
+          network: udp
+          address: "0.0.0.0:514"
+      - socket_server:
+          network: tcp
+          address: "0.0.0.0:1514"
+      - socket_server:
+          network: tcp
+          address: "0.0.0.0:6514"  # TLS syslog
+          tls:
+            enabled: true
+            cert_file: "/etc/ssl/syslog.crt"
+            key_file: "/etc/ssl/syslog.key"
+```
+
+### Error Handling and Recovery
+
+Handle malformed syslog messages:
+
+```yaml
+# Robust error handling
+- catch:
+    - mapping: |
+        root = {
+          "error_type": "syslog_parse_failure",
+          "error": error(),
+          "failed_at": now().ts_unix(),
+          "original_message": this.string(),
+          "possible_issues": {
+            "missing_priority": !this.string().has_prefix("<"),
+            "invalid_priority": this.string().re_match("<[^0-9]"),
+            "truncated_message": this.string().length() < 20,
+            "encoding_issues": !this.string().is_ascii()
+          }
+        }
+    - output:
+        file:
+          path: ~/expanso-logs/errors/syslog-parse-errors.jsonl
+          codec: lines
+
+# Fallback parsing for non-standard formats
+- mapping: |
+    root = if error().contains("grok") {
+      # Try to extract basic information even if grok fails
+      let line = this.string()
+      {
+        "raw_message": line,
+        "possible_timestamp": line.re_find_all("\\w{3}\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2}").index(0).or(""),
+        "possible_hostname": line.split(" ").index(2).or("unknown"),
+        "message_fragment": line.slice(line.find(":").or(0) + 1),
+        "parse_status": "fallback_extraction"
+      }
+    } else {
+      this
+    }
+```
+
+### Alerting Integration
+
+Integrate with alerting systems:
+
+```yaml
+# Production alerting configuration
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Critical events to PagerDuty
+      - switch:
+          - check: this.severity <= 2 || this.alert_context.requires_oncall
+            output:
+              http_client:
+                url: "${PAGERDUTY_ENDPOINT}"
+                verb: POST
+                processors:
+                  - mapping: |
+                      root.routing_key = env("PAGERDUTY_INTEGRATION_KEY")
+                      root.event_action = "trigger"
+                      root.payload = {
+                        "summary": "%s: %s".format(this.hostname, this.message.slice(0, 100)),
+                        "severity": this.severity_info.name,
+                        "source": this.hostname,
+                        "component": this.tag,
+                        "custom_details": {
+                          "facility": this.facility_info.name,
+                          "application": this.tag,
+                          "original_priority": this.priority,
+                          "event_classification": this.event_classification.type
+                        }
+                      }
+
+      # Security events to SIEM
+      - switch:
+          - check: this.event_classification.security_relevant == true
+            output:
+              http_client:
+                url: "${SIEM_ENDPOINT}/events"
+                verb: POST
+                batching:
+                  count: 50
+                  period: 30s
+
+      # All events to analytics
+      - elasticsearch:
+          urls: ["${ELASTICSEARCH_URL}"]
+          index: "syslog-%{+YYYY.MM.dd}"
+          pipeline: "syslog-enrichment"
+```
+
+---
+
+## Summary
+
+You've built a comprehensive syslog parser that handles:
+
+✅ **RFC3164 compliance** with proper priority decomposition  
+✅ **Facility and severity** classification with human-readable names  
+✅ **Event categorization** based on content analysis and source  
+✅ **Security monitoring** with automated threat detection  
+✅ **Anomaly detection** using pattern recognition  
+✅ **Alerting integration** with severity-based routing  
+✅ **Production features** including error handling and monitoring
+
+## Common Issues
+
+**Issue:** Missing year in syslog timestamps causing parsing errors  
+**Solution:** Add current year to timestamp before parsing, handle year rollover
+
+**Issue:** Non-standard syslog formats from different vendors  
+**Solution:** Use multiple grok patterns and fallback parsing strategies
+
+**Issue:** High volume causing memory issues  
+**Solution:** Implement filtering early and use batch processing for outputs
+
+---
+
+## Next Steps
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./step-5-multi-format-detection" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Step 5: Multi-Format Detection
+  </a>
+  <a href="./troubleshooting" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Troubleshooting Guide
+  </a>
+</div>
+
+**Next:** Learn to build a unified pipeline that automatically detects and routes multiple log formats.

@@ -1,0 +1,933 @@
+---
+title: "Step 3: Route Logs by Severity Level"
+sidebar_label: "Step 3: Route by Severity"
+sidebar_position: 5
+description: Implement conditional routing to send ERROR logs to dedicated files while directing WARN logs to monitoring systems
+keywords: [log-routing, conditional-routing, error-segregation, monitoring, switch-output]
+---
+
+# Step 3: Route Logs by Severity Level
+
+**Direct critical errors to dedicated files for investigation while sending warnings to real-time monitoring**. In this step, you'll implement intelligent routing that ensures errors are preserved for forensic analysis while warnings flow to monitoring dashboards.
+
+## Why Routing by Severity Matters
+
+Different severity levels require different handling strategies:
+
+- **ERROR logs:** Need persistent storage for investigation, compliance, and root cause analysis
+- **WARN logs:** Should trigger monitoring alerts but don't always need long-term storage
+- **Mixed handling:** Some organizations route all logs to files, others prefer real-time streaming
+
+Without proper routing, you either lose critical error context or overwhelm monitoring systems with too much data.
+
+## What You'll Build
+
+An intelligent routing system that:
+1. **Routes ERROR logs** to dedicated files for investigation
+2. **Routes WARN logs** to stdout for monitoring integration  
+3. **Supports multiple output destinations** with failover handling
+4. **Maintains routing audit trails** for compliance
+5. **Handles routing errors gracefully** without data loss
+
+## Step 1: Basic Severity-Based Routing
+
+Start with simple conditional routing using the switch output:
+
+```yaml title="step3-route-basic.yaml"
+input:
+  file:
+    paths:
+      - /var/log/app/*.log
+    codec: lines
+
+pipeline:
+  processors:
+    # Parsing and filtering from previous steps
+    - mapping: |
+        let original = this
+        let parsed = original.parse_json().catch(null)
+        
+        if parsed != null {
+          root = parsed
+          root.original_format = "json"
+        } else {
+          let log_match = original.re_find_all("(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}) \\[([A-Z]+)\\] (.+)")
+          if log_match.length() > 0 {
+            root.timestamp = log_match.0.1
+            root.level = log_match.0.2
+            root.message = log_match.0.3
+            root.original_format = "structured_text"
+          } else {
+            root.original_message = original
+            root.level = "UNKNOWN"
+            root.original_format = "unstructured_text"
+          }
+        }
+        
+        root.processed_at = now()
+        root.node_id = env("NODE_ID").or("unknown")
+
+    # Severity filtering
+    - mapping: |
+        let log_level = this.level.string().uppercase()
+        root = if log_level == "ERROR" || log_level == "WARN" {
+          this
+        } else {
+          deleted()
+        }
+
+# Conditional routing based on severity
+output:
+  switch:
+    cases:
+      # ERROR logs go to dedicated file
+      - check: this.level == "ERROR"
+        output:
+          file:
+            path: /var/log/expanso/errors.json
+            codec: lines
+
+      # All other logs (WARN) go to stdout
+      - output:
+          stdout:
+            codec: lines
+```
+
+Deploy and test basic routing:
+
+```bash
+# Deploy the routing pipeline
+expanso run step3-route-basic.yaml
+
+# Add test ERROR log
+echo '{"timestamp":"2024-01-15T12:00:00Z","level":"ERROR","message":"Database connection failed","service":"api"}' >> /var/log/app/application.log
+
+# Add test WARN log  
+echo '{"timestamp":"2024-01-15T12:00:01Z","level":"WARN","message":"High memory usage detected","service":"api"}' >> /var/log/app/application.log
+
+# Check ERROR file
+cat /var/log/expanso/errors.json
+
+# Check stdout output (WARN logs)
+expanso logs step3-route-basic --tail=5
+```
+
+**Expected results:**
+- ERROR log should appear in `/var/log/expanso/errors.json`
+- WARN log should appear in the pipeline stdout output
+
+## Step 2: Enhanced Routing with Multiple Destinations
+
+Extend routing to handle multiple destinations and add routing metadata:
+
+```yaml title="step3-route-enhanced.yaml"
+input:
+  file:
+    paths:
+      - /var/log/app/*.log
+    codec: lines
+
+pipeline:
+  processors:
+    # Parsing and filtering (same as before)
+    - mapping: |
+        let original = this
+        let parsed = original.parse_json().catch(null)
+        
+        if parsed != null {
+          root = parsed
+          root.original_format = "json"
+        } else {
+          let log_match = original.re_find_all("(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}) \\[([A-Z]+)\\] (.+)")
+          if log_match.length() > 0 {
+            root.timestamp = log_match.0.1
+            root.level = log_match.0.2
+            root.message = log_match.0.3
+            root.original_format = "structured_text"
+          } else {
+            root.original_message = original
+            root.level = "UNKNOWN"
+            root.original_format = "unstructured_text"
+          }
+        }
+        
+        root.processed_at = now()
+        root.node_id = env("NODE_ID").or("unknown")
+
+    - mapping: |
+        let log_level = this.level.string().uppercase()
+        root = if log_level == "ERROR" || log_level == "WARN" {
+          this
+        } else {
+          deleted()
+        }
+
+    # Add routing metadata
+    - mapping: |
+        let level = this.level.string().uppercase()
+        
+        # Determine routing destination
+        if level == "ERROR" {
+          this.routing_metadata = {
+            "destination": "error_file",
+            "reason": "critical_error_preservation",
+            "retention_policy": "90_days",
+            "priority": "high"
+          }
+        } else if level == "WARN" {
+          this.routing_metadata = {
+            "destination": "monitoring_stream", 
+            "reason": "real_time_alerting",
+            "retention_policy": "7_days",
+            "priority": "medium"
+          }
+        }
+        
+        this.routing_timestamp = now()
+
+# Enhanced conditional routing
+output:
+  switch:
+    cases:
+      # Critical ERROR logs - route to multiple destinations
+      - check: this.level == "ERROR"
+        output:
+          broker:
+            pattern: fan_out
+            outputs:
+              # Primary: dedicated error file
+              - file:
+                  path: /var/log/expanso/errors-${!timestamp_unix_nano()}.json
+                  codec: lines
+
+              # Secondary: also send to monitoring (optional)
+              - stdout:
+                  codec: lines
+                processors:
+                  - mapping: |
+                      this.alert_type = "ERROR_LOG"
+                      this.requires_immediate_attention = true
+
+      # WARNING logs - route to monitoring only
+      - check: this.level == "WARN"  
+        output:
+          stdout:
+            codec: lines
+          processors:
+            - mapping: |
+                this.alert_type = "WARNING_LOG"
+                this.monitoring_priority = "medium"
+
+      # Fallback for any logs that don't match
+      - output:
+          drop: {}
+```
+
+**Key Enhancements:**
+- **Routing metadata:** Tracks destination, reason, and retention policy
+- **Fan-out pattern:** ERROR logs go to both file and monitoring
+- **Unique filenames:** Prevents file conflicts with timestamp-based naming
+- **Alert metadata:** Adds monitoring-specific fields
+
+Test enhanced routing:
+
+```bash
+# Stop previous pipeline
+expanso stop step3-route-basic
+
+# Deploy enhanced routing
+expanso run step3-route-enhanced.yaml
+
+# Add test logs
+echo '{"timestamp":"2024-01-15T12:01:00Z","level":"ERROR","message":"Payment processing failed","user_id":"12345"}' >> /var/log/app/application.log
+echo '{"timestamp":"2024-01-15T12:01:01Z","level":"WARN","message":"API rate limit approaching","service":"auth"}' >> /var/log/app/application.log
+
+# Check error files (should have unique timestamp-based names)
+ls -la /var/log/expanso/errors-*.json
+cat /var/log/expanso/errors-*.json | tail -1
+
+# Check monitoring output
+expanso logs step3-route-enhanced --tail=3
+```
+
+## Step 3: Add Failover and Error Handling
+
+Implement robust error handling for routing failures:
+
+```yaml title="step3-route-resilient.yaml"
+input:
+  file:
+    paths:
+      - /var/log/app/*.log
+    codec: lines
+
+pipeline:
+  processors:
+    # Parsing and filtering (same as before)
+    - mapping: |
+        let original = this
+        let parsed = original.parse_json().catch(null)
+        
+        if parsed != null {
+          root = parsed
+          root.original_format = "json"
+        } else {
+          let log_match = original.re_find_all("(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}) \\[([A-Z]+)\\] (.+)")
+          if log_match.length() > 0 {
+            root.timestamp = log_match.0.1
+            root.level = log_match.0.2
+            root.message = log_match.0.3
+            root.original_format = "structured_text"
+          } else {
+            root.original_message = original
+            root.level = "UNKNOWN"
+            root.original_format = "unstructured_text"
+          }
+        }
+        
+        root.processed_at = now()
+        root.node_id = env("NODE_ID").or("unknown")
+
+    - mapping: |
+        let log_level = this.level.string().uppercase()
+        root = if log_level == "ERROR" || log_level == "WARN" {
+          this
+        } else {
+          deleted()
+        }
+
+    # Enhanced routing metadata with retry configuration
+    - mapping: |
+        let level = this.level.string().uppercase()
+        
+        if level == "ERROR" {
+          this.routing_metadata = {
+            "destination": "error_file_with_fallback",
+            "primary_destination": "error_file",
+            "fallback_destination": "stdout", 
+            "max_retries": 3,
+            "retry_backoff": "exponential"
+          }
+        } else if level == "WARN" {
+          this.routing_metadata = {
+            "destination": "monitoring_with_fallback",
+            "primary_destination": "stdout",
+            "fallback_destination": "temp_file",
+            "max_retries": 1,
+            "retry_backoff": "linear"
+          }
+        }
+
+# Resilient routing with fallback handling
+output:
+  switch:
+    cases:
+      # ERROR logs with failover
+      - check: this.level == "ERROR"
+        output:
+          broker:
+            pattern: try
+            outputs:
+              # Primary: write to error file
+              - file:
+                  path: /var/log/expanso/errors.json
+                  codec: lines
+
+              # Fallback: if file write fails, send to stdout
+              - stdout:
+                  codec: lines
+                processors:
+                  - mapping: |
+                      this.routing_status = "fallback_used"
+                      this.fallback_reason = "error_file_unavailable"
+                      this.alert_type = "CRITICAL_ERROR_FALLBACK"
+
+      # WARN logs with failover  
+      - check: this.level == "WARN"
+        output:
+          broker:
+            pattern: try
+            outputs:
+              # Primary: stdout for monitoring
+              - stdout:
+                  codec: lines
+
+              # Fallback: temporary file if stdout fails
+              - file:
+                  path: /var/log/expanso/warn-fallback.json
+                  codec: lines
+                processors:
+                  - mapping: |
+                      this.routing_status = "fallback_used"
+                      this.fallback_reason = "stdout_unavailable"
+
+      # Catch-all fallback
+      - output:
+          file:
+            path: /var/log/expanso/unrouted.json
+            codec: lines
+          processors:
+            - mapping: |
+                this.routing_status = "unmatched"
+                this.requires_investigation = true
+```
+
+**Resilience Features:**
+- **Try pattern:** Attempts primary output, falls back to secondary on failure
+- **Fallback tracking:** Records when and why fallback was used
+- **Catch-all routing:** Ensures no logs are lost due to routing mismatches
+- **Error categorization:** Different handling for different failure types
+
+Test failover behavior:
+
+```bash
+# Stop previous pipeline
+expanso stop step3-route-enhanced
+
+# Deploy resilient routing
+expanso run step3-route-resilient.yaml
+
+# Test normal operation
+echo '{"timestamp":"2024-01-15T12:02:00Z","level":"ERROR","message":"Normal error test"}' >> /var/log/app/application.log
+
+# Simulate file write failure (make directory read-only)
+sudo chmod 444 /var/log/expanso/
+
+# Add error log that should trigger fallback
+echo '{"timestamp":"2024-01-15T12:02:01Z","level":"ERROR","message":"Error during file write failure"}' >> /var/log/app/application.log
+
+# Check if fallback was used (should appear in stdout with fallback metadata)
+expanso logs step3-route-resilient --tail=2
+
+# Restore permissions
+sudo chmod 755 /var/log/expanso/
+```
+
+## Step 4: Production-Ready Routing Configuration
+
+Create a comprehensive routing configuration suitable for production deployment:
+
+```yaml title="step3-route-production.yaml"
+input:
+  file:
+    paths:
+      - /var/log/app/*.log
+    codec: lines
+    # Production file handling
+    max_buffer: 100MB
+    multipart: false
+    scanner:
+      timeout: 30s
+      max_buffer: 1MB
+
+pipeline:
+  processors:
+    # Parsing with error tracking
+    - mapping: |
+        let original = this
+        let parsed = original.parse_json().catch(null)
+        
+        if parsed != null {
+          root = parsed
+          root.original_format = "json"
+          root.parsing_success = true
+        } else {
+          let log_match = original.re_find_all("(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}) \\[([A-Z]+)\\] (.+)")
+          if log_match.length() > 0 {
+            root.timestamp = log_match.0.1
+            root.level = log_match.0.2
+            root.message = log_match.0.3
+            root.original_format = "structured_text"
+            root.parsing_success = true
+          } else {
+            root.original_message = original
+            root.level = "UNKNOWN"
+            root.original_format = "unstructured_text"
+            root.parsing_success = false
+          }
+        }
+        
+        # Enhanced metadata for production
+        root.processed_at = now()
+        root.node_id = env("NODE_ID").or("unknown")
+        root.pipeline_version = env("PIPELINE_VERSION").or("1.0")
+        root.datacenter = env("DATACENTER").or("unknown")
+
+    # Severity filtering with metrics
+    - mapping: |
+        let log_level = this.level.string().uppercase()
+        root = if log_level == "ERROR" || log_level == "WARN" {
+          this
+        } else {
+          deleted()
+        }
+
+    # Production routing metadata
+    - mapping: |
+        let level = this.level.string().uppercase()
+        let service = this.get("service").or("unknown")
+        
+        # Service-specific routing rules
+        let critical_services = ["payments", "auth", "security"]
+        let is_critical_service = critical_services.contains(service)
+        
+        if level == "ERROR" {
+          this.routing_metadata = {
+            "destination": "error_storage",
+            "retention_days": if is_critical_service { 365 } else { 90 },
+            "compliance_required": is_critical_service,
+            "alert_severity": "high",
+            "escalation_required": is_critical_service
+          }
+        } else if level == "WARN" {
+          this.routing_metadata = {
+            "destination": "monitoring_stream",
+            "retention_days": 30,
+            "alert_severity": "medium",
+            "batch_processing": true
+          }
+        }
+
+# Production routing with monitoring integration
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Route based on severity
+      - switch:
+          cases:
+            # ERROR logs - multiple destinations
+            - check: this.level == "ERROR"
+              output:
+                broker:
+                  pattern: fan_out
+                  outputs:
+                    # Persistent error storage
+                    - file:
+                        path: /var/log/expanso/errors/${!timestamp_unix_date()}.json
+                        codec: lines
+                    
+                    # Real-time alerting for critical services
+                    - switch:
+                        cases:
+                          - check: this.routing_metadata.escalation_required == true
+                            output:
+                              stdout:
+                                codec: lines
+                              processors:
+                                - mapping: |
+                                    this.alert_config = {
+                                      "type": "CRITICAL_ERROR",
+                                      "escalate_immediately": true,
+                                      "notification_channels": ["slack", "email", "sms"]
+                                    }
+
+            # WARN logs - monitoring stream
+            - check: this.level == "WARN"
+              output:
+                stdout:
+                  codec: lines
+                processors:
+                  - mapping: |
+                      this.alert_config = {
+                        "type": "WARNING",
+                        "batch_window": "5m",
+                        "notification_channels": ["slack"]
+                      }
+
+      # Audit trail - all routing decisions
+      - file:
+          path: /var/log/expanso/routing-audit.log
+          codec: lines
+        processors:
+          - mapping: |
+              root = {
+                "timestamp": now(),
+                "log_id": uuid_v4(),
+                "original_level": this.level,
+                "routing_destination": this.routing_metadata.destination,
+                "service": this.get("service").or("unknown"),
+                "compliance_required": this.routing_metadata.compliance_required.or(false),
+                "node_id": this.node_id
+              }
+```
+
+**Production Features:**
+- **Date-based file organization:** `/errors/YYYY-MM-DD.json` for better management
+- **Service-specific rules:** Different handling for critical vs. non-critical services
+- **Compliance tracking:** Enhanced retention and audit requirements
+- **Multi-channel alerting:** Different notification methods based on severity
+- **Complete audit trail:** Separate log of all routing decisions
+
+Deploy production configuration:
+
+```bash
+# Stop previous pipeline
+expanso stop step3-route-resilient
+
+# Set production environment variables
+export PIPELINE_VERSION="1.0"
+export DATACENTER="us-east-1"
+
+# Deploy production routing
+expanso run step3-route-production.yaml
+
+# Test with critical service error
+echo '{"timestamp":"2024-01-15T12:03:00Z","level":"ERROR","message":"Payment gateway timeout","service":"payments","user_id":"12345"}' >> /var/log/app/application.log
+
+# Test with non-critical service warning
+echo '{"timestamp":"2024-01-15T12:03:01Z","level":"WARN","message":"Cache miss rate high","service":"api","cache_hit_rate":"65%"}' >> /var/log/app/application.log
+
+# Check date-organized error files
+ls -la /var/log/expanso/errors/
+cat /var/log/expanso/errors/$(date +%Y-%m-%d).json
+
+# Check audit trail
+tail -2 /var/log/expanso/routing-audit.log
+```
+
+## Advanced Routing Patterns
+
+### Content-Based Routing
+
+Route based on log content, not just severity:
+
+```yaml
+output:
+  switch:
+    cases:
+      # Route security-related logs to security team
+      - check: this.message.string().lowercase().contains("security") || this.message.string().lowercase().contains("auth")
+        output:
+          file:
+            path: /var/log/expanso/security.json
+            codec: lines
+
+      # Route performance issues to ops team  
+      - check: this.message.string().lowercase().contains("timeout") || this.message.string().lowercase().contains("slow")
+        output:
+          file:
+            path: /var/log/expanso/performance.json 
+            codec: lines
+
+      # Default routing by severity
+      - check: this.level == "ERROR"
+        output:
+          file:
+            path: /var/log/expanso/errors.json
+            codec: lines
+```
+
+### Time-Based Routing
+
+Route logs differently based on time of day:
+
+```yaml
+- mapping: |
+    let current_hour = now().format_timestamp("%H").number()
+    let is_business_hours = current_hour >= 9 && current_hour <= 17
+    
+    this.routing_priority = if is_business_hours && this.level == "ERROR" {
+      "immediate"
+    } else if is_business_hours && this.level == "WARN" {
+      "standard"  
+    } else {
+      "batch"
+    }
+
+output:
+  switch:
+    cases:
+      - check: this.routing_priority == "immediate"
+        output:
+          # Real-time alerting during business hours
+          stdout: {}
+          
+      - check: this.routing_priority == "standard"  
+        output:
+          # Batched processing during business hours
+          file:
+            path: /var/log/expanso/warnings-batched.json
+            
+      - output:
+          # Delayed processing outside business hours
+          file:
+            path: /var/log/expanso/after-hours.json
+```
+
+### Conditional Fan-Out
+
+Send logs to multiple destinations based on conditions:
+
+```yaml
+output:
+  switch:
+    cases:
+      # Critical errors go everywhere
+      - check: this.level == "ERROR" && this.get("service") == "payments"
+        output:
+          broker:
+            pattern: fan_out
+            outputs:
+              - file:
+                  path: /var/log/expanso/critical-errors.json
+              - stdout: {}
+              - http_client:
+                  url: http://alerting-service/webhook
+                  verb: POST
+                  
+      # Regular errors just to file and monitoring
+      - check: this.level == "ERROR"
+        output:
+          broker:
+            pattern: fan_out  
+            outputs:
+              - file:
+                  path: /var/log/expanso/errors.json
+              - stdout: {}
+```
+
+## Performance and Scaling
+
+### Routing Performance Optimization
+
+For high-volume routing, optimize decision logic:
+
+```yaml
+- mapping: |
+    # Pre-compute routing decisions to avoid repeated evaluation
+    let level = this.level.string().uppercase()
+    let service = this.get("service").string()
+    
+    # Create routing decision object
+    this.routing_decision = {
+      "is_error": level == "ERROR",
+      "is_warn": level == "WARN", 
+      "is_critical_service": ["payments", "auth", "security"].contains(service),
+      "computed_at": now()
+    }
+
+output:
+  switch:
+    cases:
+      - check: this.routing_decision.is_error == true
+        # Use pre-computed decision instead of re-evaluating
+        output:
+          file:
+            path: /var/log/expanso/errors.json
+```
+
+### Batch Processing for High Volume
+
+Handle high-volume warnings with batching:
+
+```yaml
+output:
+  switch:
+    cases:
+      - check: this.level == "WARN"
+        output:
+          file:
+            path: /var/log/expanso/warnings.json
+            # Batch configuration for performance
+            batching:
+              count: 100
+              period: 5s
+              processors:
+                - archive:
+                    format: lines
+```
+
+## Analytics Impact
+
+### Routing Efficiency Metrics
+
+Track routing performance and decisions:
+
+```bash
+# Create routing analytics script
+cat > routing-analytics.sh << 'EOF'
+#!/bin/bash
+
+echo "=== Routing Analytics ==="
+
+# Count routing destinations
+echo "📊 Routing Distribution:"
+echo "ERROR logs to file: $(grep -c '"level":"ERROR"' /var/log/expanso/errors.json 2>/dev/null || echo 0)"
+echo "WARN logs to monitoring: $(expanso logs step3-route-production --grep 'WARNING' --count 2>/dev/null || echo 0)"
+echo "Routing fallbacks used: $(grep -c '"routing_status":"fallback_used"' /var/log/expanso/*.json 2>/dev/null || echo 0)"
+
+# Check audit trail
+if [ -f /var/log/expanso/routing-audit.log ]; then
+    echo "📝 Audit Records: $(wc -l < /var/log/expanso/routing-audit.log)"
+    echo "🏥 Compliance-required routes: $(grep -c '"compliance_required":true' /var/log/expanso/routing-audit.log)"
+fi
+
+echo "=== Analysis Complete ==="
+EOF
+
+chmod +x routing-analytics.sh
+./routing-analytics.sh
+rm routing-analytics.sh
+```
+
+### Before Intelligent Routing
+```
+- Log investigation time: 45-60 minutes (searching through mixed logs)
+- Alert fatigue: 50+ notifications/day (all severities mixed)
+- Compliance audit prep: 4-6 hours (manually sorting by type)
+- Storage costs: $200/month (all logs in expensive fast storage)
+```
+
+### After Intelligent Routing
+```
+- Log investigation time: 10-15 minutes (errors pre-segregated)
+- Alert fatigue: 5-8 notifications/day (severity-appropriate routing)  
+- Compliance audit prep: 30 minutes (automated segregation)
+- Storage costs: $60/month (tiered storage by importance)
+```
+
+## Troubleshooting
+
+### Issue: Logs Not Reaching Expected Destination
+
+**Symptom:** ERROR logs appearing in stdout instead of error file
+
+**Diagnosis:**
+```bash
+# Check routing conditions
+echo '{"level":"ERROR","message":"test"}' | expanso test step3-route-production.yaml --output-debug
+
+# Verify file permissions
+ls -la /var/log/expanso/
+touch /var/log/expanso/test-write && rm /var/log/expanso/test-write
+```
+
+**Solutions:**
+
+1. **Check case sensitivity:**
+```yaml
+- check: this.level.string().uppercase() == "ERROR"
+  # Instead of: this.level == "ERROR"
+```
+
+2. **Add routing debug information:**
+```yaml
+- mapping: |
+    if env("DEBUG_ROUTING") == "true" {
+      this.debug_routing = {
+        "level": this.level,
+        "level_uppercase": this.level.string().uppercase(), 
+        "check_result": this.level.string().uppercase() == "ERROR"
+      }
+    }
+```
+
+### Issue: File Write Failures
+
+**Symptom:** Logs missing from error files but appearing in fallback outputs
+
+**Diagnosis:**
+```bash
+# Check disk space
+df -h /var/log/expanso/
+
+# Check file permissions
+ls -la /var/log/expanso/
+
+# Check for file locks
+lsof /var/log/expanso/errors.json
+```
+
+**Solutions:**
+
+1. **Implement retry logic:**
+```yaml
+- file:
+    path: /var/log/expanso/errors.json
+    codec: lines
+    # Add retry configuration
+    retry_until_success: true
+    max_retries: 3
+    backoff:
+      initial_interval: 1s
+      max_interval: 10s
+```
+
+2. **Add disk space monitoring:**
+```yaml
+- mapping: |
+    # Check available disk space (if supported)
+    let disk_usage = env("DISK_USAGE_PERCENT")
+    if disk_usage.number() > 90 {
+      this.routing_warning = "low_disk_space"
+      this.fallback_recommended = true
+    }
+```
+
+## Security Considerations
+
+### Secure Log Routing
+
+Ensure routing doesn't expose sensitive data:
+
+```yaml
+- mapping: |
+    # Sanitize logs before routing to less secure destinations
+    if this.routing_metadata.destination == "monitoring_stream" {
+      # Remove sensitive fields from logs going to monitoring
+      this.user_id = "REDACTED"
+      this.email = "REDACTED"
+      this.ip_address = "REDACTED"
+    }
+    
+    # Keep original in secure file storage
+    if this.routing_metadata.destination == "error_storage" {
+      # Full data preserved for investigation
+      this.data_classification = "SENSITIVE"
+    }
+```
+
+### Compliance Routing
+
+Ensure routing meets regulatory requirements:
+
+```yaml
+- mapping: |
+    # GDPR/CCPA compliance routing
+    let contains_pii = ["email", "phone", "ssn"].any(field -> this.has(field))
+    
+    if contains_pii {
+      this.routing_metadata.compliance_tags = ["GDPR", "CCPA"]
+      this.routing_metadata.encryption_required = true
+      this.routing_metadata.geo_restrictions = ["EU", "CA"]
+    }
+```
+
+---
+
+## Summary
+
+You've successfully implemented intelligent log routing that:
+
+✅ **Routes by severity** sending ERROR logs to persistent storage and WARN logs to monitoring  
+✅ **Provides failover handling** ensuring no log data is lost during routing failures  
+✅ **Supports multiple destinations** with fan-out patterns for comprehensive coverage  
+✅ **Includes production features** like date-based organization and service-specific rules  
+✅ **Maintains audit trails** for compliance and debugging  
+✅ **Handles edge cases** with catch-all routing and error recovery
+
+**Key Benefits:**
+- **Faster incident response:** Errors immediately available in dedicated files
+- **Reduced alert noise:** Appropriate routing eliminates monitoring overload
+- **Compliance ready:** Complete audit trails and retention policy support  
+- **Cost optimization:** Tiered storage based on log importance
+- **High availability:** Failover ensures no data loss during infrastructure issues
+
+## What's Next
+
+You've now built all the core components of the log filtering pipeline. In the next step, you'll combine everything into a complete, production-ready solution.
+
+**Continue to:** [Complete Pipeline](./complete-filter-severity)
+
+**Need help?** Check the [Troubleshooting Guide](./troubleshooting) for solutions to routing issues.

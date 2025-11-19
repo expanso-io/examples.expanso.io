@@ -1,0 +1,830 @@
+---
+title: "Step 3: Parse Access Logs"
+sidebar_label: "Step 3: Parse Access Logs"
+sidebar_position: 6
+description: Extract web server metrics from Apache/Nginx access logs using grok patterns with client analysis and privacy protection
+keywords: [access logs, grok patterns, web server logs, nginx, apache, traffic analysis, log parsing]
+---
+
+# Step 3: Parse Access Logs
+
+**Transform web server access logs into structured analytics data**. This step teaches you to parse Apache and Nginx access logs using grok patterns, extract client insights, and protect user privacy while enabling traffic analysis.
+
+## What You'll Build
+
+An access log parser that processes web server logs with these capabilities:
+
+✅ **Grok pattern matching** - Parse Common and Combined Log Format  
+✅ **Client analysis** - Extract browser, OS, and device information  
+✅ **Privacy protection** - Hash IP addresses and sensitive data  
+✅ **Performance metrics** - Calculate response times and bandwidth  
+✅ **Error classification** - Categorize HTTP status codes and errors  
+✅ **Request routing** - Classify API vs static vs page requests  
+✅ **Bot detection** - Identify crawlers and automated traffic
+
+## Access Log Formats
+
+Common web server log formats:
+
+### Apache Common Log Format (CLF)
+```
+203.0.113.45 - - [20/Oct/2025:14:23:45 +0000] "GET /api/users HTTP/1.1" 200 1234
+198.51.100.67 - frank [20/Oct/2025:14:24:12 +0000] "POST /api/auth HTTP/1.1" 401 89
+192.0.2.123 - - [20/Oct/2025:14:24:33 +0000] "GET /admin/dashboard HTTP/1.1" 500 0
+```
+
+### Apache Combined Log Format (NCSA)
+```
+203.0.113.45 - user123 [20/Oct/2025:14:23:45 +0000] "GET /api/users HTTP/1.1" 200 1234 "https://example.com" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124"
+198.51.100.67 - - [20/Oct/2025:14:24:12 +0000] "POST /api/auth HTTP/1.1" 401 89 "-" "curl/7.68.0"
+```
+
+### Nginx Combined Format
+```
+203.0.113.45 - user123 [20/Oct/2025:14:23:45 +0000] "GET /api/users HTTP/1.1" 200 1234 "https://example.com" "Mozilla/5.0 Chrome/91.0" 0.045
+198.51.100.67 - - [20/Oct/2025:14:24:12 +0000] "POST /api/auth HTTP/1.1" 401 89 "-" "curl/7.68.0" 2.156
+```
+
+## Implementation
+
+### Basic Access Log Parser
+
+Start with a simple parser for Apache Common Log Format:
+
+```yaml title="access-log-parser-basic.yaml"
+name: access-log-parser-basic
+description: Parse Apache Common Log Format access logs
+type: pipeline
+namespace: default
+
+config:
+  input:
+    file:
+      paths:
+        - "~/expanso-logs/nginx/*.log"
+        - "/var/log/nginx/access.log"
+        - "/var/log/apache2/access.log"
+      codec: lines
+
+  pipeline:
+    processors:
+      # Parse using grok pattern for Common Log Format
+      - grok:
+          expressions:
+            # Apache Common Log Format
+            - '%{IPORHOST:client_ip} %{USER:ident} %{USER:auth} \[%{HTTPDATE:timestamp}\] "(?:%{WORD:method} %{NOTSPACE:request}(?: HTTP/%{NUMBER:http_version})?|%{DATA:invalid_request})" %{NUMBER:status_code} (?:%{NUMBER:bytes}|-)'
+          named_captures_only: true
+
+      # Basic field conversion
+      - mapping: |
+          root = this
+          # Convert timestamp
+          root.timestamp_unix = this.timestamp.parse_timestamp("02/Jan/2006:15:04:05 -0700").ts_unix()
+          
+          # Convert numeric fields
+          root.status_code = this.status_code.number()
+          root.bytes = this.bytes.or("0").number()
+          
+          # Basic request classification
+          root.is_error = this.status_code >= 400
+          root.is_client_error = this.status_code >= 400 && this.status_code < 500
+          root.is_server_error = this.status_code >= 500
+
+  output:
+    file:
+      path: ~/expanso-logs/output/parsed-access-basic.jsonl
+      codec: lines
+```
+
+Deploy and test:
+
+```bash
+# Deploy the parser
+expanso job deploy access-log-parser-basic.yaml
+
+# Check processing
+tail -f ~/expanso-logs/output/parsed-access-basic.jsonl
+```
+
+### Enhanced Access Log Parser (Combined Format)
+
+Parse Combined Log Format with user agent and referrer analysis:
+
+```yaml title="access-log-parser-enhanced.yaml"
+name: access-log-parser-enhanced  
+description: Parse Combined Log Format with user agent analysis
+type: pipeline
+namespace: default
+
+config:
+  input:
+    file:
+      paths:
+        - "~/expanso-logs/nginx/*.log"
+      codec: lines
+
+  pipeline:
+    processors:
+      # Parse using grok pattern for Combined Log Format
+      - grok:
+          expressions:
+            # Combined Log Format (Apache/Nginx)
+            - '%{IPORHOST:client_ip} %{USER:ident} %{USER:auth} \[%{HTTPDATE:timestamp}\] "(?:%{WORD:method} %{NOTSPACE:request}(?: HTTP/%{NUMBER:http_version})?|%{DATA:invalid_request})" %{NUMBER:status_code} (?:%{NUMBER:bytes}|-) "(?:%{DATA:referer}|-)" "(?:%{DATA:user_agent}|-)"(?:\s+%{NUMBER:response_time})?'
+          named_captures_only: true
+
+      # Timestamp and numeric field conversion
+      - mapping: |
+          root = this
+          # Parse timestamp
+          root.timestamp_unix = this.timestamp.parse_timestamp("02/Jan/2006:15:04:05 -0700").ts_unix()
+          root.timestamp_iso = root.timestamp_unix.ts_format("2006-01-02T15:04:05Z")
+          
+          # Convert numeric fields
+          root.status_code = this.status_code.number()
+          root.bytes = this.bytes.or("0").number()
+          root.response_time = this.response_time.or("0").number()
+
+      # Request classification and analysis
+      - mapping: |
+          root = this
+          
+          # Classify request type
+          root.request_category = if this.request.contains("/api/") {
+            "api"
+          } else if this.request.contains("/static/") || this.request.contains("/assets/") {
+            "static"
+          } else if this.request.contains("/admin/") {
+            "admin"
+          } else if this.request.re_match(".*\\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2)$") {
+            "asset"
+          } else {
+            "page"
+          }
+          
+          # Extract file extension
+          root.file_extension = if this.request.contains(".") {
+            this.request.split(".").index(-1).lowercase()
+          } else {
+            "none"
+          }
+          
+          # Classify HTTP methods
+          root.method_category = if this.method in ["GET", "HEAD"] {
+            "read"
+          } else if this.method in ["POST", "PUT", "PATCH"] {
+            "write"
+          } else if this.method in ["DELETE"] {
+            "delete"
+          } else {
+            "other"
+          }
+
+      # User agent analysis
+      - mapping: |
+          root = this
+          
+          let ua = this.user_agent.or("")
+          
+          # Browser detection
+          root.browser = if ua.contains("Chrome") && !ua.contains("Edg") {
+            "Chrome"
+          } else if ua.contains("Firefox") {
+            "Firefox"
+          } else if ua.contains("Safari") && !ua.contains("Chrome") {
+            "Safari"
+          } else if ua.contains("Edg") {
+            "Edge"
+          } else if ua.contains("Opera") {
+            "Opera"
+          } else {
+            "Other"
+          }
+          
+          # Operating system detection
+          root.operating_system = if ua.contains("Windows") {
+            "Windows"
+          } else if ua.contains("Mac OS") || ua.contains("macOS") {
+            "macOS"
+          } else if ua.contains("Linux") {
+            "Linux"
+          } else if ua.contains("iPhone") || ua.contains("iPad") {
+            "iOS"
+          } else if ua.contains("Android") {
+            "Android"
+          } else {
+            "Other"
+          }
+          
+          # Device type detection
+          root.device_type = if ua.contains("Mobile") || ua.contains("iPhone") || ua.contains("Android") {
+            "mobile"
+          } else if ua.contains("iPad") || ua.contains("Tablet") {
+            "tablet"
+          } else {
+            "desktop"
+          }
+          
+          # Bot detection
+          root.is_bot = ua.lowercase().contains("bot") || 
+                       ua.lowercase().contains("crawler") ||
+                       ua.lowercase().contains("spider") ||
+                       ua.lowercase().contains("scraper") ||
+                       ua.contains("curl") ||
+                       ua.contains("wget")
+
+      # Status code analysis
+      - mapping: |
+          root = this
+          
+          # Classify response status
+          root.status_category = if this.status_code < 300 {
+            "success"
+          } else if this.status_code < 400 {
+            "redirect" 
+          } else if this.status_code < 500 {
+            "client_error"
+          } else {
+            "server_error"
+          }
+          
+          # Common status meanings
+          root.status_meaning = if this.status_code == 200 {
+            "OK"
+          } else if this.status_code == 301 {
+            "Moved Permanently"
+          } else if this.status_code == 302 {
+            "Found"
+          } else if this.status_code == 401 {
+            "Unauthorized"
+          } else if this.status_code == 403 {
+            "Forbidden"
+          } else if this.status_code == 404 {
+            "Not Found"
+          } else if this.status_code == 500 {
+            "Internal Server Error"
+          } else if this.status_code == 502 {
+            "Bad Gateway"
+          } else if this.status_code == 503 {
+            "Service Unavailable"
+          } else {
+            "Other"
+          }
+
+      # Privacy protection (hash sensitive data)
+      - mapping: |
+          root = this
+          
+          # Hash client IP for privacy (keep last octet for basic geo-analysis)
+          let ip_salt = env("IP_SALT").or("default_salt")
+          root.client_ip_hash = (this.client_ip + ip_salt).hash("sha256").slice(0, 16)
+          
+          # Preserve IP class for basic analysis (but remove specific IP)
+          root.ip_class = if this.client_ip.has_prefix("10.") || 
+                             this.client_ip.has_prefix("192.168.") || 
+                             this.client_ip.has_prefix("172.") {
+            "private"
+          } else {
+            "public"
+          }
+          
+          # Remove original IP
+          root = this.without("client_ip")
+
+      # Add metadata
+      - mapping: |
+          root = this
+          root.metadata = {
+            "parsed_by": "access-log-parser",
+            "parsed_at": now().ts_unix(),
+            "source_format": "combined_log_format",
+            "log_version": "1.0"
+          }
+
+  output:
+    file:
+      path: ~/expanso-logs/output/parsed-access-enhanced.jsonl
+      codec: lines
+```
+
+### Access Log Parser with Performance Analysis
+
+Add performance metrics and traffic analysis:
+
+```yaml title="access-log-performance-analyzer.yaml"
+name: access-log-performance-analyzer
+description: Analyze access logs for performance and traffic patterns  
+type: pipeline
+namespace: default
+
+config:
+  input:
+    file:
+      paths:
+        - "~/expanso-logs/nginx/*.log"
+      codec: lines
+
+  pipeline:
+    processors:
+      # Parse Combined Log Format
+      - grok:
+          expressions:
+            - '%{IPORHOST:client_ip} %{USER:ident} %{USER:auth} \[%{HTTPDATE:timestamp}\] "(?:%{WORD:method} %{NOTSPACE:request}(?: HTTP/%{NUMBER:http_version})?|%{DATA:invalid_request})" %{NUMBER:status_code} (?:%{NUMBER:bytes}|-) "(?:%{DATA:referer}|-)" "(?:%{DATA:user_agent}|-)"(?:\s+%{NUMBER:response_time})?'
+          named_captures_only: true
+
+      # Convert types and basic parsing
+      - mapping: |
+          root = this
+          root.timestamp_unix = this.timestamp.parse_timestamp("02/Jan/2006:15:04:05 -0700").ts_unix()
+          root.status_code = this.status_code.number()
+          root.bytes = this.bytes.or("0").number()
+          root.response_time = this.response_time.or("0").number()
+
+      # Performance analysis
+      - mapping: |
+          root = this
+          
+          # Categorize response time performance
+          let resp_time = this.response_time
+          root.performance = {
+            "response_time_ms": resp_time * 1000,  # Convert to milliseconds
+            "performance_category": if resp_time < 0.1 {
+              "excellent"
+            } else if resp_time < 0.5 {
+              "good"
+            } else if resp_time < 2.0 {
+              "acceptable"
+            } else if resp_time < 5.0 {
+              "slow"
+            } else {
+              "critical"
+            },
+            "is_timeout": resp_time > 30.0,
+            "bandwidth_kbps": if resp_time > 0 { (this.bytes / 1024.0) / resp_time } else { 0 }
+          }
+          
+          # Calculate efficiency metrics
+          root.efficiency = {
+            "bytes_per_second": if resp_time > 0 { this.bytes / resp_time } else { 0 },
+            "size_category": if this.bytes < 1024 {
+              "small"    # < 1KB
+            } else if this.bytes < 51200 {
+              "medium"   # < 50KB
+            } else if this.bytes < 1048576 {
+              "large"    # < 1MB
+            } else {
+              "huge"     # > 1MB
+            }
+          }
+
+      # Traffic pattern analysis
+      - mapping: |
+          root = this
+          
+          # Extract hour of day for traffic pattern analysis
+          root.time_analysis = {
+            "hour_of_day": this.timestamp_unix.ts_format("15").number(),
+            "day_of_week": this.timestamp_unix.ts_format("Monday"),
+            "is_business_hours": this.timestamp_unix.ts_format("15").number() >= 9 && 
+                               this.timestamp_unix.ts_format("15").number() <= 17,
+            "is_weekend": this.timestamp_unix.ts_format("Monday") in ["Saturday", "Sunday"]
+          }
+          
+          # Request pattern classification
+          root.request_pattern = {
+            "path_depth": this.request.split("/").length() - 1,
+            "has_query_params": this.request.contains("?"),
+            "has_fragment": this.request.contains("#"),
+            "estimated_cache_time": if this.request.contains("/static/") {
+              86400  # 24 hours for static content
+            } else if this.request.contains("/api/") {
+              300    # 5 minutes for API
+            } else {
+              3600   # 1 hour for pages
+            }
+          }
+
+      # Error analysis and alerting
+      - mapping: |
+          root = this
+          
+          # Detailed error analysis
+          root.error_analysis = if this.status_code >= 400 {
+            {
+              "error_type": if this.status_code == 401 {
+                "authentication_failure"
+              } else if this.status_code == 403 {
+                "authorization_failure"
+              } else if this.status_code == 404 {
+                "resource_not_found"
+              } else if this.status_code == 429 {
+                "rate_limit_exceeded"
+              } else if this.status_code >= 500 {
+                "server_error"
+              } else {
+                "client_error"
+              },
+              "requires_investigation": this.status_code >= 500 || 
+                                     (this.status_code == 404 && !this.request.contains("/favicon.ico")),
+              "impact_level": if this.status_code >= 500 {
+                "high"
+              } else if this.status_code in [401, 403, 429] {
+                "medium"
+              } else {
+                "low"
+              }
+            }
+          }
+
+      # Security analysis
+      - mapping: |
+          root = this
+          
+          # Basic security indicators
+          root.security_indicators = {
+            "suspicious_patterns": [
+              if this.request.contains("..") { "directory_traversal" },
+              if this.request.contains("<script") { "xss_attempt" },
+              if this.request.contains("union select") { "sql_injection" },
+              if this.request.contains("/etc/passwd") { "file_access_attempt" },
+              if this.request.contains("/admin") && this.status_code == 404 { "admin_probing" }
+            ].filter(pattern -> pattern != null),
+            
+            "request_anomalies": {
+              "unusually_long_url": this.request.length() > 2048,
+              "many_query_params": this.request.count("&") > 20,
+              "binary_content_in_url": this.request.contains("%00"),
+              "encoded_content": this.request.contains("%") && this.request.count("%") > 10
+            }
+          }
+          
+          # Flag potentially malicious requests
+          root.security_risk = if root.security_indicators.suspicious_patterns.length() > 0 {
+            "high"
+          } else if root.security_indicators.request_anomalies.unusually_long_url ||
+                   root.security_indicators.request_anomalies.many_query_params {
+            "medium" 
+          } else {
+            "low"
+          }
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # All access logs with performance analysis
+        - file:
+            path: ~/expanso-logs/output/access-performance-analysis.jsonl
+            codec: lines
+
+        # Performance issues (slow requests)
+        - switch:
+            - check: this.performance.performance_category in ["slow", "critical"]
+              output:
+                file:
+                  path: ~/expanso-logs/output/performance-issues.jsonl
+                  codec: lines
+            - output:
+                drop: {}
+
+        # Server errors for immediate attention
+        - switch:
+            - check: this.status_code >= 500
+              output:
+                file:
+                  path: ~/expanso-logs/output/server-errors.jsonl
+                  codec: lines
+            - output:
+                drop: {}
+
+        # Security incidents
+        - switch:
+            - check: this.security_risk in ["high", "medium"]
+              output:
+                file:
+                  path: ~/expanso-logs/output/security-incidents.jsonl
+                  codec: lines
+            - output:
+                drop: {}
+```
+
+## Advanced Features
+
+### Real-time Traffic Monitoring
+
+Monitor traffic patterns and detect anomalies:
+
+```yaml title="access-log-traffic-monitor.yaml"
+name: access-log-traffic-monitor
+description: Real-time traffic monitoring with anomaly detection
+type: pipeline  
+namespace: default
+
+config:
+  input:
+    file:
+      paths:
+        - "~/expanso-logs/nginx/*.log"
+      codec: lines
+
+  pipeline:
+    processors:
+      # Parse access logs
+      - grok:
+          expressions:
+            - '%{IPORHOST:client_ip} %{USER:ident} %{USER:auth} \[%{HTTPDATE:timestamp}\] "(?:%{WORD:method} %{NOTSPACE:request}(?: HTTP/%{NUMBER:http_version})?|%{DATA:invalid_request})" %{NUMBER:status_code} (?:%{NUMBER:bytes}|-) "(?:%{DATA:referer}|-)" "(?:%{DATA:user_agent}|-)"'
+
+      # Convert fields and add windowing
+      - mapping: |
+          root = this
+          root.timestamp_unix = this.timestamp.parse_timestamp("02/Jan/2006:15:04:05 -0700").ts_unix()
+          root.status_code = this.status_code.number()
+          
+          # Create 1-minute time windows for traffic analysis
+          let window_size = 60  # 1 minute
+          root.time_window = (this.timestamp_unix / window_size).floor() * window_size
+
+      # Traffic volume analysis
+      - mapping: |
+          root = this
+          
+          # Hash IP for counting unique visitors (privacy-preserving)
+          root.client_hash = (this.client_ip + env("IP_SALT").or("salt")).hash("sha256").slice(0, 8)
+          
+          # Request volume indicators  
+          root.traffic_metrics = {
+            "time_window": this.time_window,
+            "is_error": this.status_code >= 400,
+            "is_bot": this.user_agent.lowercase().contains("bot"),
+            "request_size_category": if this.request.length() < 100 {
+              "normal"
+            } else if this.request.length() < 1000 {
+              "large"
+            } else {
+              "suspicious"
+            }
+          }
+
+      # Anomaly detection (simplified - use time-series analysis in production)
+      - mapping: |
+          root = this
+          
+          # Basic anomaly indicators
+          root.anomaly_indicators = {
+            "high_error_rate": false,  # Would calculate from window data
+            "unusual_traffic_spike": false,  # Would compare to baseline
+            "suspicious_user_agent": this.user_agent.length() < 10 || 
+                                   this.user_agent.contains("script") ||
+                                   this.user_agent == "-",
+            "rapid_requests_same_ip": false,  # Would track IP request frequency
+            "geographic_anomaly": false  # Would check IP geolocation
+          }
+          
+          # Overall anomaly score (0-1)
+          let anomaly_score = [
+            root.anomaly_indicators.suspicious_user_agent,
+            this.status_code >= 500,
+            this.request.length() > 2048
+          ].filter(indicator -> indicator == true).length() / 3.0
+          
+          root.anomaly_score = anomaly_score
+          root.is_anomalous = anomaly_score > 0.5
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # Normal traffic
+        - switch:
+            - check: this.is_anomalous == false
+              output:
+                file:
+                  path: ~/expanso-logs/output/normal-traffic.jsonl
+                  codec: lines
+            - output:
+                drop: {}
+
+        # Anomalous traffic for investigation
+        - switch:
+            - check: this.is_anomalous == true
+              output:
+                file:
+                  path: ~/expanso-logs/output/anomalous-traffic.jsonl
+                  codec: lines
+            - output:
+                drop: {}
+```
+
+## Testing and Validation
+
+### Create Test Access Log Data
+
+Generate access logs with various scenarios:
+
+```bash
+# Create test access logs with different formats and edge cases
+cat > ~/expanso-logs/nginx/test-access.log << 'EOF'
+203.0.113.45 - user123 [20/Oct/2025:14:23:45 +0000] "GET /api/users HTTP/1.1" 200 1234 "https://example.com" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+198.51.100.67 - - [20/Oct/2025:14:24:12 +0000] "POST /api/auth HTTP/1.1" 401 89 "-" "curl/7.68.0"
+192.0.2.123 - admin [20/Oct/2025:14:24:33 +0000] "GET /admin/dashboard HTTP/1.1" 200 5678 "https://admin.example.com" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+10.0.0.1 - - [20/Oct/2025:14:25:01 +0000] "GET /static/css/main.css HTTP/1.1" 200 1024 "https://example.com/dashboard" "Mozilla/5.0 Firefox/91.0"
+203.0.113.45 - - [20/Oct/2025:14:25:15 +0000] "GET /api/users/123?include=profile HTTP/1.1" 404 0 "https://example.com" "Mozilla/5.0 Mobile Safari/537.36"
+198.51.100.67 - - [20/Oct/2025:14:25:30 +0000] "GET /robots.txt HTTP/1.1" 200 123 "-" "Googlebot/2.1 (+http://www.google.com/bot.html)"
+192.0.2.123 - hacker [20/Oct/2025:14:25:45 +0000] "GET /../../etc/passwd HTTP/1.1" 404 0 "-" "Mozilla/5.0 (compatible; SecurityScanner/1.0)"
+203.0.113.45 - - [20/Oct/2025:14:26:00 +0000] "POST /api/upload HTTP/1.1" 500 0 "https://example.com/upload" "Mozilla/5.0 Chrome/91.0"
+10.0.0.2 - - [20/Oct/2025:14:26:15 +0000] "GET /health HTTP/1.1" 200 2 "-" "HealthCheck/1.0"
+198.51.100.67 - - [20/Oct/2025:14:26:30 +0000] "GET /api/data<script>alert('xss')</script> HTTP/1.1" 400 0 "-" "-"
+EOF
+
+# Create malformed access logs for error testing
+cat > ~/expanso-logs/nginx/malformed-access.log << 'EOF'
+Invalid log line without proper format
+203.0.113.45 - incomplete [20/Oct/2025:14:23:45 +0000] "GET 
+[20/Oct/2025:14:24:12 +0000] "POST /api/test HTTP/1.1" 200 123 missing_ip
+203.0.113.45 - user [invalid_timestamp] "GET /test HTTP/1.1" 200 456
+EOF
+```
+
+### Test Parsing Results
+
+Validate access log parsing:
+
+```bash
+# Deploy enhanced parser
+expanso job deploy access-log-parser-enhanced.yaml
+
+# Wait for processing
+sleep 10
+
+# Check parsed access logs
+echo "=== Parsed Access Logs ==="
+head -2 ~/expanso-logs/output/parsed-access-enhanced.jsonl | jq .
+
+# Check browser distribution
+echo "=== Browser Analysis ==="
+jq -r '.browser' ~/expanso-logs/output/parsed-access-enhanced.jsonl | sort | uniq -c
+
+# Check status code distribution
+echo "=== Status Code Distribution ==="
+jq -r '.status_code' ~/expanso-logs/output/parsed-access-enhanced.jsonl | sort | uniq -c
+
+# Check request categories
+echo "=== Request Categories ==="
+jq -r '.request_category' ~/expanso-logs/output/parsed-access-enhanced.jsonl | sort | uniq -c
+
+# Verify privacy protection (IPs should be hashed)
+echo "=== Privacy Protection Check ==="
+jq -r '.client_ip_hash' ~/expanso-logs/output/parsed-access-enhanced.jsonl | head -3
+echo "Original IPs should be removed:"
+jq 'has("client_ip")' ~/expanso-logs/output/parsed-access-enhanced.jsonl | uniq
+```
+
+### Performance Testing
+
+Test with high-volume access logs:
+
+```bash
+# Generate large access log file (100k entries)
+for i in {1..100000}; do
+  ip="192.0.2.$((RANDOM % 255))"
+  status=$((200 + (RANDOM % 3) * 100))  # 200, 300, or 400
+  bytes=$((RANDOM % 10000))
+  ts=$(date -u -d "@$((1729433025 + i * 60))" '+%d/%b/%Y:%H:%M:%S +0000')
+  echo "$ip - - [$ts] \"GET /api/data/$((RANDOM % 1000)) HTTP/1.1\" $status $bytes \"-\" \"Mozilla/5.0 Test Browser\""
+done > ~/expanso-logs/nginx/performance-test.log
+
+# Deploy performance analyzer
+expanso job deploy access-log-performance-analyzer.yaml
+
+# Monitor processing rate
+watch "expanso job stats access-log-performance-analyzer | grep -E 'Rate|Processed'"
+
+# Check output files
+wc -l ~/expanso-logs/output/access-performance-analysis.jsonl
+ls -la ~/expanso-logs/output/*.jsonl | grep access
+```
+
+## Production Considerations
+
+### Privacy and GDPR Compliance
+
+Ensure compliance with privacy regulations:
+
+```yaml
+# Add privacy protection
+- mapping: |
+    root = this
+    
+    # Hash all personally identifiable information
+    let salt = env("IP_SALT").or("production_salt") 
+    root.client_ip_hash = (this.client_ip + salt).hash("sha256").slice(0, 16)
+    root.user_hash = if this.auth != "-" {
+      (this.auth + salt).hash("sha256").slice(0, 16)
+    }
+    
+    # Remove or truncate user agent to prevent fingerprinting
+    root.user_agent_fingerprint = this.user_agent.hash("sha256").slice(0, 12)
+    root.browser_family = this.browser  # Keep browser type only
+    root.os_family = this.operating_system  # Keep OS type only
+    
+    # Remove original PII fields
+    root = this.without("client_ip", "auth", "user_agent")
+    
+    # Add privacy metadata
+    root.privacy_metadata = {
+      "anonymized": true,
+      "retention_policy": "30_days",
+      "gdpr_compliant": true
+    }
+```
+
+### Error Handling for Invalid Log Formats
+
+Handle malformed access logs gracefully:
+
+```yaml
+# Add error handling
+- catch:
+    - mapping: |
+        root = {
+          "error_type": "grok_parse_failure",
+          "error": error(),
+          "failed_at": now().ts_unix(),
+          "original_line": this.string().slice(0, 1000),
+          "line_number": meta("line_number").or(0),
+          "possible_format": if this.string().contains("[") && this.string().contains("]") {
+            "access_log_variant"
+          } else {
+            "unknown_format"
+          }
+        }
+    - output:
+        file:
+          path: ~/expanso-logs/errors/access-parse-errors.jsonl
+          codec: lines
+```
+
+### Performance Optimization
+
+Optimize for high-volume log processing:
+
+```yaml
+# Performance optimizations
+processors:
+  # Filter out uninteresting requests early
+  - mapping: |
+      root = if this.string().contains("health") && this.string().contains("200") {
+        deleted()  # Skip health checks
+      } else if this.string().contains("/favicon.ico") {
+        deleted()  # Skip favicon requests
+      } else {
+        this
+      }
+
+  # Use more specific grok patterns for better performance
+  - grok:
+      expressions:
+        # Most specific pattern first (fastest)
+        - '%{IPV4:client_ip} - %{USER:auth} \[%{HTTPDATE:timestamp}\] "%{WORD:method} %{URIPATH:request}(?:%{URIPARAM:params})? HTTP/%{NUMBER:http_version}" %{NUMBER:status_code} %{NUMBER:bytes} "%{DATA:referer}" "%{DATA:user_agent}"'
+        # Fallback to more general pattern
+        - '%{IPORHOST:client_ip} %{USER:ident} %{USER:auth} \[%{HTTPDATE:timestamp}\] "(?:%{WORD:method} %{NOTSPACE:request}(?: HTTP/%{NUMBER:http_version})?|%{DATA})" %{NUMBER:status_code} (?:%{NUMBER:bytes}|-) "(?:%{DATA:referer}|-)" "(?:%{DATA:user_agent}|-)"'
+      named_captures_only: true
+```
+
+---
+
+## Summary
+
+You've built a comprehensive access log parser that handles:
+
+✅ **Multiple log formats** including Common and Combined Log Format  
+✅ **User agent analysis** with browser, OS, and device detection  
+✅ **Privacy protection** through IP hashing and PII removal  
+✅ **Performance monitoring** with response time and bandwidth analysis  
+✅ **Security detection** for suspicious request patterns  
+✅ **Traffic classification** by request type and error categorization
+
+## Common Issues
+
+**Issue:** Grok patterns not matching all log variants  
+**Solution:** Add multiple pattern expressions ordered from most specific to general
+
+**Issue:** High CPU usage with complex grok patterns  
+**Solution:** Filter logs early and use simpler patterns where possible
+
+**Issue:** Memory growth with user agent strings  
+**Solution:** Hash or truncate long user agent strings, keep only essential data
+
+---
+
+## Next Steps
+
+<div style={{display: 'flex', gap: '1rem', marginTop: '2rem', marginBottom: '2rem', flexWrap: 'wrap'}}>
+  <a href="./step-4-parse-syslog-messages" className="button button--primary button--lg" style={{flex: '1', minWidth: '200px'}}>
+    Step 4: Parse Syslog Messages
+  </a>
+  <a href="./troubleshooting" className="button button--secondary button--lg" style={{flex: '1', minWidth: '200px'}}>
+    Troubleshooting Guide
+  </a>
+</div>
+
+**Next:** Learn to parse RFC3164 syslog messages with priority decomposition and system event classification.

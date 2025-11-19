@@ -1,0 +1,893 @@
+---
+title: "Step 5: Multi-Format Detection"
+sidebar_label: "Step 5: Multi-Format Detection"
+sidebar_position: 8
+description: Build a unified pipeline that automatically detects and routes JSON, CSV, access logs, syslog, and custom formats with format-specific processing
+keywords: [multi-format, format detection, unified pipeline, log routing, format classification, mixed logs]
+---
+
+# Step 5: Multi-Format Detection
+
+**Build a unified log processing pipeline that automatically detects and routes different formats**. This step teaches you to create an intelligent parser that identifies JSON, CSV, access logs, syslog, and custom formats, then applies format-specific processing for optimal results.
+
+## What You'll Build
+
+A multi-format detection pipeline with these capabilities:
+
+✅ **Automatic format detection** - Identify log format from content patterns  
+✅ **Format-specific routing** - Route logs to appropriate parsers  
+✅ **Mixed source handling** - Process multiple formats from single sources  
+✅ **Fallback processing** - Handle unknown formats gracefully  
+✅ **Performance optimization** - Fast pattern matching with minimal overhead  
+✅ **Quality monitoring** - Track detection accuracy and parsing success  
+✅ **Dead letter queues** - Capture unparseable logs for investigation
+
+## Format Detection Strategies
+
+### Content-Based Pattern Matching
+
+Identify formats by analyzing content structure:
+
+```
+JSON:     Starts with '{' or '[', contains '"key":value' pairs
+CSV:      Contains commas, consistent column count
+Access:   Contains IP, timestamp in [], HTTP status codes
+Syslog:   Starts with '<priority>', contains timestamp and hostname
+Custom:   Fallback patterns or regex-based detection
+```
+
+### Statistical Analysis
+
+Use content characteristics for identification:
+
+```
+Format    | Avg Line Length | Special Chars | Structure
+----------|-----------------|---------------|----------
+JSON      | 200-500 chars  | {}[]":        | Nested
+CSV       | 50-200 chars   | ,             | Tabular  
+Access    | 150-300 chars  | []"           | Fixed
+Syslog    | 100-250 chars  | <>:           | Tagged
+```
+
+## Implementation
+
+### Basic Multi-Format Detector
+
+Start with simple pattern-based format detection:
+
+```yaml title="multi-format-detector-basic.yaml"
+name: multi-format-detector-basic
+description: Basic multi-format log detector with routing
+type: pipeline
+namespace: default
+
+config:
+  input:
+    broker:
+      pattern: fan_in
+      inputs:
+        # Multiple log sources
+        - file:
+            paths: ["~/expanso-logs/app/*.jsonl"]
+            codec: lines
+            metadata:
+              source: "application_logs"
+        - file:
+            paths: ["~/expanso-logs/sensors/*.csv"]
+            codec: lines
+            metadata:
+              source: "sensor_data"
+        - file:
+            paths: ["~/expanso-logs/nginx/*.log"]
+            codec: lines
+            metadata:
+              source: "web_access"
+        - file:
+            paths: ["~/expanso-logs/system/syslog"]
+            codec: lines
+            metadata:
+              source: "system_events"
+
+  pipeline:
+    processors:
+      # Format detection based on content patterns
+      - mapping: |
+          root = this
+          let content = this.string()
+          
+          # Detect format using content analysis
+          root.detected_format = if content.has_prefix("{") || content.has_prefix("[") {
+            "json"
+          } else if content.has_prefix("<") && content.contains(">") {
+            "syslog"
+          } else if content.contains(" - ") && content.contains("[") && content.contains("]") && content.contains('"') {
+            "access_log"
+          } else if content.count(",") >= 2 && !content.contains("{") && !content.contains("<") {
+            "csv"
+          } else {
+            "unknown"
+          }
+          
+          # Store original content for processing
+          root.original_content = content
+          
+          # Add detection metadata
+          root.detection_metadata = {
+            "detected_at": now().ts_unix(),
+            "content_length": content.length(),
+            "source": meta("source").or("unknown"),
+            "confidence": if root.detected_format != "unknown" { "high" } else { "low" }
+          }
+          
+          # Set routing metadata
+          meta log_format = root.detected_format
+
+      # Route to format-specific processors
+      - switch:
+          # JSON format processing
+          - check: meta("log_format") == "json"
+            processors:
+              - json_documents:
+                  parts: []
+              - mapping: |
+                  root = this
+                  root.timestamp_unix = this.timestamp.or(this."@timestamp").parse_timestamp("2006-01-02T15:04:05.999Z07:00").catch(now().ts_unix()).ts_unix()
+                  root.level = this.level.or("INFO").uppercase()
+                  root.service = this.service.or("unknown")
+                  root.processing_path = "json_processor"
+
+          # CSV format processing
+          - check: meta("log_format") == "csv"
+            processors:
+              - csv:
+                  columns: ["timestamp", "metric_name", "sensor_id", "value", "unit", "location"]
+                  skip_header_rows: 0  # Don't skip for individual lines
+              - mapping: |
+                  root = this
+                  root.timestamp_unix = this.timestamp.parse_timestamp("2006-01-02T15:04:05Z").catch(now().ts_unix()).ts_unix()
+                  root.value_numeric = this.value.number().catch(0.0)
+                  root.processing_path = "csv_processor"
+
+          # Access log format processing
+          - check: meta("log_format") == "access_log"
+            processors:
+              - grok:
+                  expressions:
+                    - '%{IPORHOST:client_ip} %{USER:ident} %{USER:auth} \\[%{HTTPDATE:timestamp}\\] "(?:%{WORD:method} %{NOTSPACE:request}(?: HTTP/%{NUMBER:http_version})?|%{DATA})" %{NUMBER:status_code} (?:%{NUMBER:bytes}|-) "(?:%{DATA:referer}|-)" "(?:%{DATA:user_agent}|-)"'
+                  named_captures_only: true
+              - mapping: |
+                  root = this
+                  root.timestamp_unix = this.timestamp.parse_timestamp("02/Jan/2006:15:04:05 -0700").ts_unix()
+                  root.status_code = this.status_code.number()
+                  root.bytes = this.bytes.or("0").number()
+                  root.processing_path = "access_log_processor"
+
+          # Syslog format processing
+          - check: meta("log_format") == "syslog"
+            processors:
+              - grok:
+                  expressions:
+                    - '<%{POSINT:priority}>%{SYSLOGTIMESTAMP:timestamp} %{SYSLOGHOST:hostname} %{DATA:tag}(?:\\[%{POSINT:pid}\\])?: %{GREEDYDATA:message}'
+                  named_captures_only: true
+              - mapping: |
+                  root = this
+                  let pri = this.priority.number()
+                  root.facility = (pri / 8).floor()
+                  root.severity = pri % 8
+                  root.timestamp_unix = (now().ts_format("2006") + " " + this.timestamp).parse_timestamp("2006 Jan 02 15:04:05").ts_unix()
+                  root.processing_path = "syslog_processor"
+
+          # Unknown format handling
+          - processors:
+              - mapping: |
+                  root = {
+                    "original_content": this.original_content,
+                    "detected_format": "unknown",
+                    "timestamp_unix": now().ts_unix(),
+                    "processing_path": "unknown_processor",
+                    "needs_investigation": true
+                  }
+
+      # Add common metadata to all processed logs
+      - mapping: |
+          root = this
+          root.metadata = this.metadata.or({}) + {
+            "processed_by": "multi-format-detector",
+            "processed_at": now().ts_unix(),
+            "format": meta("log_format").or("unknown"),
+            "pipeline_version": "1.0"
+          }
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # Successfully processed logs by format
+        - switch:
+            - check: meta("log_format") == "json"
+              output:
+                file:
+                  path: ~/expanso-logs/output/processed-json.jsonl
+                  codec: lines
+            - check: meta("log_format") == "csv"
+              output:
+                file:
+                  path: ~/expanso-logs/output/processed-csv.jsonl
+                  codec: lines
+            - check: meta("log_format") == "access_log"
+              output:
+                file:
+                  path: ~/expanso-logs/output/processed-access.jsonl
+                  codec: lines
+            - check: meta("log_format") == "syslog"
+              output:
+                file:
+                  path: ~/expanso-logs/output/processed-syslog.jsonl
+                  codec: lines
+            - output:
+                drop: {}
+
+        # Unknown/unparseable logs to dead letter queue
+        - switch:
+            - check: this.detected_format == "unknown" || this.exists("needs_investigation")
+              output:
+                file:
+                  path: ~/expanso-logs/output/unparsed-dlq.jsonl
+                  codec: lines
+            - output:
+                drop: {}
+
+        # All logs for analytics (with format tags)
+        - file:
+            path: ~/expanso-logs/output/all-processed-logs.jsonl
+            codec: lines
+```
+
+### Enhanced Multi-Format Detector with Machine Learning
+
+Add sophisticated pattern recognition and confidence scoring:
+
+```yaml title="multi-format-detector-enhanced.yaml"
+name: multi-format-detector-enhanced
+description: Enhanced multi-format detector with confidence scoring and ML-like features
+type: pipeline
+namespace: default
+
+config:
+  input:
+    broker:
+      pattern: fan_in
+      inputs:
+        - file:
+            paths: 
+              - "~/expanso-logs/app/*.jsonl"
+              - "~/expanso-logs/sensors/*.csv"  
+              - "~/expanso-logs/nginx/*.log"
+              - "~/expanso-logs/system/*.log"
+            codec: lines
+
+  pipeline:
+    processors:
+      # Advanced format detection with multiple techniques
+      - mapping: |
+          root = this
+          let content = this.string()
+          let len = content.length()
+          
+          # Character frequency analysis
+          let comma_count = content.count(",")
+          let brace_count = content.count("{") + content.count("}")
+          let bracket_count = content.count("[") + content.count("]")
+          let quote_count = content.count('"')
+          let angle_count = content.count("<") + content.count(">")
+          let colon_count = content.count(":")
+          
+          # Pattern scoring for each format
+          let json_score = if content.has_prefix("{") || content.has_prefix("[") {
+            0.4 + (brace_count + bracket_count) / len * 10 + (quote_count > 0).or(false) * 0.3
+          } else if content.contains('"') && content.contains(":") && brace_count > 0 {
+            0.3 + brace_count / len * 5
+          } else {
+            0.0
+          }
+          
+          let csv_score = if comma_count >= 2 && brace_count == 0 && angle_count == 0 {
+            0.4 + comma_count / len * 20 + (content.re_match("^[^,]+,[^,]+,[^,]")).or(false) * 0.3
+          } else if comma_count >= 3 && quote_count <= comma_count * 2 {
+            0.3 + comma_count / len * 10
+          } else {
+            0.0
+          }
+          
+          let access_log_score = if content.contains(" - ") && content.contains("[") && content.contains("]") && content.contains('"') && content.re_match("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}") {
+            0.5 + (content.contains("HTTP/") * 0.2) + (content.re_match("\\s\\d{3}\\s") * 0.2)
+          } else if content.contains("[") && content.contains("]") && content.contains('"') {
+            0.2
+          } else {
+            0.0
+          }
+          
+          let syslog_score = if content.has_prefix("<") && content.re_match("^<\\d+>") {
+            0.5 + (content.re_match("\\w{3}\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2}") * 0.3) + (content.contains(":") * 0.2)
+          } else if content.re_match("\\w{3}\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2}") && angle_count > 0 {
+            0.3
+          } else {
+            0.0
+          }
+          
+          # Determine best format match
+          let scores = {
+            "json": json_score,
+            "csv": csv_score,
+            "access_log": access_log_score,
+            "syslog": syslog_score
+          }
+          
+          # Find format with highest score
+          let best_format = if json_score >= 0.5 {
+            "json"
+          } else if csv_score >= 0.5 {
+            "csv"
+          } else if access_log_score >= 0.5 {
+            "access_log"
+          } else if syslog_score >= 0.5 {
+            "syslog"
+          } else if json_score > 0.3 || csv_score > 0.3 || access_log_score > 0.3 || syslog_score > 0.3 {
+            # Return format with highest score even if below 0.5
+            if json_score >= csv_score && json_score >= access_log_score && json_score >= syslog_score {
+              "json"
+            } else if csv_score >= access_log_score && csv_score >= syslog_score {
+              "csv"
+            } else if access_log_score >= syslog_score {
+              "access_log"
+            } else {
+              "syslog"
+            }
+          } else {
+            "unknown"
+          }
+          
+          let best_score = scores.get(best_format).or(0.0)
+          
+          root.detection_analysis = {
+            "detected_format": best_format,
+            "confidence": if best_score >= 0.7 {
+              "high"
+            } else if best_score >= 0.4 {
+              "medium"
+            } else {
+              "low"
+            },
+            "confidence_score": best_score,
+            "all_scores": scores,
+            "content_stats": {
+              "length": len,
+              "comma_density": comma_count / len,
+              "brace_density": brace_count / len,
+              "quote_density": quote_count / len,
+              "line_structure": if len < 100 { "short" } else if len < 500 { "medium" } else { "long" }
+            }
+          }
+          
+          root.original_content = content
+          meta log_format = best_format
+          meta confidence = root.detection_analysis.confidence
+
+      # Enhanced format-specific processing with error handling
+      - switch:
+          # JSON processing with validation
+          - check: meta("log_format") == "json"
+            processors:
+              - mapping: |
+                  root = this.original_content.parse_json().catch({
+                    "parse_error": true,
+                    "error": error(),
+                    "raw_content": this.original_content
+                  })
+              
+              - switch:
+                  - check: this.exists("parse_error")
+                    processors:
+                      - mapping: |
+                          root = this
+                          root.format_validation = {
+                            "parsed_successfully": false,
+                            "error_type": "json_parse_failure",
+                            "suggested_format": "unknown"
+                          }
+                  - processors:
+                      - mapping: |
+                          root = this
+                          # JSON-specific processing
+                          root.timestamp_unix = this.timestamp.or(this."@timestamp").or(this.time).parse_timestamp("2006-01-02T15:04:05.999Z07:00").catch(now().ts_unix()).ts_unix()
+                          root.level = this.level.or(this.severity).or("INFO").uppercase()
+                          root.service = this.service.or(this.logger).or("unknown")
+                          root.format_validation = {
+                            "parsed_successfully": true,
+                            "extracted_fields": this.keys().length(),
+                            "has_timestamp": this.exists("timestamp") || this.exists("@timestamp"),
+                            "has_level": this.exists("level") || this.exists("severity"),
+                            "structure_quality": if this.keys().length() >= 5 { "good" } else { "basic" }
+                          }
+
+          # CSV processing with column validation
+          - check: meta("log_format") == "csv"
+            processors:
+              - csv:
+                  columns: ["col1", "col2", "col3", "col4", "col5", "col6", "col7", "col8"]  # Flexible columns
+                  skip_header_rows: 0
+              
+              - mapping: |
+                  root = this
+                  
+                  # Intelligent column mapping based on content
+                  let col_mapping = if this.col1.re_match("\\d{4}-\\d{2}-\\d{2}") {
+                    # Looks like sensor data format
+                    {
+                      "timestamp": this.col1,
+                      "metric_name": this.col2,
+                      "sensor_id": this.col3, 
+                      "value": this.col4,
+                      "unit": this.col5,
+                      "location": this.col6
+                    }
+                  } else if this.col1.re_match("\\d+") && this.col2.contains("temperature") {
+                    # Alternative sensor format
+                    {
+                      "sensor_id": this.col1,
+                      "metric_name": this.col2,
+                      "value": this.col3,
+                      "timestamp": this.col4
+                    }
+                  } else {
+                    # Generic mapping
+                    this.without("col1", "col2", "col3", "col4", "col5", "col6", "col7", "col8") + {
+                      "field_1": this.col1,
+                      "field_2": this.col2,
+                      "field_3": this.col3,
+                      "field_4": this.col4
+                    }
+                  }
+                  
+                  root = col_mapping
+                  root.timestamp_unix = this.timestamp.parse_timestamp("2006-01-02T15:04:05Z").catch(now().ts_unix()).ts_unix()
+                  root.format_validation = {
+                    "parsed_successfully": true,
+                    "detected_columns": this.keys().filter(key -> key.has_prefix("col")).length(),
+                    "mapped_format": if col_mapping.exists("sensor_id") { "sensor_data" } else { "generic_csv" }
+                  }
+
+          # Access log processing with format variants
+          - check: meta("log_format") == "access_log"
+            processors:
+              - grok:
+                  expressions:
+                    # Combined format
+                    - '%{IPORHOST:client_ip} %{USER:ident} %{USER:auth} \\[%{HTTPDATE:timestamp}\\] "(?:%{WORD:method} %{NOTSPACE:request}(?: HTTP/%{NUMBER:http_version})?|%{DATA:invalid_request})" %{NUMBER:status_code} (?:%{NUMBER:bytes}|-) "(?:%{DATA:referer}|-)" "(?:%{DATA:user_agent}|-)"'
+                    # Common format
+                    - '%{IPORHOST:client_ip} %{USER:ident} %{USER:auth} \\[%{HTTPDATE:timestamp}\\] "(?:%{WORD:method} %{NOTSPACE:request}(?: HTTP/%{NUMBER:http_version})?|%{DATA:invalid_request})" %{NUMBER:status_code} (?:%{NUMBER:bytes}|-)'
+                    # Custom format with response time
+                    - '%{IPORHOST:client_ip} %{USER:ident} %{USER:auth} \\[%{HTTPDATE:timestamp}\\] "(?:%{WORD:method} %{NOTSPACE:request}(?: HTTP/%{NUMBER:http_version})?|%{DATA:invalid_request})" %{NUMBER:status_code} (?:%{NUMBER:bytes}|-) %{NUMBER:response_time}'
+                  named_captures_only: true
+                  
+              - mapping: |
+                  root = this
+                  root.timestamp_unix = this.timestamp.parse_timestamp("02/Jan/2006:15:04:05 -0700").ts_unix()
+                  root.status_code = this.status_code.number()
+                  root.bytes = this.bytes.or("0").number()
+                  root.response_time = this.response_time.or("0").number()
+                  root.format_validation = {
+                    "parsed_successfully": true,
+                    "detected_format": if this.exists("user_agent") {
+                      "combined_log_format"
+                    } else if this.exists("response_time") {
+                      "custom_with_response_time"
+                    } else {
+                      "common_log_format"
+                    }
+                  }
+
+          # Syslog processing with RFC variations
+          - check: meta("log_format") == "syslog"
+            processors:
+              - grok:
+                  expressions:
+                    # RFC3164 with PID
+                    - '<%{POSINT:priority}>%{SYSLOGTIMESTAMP:timestamp} %{SYSLOGHOST:hostname} %{DATA:tag}\\[%{POSINT:pid}\\]: %{GREEDYDATA:message}'
+                    # RFC3164 without PID  
+                    - '<%{POSINT:priority}>%{SYSLOGTIMESTAMP:timestamp} %{SYSLOGHOST:hostname} %{DATA:tag}: %{GREEDYDATA:message}'
+                    # RFC5424 format
+                    - '<%{POSINT:priority}>%{POSINT:version} %{TIMESTAMP_ISO8601:timestamp} %{SYSLOGHOST:hostname} %{DATA:tag} %{DATA:proc_id} %{DATA:msg_id} (?:%{DATA:structured_data}|\\-) %{GREEDYDATA:message}'
+                  named_captures_only: true
+                  
+              - mapping: |
+                  root = this
+                  let pri = this.priority.number()
+                  root.facility = (pri / 8).floor()
+                  root.severity = pri % 8
+                  
+                  # Handle different timestamp formats
+                  root.timestamp_unix = if this.timestamp.contains("T") {
+                    # ISO8601 format (RFC5424)
+                    this.timestamp.parse_timestamp("2006-01-02T15:04:05.999Z07:00").ts_unix()
+                  } else {
+                    # Traditional syslog format (RFC3164)
+                    (now().ts_format("2006") + " " + this.timestamp).parse_timestamp("2006 Jan 02 15:04:05").ts_unix()
+                  }
+                  
+                  root.format_validation = {
+                    "parsed_successfully": true,
+                    "rfc_version": if this.exists("version") { "5424" } else { "3164" },
+                    "has_structured_data": this.exists("structured_data") && this.structured_data != "-"
+                  }
+
+          # Unknown format fallback
+          - processors:
+              - mapping: |
+                  root = {
+                    "original_content": this.original_content,
+                    "detection_analysis": this.detection_analysis,
+                    "timestamp_unix": now().ts_unix(),
+                    "format_validation": {
+                      "parsed_successfully": false,
+                      "requires_investigation": true,
+                      "suggested_actions": [
+                        "Review log source configuration",
+                        "Check for custom format patterns", 
+                        "Consider adding new parser rules"
+                      ]
+                    }
+                  }
+
+      # Add processing metadata and quality scores
+      - mapping: |
+          root = this
+          
+          # Calculate overall processing quality
+          let processing_quality = if this.format_validation.parsed_successfully {
+            if this.detection_analysis.confidence == "high" {
+              "excellent"
+            } else if this.detection_analysis.confidence == "medium" {
+              "good"  
+            } else {
+              "acceptable"
+            }
+          } else {
+            "poor"
+          }
+          
+          root.metadata = {
+            "processed_by": "enhanced-multi-format-detector",
+            "processed_at": now().ts_unix(),
+            "detected_format": this.detection_analysis.detected_format,
+            "confidence": this.detection_analysis.confidence,
+            "confidence_score": this.detection_analysis.confidence_score,
+            "processing_quality": processing_quality,
+            "needs_review": processing_quality == "poor" || this.detection_analysis.confidence == "low"
+          }
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # High-quality processed logs
+        - switch:
+            - check: this.metadata.processing_quality in ["excellent", "good"]
+              output:
+                file:
+                  path: ~/expanso-logs/output/high-quality-processed.jsonl
+                  codec: lines
+            - output:
+                drop: {}
+
+        # Medium-quality logs (need monitoring)
+        - switch:
+            - check: this.metadata.processing_quality == "acceptable"
+              output:
+                file:
+                  path: ~/expanso-logs/output/medium-quality-processed.jsonl
+                  codec: lines
+            - output:
+                drop: {}
+
+        # Poor-quality logs (need investigation)
+        - switch:
+            - check: this.metadata.processing_quality == "poor"
+              output:
+                file:
+                  path: ~/expanso-logs/output/poor-quality-dlq.jsonl
+                  codec: lines
+            - output:
+                drop: {}
+
+        # Format-specific outputs for analytics
+        - broker:
+            pattern: fan_out
+            outputs:
+              - switch:
+                  - check: this.metadata.detected_format == "json"
+                    output:
+                      file:
+                        path: ~/expanso-logs/output/analytics-json.jsonl
+                        codec: lines
+                  - output:
+                      drop: {}
+              - switch:
+                  - check: this.metadata.detected_format == "csv"
+                    output:
+                      file:
+                        path: ~/expanso-logs/output/analytics-csv.jsonl
+                        codec: lines
+                  - output:
+                      drop: {}
+              - switch:
+                  - check: this.metadata.detected_format == "access_log"
+                    output:
+                      file:
+                        path: ~/expanso-logs/output/analytics-access.jsonl
+                        codec: lines
+                  - output:
+                      drop: {}
+              - switch:
+                  - check: this.metadata.detected_format == "syslog"
+                    output:
+                      file:
+                        path: ~/expanso-logs/output/analytics-syslog.jsonl
+                        codec: lines
+                  - output:
+                      drop: {}
+```
+
+## Testing and Validation
+
+### Create Mixed-Format Test Data
+
+Generate test logs with multiple formats mixed together:
+
+```bash
+# Create mixed format log file for testing
+cat > ~/expanso-logs/mixed/all-formats.log << 'EOF'
+{"timestamp":"2025-10-20T14:23:45.123Z","level":"error","service":"api","message":"Database connection failed"}
+203.0.113.45 - user123 [20/Oct/2025:14:23:45 +0000] "GET /api/users HTTP/1.1" 200 1234 "https://example.com" "Mozilla/5.0 Chrome/91.0"
+&lt;134&gt;Oct 20 14:23:45 edge-node-01 app[12345]: Database connection established
+2025-10-20,temperature,temp-sensor-01,35.5,celsius,warehouse_a
+{"@timestamp":"2025-10-20T14:24:12.456Z","severity":"INFO","logger":"gateway","message":"Request processed successfully"}
+198.51.100.67 - - [20/Oct/2025:14:24:12 +0000] "POST /api/auth HTTP/1.1" 401 89 "-" "curl/7.68.0"
+&lt;131&gt;Oct 20 14:24:12 web-server nginx[8901]: Server started on port 80
+2025-10-20,humidity,humid-sensor-01,82.1,percent,storage_b
+Unrecognized log format that should go to DLQ
+{"time":"2025-10-20 14:24:33","level":"warn","msg":"Non-ISO timestamp format"}
+192.0.2.123 - admin [20/Oct/2025:14:24:33 +0000] "GET /admin/dashboard HTTP/1.1" 200 5678
+&lt;132&gt;Oct 20 14:24:33 db-server postgres[5432]: Connection from 192.168.1.10
+timestamp,metric_name,sensor_id,value,unit
+Invalid JSON format: {missing quotes and brackets
+EOF
+
+# Create a large mixed format file for performance testing
+for i in {1..1000}; do
+  case $((i % 4)) in
+    0) echo '{"timestamp":"'$(date -u -d "@$((1729433025 + i * 60))" +%Y-%m-%dT%H:%M:%S.%3NZ)'","level":"info","service":"test","message":"Test message '$i'"}';;
+    1) echo '203.0.113.'$((i % 255))' - - ['$(date -u -d "@$((1729433025 + i * 60))" '+%d/%b/%Y:%H:%M:%S +0000')'] "GET /test HTTP/1.1" 200 123';;
+    2) echo '&lt;134>'$(date -u -d "@$((1729433025 + i * 60))" '+%b %d %H:%M:%S')' test-host app['$((1000 + i))']: Test syslog message '$i;;
+    3) echo $(date -u -d "@$((1729433025 + i * 60))" +%Y-%m-%d)',temperature,sensor-'$(printf "%03d" $i)',22.5,celsius,location-'$((i % 10));;
+  esac
+done > ~/expanso-logs/mixed/performance-test.log
+```
+
+### Test Format Detection
+
+Validate detection accuracy:
+
+```bash
+# Deploy enhanced multi-format detector
+expanso job deploy multi-format-detector-enhanced.yaml
+
+# Wait for processing
+sleep 10
+
+# Check detection results by quality
+echo "=== High Quality Results ==="
+wc -l ~/expanso-logs/output/high-quality-processed.jsonl
+head -1 ~/expanso-logs/output/high-quality-processed.jsonl | jq '.detection_analysis'
+
+echo "=== Medium Quality Results ==="
+wc -l ~/expanso-logs/output/medium-quality-processed.jsonl
+
+echo "=== Poor Quality / DLQ ==="
+wc -l ~/expanso-logs/output/poor-quality-dlq.jsonl
+cat ~/expanso-logs/output/poor-quality-dlq.jsonl | jq '.original_content'
+
+# Check format distribution
+echo "=== Format Detection Distribution ==="
+for format in json csv access_log syslog; do
+  count=$(jq -r 'select(.metadata.detected_format == "'$format'") | .metadata.detected_format' ~/expanso-logs/output/high-quality-processed.jsonl 2>/dev/null | wc -l)
+  echo "$format: $count"
+done
+
+# Check confidence scores
+echo "=== Confidence Distribution ==="
+jq -r '.metadata.confidence' ~/expanso-logs/output/high-quality-processed.jsonl ~/expanso-logs/output/medium-quality-processed.jsonl 2>/dev/null | sort | uniq -c
+
+# Validate parsing accuracy
+echo "=== Parsing Success Rate ==="
+total=$(wc -l < ~/expanso-logs/mixed/all-formats.log)
+success=$(jq -r 'select(.format_validation.parsed_successfully == true)' ~/expanso-logs/output/high-quality-processed.jsonl ~/expanso-logs/output/medium-quality-processed.jsonl 2>/dev/null | wc -l)
+echo "Success rate: $success/$total ($(echo "scale=1; $success * 100 / $total" | bc)%)"
+```
+
+### Performance Benchmarking
+
+Test detection speed and accuracy with large files:
+
+```bash
+# Run performance test
+echo "Starting performance benchmark..."
+start_time=$(date +%s)
+
+expanso job deploy multi-format-detector-enhanced.yaml
+sleep 5
+
+# Wait for processing to complete
+while [ $(expanso job stats multi-format-detector-enhanced | grep "Processed" | wc -l) -eq 0 ]; do
+  sleep 1
+done
+
+sleep 10  # Allow processing to complete
+
+end_time=$(date +%s)
+duration=$((end_time - start_time))
+
+# Calculate metrics
+total_lines=$(wc -l < ~/expanso-logs/mixed/performance-test.log)
+processed_lines=$(wc -l < ~/expanso-logs/output/high-quality-processed.jsonl)
+processing_rate=$((total_lines / duration))
+
+echo "=== Performance Results ==="
+echo "Total lines: $total_lines"
+echo "Processing time: ${duration}s"
+echo "Processing rate: ${processing_rate} lines/sec"
+echo "Success rate: $(echo "scale=1; $processed_lines * 100 / $total_lines" | bc)%"
+
+# Check memory usage
+expanso job metrics multi-format-detector-enhanced --metric memory
+```
+
+## Production Considerations
+
+### Monitoring and Alerting
+
+Monitor detection accuracy and processing health:
+
+```yaml
+# Add monitoring processors
+- mapping: |
+    root = this
+    
+    # Export detection metrics
+    root.metrics = {
+      "detection_latency_ms": (now().ts_unix() - this.metadata.processed_at) * 1000,
+      "confidence_score": this.detection_analysis.confidence_score,
+      "format_detected": this.detection_analysis.detected_format,
+      "processing_quality": this.metadata.processing_quality,
+      "parse_success": this.format_validation.parsed_successfully
+    }
+
+# Monitor key metrics with alerts
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Detection accuracy metrics
+      - switch:
+          - check: this.metadata.confidence == "low" || this.metadata.processing_quality == "poor"
+            output:
+              http_client:
+                url: "${METRICS_ENDPOINT}/detection-quality"
+                verb: POST
+                batching:
+                  count: 100
+                  period: 60s
+```
+
+### Adaptive Learning
+
+Improve detection over time:
+
+```yaml
+# Add feedback loop for detection improvement
+- mapping: |
+    root = this
+    
+    # Store detection patterns for analysis
+    root.detection_feedback = {
+      "content_hash": this.original_content.hash("sha256").slice(0, 16),
+      "detected_format": this.detection_analysis.detected_format,
+      "confidence_score": this.detection_analysis.confidence_score,
+      "parse_success": this.format_validation.parsed_successfully,
+      "content_length": this.original_content.length(),
+      "char_frequencies": {
+        "commas": this.original_content.count(","),
+        "braces": this.original_content.count("{") + this.original_content.count("}"),
+        "quotes": this.original_content.count('"')
+      }
+    }
+```
+
+### Scalability Optimizations
+
+Optimize for high-volume processing:
+
+```yaml
+# Performance optimizations
+processors:
+  # Fast early filtering
+  - mapping: |
+      root = if this.string().length() == 0 || this.string().length() > 100000 {
+        deleted()  # Skip empty or too large
+      } else {
+        this
+      }
+      
+  # Parallel detection
+  - parallel:
+      cap: 8  # Process multiple logs simultaneously
+      processors:
+        # Detection logic here
+        
+  # Batch outputs for efficiency  
+output:
+  http_client:
+    url: "${ANALYTICS_ENDPOINT}/batch"
+    verb: POST
+    batching:
+      count: 1000
+      period: 30s
+      processors:
+        # Aggregate detection statistics
+        - mapping: |
+            root.batch_stats = {
+              "total_logs": content().length(),
+              "format_distribution": content().group_by("metadata.detected_format").map_values(logs -> logs.length()),
+              "avg_confidence": content().map("detection_analysis.confidence_score").fold(0, acc -> acc + this) / content().length()
+            }
+```
+
+---
+
+## Summary
+
+You've built a comprehensive multi-format detection pipeline that handles:
+
+✅ **Intelligent format detection** with confidence scoring and multiple techniques  
+✅ **Format-specific processing** optimized for each log type  
+✅ **Quality assessment** with processing quality metrics  
+✅ **Error handling** with dead letter queues and investigation workflows  
+✅ **Performance optimization** for high-volume mixed log streams  
+✅ **Monitoring integration** with detection accuracy tracking  
+✅ **Scalable architecture** supporting parallel processing and batching
+
+## Common Issues
+
+**Issue:** False positive format detection  
+**Solution:** Adjust confidence thresholds and add more specific pattern matching
+
+**Issue:** Unknown formats consuming resources  
+**Solution:** Add early filtering and size limits for unrecognized content
+
+**Issue:** Performance degradation with complex detection  
+**Solution:** Use fast pattern matching first, then detailed analysis for ambiguous cases
+
+---
+
+## Next Steps
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./complete-parser" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Complete Parser Pipeline
+  </a>
+  <a href="./troubleshooting" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Troubleshooting Guide
+  </a>
+</div>
+
+**Next:** Deploy the complete production-ready multi-format log parser with all features integrated.

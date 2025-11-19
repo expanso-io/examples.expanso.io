@@ -1,0 +1,936 @@
+---
+title: Filter and Score Logs for Production Efficiency
+sidebar_label: Step 4 - Filter & Score
+sidebar_position: 6
+description: Implement intelligent severity scoring and filtering to reduce noise, prioritize critical events, and optimize storage costs
+keywords: [filtering, scoring, severity, prioritization, noise-reduction, cost-optimization]
+---
+
+# Step 4: Filter and Score Logs for Production Efficiency
+
+In this step, you'll implement intelligent log filtering and severity scoring to reduce noise, prioritize critical events, and optimize storage costs. This is essential for production systems that generate millions of log events daily.
+
+## Why Filtering and Scoring Matter
+
+Production systems generate enormous volumes of logs, but not all are equally important:
+
+- **Debug logs** often represent 60-80% of total volume but are rarely needed in production
+- **Error logs** require immediate attention but get lost in the noise
+- **Storage costs** can be reduced by 70% with intelligent filtering
+- **Alert fatigue** occurs when teams are overwhelmed by low-priority events
+
+## Learning Objectives
+
+By the end of this step, you'll understand:
+
+✅ How to implement intelligent severity scoring systems
+✅ How to filter logs based on configurable criteria
+✅ How to create conditional routing based on log importance
+✅ How to balance noise reduction with information preservation
+✅ How to implement time-based and content-based filtering
+
+## Current vs. Target Architecture
+
+**Current (No Filtering):**
+```yaml
+# All logs pass through unchanged
+processors:
+  - mapping: |
+      root = this
+```
+
+**Target (Intelligent Filtering):**
+```yaml
+processors:
+  - severity_scoring:     # Calculate numeric severity
+  - business_prioritization:  # Add business context
+  - content_filtering:    # Filter based on content  
+  - conditional_routing:  # Route by importance
+```
+
+## Step 4.1: Implement Severity Scoring
+
+Start by creating a comprehensive severity scoring system:
+
+```yaml title="filter-score-pipeline.yaml"
+name: log-processing-filter-score
+description: Log processing with intelligent filtering and severity scoring
+type: pipeline
+namespace: default
+
+selector:
+  match_labels:
+    role: log-collector
+
+config:
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /logs/ingest
+      allowed_verbs: [POST]
+      timeout: 10s
+      rate_limit: "1000/1s"
+      auth:
+        type: header
+        header: "X-API-Key"
+        required_value: "${LOG_API_KEY:secret-key}"
+
+  pipeline:
+    processors:
+      # JSON parsing and basic enrichment (from previous steps)
+      - json_documents:
+          parts: []
+      - mapping: |
+          # Basic validation and enrichment
+          root = this
+          root.timestamp = this.timestamp.or(now())
+          root.level = this.level.uppercase().or("INFO")
+          root.service = this.service.or("unknown")
+          root.message = this.message.or("No message")
+
+      # Comprehensive severity scoring
+      - mapping: |
+          root = this
+          
+          # Base severity scores by log level
+          let base_severity = match this.level {
+            "TRACE" => 0,
+            "DEBUG" => 1,
+            "INFO" => 2,  
+            "NOTICE" => 3,
+            "WARN" => 4,
+            "WARNING" => 4,
+            "ERROR" => 5,
+            "ERR" => 5,
+            "CRIT" => 6,
+            "CRITICAL" => 6, 
+            "ALERT" => 7,
+            "FATAL" => 8,
+            "EMERGENCY" => 9,
+            "EMERG" => 9,
+            _ => 2  # Default to INFO level
+          }
+          
+          # Service criticality multiplier
+          let service_multiplier = match this.service {
+            "payment-service" => 1.5,     # Financial transactions are critical
+            "auth-service" => 1.4,        # Authentication is critical
+            "user-service" => 1.2,        # User data is important
+            "api-gateway" => 1.3,         # Gateway issues affect everything
+            "notification-service" => 0.8, # Notifications less critical
+            "analytics-service" => 0.6,   # Analytics can be delayed
+            "logging-service" => 0.5,     # Logging issues are less urgent
+            _ => 1.0                      # Default multiplier
+          }
+          
+          # Calculate weighted severity score
+          let weighted_severity = base_severity * service_multiplier
+          
+          # Add severity metadata
+          root.severity = {
+            "level": this.level,
+            "base_score": base_severity,
+            "service_multiplier": service_multiplier,
+            "weighted_score": weighted_severity,
+            "priority_tier": match {
+              weighted_severity >= 7 => "critical",
+              weighted_severity >= 5 => "high", 
+              weighted_severity >= 3 => "medium",
+              weighted_severity >= 1 => "low",
+              _ => "debug"
+            }
+          }
+          
+          # Backward compatibility
+          root.severity_score = weighted_severity
+
+      # Content-based severity adjustment
+      - mapping: |
+          root = this
+          
+          let message = this.message.lowercase()
+          let severity_boost = 0
+          
+          # Boost severity for critical keywords
+          severity_boost = severity_boost + match {
+            message.contains("outage") => 3,
+            message.contains("down") => 2,
+            message.contains("timeout") => 1,
+            message.contains("exception") => 1,
+            message.contains("failed") => 1,
+            message.contains("critical") => 2,
+            message.contains("security") => 2,
+            message.contains("breach") => 3,
+            message.contains("unauthorized") => 2,
+            _ => 0
+          }
+          
+          # Reduce severity for benign keywords  
+          severity_boost = severity_boost - match {
+            message.contains("cache hit") => 2,
+            message.contains("health check") => 1,
+            message.contains("heartbeat") => 1,
+            message.contains("scheduled") => 1,
+            message.contains("routine") => 1,
+            _ => 0
+          }
+          
+          # Apply content-based adjustments
+          root.severity.content_boost = severity_boost
+          root.severity.content_adjusted_score = root.severity.weighted_score + severity_boost
+          root.severity_score = root.severity.content_adjusted_score
+          
+          # Recalculate priority tier with content adjustment
+          root.severity.final_priority = match {
+            root.severity_score >= 7 => "critical",
+            root.severity_score >= 5 => "high",
+            root.severity_score >= 3 => "medium", 
+            root.severity_score >= 1 => "low",
+            _ => "debug"
+          }
+
+  # Test output for this step  
+  output:
+    file:
+      path: "/var/log/expanso/scored-logs-${!timestamp_unix()}.jsonl"
+      codec: lines
+      batching:
+        count: 50
+        period: 5s
+
+logger:
+  level: INFO
+```
+
+Deploy and test severity scoring:
+
+```bash
+# Deploy the scoring pipeline
+expanso job deploy filter-score-pipeline.yaml
+
+# Test different severity levels
+curl -X POST http://localhost:8080/logs/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
+  -d '{
+    "timestamp": "2025-10-20T10:30:45.123Z",
+    "level": "ERROR",
+    "service": "payment-service", 
+    "message": "Payment processing failed due to timeout"
+  }'
+
+curl -X POST http://localhost:8080/logs/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
+  -d '{
+    "timestamp": "2025-10-20T10:30:45.123Z",
+    "level": "INFO",
+    "service": "analytics-service",
+    "message": "Routine cache hit for user data"
+  }'
+
+# Check scoring results
+tail -2 /var/log/expanso/scored-logs-*.jsonl | jq '.severity'
+```
+
+## Step 4.2: Add Business Impact Scoring
+
+Enhance scoring with business context and impact analysis:
+
+```yaml title="Add business impact scoring processor"
+# Add after severity scoring
+- mapping: |
+    root = this
+    
+    # Business impact factors
+    let business_impact = 0
+    
+    # Customer-facing impact
+    business_impact = business_impact + match this.service {
+      "api-gateway" => 3,         # All customer requests pass through
+      "payment-service" => 4,     # Direct financial impact
+      "auth-service" => 3,        # Prevents customer access
+      "user-service" => 2,        # Affects user experience
+      "notification-service" => 1, # Delayed notifications
+      _ => 0
+    }
+    
+    # Time-based impact (business hours are more critical)
+    let hour = this.timestamp.parse_timestamp("2006-01-02T15:04:05.000Z").format_timestamp("15").number()
+    let is_business_hours = hour >= 9 && hour <= 17
+    business_impact = business_impact + if is_business_hours { 1 } else { 0 }
+    
+    # Weekend/holiday reduction
+    let day_of_week = this.timestamp.parse_timestamp("2006-01-02T15:04:05.000Z").format_timestamp("Monday")
+    business_impact = business_impact - match day_of_week {
+      "Saturday" => 2,
+      "Sunday" => 2,
+      _ => 0
+    }
+    
+    # Financial transaction impact
+    business_impact = business_impact + match {
+      this.transaction_id.exists() => 2,
+      this.payment_id.exists() => 2,  
+      this.amount.exists() => 1,
+      _ => 0
+    }
+    
+    # User impact
+    business_impact = business_impact + match {
+      this.user_id.exists() && this.level == "ERROR" => 2,
+      this.session_id.exists() && this.level == "ERROR" => 1,
+      _ => 0
+    }
+    
+    # Add business scoring metadata
+    root.business_impact = {
+      "score": business_impact,
+      "is_customer_facing": business_impact >= 2,
+      "is_business_hours": is_business_hours,
+      "day_of_week": day_of_week,
+      "has_financial_impact": this.transaction_id.exists() || this.payment_id.exists(),
+      "affected_users": if this.user_id.exists() { 1 } else { 0 }
+    }
+    
+    # Calculate final priority score
+    root.priority_score = root.severity_score + business_impact
+    root.final_priority = match {
+      root.priority_score >= 10 => "critical",
+      root.priority_score >= 7 => "high", 
+      root.priority_score >= 4 => "medium",
+      root.priority_score >= 2 => "low",
+      _ => "debug"
+    }
+```
+
+## Step 4.3: Implement Intelligent Filtering
+
+Add configurable filtering logic based on priority and content:
+
+```yaml title="Add intelligent filtering processor" 
+# Add filtering logic
+- mapping: |
+    root = this
+    
+    # Filtering configuration (could be externalized)
+    let filter_config = {
+      "min_priority_score": env("MIN_PRIORITY_SCORE").or("2").number(),
+      "debug_enabled": env("DEBUG_LOGGING_ENABLED").or("false") == "true",
+      "filter_health_checks": env("FILTER_HEALTH_CHECKS").or("true") == "true",
+      "filter_cache_hits": env("FILTER_CACHE_HITS").or("true") == "true",
+      "preserve_errors": true,
+      "preserve_business_hours": true
+    }
+    
+    # Determine if log should be filtered
+    let should_filter = match {
+      # Never filter critical/high priority logs
+      root.final_priority == "critical" => false,
+      root.final_priority == "high" => false,
+      
+      # Preserve all errors during business hours
+      this.level == "ERROR" && root.business_impact.is_business_hours && filter_config.preserve_business_hours => false,
+      
+      # Filter debug logs unless explicitly enabled
+      this.level == "DEBUG" && !filter_config.debug_enabled => true,
+      this.level == "TRACE" && !filter_config.debug_enabled => true,
+      
+      # Filter low-priority informational logs
+      root.priority_score < filter_config.min_priority_score => true,
+      
+      # Filter health check spam
+      this.message.lowercase().contains("health check") && filter_config.filter_health_checks => true,
+      this.message.lowercase().contains("heartbeat") && filter_config.filter_health_checks => true,
+      this.endpoint == "/health" && filter_config.filter_health_checks => true,
+      this.endpoint == "/ping" && filter_config.filter_health_checks => true,
+      
+      # Filter cache hit spam  
+      this.message.lowercase().contains("cache hit") && filter_config.filter_cache_hits => true,
+      
+      # Default: don't filter
+      _ => false
+    }
+    
+    # Add filtering metadata
+    root.filtering = {
+      "should_filter": should_filter,
+      "filter_reason": match {
+        should_filter && this.level == "DEBUG" => "debug_level_filtered",
+        should_filter && root.priority_score < filter_config.min_priority_score => "low_priority_score", 
+        should_filter && this.message.lowercase().contains("health check") => "health_check_filtered",
+        should_filter && this.message.lowercase().contains("cache hit") => "cache_hit_filtered",
+        !should_filter && root.final_priority == "critical" => "critical_preserved",
+        !should_filter && root.final_priority == "high" => "high_priority_preserved",
+        !should_filter => "passed_filter",
+        _ => "unknown"
+      },
+      "filter_config": filter_config
+    }
+    
+    # Mark for downstream processing
+    root.should_process = !should_filter
+```
+
+## Step 4.4: Add Time-Based Filtering
+
+Implement time-window based filtering for different scenarios:
+
+```yaml title="Add time-based filtering"
+# Add time-based filtering logic
+- mapping: |
+    root = this
+    
+    # Time-based filtering rules
+    let current_time = now()
+    let log_time = this.timestamp.parse_timestamp("2006-01-02T15:04:05.000Z")
+    let age_minutes = (current_time.timestamp() - log_time.timestamp()) / 60
+    
+    # Age-based filtering
+    let age_filter = match {
+      # Filter very old logs (>7 days) unless they're errors
+      age_minutes > 10080 && !["ERROR", "FATAL", "CRITICAL"].contains(this.level) => {
+        "filter": true,
+        "reason": "log_too_old"  
+      },
+      # Filter future logs (clock skew) unless they're recent
+      age_minutes < -60 => {
+        "filter": true, 
+        "reason": "log_from_future"
+      },
+      _ => {
+        "filter": false,
+        "reason": "age_acceptable"
+      }
+    }
+    
+    # Rate limiting per service (prevent log spam)
+    let service_rate_limits = {
+      "analytics-service": 100,    # Max 100 logs/minute
+      "logging-service": 50,       # Max 50 logs/minute  
+      "health-check-service": 10,  # Max 10 logs/minute
+      "monitoring-service": 20     # Max 20 logs/minute
+    }
+    
+    # Simulate rate checking (in real implementation, use external state)
+    let rate_limit = service_rate_limits.get(this.service).or(1000)
+    let rate_filter = {
+      "filter": false,  # Simplified - real implementation would track rates
+      "reason": "rate_within_limits",
+      "limit": rate_limit
+    }
+    
+    # Combine time-based filters
+    root.time_filtering = {
+      "age_minutes": age_minutes,
+      "age_filter": age_filter,
+      "rate_filter": rate_filter, 
+      "should_filter": age_filter.filter || rate_filter.filter
+    }
+    
+    # Update overall filtering decision
+    root.should_process = root.should_process && !root.time_filtering.should_filter
+```
+
+## Step 4.5: Create Multi-Tier Output Routing
+
+Route logs to different outputs based on their priority and filtering status:
+
+```yaml title="Update output for multi-tier routing"
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Critical/High priority logs - immediate processing
+      - label: priority_logs
+        processors:
+          - mapping: |
+              root = if ["critical", "high"].contains(this.final_priority) { 
+                this 
+              } else { 
+                deleted() 
+              }
+        file:
+          path: "/var/log/expanso/priority-logs-${!timestamp_unix()}.jsonl"
+          codec: lines
+          batching:
+            count: 10      # Small batches for fast processing
+            period: 1s     # Frequent writes
+            
+      # Medium priority logs - standard processing  
+      - label: standard_logs
+        processors:
+          - mapping: |
+              root = if this.final_priority == "medium" && this.should_process { 
+                this 
+              } else { 
+                deleted() 
+              }
+        file:
+          path: "/var/log/expanso/standard-logs-${!timestamp_unix()}.jsonl"
+          codec: lines
+          batching:
+            count: 100     # Larger batches
+            period: 5s     # Less frequent writes
+            
+      # Low priority logs - batch processing
+      - label: low_priority_logs  
+        processors:
+          - mapping: |
+              root = if this.final_priority == "low" && this.should_process {
+                this
+              } else {
+                deleted() 
+              }
+        file:
+          path: "/var/log/expanso/low-priority-logs-${!timestamp_unix()}.jsonl"
+          codec: lines
+          batching:
+            count: 500     # Large batches
+            period: 30s    # Infrequent writes
+            
+      # Filtered logs - for analysis and tuning
+      - label: filtered_logs
+        processors:
+          - mapping: |
+              root = if !this.should_process {
+                # Keep minimal info about filtered logs
+                {
+                  "timestamp": this.timestamp,
+                  "level": this.level,
+                  "service": this.service,
+                  "message": this.message.slice(0, 100),  # Truncate message
+                  "filtering": this.filtering,
+                  "priority_score": this.priority_score,
+                  "filter_reason": this.filtering.filter_reason
+                }
+              } else {
+                deleted()
+              }
+        file:
+          path: "/var/log/expanso/filtered-logs-${!timestamp_unix()}.jsonl" 
+          codec: lines
+          batching:
+            count: 1000    # Very large batches
+            period: 300s   # Very infrequent writes (5 minutes)
+            
+      # Metrics and statistics
+      - label: filtering_metrics
+        processors:
+          - mapping: |
+              root = {
+                "timestamp": now(),
+                "metrics": {
+                  "total_logs": 1,
+                  "priority_breakdown": {
+                    "critical": if this.final_priority == "critical" { 1 } else { 0 },
+                    "high": if this.final_priority == "high" { 1 } else { 0 },
+                    "medium": if this.final_priority == "medium" { 1 } else { 0 },
+                    "low": if this.final_priority == "low" { 1 } else { 0 },
+                    "debug": if this.final_priority == "debug" { 1 } else { 0 }
+                  },
+                  "filtering_stats": {
+                    "processed": if this.should_process { 1 } else { 0 },
+                    "filtered": if !this.should_process { 1 } else { 0 },
+                    "filter_reason": this.filtering.filter_reason.or("none")
+                  },
+                  "service": this.service,
+                  "level": this.level
+                }
+              }
+        file:
+          path: "/var/log/expanso/filtering-metrics-${!timestamp_unix()}.jsonl"
+          codec: lines
+          batching:
+            count: 100
+            period: 60s
+```
+
+## Step 4.6: Test Complete Filtering System
+
+Test the filtering system with various log types:
+
+```bash
+# Set filtering environment variables
+export MIN_PRIORITY_SCORE="3"
+export DEBUG_LOGGING_ENABLED="false" 
+export FILTER_HEALTH_CHECKS="true"
+export FILTER_CACHE_HITS="true"
+
+# Redeploy with new configuration
+expanso job deploy filter-score-pipeline.yaml
+
+# Test critical payment error (should go to priority logs)
+curl -X POST http://localhost:8080/logs/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
+  -d '{
+    "timestamp": "2025-10-20T15:30:45.123Z",
+    "level": "ERROR",
+    "service": "payment-service",
+    "message": "Payment processing outage detected",
+    "transaction_id": "txn123", 
+    "user_id": "user456"
+  }'
+
+# Test debug log (should be filtered)
+curl -X POST http://localhost:8080/logs/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
+  -d '{
+    "timestamp": "2025-10-20T15:30:45.123Z",
+    "level": "DEBUG",
+    "service": "analytics-service",
+    "message": "Cache hit for user profile data"
+  }'
+
+# Test health check (should be filtered)
+curl -X POST http://localhost:8080/logs/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
+  -d '{
+    "timestamp": "2025-10-20T15:30:45.123Z",
+    "level": "INFO",
+    "service": "api-gateway",
+    "message": "Health check passed",
+    "endpoint": "/health"
+  }'
+
+# Test medium priority log (should go to standard logs)
+curl -X POST http://localhost:8080/logs/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
+  -d '{
+    "timestamp": "2025-10-20T15:30:45.123Z",
+    "level": "WARN", 
+    "service": "user-service",
+    "message": "Slow database query detected",
+    "duration_ms": 2000,
+    "user_id": "user789"
+  }'
+
+# Check output files
+ls -la /var/log/expanso/*-logs-*.jsonl
+
+# Check priority logs (should contain payment error)
+cat /var/log/expanso/priority-logs-*.jsonl | jq .
+
+# Check filtered logs (should contain debug and health check)
+cat /var/log/expanso/filtered-logs-*.jsonl | jq .
+
+# Check metrics
+cat /var/log/expanso/filtering-metrics-*.jsonl | jq .metrics
+```
+
+## Advanced Filtering Patterns
+
+### Pattern 1: Machine Learning-Based Anomaly Detection
+
+Use ML models to identify unusual patterns:
+
+```yaml
+# Anomaly detection (simplified example)
+- mapping: |
+    root = this
+    
+    # Simple statistical anomaly detection
+    let duration = this.duration_ms.or(0) 
+    let avg_duration = 200  # Could be from external ML model
+    let std_deviation = 50
+    
+    let is_anomaly = duration > (avg_duration + 2 * std_deviation)
+    
+    root.anomaly_detection = {
+      "is_anomaly": is_anomaly,
+      "confidence": if is_anomaly { 0.8 } else { 0.1 },
+      "anomaly_type": if is_anomaly { "performance" } else { "normal" }
+    }
+    
+    # Boost priority for anomalies
+    root.priority_score = root.priority_score + if is_anomaly { 2 } else { 0 }
+```
+
+### Pattern 2: Dynamic Sampling
+
+Sample logs based on volume and importance:
+
+```yaml
+- mapping: |
+    root = this
+    
+    # Dynamic sampling configuration
+    let sampling_rate = match this.service {
+      "high-volume-service" => 0.1,    # Sample 10%
+      "medium-volume-service" => 0.5,  # Sample 50%
+      _ => 1.0                         # Sample 100%
+    }
+    
+    # Never sample errors or critical services  
+    sampling_rate = if ["ERROR", "FATAL"].contains(this.level) || 
+                      this.service == "payment-service" {
+      1.0
+    } else {
+      sampling_rate
+    }
+    
+    # Implement sampling decision
+    let sample_hash = (this.message + this.timestamp).hash("md5").slice(0, 8).hex_to_int()
+    let should_sample = (sample_hash % 1000) < (sampling_rate * 1000)
+    
+    root.sampling = {
+      "rate": sampling_rate,
+      "should_sample": should_sample,
+      "hash": sample_hash
+    }
+    
+    root.should_process = root.should_process && should_sample
+```
+
+### Pattern 3: Content-Based Filtering
+
+Advanced content analysis for filtering:
+
+```yaml
+- mapping: |
+    root = this
+    
+    # Content analysis
+    let message = this.message.lowercase()
+    
+    # Define content patterns
+    let noise_patterns = [
+      "starting.*server",
+      "stopping.*server", 
+      "connection.*established",
+      "connection.*closed",
+      "loading.*configuration",
+      "initializing.*component"
+    ]
+    
+    let critical_patterns = [
+      "out.*of.*memory",
+      "disk.*full",
+      "database.*down", 
+      "service.*unavailable",
+      "security.*violation",
+      "authentication.*failed"
+    ]
+    
+    # Check for patterns
+    let is_noise = noise_patterns.any(pattern -> message.re_match(pattern))
+    let is_critical = critical_patterns.any(pattern -> message.re_match(pattern))
+    
+    root.content_analysis = {
+      "is_noise": is_noise,
+      "is_critical": is_critical,
+      "message_length": this.message.length(),
+      "has_stack_trace": this.stack_trace.exists()
+    }
+    
+    # Adjust filtering based on content
+    root.should_process = match {
+      is_critical => true,                    # Never filter critical content
+      is_noise && this.level == "INFO" => false,  # Filter noise at INFO level
+      _ => root.should_process
+    }
+```
+
+## Monitoring and Tuning
+
+### Monitor Filtering Effectiveness
+
+```bash
+# Check filtering statistics
+cat /var/log/expanso/filtering-metrics-*.jsonl | \
+  jq -s 'map(.metrics.filtering_stats) | group_by(.filter_reason) | map({reason: .[0].filter_reason, count: length})'
+
+# Monitor priority distribution
+cat /var/log/expanso/filtering-metrics-*.jsonl | \
+  jq -s 'map(.metrics.priority_breakdown) | add'
+
+# Check storage savings
+du -sh /var/log/expanso/priority-logs-*.jsonl
+du -sh /var/log/expanso/filtered-logs-*.jsonl
+```
+
+### Tune Filtering Parameters
+
+```bash
+# Adjust minimum priority score
+export MIN_PRIORITY_SCORE="4"  # More aggressive filtering
+
+# Enable debug logging temporarily
+export DEBUG_LOGGING_ENABLED="true"
+
+# Redeploy to apply changes
+expanso job deploy filter-score-pipeline.yaml
+```
+
+## Performance Optimization
+
+### Optimize Filtering Performance
+
+For high-volume environments:
+
+```yaml
+# Pre-filter using simple rules before expensive processing
+- mapping: |
+    # Quick rejection filters
+    root = if this.level == "DEBUG" && env("DEBUG_LOGGING_ENABLED") != "true" {
+      deleted()  # Drop immediately
+    } else {
+      this
+    }
+    
+# Then apply complex filtering to remaining logs
+```
+
+### Batch Filtering Decisions
+
+```yaml
+# Process filtering in batches
+- archive:
+    format: json_array
+    
+- mapping: |
+    # Apply filtering to entire batch
+    root = this.map_each(log -> 
+      process_filtering(log)
+    ).filter(log -> log.should_process)
+    
+- unarchive:
+    format: json_array
+```
+
+## Troubleshooting
+
+### Issue: Too Many Logs Being Filtered
+
+**Symptom:** Important logs missing from priority outputs
+
+**Diagnosis:**
+```bash
+# Check filter reasons
+grep "filter_reason" /var/log/expanso/filtered-logs-*.jsonl | \
+  jq -r '.filter_reason' | sort | uniq -c
+
+# Check priority distribution
+grep "final_priority" /var/log/expanso/*-logs-*.jsonl | \
+  jq -r '.final_priority' | sort | uniq -c
+```
+
+**Solutions:**
+1. **Reduce minimum priority score:**
+```bash
+export MIN_PRIORITY_SCORE="2"  # Less aggressive
+```
+
+2. **Add service exceptions:**
+```yaml
+# Never filter specific services
+root.should_process = if this.service == "critical-service" { true } else { root.should_process }
+```
+
+### Issue: Not Enough Filtering
+
+**Symptom:** Storage costs still high, too much noise
+
+**Diagnosis:**
+```bash
+# Check volume by priority
+wc -l /var/log/expanso/*-logs-*.jsonl
+
+# Check service volume
+cat /var/log/expanso/filtering-metrics-*.jsonl | \
+  jq '.metrics.service' | sort | uniq -c
+```
+
+**Solutions:**
+1. **Increase minimum priority:**
+```bash
+export MIN_PRIORITY_SCORE="4"
+```
+
+2. **Add more noise filters:**
+```yaml
+# Filter more patterns
+message.contains("routine") && this.level == "INFO" => true
+```
+
+### Issue: False Positive Critical Detection
+
+**Symptom:** Non-critical logs marked as high priority
+
+**Diagnosis:**
+```bash
+# Check priority scoring
+cat /var/log/expanso/priority-logs-*.jsonl | \
+  jq '.severity, .business_impact, .priority_score'
+```
+
+**Solutions:**
+1. **Adjust service multipliers:**
+```yaml
+"less-critical-service" => 0.8  # Reduce multiplier
+```
+
+2. **Review content boost logic:**
+```yaml
+# More precise keyword matching
+message.contains("timeout") && this.level == "ERROR" => 1  # Reduce boost
+```
+
+## What You've Accomplished
+
+✅ **Implemented comprehensive severity scoring** with service and content awareness
+✅ **Added business impact assessment** with time-based and customer impact factors
+✅ **Created intelligent filtering logic** with configurable rules and exceptions
+✅ **Built multi-tier output routing** based on priority and processing needs
+✅ **Added time-based filtering** for age and rate limiting protection
+✅ **Implemented monitoring and metrics** for tuning and optimization
+
+## Key Takeaways
+
+1. **Scoring Prevents Information Loss** - Smart prioritization preserves important data
+2. **Business Context Matters** - Customer-facing services deserve higher priority
+3. **Filtering Saves Costs** - Intelligent noise reduction can cut storage by 70%
+4. **Monitoring Enables Tuning** - Track metrics to optimize filtering parameters
+5. **Flexibility is Essential** - Configurable rules adapt to changing requirements
+
+## Next Steps
+
+Your logs are now intelligently prioritized and filtered! Next, you'll add privacy protection through data redaction:
+
+**Next:** [Redact Sensitive Data](./step-5-redact-sensitive-data) - Implement automatic PII detection and redaction to ensure compliance and protect customer privacy.
+
+## Filtering Configuration Summary
+
+Here's the complete filtering system you've built:
+
+```yaml
+filtering:
+  severity_scoring:
+    base_levels: [DEBUG=1, INFO=2, ERROR=5, FATAL=8]
+    service_multipliers: [payment=1.5, auth=1.4, analytics=0.6]
+    content_boosts: [outage=+3, timeout=+1, cache_hit=-2]
+  
+  business_impact:
+    customer_facing: [api-gateway, payment-service]
+    business_hours: [9AM-5PM boost]
+    financial_data: [transaction_id, amount boost]
+    
+  filtering_rules:
+    min_priority_score: 3
+    filter_debug: true
+    filter_health_checks: true
+    preserve_errors: true
+    
+  output_routing:
+    critical: [priority_score >= 10] -> immediate processing
+    high: [priority_score >= 7] -> standard processing  
+    medium: [priority_score >= 4] -> batch processing
+    low: [priority_score >= 2] -> delayed processing
+    debug: [filtered] -> analysis only
+```
+
+This intelligent filtering system ensures critical events get immediate attention while reducing noise and optimizing costs.

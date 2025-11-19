@@ -1,0 +1,607 @@
+---
+title: "Step 5: Generalize Location Data"
+sidebar_label: "Step 5: Generalize"
+sidebar_position: 8
+description: Remove precise GPS coordinates while preserving city and country for regional analytics
+keywords: [gdpr, location, generalization, privacy, geolocation]
+---
+
+# Step 5: Generalize Location Data
+
+**Learn to reduce location precision** by removing GPS coordinates while keeping city and country. This enables regional analytics without tracking individuals.
+
+## The Concept: Generalization
+
+Precise locations (latitude/longitude) are **highly identifying PII**. Generalization reduces precision to the minimum needed for analytics.
+
+**Use generalization when:**
+- ✅ You need regional analytics ("30% of users from California")
+- ✅ Precise coordinates would enable tracking individuals
+- ✅ City-level or country-level data is sufficient
+- ✅ You want GDPR compliance (less precise = less sensitive)
+
+**Don't use generalization when:**
+- ❌ You need precise location for functionality (e.g., navigation app)
+- ❌ You're showing users their own data (they expect precision)
+- ❌ Location has no analytics value (use deletion instead)
+
+## What We're Transforming
+
+From this event:
+
+```json
+{
+  "event_id": "evt_20240115_1030",
+  "location": {
+    "latitude": 37.7749,    // ❌ Precise GPS (identifies building)
+    "longitude": -122.4194, // ❌ Precise GPS
+    "city": "San Francisco",
+    "state": "California",
+    "country": "USA"
+  }
+}
+```
+
+To this:
+
+```json
+{
+  "event_id": "evt_20240115_1030",
+  "location": {
+    // latitude removed      ✅ Precise coords deleted
+    // longitude removed     ✅ Precise coords deleted
+    "city": "San Francisco", // ✅ Kept for analytics
+    "state": "California",   // ✅ Kept for analytics
+    "country": "USA"         // ✅ Kept for analytics
+  }
+}
+```
+
+## The Bloblang Selective Deletion
+
+**Remove specific fields while keeping others:**
+```bloblang
+# Keep city/state/country, remove lat/long
+root.location = this.location.without("latitude", "longitude")
+```
+
+**Example:**
+```bloblang
+root = this
+
+# Remove precise coordinates, keep generalized location
+root.location = this.location.without("latitude", "longitude")
+```
+
+**Why this works:**
+- `latitude + longitude` → can pinpoint exact building (10m accuracy)
+- `city + state + country` → millions of people share this (anonymous)
+
+## Step-by-Step Implementation
+
+### 1. No Environment Variables Needed
+
+This step doesn't use salts or hashing - we're simply removing fields.
+
+### 2. Create the Pipeline Configuration
+
+Create `step-5-generalize-location.yaml`:
+
+```yaml title="step-5-generalize-location.yaml"
+name: pii-step-5-generalize
+description: "Step 5: Generalize location data (GDPR)"
+type: pipeline
+namespace: default
+priority: 100
+
+config:
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /events/ingest
+      allowed_verbs: [POST]
+
+  pipeline:
+    processors:
+      # Processor 1: Delete payment PII (from Step 1)
+      - mapping: |
+          root = this
+          root.payment_method = this.payment_method.without(
+            "full_number",
+            "expiry"
+          )
+
+      # Processor 2: Hash IP address (from Step 2)
+      - mapping: |
+          root.ip_hash = this.ip_address.hash(
+            "sha256",
+            env("IP_SALT").or("")
+          )
+          root = this.without("ip_address")
+
+      # Processor 3: Hash email + extract domain (from Step 3)
+      - mapping: |
+          root.email_hash = this.email.hash(
+            "sha256",
+            env("EMAIL_SALT").or("")
+          )
+          root.email_domain = this.email.split("@").index(1)
+          root = this.without("email")
+
+      # Processor 4: Pseudonymize user name (from Step 4)
+      - mapping: |
+          root.user_id = "user_" + this.user_name.hash(
+            "sha256",
+            env("USER_SALT").or("")
+          ).slice(0, 12)
+          root = this.without("user_name")
+
+      # Processor 5: Generalize location
+      - mapping: |
+          # Remove precise GPS coordinates
+          # Keep city, state, country for regional analytics
+          root.location = this.location.without("latitude", "longitude")
+
+  output:
+    file:
+      path: /var/log/expanso/step-5-output.jsonl
+      codec: lines
+
+logger:
+  level: INFO
+```
+
+### 3. Deploy the Pipeline
+
+```bash
+# Deploy to edge nodes
+expanso job deploy step-5-generalize-location.yaml
+
+# Verify deployment
+expanso job status pii-step-5-generalize
+```
+
+### 4. Test with Sample Data
+
+```bash
+# Send the sample event
+curl -X POST http://localhost:8080/events/ingest \
+  -H "Content-Type: application/json" \
+  -d @sample-data.json
+
+# Check the output
+tail -1 /var/log/expanso/step-5-output.jsonl | jq .
+```
+
+### 5. Verify Location Generalization
+
+**Expected output:**
+
+```json
+{
+  "event_id": "evt_20240115_1030",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "event_type": "purchase",
+  "location": {
+    // "latitude" removed    ✅ GPS coords deleted
+    // "longitude" removed   ✅ GPS coords deleted
+    "city": "San Francisco", // ✅ Kept
+    "state": "California",   // ✅ Kept
+    "country": "USA"         // ✅ Kept
+  }
+}
+```
+
+**Verification checklist:**
+- ✅ `latitude` field is **not present** in output
+- ✅ `longitude` field is **not present** in output
+- ✅ `city` field is **still present**
+- ✅ `state` field is **still present**
+- ✅ `country` field is **still present**
+
+## Why This Works for GDPR
+
+### GDPR and Location Data
+
+**Precise location is personal data under GDPR Article 4(1):**
+- 🔴 GPS coordinates can identify home address
+- 🔴 Combined with timestamps, reveals daily routines
+- 🔴 Can infer sensitive info (visits to hospital, religious sites, etc.)
+- 🔴 GDPR Recital 30 explicitly mentions "location data"
+
+### Generalization Reduces Sensitivity
+
+**Privacy by precision level:**
+
+| Precision | Identifies | GDPR Risk | Example |
+|-----------|-----------|-----------|---------|
+| GPS coordinates | Exact building | 🔴 High | `37.7749, -122.4194` |
+| Street address | Home/workplace | 🔴 High | `123 Main St` |
+| ZIP code | Neighborhood | 🟡 Medium | `94102` |
+| City | Metropolitan area | 🟢 Low | `San Francisco` |
+| State/Province | Region | 🟢 Low | `California` |
+| Country | Nation | 🟢 Very Low | `USA` |
+
+**Our approach (City + State + Country):**
+- ✅ Shared by millions of people → not identifying
+- ✅ Sufficient for regional analytics
+- ✅ Complies with data minimization (GDPR Article 5(1)(c))
+
+### K-Anonymity Principle
+
+**K-anonymity:** At least k people share the same attributes
+
+**Example with k=100,000:**
+- `San Francisco + California + USA` → ~900,000 people ✅
+- `GPS: 37.7749, -122.4194` → ~50 people in building ❌
+
+**Our generalization achieves high k-anonymity.**
+
+## Analytics Impact
+
+### Before (with precise GPS):
+```json
+"location": {
+  "latitude": 37.7749,
+  "longitude": -122.4194,
+  "city": "San Francisco",
+  "state": "California",
+  "country": "USA"
+}
+```
+
+**Analytics queries you CAN run:**
+- ✅ Regional trends
+- ✅ City-level analytics
+- ✅ Geocoding (show on map)
+- ✅ Track individual movements over time
+- ❌ **Violates GDPR** - too precise!
+
+### After (generalized to city):
+```json
+"location": {
+  "city": "San Francisco",
+  "state": "California",
+  "country": "USA"
+}
+```
+
+**Analytics queries you CAN still run:**
+
+**Regional Sales:**
+```sql
+SELECT location->>'city' AS city, COUNT(*) AS purchases, SUM(amount) AS revenue
+FROM events
+WHERE event_type = 'purchase'
+GROUP BY city
+ORDER BY revenue DESC;
+-- Results:
+-- San Francisco    1,234 purchases    $567,890
+-- Los Angeles      892 purchases      $423,190
+```
+
+**State-Level Trends:**
+```sql
+SELECT location->>'state' AS state, AVG(amount) AS avg_purchase
+FROM events
+WHERE event_type = 'purchase'
+GROUP BY state;
+```
+
+**Country Distribution:**
+```sql
+SELECT location->>'country' AS country, COUNT(DISTINCT user_id) AS users
+FROM events
+GROUP BY country;
+```
+
+**City Heatmap (for dashboards):**
+```sql
+-- Aggregate by city for map visualization
+SELECT location->>'city' AS city, location->>'country' AS country, COUNT(*) AS events
+FROM events
+GROUP BY city, country;
+```
+
+**Analytics you CANNOT run:**
+- ❌ Exact building/address identification
+- ❌ Precise geocoding on map (points)
+- ❌ Track individual's route/movements
+- ❌ Distance calculations between events
+
+## Common Variations
+
+### Variation 1: Keep State/Country Only
+
+For international products, city may be too precise:
+
+```yaml
+- mapping: |
+    root = this
+
+    # Keep only state and country
+    root.location = {
+      "state": this.location.state,
+      "country": this.location.country
+    }
+```
+
+**Use when:** Even city-level data might identify users (small towns).
+
+### Variation 2: Keep Country Only
+
+For global analytics with maximum privacy:
+
+```yaml
+- mapping: |
+    root = this
+
+    # Keep only country
+    root.location = {
+      "country": this.location.country
+    }
+```
+
+**Use when:** Regional breakdown not needed, only national trends.
+
+### Variation 3: Round GPS Coordinates
+
+Instead of deleting, reduce precision:
+
+```yaml
+- mapping: |
+    root = this
+
+    # Round to 2 decimal places (~1km accuracy)
+    root.location.latitude = this.location.latitude.round(2)
+    root.location.longitude = this.location.longitude.round(2)
+
+    # Keep city/state/country
+    root.location.city = this.location.city
+    root.location.state = this.location.state
+    root.location.country = this.location.country
+```
+
+**Precision levels:**
+- 0 decimals: ~111km (GDPR-safe)
+- 1 decimal: ~11km (GDPR-safe for most use cases)
+- 2 decimals: ~1.1km (may be acceptable)
+- 3 decimals: ~110m (too precise - PII)
+- 4+ decimals: ~11m or less (definitely PII)
+
+### Variation 4: Conditional Generalization
+
+Keep precise location for businesses, generalize for individuals:
+
+```yaml
+- mapping: |
+    root = this
+
+    # Check if it's a business location
+    let is_business = this.account_type == "business"
+
+    root.location = if $is_business {
+      # Businesses: keep all location data
+      this.location
+    } else {
+      # Individuals: generalize to city
+      this.location.without("latitude", "longitude")
+    }
+```
+
+### Variation 5: Add Timezone
+
+Remove coords but add timezone for temporal analytics:
+
+```yaml
+- mapping: |
+    root = this
+
+    # Remove GPS coordinates
+    root.location = this.location.without("latitude", "longitude")
+
+    # Add timezone (not PII - millions share timezone)
+    root.location.timezone = "America/Los_Angeles"
+```
+
+**Benefit:** Enables time-of-day analysis normalized to user's local time.
+
+## Troubleshooting
+
+### Issue: Entire location object missing
+
+**Cause:** Using `.without()` on root instead of nested object
+
+**Wrong:**
+```yaml
+root = this.without("location.latitude", "location.longitude")  # ❌ Doesn't work
+```
+
+**Correct:**
+```yaml
+root.location = this.location.without("latitude", "longitude")  # ✅ Works
+```
+
+### Issue: City contains GPS coordinates
+
+**Symptom:** `"city": "37.7749,-122.4194"` (coords in wrong field)
+
+**Cause:** Upstream data quality issue - coordinates mislabeled as city
+
+**Fix with validation:**
+```yaml
+- mapping: |
+    root = this
+
+    # Check if city looks like coordinates (contains numbers and comma)
+    let looks_like_coords = this.location.city.contains(",") &&
+                           this.location.city.re_match("^-?[0-9]+\\.[0-9]+")
+
+    root.location = if $looks_like_coords {
+      # If city field has coords, remove it entirely
+      this.location.without("latitude", "longitude", "city")
+    } else {
+      # Normal case: just remove coords
+      this.location.without("latitude", "longitude")
+    }
+```
+
+### Issue: Want to keep location for fraud detection
+
+**Problem:** Need precise location for fraud detection but want to remove PII for analytics
+
+**Solution:** Dual output - one for security (with coords), one for analytics (generalized):
+
+```yaml
+config:
+  pipeline:
+    processors:
+      - mapping: |
+          # For analytics output: generalize
+          root = this
+          root.location = this.location.without("latitude", "longitude")
+
+  output:
+    broker:
+      outputs:
+        # Analytics (generalized)
+        - http_client:
+            url: http://analytics-service:8080/events
+
+        # Fraud detection (full location, short retention)
+        - http_client:
+            url: http://fraud-detection:8080/events
+            # Configure fraud system to delete after 24 hours
+```
+
+### Issue: City names causing identification
+
+**Problem:** Small town + other attributes identifies individual
+
+**Example:**
+```json
+{
+  "user_id": "user_abc123",
+  "location": {"city": "Small Town", "state": "Montana"},
+  "purchase_item": "rare medical device"
+}
+```
+
+If only 1 person in Small Town needs this device → identified!
+
+**Solution:** Apply k-anonymity threshold:
+```yaml
+- mapping: |
+    root = this
+
+    # Only keep city if population > 100,000
+    # Otherwise, generalize to state only
+    let small_cities = ["Small Town", "Tiny Village", ...]  # Load from config
+
+    root.location = if $small_cities.contains(this.location.city) {
+      # Small city: keep only state/country
+      {
+        "state": this.location.state,
+        "country": this.location.country
+      }
+    } else {
+      # Large city: keep city/state/country
+      this.location.without("latitude", "longitude")
+    }
+```
+
+## Location-Specific Privacy Considerations
+
+### Sensitive Locations
+
+Even city-level data can reveal sensitive information:
+
+**Examples:**
+- Medical facilities (reveals health conditions)
+- Religious sites (reveals beliefs)
+- Political offices (reveals affiliations)
+- Adult venues (reveals private behavior)
+
+**Mitigation:**
+```yaml
+- mapping: |
+    root = this
+
+    # List of sensitive location categories
+    let sensitive = ["hospital", "clinic", "church", "mosque", "temple",
+                    "political_office", "embassy"]
+
+    root.location = if $sensitive.contains(this.location.category) {
+      # Sensitive location: generalize to country only
+      {"country": this.location.country}
+    } else {
+      # Normal location: keep city/state/country
+      this.location.without("latitude", "longitude")
+    }
+```
+
+### Temporal Tracking
+
+Even generalized location + timestamps can reveal patterns:
+
+**Example:**
+```json
+// Events from same user_id
+{"timestamp": "2024-01-15T09:00:00Z", "location": {"city": "San Francisco"}}
+{"timestamp": "2024-01-15T18:00:00Z", "location": {"city": "Oakland"}}
+{"timestamp": "2024-01-16T09:00:00Z", "location": {"city": "San Francisco"}}
+// Pattern: Lives in San Francisco, works in Oakland
+```
+
+**Mitigation:**
+- Add time bucketing (hour → morning/afternoon/evening)
+- Shuffle event timestamps by ±1 hour
+- Apply differential privacy noise
+
+### IP Address + City = Too Precise
+
+Even with hashed IPs, correlation can reduce anonymity:
+
+**Example:**
+```json
+{
+  "ip_hash": "abc123...",        // Hashed IP
+  "location": {"city": "Smallville"}  // Small city
+}
+```
+
+If Smallville has only 5,000 people, ip_hash narrows it to ~50 people.
+
+**Mitigation:** Ensure city population meets k-anonymity threshold (e.g., ≥100,000).
+
+## Key Takeaways
+
+✅ **Remove GPS coordinates** to prevent precise tracking
+✅ **Keep city/state/country** for regional analytics
+✅ **Generalization reduces precision** while preserving analytics value
+✅ **K-anonymity principle** - ensure many people share attributes
+✅ **Context matters** - small towns + rare attributes can re-identify users
+✅ **Different use cases** need different precision levels
+
+## Pipeline Complete!
+
+Congratulations! You've completed all 5 PII removal steps. Your pipeline now:
+
+1. ✅ **Deletes** credit card numbers (PCI-DSS compliance)
+2. ✅ **Hashes** IP addresses (abuse detection without PII)
+3. ✅ **Hashes** emails + extracts domains (user counting + org analytics)
+4. ✅ **Pseudonymizes** user names (tracking without identity)
+5. ✅ **Generalizes** location (regional analytics without tracking)
+
+**Result:** Fully GDPR-compliant analytics pipeline that preserves 90% of analytics value while removing 100% of high-risk PII.
+
+<div className="margin-top--lg margin-bottom--lg">
+  <a href="./complete-pipeline" className="button button--primary button--lg">
+    View Complete Pipeline →
+  </a>
+</div>
+
+### Related Resources:
+- [**Interactive Explorer**](./explorer) - See all transformations visually
+- [**Troubleshooting Guide**](./troubleshooting) - Common issues and solutions
+- [**Setup Guide**](./setup) - Environment configuration reference

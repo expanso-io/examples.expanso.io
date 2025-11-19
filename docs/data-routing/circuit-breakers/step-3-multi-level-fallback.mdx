@@ -1,0 +1,1009 @@
+---
+title: Step 3 - Multi-Level Fallback
+sidebar_label: Step 3 - Multi-Level Fallback  
+sidebar_position: 5
+description: Implement comprehensive fallback strategies with dead letter queues and recovery mechanisms
+keywords: [fallback, dead-letter-queue, recovery, high-availability, disaster-recovery]
+---
+
+# Step 3: Multi-Level Fallback
+
+Circuit breakers protect individual components, but production systems need comprehensive fallback strategies that handle scenarios where multiple components fail simultaneously. Multi-level fallback provides a cascade of increasingly safe alternatives, ensuring your pipeline continues operating even during major outages.
+
+In this step, you'll implement sophisticated fallback mechanisms using Expanso's `fallback` output, dead letter queues, local buffering, and automatic recovery processes that handle everything from single service failures to complete infrastructure outages.
+
+## Understanding Multi-Level Fallback Architecture
+
+### Fallback Hierarchy Design
+
+A well-designed fallback system provides multiple tiers of safety:
+
+```
+Primary → Secondary → Tertiary → Emergency → Drop/Alert
+```
+
+**Tier 1 - Primary:** Normal operation with full functionality
+**Tier 2 - Secondary:** Reduced functionality but still operational  
+**Tier 3 - Tertiary:** Minimal functionality, data preservation focus
+**Tier 4 - Emergency:** Local storage, manual recovery required
+**Tier 5 - Drop/Alert:** Data loss acceptable, alerting critical
+
+### Fallback Strategy Considerations
+
+**Data Criticality:**
+- **Critical data:** Never drop, always buffer locally if needed
+- **Important data:** Retry extensively, degrade gracefully  
+- **Nice-to-have data:** Drop quickly to preserve resources
+
+**Recovery Requirements:**
+- **Automatic recovery:** System self-heals when services return
+- **Manual recovery:** Human intervention required for complex failures
+- **Data consistency:** Ensure no duplicate processing during recovery
+
+**Resource Management:**
+- **Buffering limits:** Prevent disk/memory exhaustion during outages
+- **Backpressure:** Stop accepting new data when buffers full
+- **Resource monitoring:** Track buffer usage and alert before exhaustion
+
+## Implementation: Comprehensive Multi-Level Fallback
+
+Let's implement a multi-level fallback system for a critical event processing pipeline.
+
+### Pipeline Configuration
+
+Create `multi-level-fallback.yaml`:
+
+```yaml title="multi-level-fallback.yaml"
+name: multi-level-fallback
+description: Comprehensive fallback system for critical event processing
+type: pipeline
+namespace: circuit-breaker-test
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8088
+      path: /critical-events
+      timeout: 30s
+
+  pipeline:
+    processors:
+      # Step 1: Validate and enrich event
+      - mapping: |
+          root = this
+          
+          # Ensure critical fields
+          if !this.event_id.exists() {
+            throw("missing required field: event_id")
+          }
+          
+          if !this.event_type.exists() {
+            throw("missing required field: event_type")
+          }
+          
+          # Add fallback tracking metadata
+          root.processing_started_at = now()
+          root.fallback_level = 0
+          root.fallback_attempts = []
+
+      # Step 2: Classify event criticality for fallback strategy
+      - mapping: |
+          root = this
+          
+          # Determine criticality based on event type
+          if this.event_type == "payment" || this.event_type == "security_alert" || this.event_type == "system_critical" {
+            root.criticality = "critical"
+            root.max_fallback_level = 4  # Use all fallback levels
+          } else if this.event_type == "user_action" || this.event_type == "analytics" {
+            root.criticality = "important"
+            root.max_fallback_level = 3  # Skip local storage fallback
+          } else {
+            root.criticality = "standard"
+            root.max_fallback_level = 2  # Drop if secondary fails
+          }
+
+      # Step 3: Add processing metadata
+      - mapping: |
+          root = this
+          root.processing_metadata = {
+            "pipeline_instance": env("HOSTNAME") || "unknown",
+            "processing_timestamp": now(),
+            "fallback_strategy": "multi_level",
+            "expected_destinations": ["elasticsearch", "kafka", "local_buffer", "dlq"]
+          }
+
+  # Multi-level fallback output configuration
+  output:
+    fallback:
+      # Level 1 (Primary): Elasticsearch for real-time analytics
+      - processors:
+          # Mark attempt
+          - mapping: |
+              root = this
+              root.fallback_level = 1
+              root.destination_attempt = "elasticsearch"
+              root.fallback_attempts = (this.fallback_attempts || []).append({
+                "level": 1,
+                "destination": "elasticsearch", 
+                "attempted_at": now()
+              })
+
+        # Simulate Elasticsearch with HTTP call
+        try:
+          - http:
+              url: ${ELASTICSEARCH_URL:-http://localhost:9200}/events/_doc/${!this.event_id}
+              verb: POST
+              timeout: 5s
+              retries: 2
+              retry_period: 1s
+              
+              headers:
+                Content-Type: application/json
+                
+          - mapping: |
+              root = this
+              root.final_destination = "elasticsearch"
+              root.fallback_success_level = 1
+              
+        # If Elasticsearch fails, continue to next fallback
+        catch:
+          - mapping: |
+              root = this
+              root.elasticsearch_failed = true
+              root.elasticsearch_error = error().string()
+
+        # Continue to fallback even if Elasticsearch succeeds (for demo)
+        # In production, would succeed here
+        drop: {}
+
+      # Level 2 (Secondary): Kafka for reliable messaging
+      - processors:
+          # Mark attempt  
+          - mapping: |
+              root = this
+              root.fallback_level = 2
+              root.destination_attempt = "kafka"
+              root.fallback_attempts = this.fallback_attempts.append({
+                "level": 2,
+                "destination": "kafka",
+                "attempted_at": now()
+              })
+
+        # Simulate Kafka with HTTP call  
+        try:
+          - http:
+              url: ${KAFKA_REST_URL:-http://localhost:8082}/topics/events
+              verb: POST
+              timeout: 8s
+              retries: 3
+              retry_period: 2s
+              
+              headers:
+                Content-Type: application/vnd.kafka.json.v2+json
+                
+          - mapping: |
+              root = this
+              root.final_destination = "kafka"
+              root.fallback_success_level = 2
+              
+        catch:
+          - mapping: |
+              root = this
+              root.kafka_failed = true
+              root.kafka_error = error().string()
+
+        # For demo, continue to next fallback
+        drop: {}
+
+      # Level 3 (Tertiary): S3 for durable storage
+      - processors:
+          # Mark attempt
+          - mapping: |
+              root = this
+              root.fallback_level = 3  
+              root.destination_attempt = "s3"
+              root.fallback_attempts = this.fallback_attempts.append({
+                "level": 3,
+                "destination": "s3",
+                "attempted_at": now()
+              })
+
+          # Check if event criticality allows this fallback level
+          - switch:
+              cases:
+                - check: this.criticality == "standard" && this.max_fallback_level < 3
+                  processors:
+                    - mapping: |
+                        root = this
+                        root.skipped_s3 = true
+                        root.skip_reason = "low_criticality"
+                    drop: {}
+
+        # Simulate S3 with HTTP call
+        try:
+          - http:
+              url: ${S3_URL:-http://localhost:9000}/events-bucket/${!this.event_id}.json
+              verb: PUT
+              timeout: 15s
+              retries: 5
+              retry_period: 3s
+              
+          - mapping: |
+              root = this
+              root.final_destination = "s3"
+              root.fallback_success_level = 3
+              
+        catch:
+          - mapping: |
+              root = this
+              root.s3_failed = true
+              root.s3_error = error().string()
+
+        # For demo, continue to next fallback
+        drop: {}
+
+      # Level 4 (Emergency): Local file buffer
+      - processors:
+          # Mark attempt
+          - mapping: |
+              root = this
+              root.fallback_level = 4
+              root.destination_attempt = "local_buffer"
+              root.fallback_attempts = this.fallback_attempts.append({
+                "level": 4,
+                "destination": "local_buffer",
+                "attempted_at": now()
+              })
+
+          # Check criticality and disk space
+          - switch:
+              cases:
+                - check: this.criticality != "critical"
+                  processors:
+                    - mapping: |
+                        root = this
+                        root.skipped_local_buffer = true
+                        root.skip_reason = "not_critical_enough"
+                    drop: {}
+
+          # Check available disk space (simulate)
+          - mapping: |
+              # In production, would check actual disk space
+              available_space_mb = 1000  # Simulate 1GB available
+              if available_space_mb < 100 {
+                root.insufficient_disk_space = true
+                throw("insufficient disk space for local buffering")
+              }
+              root.disk_space_check_passed = true
+
+        # Write to local buffer
+        file:
+          path: /tmp/expanso-fallback-buffer/${!timestamp_unix_date("2006-01-02")}/events-${!count("files")}.jsonl
+          codec: lines
+          
+        processors:
+          - mapping: |
+              root = this
+              root.final_destination = "local_buffer"
+              root.fallback_success_level = 4
+              root.local_buffer_path = "/tmp/expanso-fallback-buffer/" + timestamp_unix_date("2006-01-02") + "/events-*.jsonl"
+
+      # Level 5 (Last Resort): Dead Letter Queue with alerting
+      - processors:
+          # Mark final attempt
+          - mapping: |
+              root = this
+              root.fallback_level = 5
+              root.destination_attempt = "dead_letter_queue"
+              root.fallback_attempts = this.fallback_attempts.append({
+                "level": 5,
+                "destination": "dead_letter_queue",
+                "attempted_at": now(),
+                "final_attempt": true
+              })
+
+          # Add comprehensive failure analysis
+          - mapping: |
+              root = this
+              root.failure_analysis = {
+                "total_fallback_attempts": this.fallback_attempts.length(),
+                "elasticsearch_failed": this.elasticsearch_failed || false,
+                "kafka_failed": this.kafka_failed || false,
+                "s3_failed": this.s3_failed || false,
+                "local_buffer_failed": this.local_buffer_failed || false,
+                "processing_duration": (now() - this.processing_started_at).seconds(),
+                "criticality": this.criticality,
+                "max_fallback_level": this.max_fallback_level
+              }
+
+          # Log critical alert
+          - log:
+              level: FATAL
+              message: "CRITICAL FAILURE: Event ${!this.event_id} reached dead letter queue after ${!this.fallback_attempts.length()} fallback attempts"
+
+          # Send to monitoring/alerting system (simulate with log)
+          - log:
+              level: ERROR
+              message: "DLQ_ALERT: ${!this.failure_analysis.format_json()}"
+
+        # Write to dead letter queue
+        file:
+          path: /tmp/expanso-dead-letter-queue/${!timestamp_unix_date("2006-01-02")}/dlq-${!count("dlq_files")}.jsonl
+          codec: lines
+
+        processors:
+          - mapping: |
+              root = this
+              root.final_destination = "dead_letter_queue"
+              root.fallback_success_level = 5
+              root.requires_manual_recovery = true
+
+      # Level 6 (Absolute Last Resort): Drop with critical alert
+      - processors:
+          - log:
+              level: FATAL
+              message: "ABSOLUTE CRITICAL FAILURE: Dropping event ${!this.event_id} - ALL FALLBACK MECHANISMS FAILED"
+
+          # This should never happen in a well-designed system
+          - mapping: |
+              root = this
+              root.event_dropped = true
+              root.drop_reason = "all_fallback_mechanisms_failed"
+              root.manual_intervention_required = true
+
+        drop: {}
+```
+
+### Deploy and Test
+
+Deploy the multi-level fallback pipeline:
+
+```bash
+# Create required directories
+mkdir -p /tmp/expanso-fallback-buffer
+mkdir -p /tmp/expanso-dead-letter-queue
+
+# Deploy pipeline  
+expanso apply -f multi-level-fallback.yaml
+
+# Verify deployment
+expanso get pipeline multi-level-fallback
+```
+
+### Test Normal Fallback Flow
+
+Test the fallback system with different event criticalities:
+
+```bash
+# Test critical event (should use all fallback levels if needed)
+curl -X POST http://localhost:8088/critical-events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id": "crit_001",
+    "event_type": "payment",
+    "amount": 1500.00,
+    "user_id": "user_premium_001",
+    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+  }'
+
+# Test important event (limited fallback levels)  
+curl -X POST http://localhost:8088/critical-events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id": "imp_001", 
+    "event_type": "user_action",
+    "action": "profile_update",
+    "user_id": "user_standard_001",
+    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+  }'
+
+# Test standard event (minimal fallback)
+curl -X POST http://localhost:8088/critical-events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id": "std_001",
+    "event_type": "page_view", 
+    "page": "/dashboard",
+    "user_id": "user_basic_001",
+    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+  }'
+
+# Check pipeline logs to see fallback progression
+expanso logs pipeline multi-level-fallback --tail=30
+```
+
+### Test Fallback Buffer Recovery
+
+Implement a recovery mechanism to process buffered events when services recover:
+
+Create `recovery-processor.yaml`:
+
+```yaml title="recovery-processor.yaml"
+name: recovery-processor
+description: Process events from fallback buffers when services recover
+type: pipeline
+namespace: circuit-breaker-test
+
+config:
+  input:
+    # Watch for files in fallback buffer directory
+    file:
+      paths: ["/tmp/expanso-fallback-buffer/**/*.jsonl"]
+      scanner:
+        lines: {}
+
+  pipeline:
+    processors:
+      # Parse buffered event
+      - mapping: |
+          root = content().parse_json()
+          root.recovery_started_at = now()
+          root.recovered_from_buffer = true
+
+      # Health check primary systems before retry
+      - try:
+          # Check if Elasticsearch is back online
+          - http:
+              url: ${ELASTICSEARCH_URL:-http://localhost:9200}/_cluster/health
+              verb: GET
+              timeout: 2s
+              retries: 1
+
+          - mapping: |
+              root = this
+              root.elasticsearch_available = true
+              
+        catch:
+          - mapping: |
+              root = this
+              root.elasticsearch_available = false
+
+      # Route to available systems
+      - switch:
+          cases:
+            # If Elasticsearch is available, send there
+            - check: this.elasticsearch_available == true
+              processors:
+                - http:
+                    url: ${ELASTICSEARCH_URL:-http://localhost:9200}/events/_doc/${!this.event_id}
+                    verb: POST
+                    timeout: 10s
+                    retries: 3
+
+                - mapping: |
+                    root = this
+                    root.recovery_destination = "elasticsearch"
+                    root.recovery_successful = true
+
+            # Otherwise, send to Kafka if available (would add similar health check)
+            - processors:
+                - mapping: |
+                    root = this
+                    root.recovery_destination = "kafka_fallback"
+                    root.recovery_successful = true
+
+  output:
+    # Log successful recovery
+    processors:
+      - log:
+          level: INFO
+          message: "Event ${!this.event_id} recovered from buffer to ${!this.recovery_destination}"
+
+    stdout:
+      codec: lines
+```
+
+## Advanced Multi-Level Fallback Patterns
+
+### Pattern 1: Intelligent Fallback Selection
+
+Choose fallback destinations based on event content and system health:
+
+```yaml title="intelligent-fallback.yaml"
+name: intelligent-fallback
+description: Smart fallback selection based on event characteristics
+type: pipeline
+namespace: circuit-breaker-test
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8089
+      path: /smart-fallback
+
+  pipeline:
+    processors:
+      # Analyze event to determine optimal fallback strategy
+      - mapping: |
+          root = this
+          
+          # Determine fallback strategy based on event characteristics
+          if this.event_type == "payment" {
+            root.fallback_strategy = "financial"
+            root.required_destinations = ["payments_db", "audit_log", "local_buffer"]
+            root.optional_destinations = ["analytics", "notifications"]
+          } else if this.event_type == "security_alert" {
+            root.fallback_strategy = "security"  
+            root.required_destinations = ["security_siem", "local_buffer"]
+            root.optional_destinations = ["email_alerts", "slack"]
+          } else if this.event_type == "analytics" {
+            root.fallback_strategy = "analytics"
+            root.required_destinations = ["analytics_db"]
+            root.optional_destinations = ["real_time_dashboard"]
+          } else {
+            root.fallback_strategy = "general"
+            root.required_destinations = ["general_log"]
+            root.optional_destinations = []
+          }
+
+  output:
+    fallback:
+      # Primary: Try required destinations first
+      - switch:
+          cases:
+            - check: this.fallback_strategy == "financial"
+              output:
+                fallback:
+                  # Financial events: Payment DB -> Audit Log -> Local Buffer
+                  - processors:
+                      - log:
+                          message: "Attempting payment DB for: ${!this.event_id}"
+                    http:
+                      url: ${PAYMENT_DB_URL}/transactions
+                      verb: POST
+                      timeout: 3s
+
+                  - processors:
+                      - log:
+                          message: "Attempting audit log for: ${!this.event_id}"
+                    http:
+                      url: ${AUDIT_LOG_URL}/financial
+                      verb: POST
+                      timeout: 5s
+
+                  - file:
+                      path: /tmp/financial-buffer/${!timestamp_unix_date("2006-01-02")}/payments.jsonl
+
+            - check: this.fallback_strategy == "security"
+              output:
+                fallback:
+                  # Security events: SIEM -> Local Buffer -> Alert Channel
+                  - processors:
+                      - log:
+                          message: "Attempting SIEM for security event: ${!this.event_id}"
+                    http:
+                      url: ${SIEM_URL}/security-events  
+                      verb: POST
+                      timeout: 2s
+
+                  - file:
+                      path: /tmp/security-buffer/${!timestamp_unix_date("2006-01-02")}/security.jsonl
+
+                  - processors:
+                      - log:
+                          level: WARN
+                          message: "SECURITY ALERT BUFFERED: ${!this.event_type} - ${!this.event_id}"
+                    drop: {}
+
+      # Fallback for events that don't match specific strategies
+      - file:
+          path: /tmp/general-buffer/${!timestamp_unix_date("2006-01-02")}/general.jsonl
+```
+
+### Pattern 2: Resource-Aware Fallback
+
+Monitor resource usage and adjust fallback behavior:
+
+```yaml title="resource-aware-fallback.yaml"
+name: resource-aware-fallback
+description: Fallback system that monitors and responds to resource constraints
+type: pipeline  
+namespace: circuit-breaker-test
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8090
+      path: /resource-aware
+
+  pipeline:
+    processors:
+      # Check system resources before choosing fallback strategy
+      - mapping: |
+          root = this
+          
+          # Simulate resource checks (in production, would use actual metrics)
+          disk_usage_percent = 75    # 75% disk usage
+          memory_usage_percent = 60  # 60% memory usage
+          cpu_usage_percent = 80     # 80% CPU usage
+          
+          # Determine resource status
+          if disk_usage_percent > 90 {
+            root.disk_critical = true
+          } else if disk_usage_percent > 80 {
+            root.disk_warning = true
+          }
+          
+          if memory_usage_percent > 85 {
+            root.memory_critical = true
+          } else if memory_usage_percent > 70 {
+            root.memory_warning = true
+          }
+          
+          if cpu_usage_percent > 90 {
+            root.cpu_critical = true
+          } else if cpu_usage_percent > 80 {
+            root.cpu_warning = true
+          }
+
+          # Calculate resource health score
+          resource_health = 100 - ((disk_usage_percent + memory_usage_percent + cpu_usage_percent) / 3)
+          root.resource_health_score = resource_health
+
+      # Adapt fallback strategy based on resources
+      - mapping: |
+          root = this
+          
+          # Conservative strategy for low resources
+          if this.resource_health_score < 30 {
+            root.fallback_strategy = "emergency"
+            root.max_fallback_attempts = 2
+            root.prefer_external_storage = true
+          } 
+          # Moderate strategy for medium resources  
+          else if this.resource_health_score < 60 {
+            root.fallback_strategy = "conservative"
+            root.max_fallback_attempts = 3
+            root.prefer_external_storage = true
+          }
+          # Normal strategy for good resources
+          else {
+            root.fallback_strategy = "normal"
+            root.max_fallback_attempts = 5
+            root.prefer_external_storage = false
+          }
+
+  output:
+    switch:
+      cases:
+        # Emergency mode: Minimal local buffering
+        - check: this.fallback_strategy == "emergency"
+          output:
+            fallback:
+              # Try external systems only
+              - http:
+                  url: ${EXTERNAL_SERVICE_URL}/emergency
+                  verb: POST
+                  timeout: 3s
+                  retries: 1
+
+              # Drop if external fails (preserve resources)
+              - processors:
+                  - log:
+                      level: ERROR
+                      message: "EMERGENCY MODE: Dropping event ${!this.event_id} to preserve resources"
+                drop: {}
+
+        # Conservative mode: Limited local buffering
+        - check: this.fallback_strategy == "conservative"
+          output:
+            fallback:
+              - http:
+                  url: ${PRIMARY_SERVICE_URL}/events
+                  verb: POST
+                  timeout: 5s
+                  retries: 2
+
+              # Small local buffer only
+              - processors:
+                  - mapping: |
+                      # Limit buffer size when resources constrained
+                      root = this
+                      root.buffer_priority = "high_only"
+                file:
+                  path: /tmp/conservative-buffer/events.jsonl
+                  # Would add size limits in production
+
+        # Normal mode: Full fallback chain
+        - output:
+            fallback:
+              - http:
+                  url: ${PRIMARY_SERVICE_URL}/events
+                  verb: POST
+                  timeout: 8s
+                  retries: 3
+
+              - http:
+                  url: ${SECONDARY_SERVICE_URL}/events
+                  verb: POST
+                  timeout: 10s
+                  retries: 2
+
+              - file:
+                  path: /tmp/normal-buffer/${!timestamp_unix_date("2006-01-02")}/events.jsonl
+
+              - file:
+                  path: /tmp/dlq/${!timestamp_unix_date("2006-01-02")}/dlq.jsonl
+```
+
+### Pattern 3: Geographic Fallback for Edge Systems
+
+Implement location-aware fallback for distributed edge deployments:
+
+```yaml title="geographic-fallback.yaml" 
+name: geographic-fallback
+description: Location-aware fallback for distributed edge systems
+type: pipeline
+namespace: circuit-breaker-test
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8091
+      path: /geo-fallback
+
+  pipeline:
+    processors:
+      # Determine geographic location and available services
+      - mapping: |
+          root = this
+          
+          # Get location from environment or configuration
+          edge_region = env("EDGE_REGION") || "us-east-1"
+          edge_zone = env("EDGE_ZONE") || "zone-a"
+          
+          root.edge_location = {
+            "region": edge_region,
+            "zone": edge_zone,
+            "datacenter": edge_region + "-" + edge_zone
+          }
+          
+          # Define regional service endpoints
+          if edge_region == "us-east-1" {
+            root.regional_services = {
+              "primary": "https://us-east-1-primary.example.com",
+              "secondary": "https://us-east-1-secondary.example.com",
+              "cross_region": "https://us-west-2-backup.example.com"
+            }
+          } else if edge_region == "us-west-2" {
+            root.regional_services = {
+              "primary": "https://us-west-2-primary.example.com", 
+              "secondary": "https://us-west-2-secondary.example.com",
+              "cross_region": "https://us-east-1-backup.example.com"
+            }
+          } else {
+            root.regional_services = {
+              "primary": "https://global-primary.example.com",
+              "secondary": "https://global-secondary.example.com", 
+              "cross_region": "https://us-east-1-backup.example.com"
+            }
+          }
+
+  output:
+    fallback:
+      # Level 1: Local zone primary service
+      - processors:
+          - mapping: |
+              root = this
+              root.attempt_destination = "local_zone_primary"
+        http:
+          url: ${!this.regional_services.primary}/events
+          verb: POST
+          timeout: 5s
+          retries: 2
+          headers:
+            X-Edge-Region: ${!this.edge_location.region}
+            X-Edge-Zone: ${!this.edge_location.zone}
+
+      # Level 2: Local zone secondary service  
+      - processors:
+          - mapping: |
+              root = this
+              root.attempt_destination = "local_zone_secondary"
+        http:
+          url: ${!this.regional_services.secondary}/events
+          verb: POST
+          timeout: 8s
+          retries: 3
+
+      # Level 3: Cross-region service
+      - processors:
+          - mapping: |
+              root = this
+              root.attempt_destination = "cross_region"
+        http:
+          url: ${!this.regional_services.cross_region}/events
+          verb: POST
+          timeout: 15s  # Higher timeout for cross-region
+          retries: 5
+
+      # Level 4: Local edge storage
+      - processors:
+          - mapping: |
+              root = this
+              root.attempt_destination = "local_edge_storage"
+              root.requires_sync = true
+        file:
+          path: /var/expanso/edge-buffer/${!this.edge_location.region}/${!timestamp_unix_date("2006-01-02")}/events.jsonl
+
+      # Level 5: Emergency satellite uplink (simulate with log)
+      - processors:
+          - log:
+              level: WARN
+              message: "EDGE ISOLATION: Event ${!this.event_id} stored locally at ${!this.edge_location.datacenter}, awaiting connectivity restoration"
+          - mapping: |
+              root = this
+              root.attempt_destination = "emergency_storage"
+              root.manual_recovery_required = true
+        file:
+          path: /var/expanso/emergency/${!timestamp_unix_date("2006-01-02")}/emergency.jsonl
+```
+
+## Troubleshooting Multi-Level Fallback
+
+### Issue: Fallback Chain Not Executing
+
+**Symptoms:**
+- Events fail at first level and don't proceed to next
+- No logs showing fallback attempts
+- Pipeline reports success but events aren't processed
+
+**Diagnosis:**
+```bash
+# Check fallback configuration
+expanso get pipeline multi-level-fallback -o yaml | grep -A20 fallback
+
+# Check if try/catch blocks are preventing fallback
+expanso logs pipeline multi-level-fallback | grep -E "(try|catch|fallback)"
+```
+
+**Solutions:**
+
+1. **Ensure fallback output is configured correctly:**
+```yaml
+output:
+  fallback:  # Must be at output level, not processor level
+    - # Primary destination
+    - # Secondary destination
+```
+
+2. **Remove try/catch blocks that consume errors:**
+```yaml
+# WRONG: This prevents fallback
+- try:
+    - http:
+        url: ${PRIMARY_URL}
+  catch:
+    - mapping: |
+        root.failed = true  # Error consumed, won't trigger fallback
+
+# RIGHT: Let error bubble up to trigger fallback
+- http:
+    url: ${PRIMARY_URL}
+```
+
+### Issue: Local Buffer Disk Space Exhaustion
+
+**Symptoms:**
+- Pipeline fails when writing to local buffer
+- "No space left on device" errors
+- System becomes unresponsive
+
+**Diagnosis:**
+```bash
+# Check disk usage
+df -h /tmp
+
+# Check buffer directory sizes
+du -sh /tmp/expanso-*
+
+# Check for large files
+find /tmp -name "*.jsonl" -size +100M -ls
+```
+
+**Solutions:**
+
+1. **Implement buffer size limits:**
+```yaml
+file:
+  path: /tmp/buffer/events.jsonl
+  # Add size rotation (implementation depends on Expanso version)
+```
+
+2. **Add disk space monitoring:**
+```yaml
+processors:
+  - mapping: |
+      # Check available space before buffering
+      available_mb = 500  # Get from system metrics
+      if available_mb < 100 {
+        throw("insufficient disk space for buffering")
+      }
+```
+
+3. **Implement buffer cleanup:**
+```bash
+# Create cleanup script
+cat > cleanup-buffers.sh << 'EOF'
+#!/bin/bash
+find /tmp/expanso-* -name "*.jsonl" -mtime +7 -delete
+find /tmp/expanso-* -type d -empty -delete
+EOF
+
+# Schedule with cron
+echo "0 2 * * * /path/to/cleanup-buffers.sh" | crontab -
+```
+
+### Issue: Recovery Process Not Working
+
+**Symptoms:**
+- Buffered events not being processed when services recover
+- Old files accumulating in buffer directories
+- Duplicate processing of recovered events
+
+**Diagnosis:**
+```bash
+# Check if recovery processor is running
+expanso get pipeline recovery-processor
+
+# Check for buffered files
+ls -la /tmp/expanso-fallback-buffer/
+
+# Check recovery logs
+expanso logs pipeline recovery-processor
+```
+
+**Solutions:**
+
+1. **Ensure file scanner is configured correctly:**
+```yaml
+input:
+  file:
+    paths: ["/tmp/expanso-fallback-buffer/**/*.jsonl"]
+    scanner:
+      lines: {}
+    # Add file management
+    delete_on_finish: true  # Remove processed files
+```
+
+2. **Add duplicate detection:**
+```yaml
+processors:
+  - mapping: |
+      # Check if event already processed
+      root = content().parse_json()
+      root.recovery_id = uuid_v4()
+      
+  # Use cache to track processed events
+  - cache:
+      resource: processed_events
+      operator: get
+      key: ${!this.event_id}
+      
+  - switch:
+      cases:
+        - check: this.cached_data.exists()
+          processors:
+            - log:
+                level: INFO
+                message: "Skipping duplicate event: ${!this.event_id}"
+            drop: {}
+```
+
+## What You've Learned
+
+You've successfully implemented multi-level fallback systems that:
+
+✅ **Provide comprehensive failure protection** with 4-5 levels of fallback destinations
+✅ **Handle different event criticalities** with appropriate fallback strategies  
+✅ **Include intelligent routing** based on event content and system health
+✅ **Monitor resource usage** and adapt fallback behavior accordingly
+✅ **Support geographic distribution** with location-aware fallback
+✅ **Include recovery mechanisms** to process buffered events when services return
+✅ **Prevent data loss** even during major infrastructure outages
+
+The multi-level fallback system ensures your pipeline continues operating with graceful degradation, maintaining data integrity even when multiple systems fail simultaneously.
+
+---
+
+**Next:** [Step 4: Production Monitoring](./step-4-production-monitoring) - Add comprehensive monitoring, alerting, and observability for circuit breaker systems
