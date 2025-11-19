@@ -1,0 +1,52 @@
+name: Validate Stage Files
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+      - 'refactor/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'docs/**/*-full.stages.ts'
+      - 'scripts/validate-stages.ts'
+      - '.github/workflows/validate-stages.yml'
+
+jobs:
+  validate:
+    name: Validate Stage Files
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run stage validation
+        run: npm run validate-stages
+
+      - name: Comment on PR (if validation fails)
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '❌ **Stage file validation failed**\n\nPlease run `npm run validate-stages` locally to see the errors and fix them before merging.'
+            })
