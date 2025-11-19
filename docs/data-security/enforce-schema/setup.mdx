@@ -1,445 +1,535 @@
 ---
-title: Schema Enforcement - Setup Guide
-sidebar_label: Setup Guide
-sidebar_position: 3
-description: Set up your environment to build JSON Schema validation pipelines with DLQ routing
-keywords: [schema, validation, json-schema, dlq, dead-letter-queue, setup]
+title: Setup Environment for Schema Validation
+sidebar_label: Setup
+sidebar_position: 2
+description: Configure edge nodes, sample data, and deploy a shell schema validation pipeline
+keywords: [setup, environment, configuration, edge nodes, schema validation]
 ---
 
-# Setup Guide
+# Setup Environment for Schema Validation
 
-This guide will help you set up your environment to build JSON Schema validation pipelines with dead-letter queue (DLQ) routing for invalid events.
+Before building the complete schema validation solution, you'll set up edge nodes, prepare sample data, and deploy a minimal validation pipeline to verify your environment works.
 
 ## Prerequisites
 
-Before you begin, ensure you have:
+- ✅ Expanso platform installed and running ([Installation Guide](https://docs.expanso.io/getting-started/installation))
+- ✅ At least one edge node connected to orchestrator
+- ✅ Basic familiarity with JSON Schema format
+- ✅ `curl` and `jq` installed for testing
 
-- **Expanso CLI** - v1.0 or later
-- **Node.js** - v20 or later (for JSON Schema testing)
-- **jq** - For JSON manipulation and testing
-- **Text editor** - VS Code with JSON Schema support recommended
+## Step 1: Verify Edge Node Configuration
 
-## Installation
-
-### 1. Install Expanso CLI
+Confirm your edge nodes are properly configured for schema validation:
 
 ```bash
-curl -sSL https://install.expanso.io | sh
-expanso --version
+# Check edge node status
+expanso node list
+
+# Verify node labels for schema validation
+expanso node describe <NODE_ID> | grep -A 5 "labels"
 ```
 
-### 2. Install jq (for testing)
-
-**macOS:**
-```bash
-brew install jq
+**Expected output:**
+```
+NODE_ID                           STATUS    ROLE              LABELS
+edge-sensor-001                   ready     sensor-collector  validation=required
+edge-sensor-002                   ready     sensor-collector  validation=required
 ```
 
-**Linux:**
-```bash
-sudo apt-get install jq
-# or
-sudo yum install jq
-```
-
-### 3. Configure Environment
+If your nodes don't have the required labels, add them:
 
 ```bash
-export EXPANSO_ENDPOINT="https://api.expanso.io"
-export EXPANSO_API_KEY="your-api-key"
+# Add required labels to edge nodes
+expanso node label edge-sensor-001 role=sensor-collector validation=required
+expanso node label edge-sensor-002 role=sensor-collector validation=required
+
+# Verify labels were added
+expanso node describe edge-sensor-001 | grep validation
 ```
 
-## Project Setup
+## Step 2: Create Schema Directory on Edge Nodes
 
-### Create Project Directory
+Schema files need to be accessible to validation processors on each edge node:
 
 ```bash
-mkdir schema-enforcement
-cd schema-enforcement
+# Connect to each edge node and create schema directory
+for node in edge-sensor-001 edge-sensor-002; do
+  echo "Setting up schema directory on $node..."
+  
+  # Create directory for schema files
+  expanso node exec $node -- mkdir -p /etc/expanso/schemas
+  
+  # Set proper permissions
+  expanso node exec $node -- chmod 755 /etc/expanso/schemas
+  
+  # Verify directory exists
+  expanso node exec $node -- ls -ld /etc/expanso/schemas
+done
 ```
 
-### Create JSON Schema Definition
+**Expected output:**
+```
+Setting up schema directory on edge-sensor-001...
+drwxr-xr-x 2 expanso expanso 4096 Oct 20 14:30 /etc/expanso/schemas
 
-Create `user-event.schema.json`:
+Setting up schema directory on edge-sensor-002...
+drwxr-xr-x 2 expanso expanso 4096 Oct 20 14:30 /etc/expanso/schemas
+```
 
-```json
+## Step 3: Prepare Sample Sensor Data
+
+Create test data to verify schema validation works correctly:
+
+```bash
+# Create sample data directory
+mkdir -p /tmp/sensor-test-data
+
+# Create valid sensor reading
+cat > /tmp/sensor-test-data/valid-reading.json << 'EOF'
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
-  "required": ["user_id", "event_type", "timestamp"],
-  "properties": {
-    "user_id": {
-      "type": "string",
-      "pattern": "^[a-f0-9]{24}$",
-      "description": "MongoDB ObjectId format"
-    },
-    "event_type": {
-      "type": "string",
-      "enum": ["login", "logout", "purchase", "view"],
-      "description": "Allowed event types"
-    },
-    "timestamp": {
-      "type": "string",
-      "format": "date-time",
-      "description": "ISO 8601 timestamp"
-    },
-    "metadata": {
-      "type": "object",
-      "description": "Optional event metadata"
-    }
+  "sensor_id": "sensor-42",
+  "timestamp": "2025-10-20T14:30:00Z",
+  "location": {
+    "building": "warehouse-3",
+    "floor": 2,
+    "zone": "A"
   },
-  "additionalProperties": false
+  "readings": {
+    "temperature_celsius": 23.5,
+    "humidity_percent": 45.2
+  },
+  "metadata": {
+    "firmware_version": "2.1.0",
+    "battery_percent": 87
+  }
 }
+EOF
+
+# Create invalid sensor reading (missing required fields)
+cat > /tmp/sensor-test-data/invalid-reading-1.json << 'EOF'
+{
+  "sensor_id": "sensor-99",
+  "timestamp": "2025-10-20T14:30:00Z"
+}
+EOF
+
+# Create invalid sensor reading (wrong data types)
+cat > /tmp/sensor-test-data/invalid-reading-2.json << 'EOF'
+{
+  "sensor_id": "sensor-42",
+  "timestamp": "2025-10-20T14:30:00Z",
+  "location": {
+    "building": "warehouse-3",
+    "floor": "second floor",
+    "zone": "A"
+  },
+  "readings": {
+    "temperature_celsius": "twenty-three point five",
+    "humidity_percent": 45.2
+  },
+  "metadata": {
+    "firmware_version": "2.1.0",
+    "battery_percent": 87
+  }
+}
+EOF
+
+# Create invalid sensor reading (values out of range)
+cat > /tmp/sensor-test-data/invalid-reading-3.json << 'EOF'
+{
+  "sensor_id": "sensor-42",
+  "timestamp": "not-a-timestamp",
+  "location": {
+    "building": "warehouse-3",
+    "floor": 2,
+    "zone": "A"
+  },
+  "readings": {
+    "temperature_celsius": -500,
+    "humidity_percent": 150
+  },
+  "metadata": {
+    "firmware_version": "2.1.0",
+    "battery_percent": 87
+  }
+}
+EOF
+
+# Verify test data files
+echo "Test data files created:"
+ls -la /tmp/sensor-test-data/
+echo ""
+
+echo "Valid reading sample:"
+jq . /tmp/sensor-test-data/valid-reading.json
 ```
 
-### Create Pipeline Configuration
+## Step 4: Set Environment Variables
 
-Create `enforce-schema.yaml`:
+Configure endpoints for analytics and metrics collection:
 
-```yaml
-name: schema-enforcement-pipeline
-description: JSON Schema validation with DLQ routing
+```bash
+# Set up environment variables for pipeline configuration
+export ANALYTICS_ENDPOINT="http://localhost:9000"
+export METRICS_ENDPOINT="http://localhost:9001"
+export NODE_ID="edge-sensor-001"
+
+# Verify environment variables
+echo "Analytics endpoint: $ANALYTICS_ENDPOINT"
+echo "Metrics endpoint: $METRICS_ENDPOINT"
+echo "Node ID: $NODE_ID"
+
+# Make environment variables persistent
+cat >> ~/.bashrc << 'EOF'
+# Expanso Schema Validation Environment
+export ANALYTICS_ENDPOINT="http://localhost:9000"
+export METRICS_ENDPOINT="http://localhost:9001"
+export NODE_ID="edge-sensor-001"
+EOF
+
+# Apply environment variables to current session
+source ~/.bashrc
+```
+
+## Step 5: Deploy Shell Schema Validation Pipeline
+
+Before adding schema validation, deploy a minimal "shell" pipeline that accepts sensor readings without validation. This verifies your setup works.
+
+Create `shell-schema-validation.yaml`:
+
+```yaml title="shell-schema-validation.yaml"
+name: shell-sensor-validation
+description: Shell pipeline to test sensor data ingestion without validation
 type: pipeline
-namespace: default
+namespace: testing
 labels:
-  quality: data-validation
-  category: data-security
+  environment: testing
+  data-type: sensor-readings
+priority: 50
 
+# Deploy to edge nodes with validation labels
+selector:
+  match_labels:
+    role: sensor-collector
+    validation: required
+
+# Basic deployment strategy for testing
+deployment:
+  strategy: rolling
+  max_parallel: 1
+  health_check:
+    type: http
+    endpoint: /ping
+    interval: 30s
+
+# Simple pipeline without validation
 config:
+  # Accept sensor readings via HTTP
   input:
     http_server:
-      address: 0.0.0.0:8080
-      path: /events
-      allowed_verbs: [POST]
+      address: "0.0.0.0:8080"
+      path: /sensor/readings
+      allowed_verbs:
+        - POST
+      timeout: 5s
 
+  # Minimal processing - just add timestamp
   pipeline:
     processors:
-      # Validate against JSON Schema
-      - json_schema:
-          schema_path: "./user-event.schema.json"
-
-      # Catch validation errors and route to DLQ
-      - catch:
-          - mapping: |
-              root = {
-                "error": error(),
-                "original_event": this,
-                "failed_at": now(),
-                "validation": "schema_check_failed"
-              }
-
-          - http_client:
-              url: http://dlq.example.com/invalid-events
-              verb: POST
-              headers:
-                Content-Type: application/json
-
-          # Stop processing after DLQ routing
-          - mapping: 'root = deleted()'
-
-      # Add validation success metadata
       - mapping: |
-          root.validation = {
-            "validated_at": now(),
-            "schema_version": "1.0",
-            "status": "passed"
+          root = this
+          root.pipeline_metadata = {
+            "received_at": now(),
+            "node_id": env("NODE_ID").or("unknown"),
+            "status": "shell_mode"
           }
 
+  # Simple output to verify message flow
   output:
     http_client:
-      url: http://analytics.example.com/valid-events
+      url: "${ANALYTICS_ENDPOINT:http://localhost:9000}/test"
       verb: POST
       headers:
         Content-Type: application/json
+      max_retries: 1
+      timeout: 5s
 
+# Basic logging
 logger:
   level: INFO
+  format: json
 
+# Health check endpoint
 metrics:
   prometheus:
-    enabled: true
-    push_interval: 10s
+    path: /metrics
 ```
 
-## Testing Your Setup
-
-### 1. Validate Pipeline
+Deploy the shell pipeline:
 
 ```bash
-expanso validate enforce-schema.yaml
+# Deploy the shell pipeline
+expanso job deploy shell-schema-validation.yaml
+
+# Verify deployment
+expanso job status shell-sensor-validation
+
+# Wait for pipeline to start
+sleep 10
+
+# Check deployment status
+expanso job list | grep shell-sensor-validation
 ```
 
-### 2. Start Pipeline
-
-```bash
-expanso run enforce-schema.yaml
+**Expected output:**
+```
+Job: shell-sensor-validation
+Status: running
+Type: pipeline
+Executions:
+  - Node: edge-sensor-001
+    State: running
+    Since: 15 seconds ago
+    Health: healthy
 ```
 
-### 3. Test with Valid Event
+## Step 6: Test Shell Pipeline
+
+Verify the shell pipeline accepts and processes sensor readings:
 
 ```bash
-curl -X POST http://localhost:8080/events \
+# Test with valid sensor reading
+echo "Testing shell pipeline with valid data..."
+curl -X POST http://localhost:8080/sensor/readings \
+  -H "Content-Type: application/json" \
+  -d @/tmp/sensor-test-data/valid-reading.json
+
+# Check if request succeeded (should return 200)
+if [ $? -eq 0 ]; then
+  echo "✅ Shell pipeline accepting requests"
+else
+  echo "❌ Shell pipeline not responding"
+  exit 1
+fi
+
+# Test pipeline health endpoint
+echo "Testing pipeline health..."
+curl -s http://localhost:8080/ping
+
+# Check pipeline metrics
+echo "Checking pipeline metrics..."
+curl -s http://localhost:8080/metrics | grep -E "(pipeline_input|http_server)"
+```
+
+**Expected output:**
+```
+✅ Shell pipeline accepting requests
+{"status":"ok","uptime":"45s"}
+
+# pipeline_input_received 1
+# http_server_request_duration_seconds_count 1
+```
+
+## Step 7: Set Up Mock Analytics Endpoint
+
+Create a simple HTTP server to capture messages for testing:
+
+```bash
+# Start mock analytics endpoint in background
+echo "Starting mock analytics endpoint..."
+python3 -m http.server 9000 --bind localhost &
+ANALYTICS_PID=$!
+
+echo "Analytics endpoint PID: $ANALYTICS_PID"
+
+# Start mock metrics endpoint  
+python3 -m http.server 9001 --bind localhost &
+METRICS_PID=$!
+
+echo "Metrics endpoint PID: $METRICS_PID"
+
+# Test endpoints are responding
+sleep 2
+curl -s http://localhost:9000/ > /dev/null && echo "✅ Analytics endpoint ready"
+curl -s http://localhost:9001/ > /dev/null && echo "✅ Metrics endpoint ready"
+
+# Save PIDs for cleanup
+echo "export ANALYTICS_PID=$ANALYTICS_PID" >> ~/.bashrc
+echo "export METRICS_PID=$METRICS_PID" >> ~/.bashrc
+```
+
+## Step 8: Verify Shell Pipeline Works End-to-End
+
+Send a test message through the complete pipeline:
+
+```bash
+# Send valid sensor reading
+echo "Testing complete pipeline flow..."
+curl -X POST http://localhost:8080/sensor/readings \
   -H "Content-Type: application/json" \
   -d '{
-    "user_id": "507f1f77bcf86cd799439011",
-    "event_type": "login",
-    "timestamp": "2025-11-18T10:30:00Z",
-    "metadata": {
-      "ip": "192.168.1.1",
-      "user_agent": "Mozilla/5.0"
-    }
+    "sensor_id": "sensor-test",
+    "timestamp": "2025-10-20T10:00:00Z",
+    "location": {"building": "warehouse-1", "floor": 1, "zone": "A"},
+    "readings": {"temperature_celsius": 20.0, "humidity_percent": 50.0},
+    "metadata": {"firmware_version": "1.0.0", "battery_percent": 100}
   }'
+
+echo ""
+
+# Check pipeline processed the message
+echo "Checking pipeline metrics after test..."
+TOTAL_MESSAGES=$(curl -s http://localhost:8080/metrics | grep 'pipeline_input_received' | awk '{print $2}')
+echo "Total messages processed: $TOTAL_MESSAGES"
+
+if [ "$TOTAL_MESSAGES" -ge 1 ]; then
+  echo "✅ Shell pipeline processing messages successfully"
+else
+  echo "❌ Pipeline not processing messages"
+  exit 1
+fi
 ```
 
-**Expected:** Event passes validation, goes to analytics endpoint
+:::tip Success!
+If you see "Shell pipeline processing messages successfully", your environment is correctly configured!
 
-### 4. Test with Invalid Event
+**Next step:** [Define JSON Schema](./step-1-define-json-schema) to add comprehensive data validation.
+:::
+
+## Step 9: Verify Prerequisites for Schema Validation
+
+Before proceeding, verify all required components are ready:
 
 ```bash
-# Missing required field
-curl -X POST http://localhost:8080/events \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "507f1f77bcf86cd799439011",
-    "event_type": "login"
-  }'
+# Run this verification script
+echo "=== Schema Validation Setup Verification ==="
+echo ""
+
+# Check edge nodes
+echo "1. Edge Nodes:"
+expanso node list | grep -E "(sensor-collector|validation=required)" || echo "❌ No edge nodes with required labels"
+
+# Check schema directory
+echo ""
+echo "2. Schema Directory:"
+expanso node exec edge-sensor-001 -- ls -ld /etc/expanso/schemas 2>/dev/null && echo "✅ Schema directory exists" || echo "❌ Schema directory missing"
+
+# Check sample data
+echo ""
+echo "3. Sample Data:"
+[ -f /tmp/sensor-test-data/valid-reading.json ] && echo "✅ Sample data ready" || echo "❌ Sample data missing"
+
+# Check environment variables
+echo ""
+echo "4. Environment Variables:"
+[ -n "$ANALYTICS_ENDPOINT" ] && echo "✅ ANALYTICS_ENDPOINT set" || echo "❌ ANALYTICS_ENDPOINT not set"
+[ -n "$METRICS_ENDPOINT" ] && echo "✅ METRICS_ENDPOINT set" || echo "❌ METRICS_ENDPOINT not set"
+[ -n "$NODE_ID" ] && echo "✅ NODE_ID set" || echo "❌ NODE_ID not set"
+
+# Check shell pipeline
+echo ""
+echo "5. Shell Pipeline:"
+expanso job status shell-sensor-validation 2>/dev/null | grep -q "running" && echo "✅ Shell pipeline running" || echo "❌ Shell pipeline not running"
+
+# Check endpoints
+echo ""
+echo "6. Mock Endpoints:"
+curl -s http://localhost:9000/ > /dev/null && echo "✅ Analytics endpoint responding" || echo "❌ Analytics endpoint not responding"
+curl -s http://localhost:9001/ > /dev/null && echo "✅ Metrics endpoint responding" || echo "❌ Metrics endpoint not responding"
+
+echo ""
+echo "=== Setup Verification Complete ==="
 ```
 
-**Expected:** Event fails validation, routes to DLQ
+## Cleanup Commands (for reference)
+
+If you need to clean up the setup:
 
 ```bash
-# Invalid enum value
-curl -X POST http://localhost:8080/events \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "507f1f77bcf86cd799439011",
-    "event_type": "invalid_type",
-    "timestamp": "2025-11-18T10:30:00Z"
-  }'
-```
+# Stop shell pipeline
+expanso job delete shell-sensor-validation
 
-**Expected:** Event fails validation, routes to DLQ
+# Stop mock endpoints
+[ -n "$ANALYTICS_PID" ] && kill $ANALYTICS_PID
+[ -n "$METRICS_PID" ] && kill $METRICS_PID
 
-```bash
-# Invalid user_id format
-curl -X POST http://localhost:8080/events \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "not-a-valid-id",
-    "event_type": "login",
-    "timestamp": "2025-11-18T10:30:00Z"
-  }'
-```
+# Remove test data
+rm -rf /tmp/sensor-test-data
 
-**Expected:** Event fails validation, routes to DLQ
-
-## Configuration Options
-
-### Schema Validation Methods
-
-**1. Inline Schema:**
-```yaml
-processors:
-  - json_schema:
-      schema: |
-        {
-          "type": "object",
-          "required": ["user_id"]
-        }
-```
-
-**2. External Schema File:**
-```yaml
-processors:
-  - json_schema:
-      schema_path: "./schemas/user-event.json"
-```
-
-**3. Schema Registry:**
-```yaml
-processors:
-  - json_schema:
-      schema_url: "http://schema-registry.example.com/schemas/user-event/v1"
-```
-
-### DLQ Routing Options
-
-**File-based DLQ:**
-```yaml
-- catch:
-    - mapping: |
-        root = {
-          "error": error(),
-          "original_event": this,
-          "failed_at": now()
-        }
-    - file:
-        path: /data/dlq/invalid-${timestamp}.json
-        codec: lines
-```
-
-**Kafka DLQ:**
-```yaml
-- catch:
-    - kafka:
-        addresses: ["kafka:9092"]
-        topic: schema-validation-dlq
-```
-
-**HTTP DLQ with Retry:**
-```yaml
-- catch:
-    - http_client:
-        url: http://dlq.example.com/invalid
-        verb: POST
-        retry_period: 1s
-        max_retry_backoff: 300s
+# Remove schema directories from edge nodes
+for node in edge-sensor-001 edge-sensor-002; do
+  expanso node exec $node -- rm -rf /etc/expanso/schemas
+done
 ```
 
 ## Troubleshooting
 
-### Schema Validation Always Fails
+### Issue: Edge Nodes Not Listed
 
-**Problem:** All events routed to DLQ
-- **Solution:** Verify schema path is correct
-  ```bash
-  ls -la user-event.schema.json
-  # Ensure file exists and is readable
-  ```
+**Symptom:** `expanso node list` returns empty or nodes missing labels
 
-### Schema File Not Found
-
-**Problem:** `Error: schema file not found`
-- **Solution:** Use absolute path or relative to pipeline file
-  ```yaml
-  schema_path: "/absolute/path/to/schema.json"
-  # or
-  schema_path: "./relative/schema.json"
-  ```
-
-### DLQ Not Receiving Events
-
-**Problem:** Invalid events disappear
-- **Solution:** Check DLQ endpoint is reachable
-  ```bash
-  curl -X POST http://dlq.example.com/invalid-events \
-    -d '{"test": "event"}'
-  ```
-
-### Performance Issues
-
-**Problem:** Pipeline is slow
-- **Solution:** Cache schema in memory
-  ```yaml
-  processors:
-    - json_schema:
-        schema_path: "./schema.json"
-        cache_enabled: true
-  ```
-
-## Advanced Configuration
-
-### Multiple Schemas
-
-Validate different event types with different schemas:
-
-```yaml
-processors:
-  - switch:
-      - check: 'this.event_type == "user_event"'
-        processors:
-          - json_schema:
-              schema_path: "./schemas/user-event.json"
-
-      - check: 'this.event_type == "payment_event"'
-        processors:
-          - json_schema:
-              schema_path: "./schemas/payment-event.json"
-
-      - mapping: |
-          root = {
-            "error": "unknown_event_type",
-            "original": this
-          }
-```
-
-### Enriched Error Messages
-
-Add detailed validation errors:
-
-```yaml
-- catch:
-    - mapping: |
-        root = {
-          "error": error(),
-          "error_type": error().type(),
-          "validation_path": error().path(),
-          "original_event": this,
-          "failed_at": now(),
-          "pipeline": "schema-enforcement-v1"
-        }
-```
-
-### Metrics and Monitoring
-
-Track validation success/failure rates:
-
-```yaml
-metrics:
-  prometheus:
-    enabled: true
-    labels:
-      pipeline: schema-enforcement
-      environment: production
-```
-
-Query metrics:
+**Solution:**
 ```bash
-# Validation failure rate
-rate(schema_validation_failures[5m])
+# Check if orchestrator is running
+expanso cluster status
 
-# DLQ routing rate
-rate(dlq_events_total[5m])
+# Check edge node connection
+expanso node describe <NODE_ID>
+
+# Add missing labels
+expanso node label <NODE_ID> role=sensor-collector validation=required
 ```
 
-## Production Deployment
+### Issue: Shell Pipeline Not Starting
 
-### 1. Environment-specific Configuration
+**Symptom:** Pipeline status shows "failed" or "pending"
 
+**Solution:**
 ```bash
-# Development
-export DLQ_ENDPOINT="http://localhost:9000/dlq"
-export ANALYTICS_ENDPOINT="http://localhost:9001/analytics"
+# Check pipeline logs
+expanso job logs shell-sensor-validation
 
-# Production
-export DLQ_ENDPOINT="https://dlq.prod.example.com/invalid"
-export ANALYTICS_ENDPOINT="https://analytics.prod.example.com/valid"
+# Verify node selector matches labels
+expanso node list --show-labels | grep validation
+
+# Check for port conflicts
+expanso node exec <NODE_ID> -- netstat -ln | grep 8080
 ```
 
-### 2. Deploy Pipeline
+### Issue: Schema Directory Permission Denied
 
+**Symptom:** Cannot create schema directory on edge nodes
+
+**Solution:**
 ```bash
-expanso deploy enforce-schema.yaml --namespace production
-```
+# Check current user permissions
+expanso node exec <NODE_ID> -- whoami
 
-### 3. Monitor Validation Health
-
-```bash
-# Check DLQ volume
-expanso metrics schema-enforcement-pipeline | grep dlq
-
-# View recent errors
-expanso logs schema-enforcement-pipeline --filter "validation_failed"
+# Use sudo if needed
+expanso node exec <NODE_ID> -- sudo mkdir -p /etc/expanso/schemas
+expanso node exec <NODE_ID> -- sudo chown expanso:expanso /etc/expanso/schemas
 ```
 
 ## Next Steps
 
-Now that your environment is configured:
+With your environment set up and verified, you're ready to build the complete schema validation solution:
 
-1. [**Interactive Explorer**](./explorer) - See schema validation in action with live examples
-2. [**Back to Introduction**](./index) - Learn more about schema enforcement patterns
-3. [**View Complete Pipeline**](https://github.com/expanso/examples.expanso.io/tree/main/examples/data-security/enforce-schema.yaml) - Download the full configuration
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./step-1-define-json-schema" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Step 1: Define JSON Schema
+  </a>
+  <a href="./troubleshooting" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Troubleshooting Guide
+  </a>
+</div>
 
----
+## Summary
 
-**Continue:** [Explore the interactive demo](./explorer) to see schema enforcement step-by-step
+You've successfully:
+- ✅ Configured edge nodes with proper labels and schema directories
+- ✅ Created comprehensive test data for validation scenarios
+- ✅ Deployed and verified a shell pipeline for basic data flow
+- ✅ Set up mock endpoints for testing analytics and metrics
+- ✅ Verified the complete environment is ready for schema validation
+
+**Next:** [Define JSON Schema](./step-1-define-json-schema) to create comprehensive data validation rules.

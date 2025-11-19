@@ -1,0 +1,324 @@
+---
+title: "Step 1: Delete Payment Card Data"
+sidebar_label: "Step 1: Delete Payment"
+sidebar_position: 4
+description: Remove credit card numbers using the .without() function for PCI-DSS compliance
+keywords: [pci-dss, credit-card, delete, without, compliance, payment]
+---
+
+# Step 1: Delete Payment Card Data
+
+**Learn to remove high-risk PII** using Bloblang's `.without()` function. This is the most critical first step for PCI-DSS compliance.
+
+## The Concept: Field Deletion
+
+Some PII has **no analytics value** and creates **high compliance risk**. The best approach? Delete it completely.
+
+**Use deletion when:**
+- ✅ Data has no analytics value (e.g., full credit card numbers)
+- ✅ Storing it violates compliance (PCI-DSS Level 1 for card numbers)
+- ✅ Breach of this data would be catastrophic
+
+**Don't use deletion when:**
+- ❌ You need to preserve uniqueness for counting (use hashing instead)
+- ❌ You might need to decrypt it later (use encryption instead)
+- ❌ You need analytics value from the field (use generalization instead)
+
+## What We're Removing
+
+From this payment object:
+
+```json
+"payment_method": {
+  "type": "credit_card",
+  "full_number": "4532-1234-5678-9010",  // ❌ DELETE (PCI-DSS violation)
+  "expiry": "12/25",                     // ❌ DELETE (PCI-DSS violation)
+  "last_four": "9010"                    // ✅ KEEP (safe for analytics)
+}
+```
+
+We'll remove `full_number` and `expiry` while keeping `last_four` and `type`.
+
+## The Bloblang .without() Function
+
+**Syntax:**
+```
+object.without("field1", "field2", ...)
+```
+
+**Example:**
+```bloblang
+# Remove multiple fields from an object
+root.payment_method = this.payment_method.without(
+  "full_number",
+  "expiry"
+)
+```
+
+**Result:** A new object with specified fields removed. Original object unchanged (immutable).
+
+## Step-by-Step Implementation
+
+### 1. Create the Pipeline Configuration
+
+Create `step-1-delete-payment.yaml`:
+
+```yaml title="step-1-delete-payment.yaml"
+name: pii-step-1-delete-payment
+description: "Step 1: Remove credit card numbers (PCI-DSS)"
+type: pipeline
+namespace: default
+priority: 100
+
+config:
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /events/ingest
+      allowed_verbs: [POST]
+
+  pipeline:
+    processors:
+      # Processor 1: Delete payment PII
+      - mapping: |
+          # Copy entire event
+          root = this
+
+          # Remove credit card fields from payment_method object
+          # Keep type and last_four for analytics
+          root.payment_method = this.payment_method.without(
+            "full_number",
+            "expiry"
+          )
+
+  output:
+    file:
+      path: /var/log/expanso/step-1-output.jsonl
+      codec: lines
+
+logger:
+  level: INFO
+```
+
+### 2. Deploy the Pipeline
+
+```bash
+# Deploy to edge nodes
+expanso job deploy step-1-delete-payment.yaml
+
+# Verify deployment
+expanso job status pii-step-1-delete-payment
+```
+
+### 3. Test with Sample Data
+
+```bash
+# Send the sample event (contains credit card PII)
+curl -X POST http://localhost:8080/events/ingest \
+  -H "Content-Type: application/json" \
+  -d @sample-data.json
+
+# Check the output
+tail -1 /var/log/expanso/step-1-output.jsonl | jq .
+```
+
+### 4. Verify PII Removal
+
+**Expected output:**
+
+```json
+{
+  "event_id": "evt_20240115_1030",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "event_type": "purchase",
+  // ... other fields ...
+  "payment_method": {
+    "type": "credit_card",    // ✅ Kept
+    "last_four": "9010"       // ✅ Kept
+    // "full_number" deleted   ✅ Removed
+    // "expiry" deleted        ✅ Removed
+  }
+}
+```
+
+**Verification checklist:**
+- ✅ `full_number` field is **not present** in output
+- ✅ `expiry` field is **not present** in output
+- ✅ `type` field is **still present**
+- ✅ `last_four` field is **still present**
+- ✅ All other event fields unchanged
+
+## Why This Works for PCI-DSS
+
+### PCI-DSS Requirements
+
+The Payment Card Industry Data Security Standard (PCI-DSS) categorizes data:
+
+**Cardholder Data (must be protected):**
+- Primary Account Number (PAN) - the full card number
+- Cardholder Name
+- Expiration Date
+- Service Code
+
+**Sensitive Authentication Data (must NEVER be stored):**
+- Full magnetic stripe data
+- Card Validation Code (CVV/CVC)
+- PIN/PIN Block
+
+### What We're Doing
+
+By deleting `full_number` and `expiry`:
+- ✅ We're **not storing** Primary Account Number (PAN)
+- ✅ We're **not storing** Expiration Date
+- ✅ We drop from **PCI-DSS Level 1** to **out of scope**
+
+By keeping `last_four`:
+- ✅ Last 4 digits **not considered** full PAN under PCI-DSS
+- ✅ Useful for fraud detection ("multiple failed attempts on card ending in 9010")
+- ✅ Useful for payment method analytics ("30% of transactions use Visa")
+
+## Analytics Impact
+
+### Before (with PII):
+```json
+"payment_method": {
+  "type": "credit_card",
+  "full_number": "4532-1234-5678-9010",
+  "expiry": "12/25",
+  "last_four": "9010"
+}
+```
+
+**Analytics queries you CANNOT run:**
+- ❌ Identify individual cardholders
+- ❌ Track purchases by specific card number
+- ❌ Re-run failed transactions with stored card
+
+### After (PII removed):
+```json
+"payment_method": {
+  "type": "credit_card",
+  "last_four": "9010"
+}
+```
+
+**Analytics queries you CAN still run:**
+- ✅ Payment method distribution (credit vs debit)
+- ✅ Fraud pattern detection (multiple failures on same last_four)
+- ✅ Payment type trends over time
+- ✅ Failed transaction analysis by card type
+
+## Common Variations
+
+### Variation 1: Keep Card Type Only
+
+If you don't need `last_four` for fraud detection:
+
+```yaml
+- mapping: |
+    root = this
+
+    # Keep only the payment type
+    root.payment_method = {
+      "type": this.payment_method.type
+    }
+```
+
+### Variation 2: Delete Entire Payment Object
+
+If payment data has no analytics value at all:
+
+```yaml
+- mapping: |
+    root = this
+
+    # Remove entire payment_method object
+    root = this.without("payment_method")
+```
+
+### Variation 3: Mask Instead of Delete
+
+If you need to preserve structure for downstream systems:
+
+```yaml
+- mapping: |
+    root = this
+
+    # Replace with masked values
+    root.payment_method.full_number = "****-****-****-" + this.payment_method.last_four
+    root.payment_method.expiry = "**/**"
+```
+
+## Troubleshooting
+
+### Issue: Output still contains full_number
+
+**Cause:** Processor not applied or incorrect field path
+
+**Debug:**
+```bash
+# Check processor is in the pipeline
+expanso job inspect pii-step-1-delete-payment | grep -A 5 "processors"
+
+# Check logs for mapping errors
+expanso job logs pii-step-1-delete-payment --tail 50 | grep -i error
+```
+
+### Issue: Entire payment_method object missing
+
+**Cause:** Using `.without()` on root instead of nested object
+
+**Wrong:**
+```yaml
+root = this.without("payment_method.full_number")  # ❌ Doesn't work
+```
+
+**Correct:**
+```yaml
+root.payment_method = this.payment_method.without("full_number")  # ✅
+```
+
+### Issue: Other fields also deleted
+
+**Cause:** Overwriting root after deletion
+
+**Wrong:**
+```yaml
+root.payment_method = this.payment_method.without("full_number")
+root = this  # ❌ This resets all changes!
+```
+
+**Correct:**
+```yaml
+root = this  # Copy first
+root.payment_method = this.payment_method.without("full_number")  # Then modify
+```
+
+## Key Takeaways
+
+✅ **Use `.without()`** to delete fields with no analytics value
+✅ **Delete high-risk PII first** (credit cards) before other techniques
+✅ **Keep analytics-safe fields** (last_four, type) for fraud detection
+✅ **Test thoroughly** to verify fields are actually removed
+✅ **PCI-DSS compliance** achieved by not storing full PAN
+
+## Next Step
+
+Now that you've removed the highest-risk PII (credit cards), move to the next technique: **hashing**.
+
+<div className="margin-top--lg margin-bottom--lg">
+  <a href="./step-2-hash-ip-address" className="button button--primary button--lg">
+    Step 2: Hash IP Address →
+  </a>
+</div>
+
+### Or Jump Ahead:
+- [**Step 3: Hash Email**](./step-3-hash-email)
+- [**Step 4: Pseudonymize User**](./step-4-pseudonymize-user)
+- [**Step 5: Generalize Location**](./step-5-generalize-location)
+- [**Complete Pipeline**](./complete-pipeline)
+
+### Related Resources:
+- [**Interactive Explorer**](./explorer) - See this transformation visually
+- [**Bloblang Mapping Reference**](https://docs.expanso.io/components/processors/mapping) - Full language guide
+- [**Delete Payment PII (Standalone)**](../delete-payment-pii) - Simpler focused example

@@ -1,0 +1,96 @@
+---
+title: Interactive Circuit Breaker Explorer
+sidebar_label: Interactive Explorer
+sidebar_position: 2
+description: Explore 4 stages of circuit breaker protection with live before/after comparisons
+keywords: [circuit-breaker, retry, failure-handling, fallback, reliability, resilience, interactive]
+---
+
+import DataPipelineExplorer from '@site/src/components/DataPipelineExplorer';
+import { circuitBreakerStages } from '../circuit-breakers-full.stages';
+
+# Interactive Circuit Breaker Explorer
+
+**See circuit breaker protection in action!** Use the interactive explorer below to step through 4 stages of resilience patterns. Watch how circuit breakers transform cascading failures into graceful degradation.
+
+## How to Use This Explorer
+
+1. **Navigate** using arrow keys (← →) or click the numbered stage buttons
+2. **Compare** the Input (left) and Output (right) showing failure handling at each stage
+3. **Observe** how circuit breakers prevent resource exhaustion (highlighted in green)
+4. **Inspect** the YAML code showing exactly what protection was added
+5. **Learn** from the stage description explaining the resilience benefit
+
+## Interactive Circuit Breaker Explorer
+
+<DataPipelineExplorer
+  stages={circuitBreakerStages}
+  title="CIRCUIT BREAKER PATTERNS"
+  subtitle="4-Stage Resilience Implementation"
+/>
+
+## Understanding the Stages
+
+### Stage 1: No Circuit Breakers
+Without protection, a failing API causes infinite retries, resource exhaustion, and pipeline crashes. Requests pile up waiting for timeouts that may never complete.
+
+### Stage 2: HTTP Circuit Breakers
+Fast timeouts (5s) with exponential backoff prevent infinite waiting. Circuit opens after 3 failures, failing fast and protecting resources while the service recovers.
+
+### Stage 3: Database Circuit Breakers
+Connection pool limits and query timeouts prevent database connection exhaustion. The pipeline continues processing with fallback values during database outages.
+
+### Stage 4: Multi-Level Fallback
+Cascade through Primary → Secondary → Local Buffer → DLQ for 99.9%+ availability. Never lose data even when all remote services are down.
+
+## What You've Learned
+
+After exploring all 4 stages, you now understand:
+
+✅ **Fast failure** - How timeouts prevent resource exhaustion
+
+✅ **Retry strategies** - How exponential backoff balances recovery and protection
+
+✅ **Circuit opening** - How to stop retrying when services are down
+
+✅ **Fallback chains** - How to maintain availability during outages
+
+## Try It Yourself
+
+Ready to build resilient circuit breaker protection? Follow the step-by-step tutorial:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./setup" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Start Tutorial
+  </a>
+  <a href="./complete-circuit-breakers" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Download Complete Solution
+  </a>
+</div>
+
+## Deep Dive into Each Step
+
+Want to understand each circuit breaker technique in depth?
+
+- [**Step 1: HTTP Circuit Breakers**](./step-1-http-circuit-breakers) - Protect against API failures with fast timeouts
+- [**Step 2: Database Circuit Breakers**](./step-2-database-circuit-breakers) - Prevent connection pool exhaustion
+- [**Step 3: Multi-Level Fallback**](./step-3-multi-level-fallback) - Build high-availability fallback chains
+- [**Step 4: Production Monitoring**](./step-4-production-monitoring) - Monitor circuit breaker metrics
+
+## Common Questions
+
+### Why fail fast instead of retrying forever?
+Infinite retries consume memory and CPU waiting for operations that will never succeed. Fast failure (5s timeout) releases resources immediately and allows the pipeline to continue processing other messages.
+
+### How do I know when to open the circuit?
+Typically after 3-5 consecutive failures within a time window. This prevents wasting resources on a service that's clearly down while allowing occasional failures from transient issues.
+
+### What's the recovery process?
+After the circuit opens, it enters a "half-open" state after a cooldown period (e.g., 60s). If the next request succeeds, the circuit closes. If it fails, the circuit stays open and cooldown resets.
+
+### How do fallback chains prevent data loss?
+Each level in the cascade has progressively more reliability: Remote API → Local Buffer → Dead Letter Queue. Even if all remote services fail, data is buffered locally and can be replayed when services recover.
+
+---
+
+**Next:** [Set up your environment](./setup) to build circuit breaker protection yourself

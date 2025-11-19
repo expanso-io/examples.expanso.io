@@ -1,0 +1,524 @@
+---
+title: Setup Environment for Fan-Out Pattern
+sidebar_label: Setup
+sidebar_position: 3
+description: Configure environment variables, cloud services, and deploy a shell multi-destination pipeline
+keywords: [setup, environment, configuration, deployment, kafka, s3, elasticsearch]
+---
+
+# Setup Environment for Fan-Out Pattern
+
+Before building the multi-destination pipeline, you'll set up cloud service credentials, edge node configuration, and deploy a minimal shell pipeline to verify connectivity.
+
+## Prerequisites
+
+- ✅ Expanso platform installed ([Installation Guide](https://docs.expanso.io/installation))
+- ✅ Edge node connected to orchestrator
+- ✅ Cloud service accounts (AWS, Kafka cluster, Elasticsearch cluster)
+- ✅ Basic familiarity with YAML pipeline configuration
+
+## Step 1: Configure Environment Variables
+
+Set up credentials for all destination services. These will be used across all fan-out destinations.
+
+Create `.env` file in your working directory:
+
+```bash title="Create environment configuration"
+# Create secure environment file
+cat > .env << 'EOF'
+# Kafka Configuration
+KAFKA_USERNAME=your-kafka-username
+KAFKA_PASSWORD=your-kafka-password
+KAFKA_BROKER_1=kafka-1.your-cluster.com:9092
+KAFKA_BROKER_2=kafka-2.your-cluster.com:9092
+KAFKA_BROKER_3=kafka-3.your-cluster.com:9092
+
+# AWS S3 Configuration  
+AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+AWS_REGION=us-west-2
+S3_BUCKET=your-sensor-data-archive
+
+# Elasticsearch Configuration
+ES_USERNAME=your-elasticsearch-username
+ES_PASSWORD=your-elasticsearch-password
+ES_ENDPOINT_1=https://es-1.your-cluster.com:9200
+ES_ENDPOINT_2=https://es-2.your-cluster.com:9200
+ES_ENDPOINT_3=https://es-3.your-cluster.com:9200
+
+# Edge Node Configuration
+NODE_ID=edge-node-01
+NODE_LOCATION=factory-floor-west
+EOF
+
+# Secure the environment file
+chmod 600 .env
+```
+
+**Security Note:** Never commit `.env` files to version control. Use your orchestrator's secret management for production deployments.
+
+## Step 2: Verify Cloud Service Connectivity
+
+Before proceeding, verify your edge node can reach all destination services.
+
+**Test Kafka connectivity:**
+
+```bash
+# Install kafka tools if needed
+curl -O https://downloads.apache.org/kafka/2.8.1/kafka_2.13-2.8.1.tgz
+tar xzf kafka_2.13-2.8.1.tgz
+
+# Test Kafka connection (replace with your broker details)
+kafka_2.13-2.8.1/bin/kafka-broker-api-versions.sh \
+  --bootstrap-server $KAFKA_BROKER_1 \
+  --command-config <(echo -e "security.protocol=SASL_SSL\nsasl.mechanism=SCRAM-SHA-512\nsasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username=\"$KAFKA_USERNAME\" password=\"$KAFKA_PASSWORD\";")
+```
+
+**Expected output:** List of API versions if successful.
+
+**Test AWS S3 connectivity:**
+
+```bash
+# Install AWS CLI if needed
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install
+
+# Configure credentials
+export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+
+# Test S3 access
+aws s3 ls s3://$S3_BUCKET/ --region $AWS_REGION
+```
+
+**Expected output:** Bucket listing (may be empty) if successful.
+
+**Test Elasticsearch connectivity:**
+
+```bash
+# Test Elasticsearch connection
+curl -X GET "$ES_ENDPOINT_1/_cluster/health" \
+  -u "$ES_USERNAME:$ES_PASSWORD" \
+  -H "Content-Type: application/json"
+```
+
+**Expected output:** Cluster health JSON response.
+
+## Step 3: Create Sample Data Generator
+
+Create a simple data generator to test your pipeline with realistic sensor data.
+
+```bash title="Create test data generator"
+cat > generate-test-data.sh << 'EOF'
+#!/bin/bash
+
+# Generate realistic sensor events for testing
+ENDPOINT=${1:-http://localhost:8080/events}
+COUNT=${2:-10}
+
+echo "Generating $COUNT test events to $ENDPOINT..."
+
+for i in $(seq 1 $COUNT); do
+  TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  TEMP=$(echo "scale=1; 18 + $RANDOM % 20" | bc)
+  HUMIDITY=$(echo "scale=1; 30 + $RANDOM % 40" | bc)
+  
+  EVENT_JSON=$(cat <<JSON
+{
+  "event_id": "test-$(date +%s)-$i",
+  "sensor_id": "sensor-$(($i % 5 + 1))",
+  "timestamp": "$TIMESTAMP",
+  "temperature": $TEMP,
+  "humidity": $HUMIDITY,
+  "device_type": "environmental_sensor",
+  "location": {
+    "building": "factory-A",
+    "floor": 1,
+    "zone": "production-west"
+  },
+  "metadata": {
+    "firmware_version": "1.2.3",
+    "battery_level": $(($RANDOM % 100))
+  }
+}
+JSON
+)
+
+  echo "Sending event $i..."
+  curl -s -X POST "$ENDPOINT" \
+    -H "Content-Type: application/json" \
+    -d "$EVENT_JSON" | jq '.'
+  
+  sleep 1
+done
+
+echo "Generated $COUNT test events successfully!"
+EOF
+
+chmod +x generate-test-data.sh
+```
+
+## Step 4: Deploy Shell Multi-Destination Pipeline
+
+Before adding complex routing, deploy a minimal "shell" pipeline that just accepts events and sends them to a single local file destination. This verifies your setup works.
+
+Create `shell-fan-out-pipeline.yaml`:
+
+```yaml title="shell-fan-out-pipeline.yaml"
+name: shell-fan-out-pipeline
+description: Minimal pipeline for testing fan-out setup
+type: pipeline
+namespace: development
+labels:
+  environment: development
+  pattern: fan-out-shell
+
+config:
+  # Input: HTTP server for receiving test events
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+      timeout: 5s
+      
+      # Rate limiting to prevent abuse
+      rate_limit: "1000/s"
+      
+      # Enable CORS for web testing
+      cors:
+        enabled: true
+        allowed_origins: ["*"]
+
+  # Basic processing: Add edge node context
+  pipeline:
+    processors:
+      # Add edge metadata to all events
+      - mapping: |
+          root = this
+          root.edge_node_id = env("NODE_ID").or("unknown")
+          root.edge_location = env("NODE_LOCATION").or("unknown") 
+          root.processing_timestamp = now()
+          root.pipeline_version = "shell-v1"
+
+      # Validate essential fields exist
+      - mapping: |
+          # Ensure critical fields exist for downstream processing
+          if !this.exists("event_id") {
+            throw("missing required field: event_id")
+          }
+          if !this.exists("timestamp") {
+            throw("missing required field: timestamp")
+          }
+          root = this
+
+  # Shell output: Just write to local file to test basic flow
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # Single local file destination for testing
+        - file:
+            path: /tmp/expanso-test-events-${!timestamp_unix_date("2006-01-02")}.jsonl
+            codec: lines
+            
+            # Small batches for testing
+            batching:
+              count: 10
+              period: 5s
+```
+
+Deploy the shell pipeline:
+
+```bash title="Deploy shell pipeline"
+# Deploy the shell pipeline
+source .env
+expanso job deploy shell-fan-out-pipeline.yaml
+
+# Verify deployment status
+expanso job status shell-fan-out-pipeline
+```
+
+**Expected output:**
+```
+Job: shell-fan-out-pipeline
+Status: Running
+Health: Healthy
+Replicas: 1/1 ready
+```
+
+## Step 5: Test Shell Pipeline
+
+Test the shell pipeline to ensure basic data flow works before adding complex destinations.
+
+```bash title="Test shell pipeline"
+# Generate test events
+./generate-test-data.sh http://localhost:8080/events 5
+
+# Check the output file was created
+ls -la /tmp/expanso-test-events-*.jsonl
+
+# Verify events were processed correctly
+tail -5 /tmp/expanso-test-events-*.jsonl | jq '.'
+```
+
+**Expected output:** JSON events with edge metadata added:
+```json
+{
+  "event_id": "test-1705747200-1",
+  "sensor_id": "sensor-1",
+  "timestamp": "2025-01-20T10:00:00Z",
+  "temperature": 23.5,
+  "humidity": 45.2,
+  "device_type": "environmental_sensor",
+  "edge_node_id": "edge-node-01",
+  "edge_location": "factory-floor-west", 
+  "processing_timestamp": "2025-01-20T10:00:01.234Z",
+  "pipeline_version": "shell-v1"
+}
+```
+
+:::tip Success!
+If you see events with edge metadata in the output file, your environment is correctly configured!
+
+**Next step:** Add real destinations to create the full fan-out pattern
+:::
+
+## Step 6: Verify Service Prerequisites
+
+Before proceeding to multi-destination setup, verify all required cloud services are ready:
+
+```bash title="Verify all services are ready"
+# Create verification script
+cat > verify-services.sh << 'EOF'
+#!/bin/bash
+set -e
+
+echo "🔍 Verifying fan-out setup prerequisites..."
+
+# Source environment
+source .env
+
+# Test Kafka
+echo "📡 Testing Kafka connectivity..."
+if kafka_2.13-2.8.1/bin/kafka-broker-api-versions.sh \
+    --bootstrap-server $KAFKA_BROKER_1 \
+    --command-config <(echo -e "security.protocol=SASL_SSL\nsasl.mechanism=SCRAM-SHA-512\nsasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username=\"$KAFKA_USERNAME\" password=\"$KAFKA_PASSWORD\";") \
+    --timeout-ms 5000 &>/dev/null; then
+  echo "✅ Kafka connectivity OK"
+else
+  echo "❌ Kafka connectivity FAILED"
+  exit 1
+fi
+
+# Test S3
+echo "📦 Testing S3 connectivity..."
+if aws s3 ls s3://$S3_BUCKET/ --region $AWS_REGION &>/dev/null; then
+  echo "✅ S3 connectivity OK"
+else
+  echo "❌ S3 connectivity FAILED"
+  exit 1
+fi
+
+# Test Elasticsearch
+echo "🔍 Testing Elasticsearch connectivity..."
+if curl -s -X GET "$ES_ENDPOINT_1/_cluster/health" \
+    -u "$ES_USERNAME:$ES_PASSWORD" | grep -q '"status":"green\|yellow"'; then
+  echo "✅ Elasticsearch connectivity OK"
+else
+  echo "❌ Elasticsearch connectivity FAILED"
+  exit 1
+fi
+
+# Test edge node
+echo "🏭 Testing edge node pipeline..."
+if expanso job status shell-fan-out-pipeline | grep -q "Running"; then
+  echo "✅ Shell pipeline running OK"
+else
+  echo "❌ Shell pipeline not running"
+  exit 1
+fi
+
+echo ""
+echo "🎉 All prerequisites verified successfully!"
+echo "Ready to proceed with multi-destination fan-out pattern implementation."
+EOF
+
+chmod +x verify-services.sh
+
+# Run verification
+./verify-services.sh
+```
+
+## Step 7: Prepare Topic and Index
+
+Create required Kafka topics and Elasticsearch indices for the destinations.
+
+**Create Kafka topic:**
+
+```bash title="Create Kafka topic"
+# Create sensor-events topic with appropriate partitioning
+kafka_2.13-2.8.1/bin/kafka-topics.sh \
+  --bootstrap-server $KAFKA_BROKER_1 \
+  --command-config <(echo -e "security.protocol=SASL_SSL\nsasl.mechanism=SCRAM-SHA-512\nsasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username=\"$KAFKA_USERNAME\" password=\"$KAFKA_PASSWORD\";") \
+  --topic sensor-events \
+  --create \
+  --partitions 6 \
+  --replication-factor 3
+
+# Verify topic creation
+kafka_2.13-2.8.1/bin/kafka-topics.sh \
+  --bootstrap-server $KAFKA_BROKER_1 \
+  --command-config <(echo -e "security.protocol=SASL_SSL\nsasl.mechanism=SCRAM-SHA-512\nsasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username=\"$KAFKA_USERNAME\" password=\"$KAFKA_PASSWORD\";") \
+  --topic sensor-events \
+  --describe
+```
+
+**Create Elasticsearch index template:**
+
+```bash title="Create Elasticsearch index template"
+# Create index template for daily sensor event indices
+curl -X PUT "$ES_ENDPOINT_1/_index_template/sensor-events" \
+  -u "$ES_USERNAME:$ES_PASSWORD" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "index_patterns": ["sensor-events-*"],
+    "template": {
+      "settings": {
+        "number_of_shards": 3,
+        "number_of_replicas": 1,
+        "index.codec": "best_compression"
+      },
+      "mappings": {
+        "properties": {
+          "event_id": {"type": "keyword"},
+          "sensor_id": {"type": "keyword"},
+          "timestamp": {"type": "date"},
+          "processing_timestamp": {"type": "date"},
+          "temperature": {"type": "float"},
+          "humidity": {"type": "float"},
+          "edge_node_id": {"type": "keyword"},
+          "edge_location": {"type": "keyword"},
+          "device_type": {"type": "keyword"},
+          "location": {
+            "properties": {
+              "building": {"type": "keyword"},
+              "floor": {"type": "integer"},
+              "zone": {"type": "keyword"}
+            }
+          }
+        }
+      }
+    }
+  }'
+
+# Verify template creation
+curl -X GET "$ES_ENDPOINT_1/_index_template/sensor-events" \
+  -u "$ES_USERNAME:$ES_PASSWORD"
+```
+
+## Common Setup Issues
+
+### Issue: Kafka Authentication Failures
+
+**Symptom:** Connection refused or authentication errors when testing Kafka.
+
+**Solutions:**
+
+1. **Verify SASL mechanism** matches your cluster:
+```bash
+# Common mechanisms: PLAIN, SCRAM-SHA-256, SCRAM-SHA-512
+# Check with your Kafka administrator
+```
+
+2. **Check security protocol**:
+```bash
+# For SSL clusters: SASL_SSL
+# For non-SSL clusters: SASL_PLAINTEXT  
+```
+
+3. **Validate credentials format**:
+```bash
+# Ensure no extra spaces or special characters
+echo "Username: '$KAFKA_USERNAME'"
+echo "Password length: ${#KAFKA_PASSWORD}"
+```
+
+### Issue: S3 Permissions Errors
+
+**Symptom:** Access denied when testing S3 bucket access.
+
+**Solutions:**
+
+1. **Check IAM permissions**:
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::your-sensor-data-archive",
+        "arn:aws:s3:::your-sensor-data-archive/*"
+      ]
+    }
+  ]
+}
+```
+
+2. **Verify bucket region**:
+```bash
+aws s3api get-bucket-location --bucket $S3_BUCKET
+```
+
+### Issue: Elasticsearch Connection Timeouts
+
+**Symptom:** Curl commands to Elasticsearch time out or return connection errors.
+
+**Solutions:**
+
+1. **Check network connectivity**:
+```bash
+# Test basic connectivity
+telnet your-es-host 9200
+```
+
+2. **Verify TLS settings**:
+```bash
+# For self-signed certificates, add --insecure
+curl --insecure -X GET "$ES_ENDPOINT_1/_cluster/health"
+```
+
+3. **Test different endpoints**:
+```bash
+# Try all configured endpoints
+for endpoint in $ES_ENDPOINT_1 $ES_ENDPOINT_2 $ES_ENDPOINT_3; do
+  echo "Testing $endpoint..."
+  curl -s -X GET "$endpoint/_cluster/health" -u "$ES_USERNAME:$ES_PASSWORD" | jq '.status'
+done
+```
+
+## Next Steps
+
+✅ **Setup Complete!** Your environment is now configured for multi-destination fan-out pattern.
+
+**Ready to add destinations?** Continue with the step-by-step tutorial:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./step-1-configure-broker" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Step 1: Configure Broker
+  </a>
+  <a href="./complete-fan-out-pipeline" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Skip to Complete Pipeline
+  </a>
+</div>
+
+---
+
+**Next:** [Configure the broker foundation](./step-1-configure-broker) for fan-out routing

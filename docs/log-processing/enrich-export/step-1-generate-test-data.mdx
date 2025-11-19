@@ -1,0 +1,551 @@
+---
+title: Step 1 - Generate Test Data
+sidebar_label: Step 1 - Generate Test Data
+sidebar_position: 4
+description: Set up synthetic log generation for testing log enrichment pipeline development
+keywords: [generate, synthetic-data, testing, log-generation, development]
+---
+
+# Step 1: Generate Test Data
+
+Learn how to create realistic synthetic log data for developing and testing your log enrichment pipeline. This foundation step sets up consistent, controllable data generation that simulates real application logs.
+
+## What You'll Build
+
+In this step, you'll create a log generator that produces realistic application logs with:
+
+- Unique event IDs and request tracking
+- Realistic timestamps and log levels
+- Service identification and user context
+- Variable message content and severity levels
+- Controlled generation rates for testing
+
+## Why Start with Generated Data?
+
+**Consistency:** Generated data provides predictable patterns for testing transformations
+**Control:** Adjust message rates, formats, and content to test different scenarios  
+**Safety:** Develop without exposing real user data or production logs
+**Scalability:** Test high-volume scenarios without impacting production systems
+
+## The Base Log Structure
+
+We'll generate logs that match common application logging patterns:
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "level": "INFO",
+  "service": "demo-service",
+  "message": "Demo log message from edge",
+  "user_id": "user_123",
+  "request_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+}
+```
+
+## Implementation
+
+### Basic Log Generator
+
+Start with a simple generator that produces logs every 2 seconds:
+
+```yaml title="step1-basic-generator.yaml"
+input:
+  generate:
+    interval: 2s
+    mapping: |
+      root.id = uuid_v4()
+      root.timestamp = now()
+      root.level = "INFO"
+      root.service = "demo-service"
+      root.message = "Demo log message from edge"
+      root.user_id = "user_123"
+      root.request_id = uuid_v4()
+
+output:
+  stdout: {}
+```
+
+Deploy and test this basic generator:
+
+```bash
+# Deploy the basic generator
+expanso pipeline deploy step1-basic-generator.yaml --name basic-generator
+
+# Watch the output
+expanso pipeline logs basic-generator --follow --lines 10
+```
+
+**Expected output:**
+```json
+{"id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","timestamp":"2024-01-15T10:30:00Z","level":"INFO","service":"demo-service","message":"Demo log message from edge","user_id":"user_123","request_id":"b2c3d4e5-f6a7-8901-bcde-f12345678901"}
+```
+
+### Enhanced Generator with Variety
+
+Add realistic variation to make logs more representative of real applications:
+
+```yaml title="step1-varied-generator.yaml"
+input:
+  generate:
+    interval: 1s
+    mapping: |
+      # Basic event identification
+      root.id = uuid_v4()
+      root.timestamp = now()
+      root.request_id = uuid_v4()
+      
+      # Vary log levels with realistic distribution
+      root.level = [
+        "INFO", "INFO", "INFO", "INFO", "INFO",     # 50% INFO
+        "WARN", "WARN",                             # 20% WARN  
+        "ERROR",                                    # 10% ERROR
+        "DEBUG", "DEBUG"                            # 20% DEBUG
+      ].index(random_int() % 10)
+      
+      # Rotate between different services
+      let services = ["auth-service", "payment-service", "user-service", "notification-service"]
+      root.service = $services.index(random_int() % $services.length())
+      
+      # Generate varied messages based on service and level
+      root.message = match {
+        this.service == "auth-service" && this.level == "INFO" => "User authentication successful"
+        this.service == "auth-service" && this.level == "WARN" => "Failed login attempt detected"
+        this.service == "auth-service" && this.level == "ERROR" => "Authentication service timeout"
+        this.service == "payment-service" && this.level == "INFO" => "Payment processed successfully"
+        this.service == "payment-service" && this.level == "WARN" => "Payment processing delayed"
+        this.service == "payment-service" && this.level == "ERROR" => "Payment gateway connection failed"
+        this.service == "user-service" && this.level == "INFO" => "User profile updated"
+        this.service == "user-service" && this.level == "WARN" => "Profile validation warning"
+        this.service == "user-service" && this.level == "ERROR" => "Database connection error"
+        this.service == "notification-service" && this.level == "INFO" => "Email notification sent"
+        this.service == "notification-service" && this.level == "WARN" => "SMS rate limit exceeded"
+        this.service == "notification-service" && this.level == "ERROR" => "Notification service unavailable"
+        _ => "Generic log message from " + this.service
+      }
+      
+      # Generate realistic user IDs
+      let user_ids = ["user_123", "user_456", "user_789", "user_abc", "user_def"]
+      root.user_id = $user_ids.index(random_int() % $user_ids.length())
+
+output:
+  stdout: {}
+```
+
+Deploy the enhanced generator:
+
+```bash
+# Stop previous pipeline
+expanso pipeline stop basic-generator
+
+# Deploy enhanced generator
+expanso pipeline deploy step1-varied-generator.yaml --name varied-generator
+
+# Watch varied output
+expanso pipeline logs varied-generator --follow --lines 15
+```
+
+**Expected output (varied):**
+```json
+{"id":"...","timestamp":"...","level":"INFO","service":"auth-service","message":"User authentication successful","user_id":"user_123","request_id":"..."}
+{"id":"...","timestamp":"...","level":"WARN","service":"payment-service","message":"Payment processing delayed","user_id":"user_456","request_id":"..."}
+{"id":"...","timestamp":"...","level":"ERROR","service":"user-service","message":"Database connection error","user_id":"user_789","request_id":"..."}
+```
+
+### Production-Like Generator
+
+Create a generator that simulates real production patterns with additional fields and realistic data:
+
+```yaml title="step1-production-generator.yaml"
+input:
+  generate:
+    interval: 500ms  # Higher frequency for testing
+    mapping: |
+      # Core event data
+      root.id = uuid_v4()
+      root.timestamp = now()
+      root.request_id = uuid_v4()
+      
+      # Realistic log level distribution
+      let level_random = random_int() % 100
+      root.level = if $level_random < 60 {
+        "INFO"
+      } else if $level_random < 80 {
+        "WARN"
+      } else if $level_random < 95 {
+        "ERROR"
+      } else {
+        "FATAL"
+      }
+      
+      # Service identification
+      let services = [
+        {"name": "auth-service", "version": "1.2.3"},
+        {"name": "payment-service", "version": "2.1.0"},
+        {"name": "user-service", "version": "1.5.2"},
+        {"name": "notification-service", "version": "3.0.1"},
+        {"name": "analytics-service", "version": "1.0.0"}
+      ]
+      let selected_service = $services.index(random_int() % $services.length())
+      root.service = $selected_service.name
+      root.service_version = $selected_service.version
+      
+      # Generate contextual messages
+      root.message = match {
+        this.service == "auth-service" && this.level == "INFO" => "User login successful for session " + uuid_v4().slice(0, 8)
+        this.service == "auth-service" && this.level == "WARN" => "Multiple failed login attempts from IP " + random_int() % 255 + "." + random_int() % 255 + ".xxx.xxx"
+        this.service == "auth-service" && this.level == "ERROR" => "JWT token validation failed: expired token"
+        this.service == "payment-service" && this.level == "INFO" => "Payment transaction completed: $" + (random_int() % 1000 + 10)
+        this.service == "payment-service" && this.level == "WARN" => "Payment processing took longer than expected: " + (random_int() % 5000 + 1000) + "ms"
+        this.service == "payment-service" && this.level == "ERROR" => "Credit card validation failed: invalid card number"
+        this.service == "user-service" && this.level == "INFO" => "User profile updated successfully"
+        this.service == "user-service" && this.level == "WARN" => "Profile image upload size exceeded limit: " + (random_int() % 20 + 5) + "MB"
+        this.service == "user-service" && this.level == "ERROR" => "Database query timeout after " + (random_int() % 30 + 5) + " seconds"
+        this.service == "notification-service" && this.level == "INFO" => "Email sent successfully to user"
+        this.service == "notification-service" && this.level == "WARN" => "SMS delivery delayed due to carrier issues"
+        this.service == "notification-service" && this.level == "ERROR" => "Push notification service connection failed"
+        this.service == "analytics-service" && this.level == "INFO" => "Event tracking batch processed: " + (random_int() % 1000 + 100) + " events"
+        this.service == "analytics-service" && this.level == "WARN" => "High memory usage detected: " + (random_int() % 40 + 80) + "%"
+        this.service == "analytics-service" && this.level == "ERROR" => "Data ingestion pipeline failed"
+        _ => "Generic operation completed in " + this.service
+      }
+      
+      # User context
+      let user_ids = ["user_001", "user_002", "user_003", "user_004", "user_005", "user_006", "user_007", "user_008", "user_009", "user_010"]
+      root.user_id = $user_ids.index(random_int() % $user_ids.length())
+      
+      # Request context and timing
+      root.duration_ms = random_int() % 5000 + 50
+      root.status_code = match {
+        this.level == "INFO" => [200, 201, 202].index(random_int() % 3)
+        this.level == "WARN" => [400, 401, 403, 429].index(random_int() % 4)
+        this.level == "ERROR" => [500, 502, 503, 504].index(random_int() % 4)
+        _ => 500
+      }
+      
+      # Environment context
+      root.environment = "production"
+      root.region = ["us-east-1", "us-west-2", "eu-west-1"].index(random_int() % 3)
+      root.instance_id = "i-" + uuid_v4().slice(0, 8)
+
+# Add file output for inspection
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Console output for monitoring
+      - stdout: {}
+      
+      # File output for detailed inspection
+      - file:
+          path: /tmp/generated-logs.jsonl
+          codec: lines
+
+# Metrics for monitoring generation
+metrics:
+  prometheus:
+    prefix: log_generator
+```
+
+Deploy the production-like generator:
+
+```bash
+# Stop previous pipeline
+expanso pipeline stop varied-generator
+
+# Deploy production generator
+expanso pipeline deploy step1-production-generator.yaml --name production-generator
+
+# Monitor generation
+expanso pipeline logs production-generator --follow --lines 10
+
+# Check generated file
+tail -f /tmp/generated-logs.jsonl
+```
+
+## Testing Different Scenarios
+
+### High-Volume Testing
+
+Test how your pipeline handles high message volumes:
+
+```yaml title="step1-high-volume.yaml"
+input:
+  generate:
+    interval: 10ms  # 100 messages per second
+    mapping: |
+      root.id = uuid_v4()
+      root.timestamp = now()
+      root.level = "INFO"
+      root.service = "load-test-service"
+      root.message = "High volume test message " + uuid_v4().slice(0, 8)
+      root.user_id = "user_" + (random_int() % 1000)
+      root.request_id = uuid_v4()
+      root.sequence = counter("messages")
+
+output:
+  stdout: {}
+```
+
+### Error-Heavy Testing
+
+Test error handling by generating many error messages:
+
+```yaml title="step1-error-heavy.yaml"
+input:
+  generate:
+    interval: 1s
+    mapping: |
+      root.id = uuid_v4()
+      root.timestamp = now()
+      root.request_id = uuid_v4()
+      
+      # 70% errors for testing error handling
+      root.level = if random_int() % 10 < 7 { "ERROR" } else { "INFO" }
+      
+      root.service = "error-test-service"
+      root.message = if this.level == "ERROR" {
+        "Simulated error: " + ["Database timeout", "Network unreachable", "Memory exhausted", "Invalid input", "Service unavailable"].index(random_int() % 5)
+      } else {
+        "Normal operation completed"
+      }
+      
+      root.user_id = "user_" + (random_int() % 10)
+      root.error_code = if this.level == "ERROR" { random_int() % 5000 + 1000 } else { null }
+
+output:
+  stdout: {}
+```
+
+## Common Generation Patterns
+
+### Time-Based Patterns
+
+Generate logs that follow realistic time-based patterns:
+
+```yaml
+# Business hours simulation
+root.timestamp = now()
+let hour = $timestamp.format_timestamp("15", "UTC").number()
+root.volume_multiplier = if $hour >= 9 && $hour <= 17 { 3 } else { 1 }
+
+# Generate more messages during business hours
+interval: if env("BUSINESS_HOURS") == "true" { "100ms" } else { "1s" }
+```
+
+### User Behavior Simulation
+
+Create realistic user session patterns:
+
+```yaml
+# Simulate user sessions
+let session_ids = range(0, 50).map(i -> "session_" + $i)
+root.session_id = $session_ids.index(random_int() % 50)
+
+# Session-based user consistency
+root.user_id = "user_" + (this.session_id.hash() % 100)
+```
+
+### Service Dependencies
+
+Model realistic service interaction patterns:
+
+```yaml
+# Service call chains
+root.parent_request_id = if random_int() % 3 == 0 { uuid_v4() } else { null }
+root.trace_id = if this.parent_request_id != null { uuid_v4() } else { this.request_id }
+```
+
+## Validation and Quality Checks
+
+### Verify Generated Data Quality
+
+Check that your generated data meets requirements:
+
+```bash
+# Count messages by level
+cat /tmp/generated-logs.jsonl | jq -r '.level' | sort | uniq -c
+
+# Check timestamp distribution
+cat /tmp/generated-logs.jsonl | jq -r '.timestamp' | head -20
+
+# Verify unique IDs
+cat /tmp/generated-logs.jsonl | jq -r '.id' | sort | uniq | wc -l
+
+# Check service distribution
+cat /tmp/generated-logs.jsonl | jq -r '.service' | sort | uniq -c
+```
+
+### Monitor Generation Performance
+
+Track generation metrics:
+
+```bash
+# Monitor pipeline performance
+expanso pipeline metrics production-generator
+
+# Check message rates
+expanso pipeline status production-generator --verbose
+```
+
+## Troubleshooting Generation Issues
+
+### Generator Not Starting
+
+**Problem:** Pipeline fails to deploy
+
+**Solutions:**
+
+1. **Check YAML syntax:**
+```bash
+# Validate YAML
+python -c "import yaml; yaml.safe_load(open('step1-production-generator.yaml'))"
+```
+
+2. **Test simplified version:**
+```yaml
+input:
+  generate:
+    interval: 1s
+    mapping: 'root = {"test": "simple"}'
+output:
+  stdout: {}
+```
+
+### Generated Data Issues
+
+**Problem:** Fields missing or incorrect format
+
+**Solutions:**
+
+1. **Test mapping logic:**
+```bash
+# Use Bloblang CLI to test mappings
+echo '{}' | bloblang 'root.level = ["INFO", "WARN"].index(0)'
+```
+
+2. **Add debug output:**
+```yaml
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      - stdout: {}
+      - file:
+          path: /tmp/debug-generation.jsonl
+          codec: lines
+```
+
+### Performance Issues
+
+**Problem:** Generation too slow or too fast
+
+**Solutions:**
+
+1. **Adjust interval:**
+```yaml
+# Slower generation
+interval: 10s
+
+# Faster generation  
+interval: 100ms
+```
+
+2. **Optimize mapping:**
+```yaml
+# Pre-calculate arrays outside mapping
+root.service = ["service1", "service2", "service3"].index(random_int() % 3)
+```
+
+## Real-World Applications
+
+### Development Environment
+
+Use generated data to develop transformations without production access:
+
+```yaml
+# Development data generator
+input:
+  generate:
+    interval: 2s
+    mapping: |
+      # Mirror production log structure exactly
+      root = {
+        "timestamp": now(),
+        "level": "INFO", 
+        "service": "dev-service",
+        "message": "Development log entry",
+        "version": "dev",
+        "environment": "development"
+      }
+```
+
+### Load Testing
+
+Generate high volumes to test pipeline capacity:
+
+```yaml
+# Load test generator
+input:
+  generate:
+    interval: 1ms  # Very high frequency
+    mapping: |
+      root.id = uuid_v4()
+      root.data = "x".repeat(1024)  # 1KB message size
+      root.timestamp = now()
+```
+
+### Edge Case Testing
+
+Generate problematic data to test error handling:
+
+```yaml
+# Edge case generator
+input:
+  generate:
+    interval: 5s
+    mapping: |
+      # Mix of valid and problematic data
+      let valid = random_int() % 10 < 8
+      root = if $valid {
+        {
+          "id": uuid_v4(),
+          "level": "INFO",
+          "message": "Normal message"
+        }
+      } else {
+        {
+          "malformed": true,
+          "special_chars": "üñîçødé",
+          "large_field": "x".repeat(10000),
+          "null_value": null
+        }
+      }
+```
+
+## Key Takeaways
+
+After completing this step, you understand:
+
+✅ **Data Generation:** How to create realistic synthetic logs for testing
+✅ **Bloblang Basics:** Using mapping functions for data transformation
+✅ **Testing Strategies:** Different patterns for development and load testing
+✅ **Quality Validation:** How to verify generated data meets requirements
+✅ **Performance Tuning:** Adjusting generation rates for different scenarios
+
+## Next Steps
+
+Your log generation foundation is ready! The next step adds lineage metadata to track data processing:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./step-2-add-lineage-metadata" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Step 2: Add Lineage Metadata
+  </a>
+  <a href="../complete-log-enrichment" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Skip to Complete Pipeline
+  </a>
+</div>
+
+---
+
+**Next:** [Add lineage metadata](./step-2-add-lineage-metadata) to track data processing history

@@ -1,0 +1,469 @@
+---
+title: "Complete PII Removal Pipeline"
+sidebar_label: "Complete Pipeline"
+sidebar_position: 9
+description: Full production-ready pipeline with all 5 PII removal steps combined
+keywords: [gdpr, pci-dss, complete, production, deployment, pipeline]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/data-security/remove-pii-complete.yaml';
+
+# Complete PII Removal Pipeline
+
+**Deploy the full 5-step PII removal pipeline** in one go. This page combines all techniques from Steps 1-5 into a single, production-ready configuration.
+
+## What This Pipeline Does
+
+This complete pipeline applies **5 sequential transformations** to incoming events:
+
+1. **Delete Payment Data** - Removes credit card numbers and expiry dates (PCI-DSS)
+2. **Hash IP Addresses** - Converts IPs to SHA-256 hashes (GDPR compliance + abuse detection)
+3. **Hash Emails + Extract Domains** - Hashes emails, extracts domains (user counting + org analytics)
+4. **Pseudonymize User Names** - Creates consistent user_ids (tracking without identity)
+5. **Generalize Location** - Removes GPS coordinates, keeps city/state/country (regional analytics)
+
+**Result:** Event data that is **GDPR-compliant, PCI-DSS-compliant, and 90% analytics-ready**.
+
+## Before and After Comparison
+
+### Input Event (with PII)
+```json
+{
+  "event_id": "evt_20240115_1030",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "event_type": "purchase",
+  "user_name": "Sarah Johnson",                  // 🔴 PII
+  "email": "sarah.johnson@example.com",          // 🔴 PII
+  "ip_address": "192.168.1.100",                 // 🔴 PII
+  "payment_method": {
+    "type": "credit_card",
+    "full_number": "4532-1234-5678-9010",        // 🔴 High-risk PII
+    "expiry": "12/25",                           // 🔴 PII
+    "last_four": "9010"
+  },
+  "location": {
+    "latitude": 37.7749,                         // 🔴 Precise tracking
+    "longitude": -122.4194,                      // 🔴 Precise tracking
+    "city": "San Francisco",
+    "state": "California",
+    "country": "USA"
+  },
+  "purchase_amount": 49.99,
+  "currency": "USD"
+}
+```
+
+### Output Event (PII-free)
+```json
+{
+  "event_id": "evt_20240115_1030",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "event_type": "purchase",
+  // "user_name" removed                         ✅ Deleted
+  // "email" removed                             ✅ Deleted
+  // "ip_address" removed                        ✅ Deleted
+  "user_id": "user_8f3e7a9c2d1b",                // ✅ Pseudonymous
+  "email_hash": "a7b3c2d1e4f5...",               // ✅ Hashed
+  "email_domain": "example.com",                 // ✅ Extracted
+  "ip_hash": "8f3e7a9c2d1b4e6f...",              // ✅ Hashed
+  "payment_method": {
+    "type": "credit_card",                       // ✅ Kept
+    "last_four": "9010"                          // ✅ Kept
+    // "full_number" removed                     ✅ Deleted
+    // "expiry" removed                          ✅ Deleted
+  },
+  "location": {
+    // "latitude" removed                        ✅ Deleted
+    // "longitude" removed                       ✅ Deleted
+    "city": "San Francisco",                     // ✅ Kept
+    "state": "California",                       // ✅ Kept
+    "country": "USA"                             // ✅ Kept
+  },
+  "purchase_amount": 49.99,                      // ✅ Kept
+  "currency": "USD"                              // ✅ Kept
+}
+```
+
+## Complete Pipeline Configuration
+
+Download and deploy this single YAML file:
+
+<CodeBlock language="yaml" title="remove-pii-complete.yaml" showLineNumbers>
+{pipelineYaml}
+</CodeBlock>
+
+## Deployment Instructions
+
+### Prerequisites
+
+Before deploying, ensure you have:
+
+1. **Expanso CLI installed** and configured
+2. **Edge nodes connected** to your orchestrator
+3. **Environment variables set** for salts:
+
+```bash
+# Generate salts (if not done in Setup)
+export IP_SALT=$(openssl rand -hex 32)
+export EMAIL_SALT=$(openssl rand -hex 32)
+export USER_SALT=$(openssl rand -hex 32)
+
+# Verify salts
+echo "IP_SALT length: ${#IP_SALT}"       # Should print 64
+echo "EMAIL_SALT length: ${#EMAIL_SALT}" # Should print 64
+echo "USER_SALT length: ${#USER_SALT}"   # Should print 64
+```
+
+4. **Output destination configured** (replace `ANALYTICS_ENDPOINT` in YAML)
+
+### Step 1: Download the Pipeline
+
+```bash
+# Create working directory
+mkdir -p ~/pii-removal-pipeline
+cd ~/pii-removal-pipeline
+
+# Download complete pipeline YAML
+curl -o remove-pii-complete.yaml \
+  https://examples.expanso.io/files/data-security/remove-pii-complete.yaml
+
+# Download sample data for testing
+curl -o sample-data.json \
+  https://examples.expanso.io/files/data-security/remove-pii/sample-data.json
+```
+
+### Step 2: Configure Output Destination
+
+Edit `remove-pii-complete.yaml` and update the output section:
+
+**For file output (testing):**
+```yaml
+output:
+  file:
+    path: /var/log/expanso/pii-removed.jsonl
+    codec: lines
+```
+
+**For HTTP output (production):**
+```yaml
+output:
+  http_client:
+    url: https://your-analytics-service.com/events
+    verb: POST
+    headers:
+      Content-Type: application/json
+      Authorization: "Bearer ${ANALYTICS_API_KEY}"
+```
+
+**For Kafka output (production):**
+```yaml
+output:
+  kafka:
+    addresses:
+      - kafka-broker1.example.com:9092
+      - kafka-broker2.example.com:9092
+    topic: pii-removed-events
+    compression: snappy
+```
+
+### Step 3: Deploy to Edge Nodes
+
+```bash
+# Deploy the pipeline
+expanso job deploy remove-pii-complete.yaml
+
+# Verify deployment
+expanso job status pii-complete-removal
+
+# Expected output:
+# Job: pii-complete-removal
+# Status: running
+# Type: pipeline
+# Executions:
+#   - Node: edge-node-001
+#     State: running
+#     Health: healthy
+```
+
+### Step 4: Test the Pipeline
+
+```bash
+# Send test event
+curl -X POST http://localhost:8080/events/ingest \
+  -H "Content-Type: application/json" \
+  -d @sample-data.json
+
+# Check output (if using file output)
+tail -1 /var/log/expanso/pii-removed.jsonl | jq .
+
+# Verify transformations:
+# - user_name → user_id (pseudonymized)
+# - email → email_hash + email_domain
+# - ip_address → ip_hash
+# - payment_method.full_number removed
+# - payment_method.expiry removed
+# - location.latitude removed
+# - location.longitude removed
+```
+
+### Step 5: Monitor Pipeline Health
+
+```bash
+# Check logs
+expanso job logs pii-complete-removal --tail 100
+
+# Monitor throughput
+expanso job metrics pii-complete-removal
+
+# Check for errors
+expanso job logs pii-complete-removal --tail 100 | grep -i error
+```
+
+## Production Considerations
+
+### 1. Secret Management
+
+**Do NOT hardcode salts in YAML!** Use secret management:
+
+**Option A: Environment variables (basic)**
+```bash
+# Set in orchestrator
+expanso config set IP_SALT "$(openssl rand -hex 32)" --secret
+expanso config set EMAIL_SALT "$(openssl rand -hex 32)" --secret
+expanso config set USER_SALT "$(openssl rand -hex 32)" --secret
+```
+
+**Option B: HashiCorp Vault (recommended)**
+```yaml
+config:
+  pipeline:
+    processors:
+      - mapping: |
+          # Fetch salt from Vault at runtime
+          root.ip_hash = this.ip_address.hash(
+            "sha256",
+            env("VAULT_IP_SALT").or("")
+          )
+```
+
+**Option C: AWS Secrets Manager**
+```bash
+# Store salts in AWS Secrets Manager
+aws secretsmanager create-secret \
+  --name pii-pipeline/ip-salt \
+  --secret-string "$(openssl rand -hex 32)"
+
+# Reference in Expanso job
+export IP_SALT=$(aws secretsmanager get-secret-value \
+  --secret-id pii-pipeline/ip-salt \
+  --query SecretString \
+  --output text)
+```
+
+### 2. Salt Rotation Strategy
+
+**Challenge:** Rotating salts changes hashes → breaks user tracking
+
+**Solution:** Dual-hashing during transition period:
+
+```yaml
+- mapping: |
+    root = this
+
+    # Hash with new salt (primary)
+    root.ip_hash_current = this.ip_address.hash("sha256", env("IP_SALT_NEW").or(""))
+
+    # Also hash with old salt (fallback for 90 days)
+    root.ip_hash_previous = this.ip_address.hash("sha256", env("IP_SALT_OLD").or(""))
+
+    # Analytics queries: WHERE ip_hash_current = X OR ip_hash_previous = X
+```
+
+**Rotation schedule:**
+- Day 0: Deploy dual-hashing (new + old salts)
+- Day 90: Remove old salt, promote new to primary
+- Repeat every 90 days
+
+### 3. Performance Tuning
+
+**Typical throughput:** 10,000-50,000 events/sec per edge node (depends on hardware)
+
+**If processing is slow:**
+
+**Option 1: Batch processing**
+```yaml
+input:
+  http_server:
+    address: "0.0.0.0:8080"
+    path: /events/ingest
+    allowed_verbs: [POST]
+    batch:
+      count: 100        # Process 100 events at once
+      period: 1s        # Or every 1 second
+```
+
+**Option 2: Parallel processing**
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        # All 5 steps in one processor (faster)
+        root = this
+
+        # Step 1: Delete payment
+        root.payment_method = this.payment_method.without("full_number", "expiry")
+
+        # Step 2: Hash IP
+        root.ip_hash = this.ip_address.hash("sha256", env("IP_SALT").or(""))
+        root = this.without("ip_address")
+
+        # Step 3: Hash email
+        root.email_hash = this.email.hash("sha256", env("EMAIL_SALT").or(""))
+        root.email_domain = this.email.split("@").index(1)
+        root = this.without("email")
+
+        # Step 4: Pseudonymize user
+        root.user_id = "user_" + this.user_name.hash("sha256", env("USER_SALT").or("")).slice(0, 12)
+        root = this.without("user_name")
+
+        # Step 5: Generalize location
+        root.location = this.location.without("latitude", "longitude")
+```
+
+**Option 3: Scale horizontally**
+```bash
+# Deploy to more edge nodes
+expanso job scale pii-complete-removal --replicas 10
+```
+
+### 4. Error Handling
+
+**Add error logging and dead letter queue:**
+
+```yaml
+config:
+  pipeline:
+    processors:
+      - mapping: |
+          # Wrap in try-catch
+          root = this
+
+          # Validate required fields exist
+          let has_email = this.email.exists()
+          let has_ip = this.ip_address.exists()
+
+          # Only process if valid
+          root = if $has_email && $has_ip {
+            # ... normal processing ...
+          } else {
+            # Send to dead letter queue
+            throw("Missing required fields: email or ip_address")
+          }
+
+  # Dead letter queue for failed events
+  output:
+    broker:
+      outputs:
+        # Success path
+        - http_client:
+            url: ${ANALYTICS_ENDPOINT}
+
+        # Failure path (only if processor throws)
+        - file:
+            path: /var/log/expanso/pii-errors.jsonl
+            codec: lines
+      pattern: fan_out_sequential
+```
+
+### 5. Compliance Audit Trail
+
+**Log transformations for compliance audits:**
+
+```yaml
+- mapping: |
+    root = this
+
+    # Add audit metadata
+    root.audit = {
+      "pipeline_version": "1.0.0",
+      "transformation_timestamp": now().ts_format("2006-01-02T15:04:05Z07:00"),
+      "pii_removed": ["user_name", "email", "ip_address", "payment.full_number", "location.gps"],
+      "compliance": ["GDPR", "PCI-DSS"]
+    }
+
+    # ... rest of transformations ...
+```
+
+### 6. Data Retention Policies
+
+**Different retention for different data:**
+
+```yaml
+output:
+  broker:
+    outputs:
+      # High-value analytics data: 2 years
+      - s3:
+          bucket: analytics-long-term
+          path: events/${!timestamp:2006/01/02}/${!uuid_v4()}.json
+          metadata:
+            retention: 730days
+
+      # Real-time dashboards: 30 days
+      - http_client:
+          url: ${REALTIME_ANALYTICS_ENDPOINT}
+          # Configure destination to delete after 30 days
+```
+
+## Testing Checklist
+
+Before deploying to production, verify:
+
+- ✅ All PII fields removed from output
+- ✅ Same input → same output (deterministic hashing)
+- ✅ Salts are NOT in YAML (using env vars or secrets)
+- ✅ Output destination is correct
+- ✅ Error handling works (test with malformed events)
+- ✅ Performance meets requirements (load test)
+- ✅ Logs are being captured
+- ✅ Metrics are available
+- ✅ Dead letter queue configured (optional but recommended)
+
+## Analytics Impact Summary
+
+After deploying this pipeline, you can still:
+
+✅ **Count unique users** (via email_hash or user_id)
+✅ **Track user journeys** (via user_id across sessions)
+✅ **Detect abuse** (via ip_hash rate limiting)
+✅ **Analyze by organization** (via email_domain)
+✅ **Regional analytics** (via city, state, country)
+✅ **Payment type trends** (via payment_method.type)
+✅ **Fraud detection** (via payment_method.last_four)
+
+You cannot:
+❌ **Identify individuals** (names, emails, IPs removed)
+❌ **Contact users** (emails hashed - need separate mapping)
+❌ **Precise tracking** (GPS coords removed)
+❌ **Reverse any hashes** (one-way transformation)
+
+**Trade-off:** ~10% analytics capability lost, 100% high-risk PII removed
+
+## Next Steps
+
+- **[Interactive Explorer](./explorer)** - Visualize each transformation step
+- **[Troubleshooting Guide](./troubleshooting)** - Common issues and solutions
+- **[Step-by-Step Tutorial](./setup)** - Learn each technique in depth
+
+## Download Links
+
+- [📥 Complete Pipeline YAML](https://examples.expanso.io/files/data-security/remove-pii-complete.yaml)
+- [📥 Sample Data JSON](https://examples.expanso.io/files/data-security/remove-pii/sample-data.json)
+- [📥 Incremental Pipelines (Steps 1-5)](https://examples.expanso.io/files/data-security/remove-pii/)
+
+## Related Examples
+
+- [**Delete Payment PII (Standalone)**](../delete-payment-pii) - Simpler PCI-DSS focused example
+- [**Encryption Patterns**](../../data-security/encryption-patterns) - When you need reversible transformations
+- [**Schema Enforcement**](../../data-security/schema-enforcement) - Validate data structure before processing

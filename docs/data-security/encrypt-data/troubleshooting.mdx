@@ -1,0 +1,1112 @@
+---
+title: Troubleshooting Field Encryption
+sidebar_label: Troubleshooting
+sidebar_position: 11
+description: Common issues, diagnostic procedures, and solutions for field encryption pipelines
+keywords: [troubleshooting, debugging, encryption-errors, performance-issues, vault-problems]
+---
+
+# Troubleshooting Field Encryption
+
+This guide covers common issues you may encounter with field encryption pipelines, including diagnostic procedures, solutions, and preventive measures.
+
+## Quick Diagnostic Commands
+
+```bash title="Quick health check commands"
+# Pipeline status
+expanso job status complete-field-encryption
+
+# Check encryption endpoint
+curl -k https://localhost:8443/health
+
+# Vault connectivity
+vault status
+
+# Key availability
+vault kv get secret/expanso/encryption/current
+
+# Recent logs
+expanso job logs complete-field-encryption --tail=50
+
+# Performance metrics
+curl -k https://localhost:8443/metrics | grep encryption
+```
+
+---
+
+## Encryption Errors
+
+### Issue: "Encryption key not found in Vault"
+
+**Symptom:** Pipeline fails with error "Card encryption key not found in Vault"
+
+**Diagnosis:**
+```bash
+# Check if Vault is accessible
+vault status
+
+# List available keys
+vault kv list secret/expanso/encryption/
+
+# Check current key
+vault kv get secret/expanso/encryption/current
+
+# Verify Vault token
+vault auth -method=kubernetes role=expanso-encryption
+```
+
+**Solutions:**
+
+**1. Regenerate missing keys:**
+```bash
+# Generate new encryption keys
+CARD_KEY=$(openssl rand -hex 32)
+PII_KEY=$(openssl rand -hex 32)
+ADDRESS_KEY=$(openssl rand -hex 32)
+KEY_VERSION="v1_$(date +%Y%m%d)"
+
+# Store in Vault
+vault kv put secret/expanso/encryption/$KEY_VERSION \
+  card_encryption_key=$CARD_KEY \
+  pii_encryption_key=$PII_KEY \
+  address_encryption_key=$ADDRESS_KEY \
+  version=$KEY_VERSION \
+  rotation_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Set as current
+vault kv put secret/expanso/encryption/current \
+  card_encryption_key=$CARD_KEY \
+  pii_encryption_key=$PII_KEY \
+  address_encryption_key=$ADDRESS_KEY \
+  version=$KEY_VERSION \
+  rotation_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+```
+
+**2. Fix Vault authentication:**
+```bash
+# Check Vault service account
+kubectl get serviceaccount expanso-encryption
+
+# Refresh Vault token
+export VAULT_TOKEN=$(vault write -field=token auth/kubernetes/login \
+  role=expanso-encryption \
+  jwt=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token))
+```
+
+### Issue: "Invalid card number length" or card validation errors
+
+**Symptom:** Validation errors for seemingly valid credit card numbers
+
+**Diagnosis:**
+```bash
+# Test card number cleaning
+python3 -c "
+import re
+card = '4532-1234-5678-9010'
+clean = re.sub(r'[^0-9]', '', card)
+print(f'Original: {card}')
+print(f'Cleaned: {clean}')
+print(f'Length: {len(clean)}')
+print(f'Valid length: {13 <= len(clean) <= 19}')
+"
+```
+
+**Solutions:**
+
+**1. Fix card number validation:**
+```yaml
+# Enhanced card validation in pipeline
+let clean_card = this.payment.card_number.re_replace_all("[^0-9]", "")
+
+# Check for test card numbers
+let test_cards = ["4000000000000000", "5555555555554444", "378282246310005"]
+if test_cards.contains(clean_card) {
+  throw("Test card numbers not allowed in production")
+}
+
+# Validate length
+if clean_card.length() < 13 || clean_card.length() > 19 {
+  throw("Card number must be 13-19 digits, got: " + clean_card.length().string())
+}
+
+# Luhn algorithm check (optional)
+let luhn_valid = crypto.luhn_check(clean_card)
+if !luhn_valid {
+  throw("Card number failed Luhn algorithm validation")
+}
+```
+
+**2. Handle international card formats:**
+```yaml
+# Support various international formats
+let cleaned_formats = [
+  this.payment.card_number.re_replace_all("[^0-9]", ""),  # Remove all non-digits
+  this.payment.card_number.re_replace_all("[\\s-]", ""), # Remove spaces/dashes only
+  this.payment.card_number  # Original format
+]
+
+let valid_card = cleaned_formats.filter(card -> 
+  card.length() >= 13 && card.length() <= 19 && card.re_match("^[0-9]+$")
+)[0]
+
+if valid_card.type() == "null" {
+  throw("No valid card number format found")
+}
+```
+
+### Issue: SSN validation failures
+
+**Symptom:** "SSN must be 9 digits" errors with valid SSNs
+
+**Diagnosis:**
+```bash
+# Test SSN formats
+python3 -c "
+import re
+test_ssns = ['123-45-6789', '123 45 6789', '123456789', 'XXX-XX-6789']
+for ssn in test_ssns:
+    clean = re.sub(r'[^0-9]', '', ssn)
+    print(f'SSN: {ssn} -> Clean: {clean} -> Length: {len(clean)} -> Valid: {len(clean) == 9}')
+"
+```
+
+**Solutions:**
+
+**1. Enhanced SSN validation:**
+```yaml
+# Improved SSN processing
+let ssn = this.customer.ssn.string()
+
+# Remove common SSN formats
+let clean_ssn = ssn.re_replace_all("[^0-9X]", "")
+
+# Check for placeholder values
+if clean_ssn.contains("X") || clean_ssn == "000000000" || clean_ssn == "123456789" {
+  throw("Invalid or placeholder SSN format")
+}
+
+# Validate 9 digits
+if clean_ssn.length() != 9 {
+  throw("SSN must be exactly 9 digits, got: " + clean_ssn.length().string() + " from input: " + ssn)
+}
+
+# Check for invalid area numbers
+let area_number = clean_ssn.slice(0, 3)
+let invalid_areas = ["000", "666", "900", "999"]
+if invalid_areas.contains(area_number) {
+  throw("Invalid SSN area number: " + area_number)
+}
+```
+
+**2. Handle partial SSN encryption:**
+```yaml
+# Support partial SSN (last 4 only)
+let ssn_input = this.customer.ssn.string()
+
+if ssn_input.re_match("^[*X-]{5,6}[0-9]{4}$") {
+  # Already partially masked, encrypt the visible part
+  let visible_part = ssn_input.re_replace_all("[^0-9]", "")
+  root.customer.ssn_last_four = visible_part
+  root.customer.ssn_encrypted = "partial:" + crypto.encrypt_aes256_gcm(ssn_input, pii_key)
+} else {
+  # Full SSN processing
+  let clean_ssn = ssn_input.re_replace_all("[^0-9]", "")
+  root.customer.ssn_encrypted = crypto.encrypt_aes256_gcm(ssn_input, pii_key)
+  root.customer.ssn_last_four = clean_ssn.slice(-4)
+}
+```
+
+---
+
+## Performance Issues
+
+### Issue: Encryption taking &gt;50ms per transaction
+
+**Symptom:** High latency warnings in monitoring dashboard
+
+**Diagnosis:**
+```bash
+# Check current performance
+curl -w "@curl-timing.txt" -X POST https://localhost:8443/transactions/encrypt \
+  -d '{"transaction_id":"perf_test","payment":{"card_number":"4532123456789010"}}' \
+  --cert /etc/expanso/certs/client.crt \
+  >/dev/null
+
+# Create timing template
+cat > curl-timing.txt <<'EOF'
+     time_namelookup:  %{time_namelookup}\n
+        time_connect:  %{time_connect}\n
+     time_appconnect:  %{time_appconnect}\n
+    time_pretransfer:  %{time_pretransfer}\n
+       time_redirect:  %{time_redirect}\n
+  time_starttransfer:  %{time_starttransfer}\n
+                     ----------\n
+          time_total:  %{time_total}\n
+EOF
+
+# Check resource usage
+kubectl top pod -l app=expanso-pipeline
+
+# Check Vault response times
+time vault kv get secret/expanso/encryption/current
+```
+
+**Solutions:**
+
+**1. Optimize Vault key retrieval:**
+```yaml
+# Cache keys in memory for 5 minutes
+- name: cached-key-retrieval
+  type: mapping
+  config:
+    mapping: |
+      # Check if keys are cached and still valid
+      let cache_key = "encryption_keys_" + env("NODE_ID")
+      let cached_keys = cache.get(cache_key)
+      let cache_valid = cached_keys.exists() && 
+        (now() - cached_keys.retrieved_at.parse_timestamp("2006-01-02T15:04:05Z")).duration_minutes() < 5
+      
+      root.encryption_keys = if cache_valid {
+        # Use cached keys
+        cached_keys
+      } else {
+        # Retrieve fresh keys from Vault
+        let vault_response = http_request(
+          "GET",
+          env("VAULT_ADDR") + "/v1/secret/data/expanso/encryption/current",
+          {},
+          {"X-Vault-Token": env("VAULT_TOKEN")}
+        )
+        
+        let fresh_keys = vault_response.body.data.data.merge({
+          "retrieved_at": now().format_timestamp("2006-01-02T15:04:05Z")
+        })
+        
+        # Cache for 5 minutes
+        cache.set(cache_key, fresh_keys, "300s")
+        fresh_keys
+      }
+```
+
+**2. Parallel field processing:**
+```yaml
+# Process multiple fields concurrently
+- name: parallel-field-encryption
+  type: mapping
+  config:
+    mapping: |
+      # Prepare encryption tasks
+      let encryption_tasks = []
+      
+      if this.payment.card_number.exists() {
+        encryption_tasks = encryption_tasks.append({
+          "field": "payment.card_number",
+          "value": this.payment.card_number,
+          "key": this.encryption_keys.card_key
+        })
+      }
+      
+      if this.customer.email.exists() {
+        encryption_tasks = encryption_tasks.append({
+          "field": "customer.email", 
+          "value": this.customer.email,
+          "key": this.encryption_keys.pii_key
+        })
+      }
+      
+      # Process tasks in parallel (pseudo-code - actual implementation varies)
+      let encrypted_results = encryption_tasks.map_each(task -> {
+        "field": task.field,
+        "encrypted": crypto.encrypt_aes256_gcm(task.value, task.key)
+      })
+      
+      root = this.merge(encrypted_results.fold({}, (acc, result) -> 
+        acc.merge({result.field + "_encrypted": result.encrypted})
+      ))
+```
+
+**3. Reduce payload size:**
+```yaml
+# Minimize data processing
+- name: selective-field-processing
+  type: mapping
+  config:
+    mapping: |
+      # Only process fields that exist and need encryption
+      let fields_to_encrypt = []
+      
+      # Check payment fields
+      if this.payment.exists() {
+        if this.payment.card_number.exists() { fields_to_encrypt = fields_to_encrypt.append("card_number") }
+        if this.payment.cvv.exists() { fields_to_encrypt = fields_to_encrypt.append("cvv") }
+      }
+      
+      # Skip processing if no fields need encryption
+      root = if fields_to_encrypt.length() == 0 {
+        this.merge({"encryption_skipped": "no_sensitive_fields"})
+      } else {
+        # Process only necessary fields
+        this
+      }
+```
+
+### Issue: Memory usage growing over time
+
+**Symptom:** Gradual memory increase in pipeline pods
+
+**Diagnosis:**
+```bash
+# Monitor memory usage over time
+kubectl top pod -l app=expanso-pipeline --watch
+
+# Check for memory leaks in logs
+kubectl logs deployment/expanso-pipeline | grep -i "memory\|leak\|oom"
+
+# Review cache usage
+curl -k https://localhost:8443/metrics | grep cache
+```
+
+**Solutions:**
+
+**1. Implement cache eviction:**
+```yaml
+# Add cache management
+- name: cache-management
+  type: mapping
+  config:
+    mapping: |
+      # Periodic cache cleanup
+      let cache_size = cache.size()
+      
+      if cache_size > 1000 {  # Max 1000 cached items
+        # Clear old cache entries
+        cache.clear_expired()
+        
+        # Force evict oldest entries if still too large
+        if cache.size() > 800 {
+          cache.evict_lru(200)  # Remove 200 least recently used
+        }
+      }
+      
+      root = this
+```
+
+**2. Resource limits:**
+```yaml
+# Add resource constraints to pipeline
+resources:
+  limits:
+    cpu: "1000m"
+    memory: "2Gi"
+  requests:
+    cpu: "250m"
+    memory: "512Mi"
+
+# Configure garbage collection
+environment:
+  GOMEMLIMIT: "1800MiB"  # 90% of memory limit
+  GOGC: "100"            # Default GC target
+```
+
+---
+
+## Vault Integration Issues
+
+### Issue: "Vault token expired" or authentication failures
+
+**Symptom:** Authentication errors when accessing Vault
+
+**Diagnosis:**
+```bash
+# Check token status
+vault token lookup
+
+# Check token TTL
+vault token lookup -format=json | jq '.data.ttl'
+
+# Verify service account
+kubectl get serviceaccount expanso-encryption -o yaml
+
+# Check Kubernetes auth configuration
+vault auth list | grep kubernetes
+```
+
+**Solutions:**
+
+**1. Implement token renewal:**
+```yaml
+# Add automatic token renewal
+- name: renew-vault-token
+  type: mapping
+  config:
+    mapping: |
+      # Check token TTL
+      let token_info = http_request(
+        "GET",
+        env("VAULT_ADDR") + "/v1/auth/token/lookup-self",
+        {},
+        {"X-Vault-Token": env("VAULT_TOKEN")}
+      )
+      
+      let ttl = token_info.body.data.ttl
+      
+      # Renew if TTL < 1 hour
+      if ttl < 3600 {
+        let renew_response = http_request(
+          "POST",
+          env("VAULT_ADDR") + "/v1/auth/token/renew-self",
+          {"increment": 7200},  # Renew for 2 hours
+          {"X-Vault-Token": env("VAULT_TOKEN")}
+        )
+        
+        if renew_response.status_code != 200 {
+          # Re-authenticate if renewal fails
+          let auth_response = http_request(
+            "POST",
+            env("VAULT_ADDR") + "/v1/auth/kubernetes/login",
+            {
+              "role": "expanso-encryption",
+              "jwt": file.read("/var/run/secrets/kubernetes.io/serviceaccount/token")
+            }
+          )
+          
+          # Update token (in practice, would need to update environment)
+          root.new_vault_token = auth_response.body.auth.client_token
+        }
+      }
+      
+      root = this
+```
+
+**2. Configure service account properly:**
+```yaml
+# kubernetes-service-account.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: expanso-encryption
+  namespace: default
+automountServiceAccountToken: true
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: expanso-encryption-vault-auth
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+- kind: ServiceAccount
+  name: expanso-encryption
+  namespace: default
+```
+
+### Issue: Key rotation failures
+
+**Symptom:** Automated key rotation not completing successfully
+
+**Diagnosis:**
+```bash
+# Check rotation job status
+kubectl get jobs | grep key-rotation
+
+# Check rotation logs
+kubectl logs job/key-rotation-job
+
+# Verify new keys were created
+vault kv list secret/expanso/encryption/
+
+# Check if current pointer was updated
+vault kv get secret/expanso/encryption/current
+```
+
+**Solutions:**
+
+**1. Manual key rotation:**
+```bash
+#!/bin/bash
+# manual-key-rotation.sh
+
+set -e
+
+echo "Starting manual key rotation..."
+
+# Generate new keys
+NEW_VERSION="v$(date +%Y%m%d_%H%M%S)"
+CARD_KEY=$(openssl rand -hex 32)
+PII_KEY=$(openssl rand -hex 32)
+ADDRESS_KEY=$(openssl rand -hex 32)
+
+echo "Generated new keys with version: $NEW_VERSION"
+
+# Store new keys
+vault kv put secret/expanso/encryption/$NEW_VERSION \
+  card_encryption_key=$CARD_KEY \
+  pii_encryption_key=$PII_KEY \
+  address_encryption_key=$ADDRESS_KEY \
+  version=$NEW_VERSION \
+  created_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+  rotation_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+  previous_version=$(vault kv get -field=version secret/expanso/encryption/current)
+
+# Update current pointer
+vault kv put secret/expanso/encryption/current \
+  card_encryption_key=$CARD_KEY \
+  pii_encryption_key=$PII_KEY \
+  address_encryption_key=$ADDRESS_KEY \
+  version=$NEW_VERSION \
+  rotation_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+echo "Key rotation completed successfully"
+
+# Test new keys
+curl -X POST https://localhost:8443/transactions/encrypt \
+  -d '{"transaction_id":"rotation_test","payment":{"card_number":"4532123456789010"}}' \
+  --cert /etc/expanso/certs/client.crt
+
+echo "New keys validated successfully"
+```
+
+**2. Robust rotation pipeline:**
+```yaml
+# improved-key-rotation.yaml
+- name: validate-before-rotation
+  type: mapping
+  config:
+    mapping: |
+      # Verify current system health before rotating
+      let health_checks = [
+        http_request("GET", env("VAULT_ADDR") + "/v1/sys/health").status_code == 200,
+        http_request("GET", "https://localhost:8443/health").status_code == 200
+      ]
+      
+      let all_healthy = health_checks.fold(true, (acc, healthy) -> acc && healthy)
+      
+      root = if !all_healthy {
+        throw("System unhealthy - postponing key rotation")
+      } else {
+        this.merge({"rotation_approved": true})
+      }
+
+- name: atomic-key-rotation  
+  type: mapping
+  config:
+    mapping: |
+      # Perform atomic key rotation with rollback capability
+      let new_version = "v" + now().format_timestamp("20060102_150405")
+      let current_keys = http_request(
+        "GET", 
+        env("VAULT_ADDR") + "/v1/secret/data/expanso/encryption/current",
+        {},
+        {"X-Vault-Token": env("VAULT_TOKEN")}
+      ).body.data.data
+      
+      # Generate new keys
+      let new_keys = {
+        "card_encryption_key": crypto.generate_key_aes256(),
+        "pii_encryption_key": crypto.generate_key_aes256(),
+        "address_encryption_key": crypto.generate_key_aes256(),
+        "version": new_version,
+        "created_date": now().format_timestamp("2006-01-02T15:04:05Z"),
+        "rotation_date": now().format_timestamp("2006-01-02T15:04:05Z"),
+        "previous_version": current_keys.version
+      }
+      
+      # Store new keys (versioned)
+      http_request(
+        "POST",
+        env("VAULT_ADDR") + "/v1/secret/data/expanso/encryption/" + new_version,
+        {"data": new_keys},
+        {"X-Vault-Token": env("VAULT_TOKEN")}
+      )
+      
+      # Test new keys with sample encryption
+      let test_result = crypto.encrypt_aes256_gcm("test", new_keys.card_encryption_key)
+      
+      if test_result.type() == "null" {
+        # Rollback - delete bad keys
+        http_request(
+          "DELETE",
+          env("VAULT_ADDR") + "/v1/secret/data/expanso/encryption/" + new_version,
+          {},
+          {"X-Vault-Token": env("VAULT_TOKEN")}
+        )
+        throw("New key test failed - rotation aborted")
+      }
+      
+      # Update current pointer (atomic)
+      http_request(
+        "POST", 
+        env("VAULT_ADDR") + "/v1/secret/data/expanso/encryption/current",
+        {"data": new_keys},
+        {"X-Vault-Token": env("VAULT_TOKEN")}
+      )
+      
+      root = this.merge({
+        "rotation_completed": true,
+        "new_version": new_version,
+        "previous_version": current_keys.version
+      })
+```
+
+---
+
+## Access Control Issues
+
+### Issue: "Unauthorized service" errors
+
+**Symptom:** Services unable to decrypt data they should have access to
+
+**Diagnosis:**
+```bash
+# Test service authentication
+curl -X POST https://localhost:8443/decrypt/selective \
+  -H "X-Service-ID: fraud-detection" \
+  -H "Authorization: Bearer test_token" \
+  -d '{"payment":{"card_number_encrypted":"..."}}' \
+  --cert /etc/expanso/certs/client.crt
+
+# Check service permissions in pipeline logs
+kubectl logs deployment/expanso-pipeline | grep "service_permissions"
+
+# Verify service configuration
+grep -A 10 -B 5 "fraud-detection" complete-field-encryption-pipeline.yaml
+```
+
+**Solutions:**
+
+**1. Update service permissions:**
+```yaml
+# Enhanced service authorization matrix
+let service_permissions = {
+  "fraud-detection": [
+    "decrypt_card_data",
+    "decrypt_transaction_metadata",
+    "read_fraud_indicators",
+    "access_risk_scores"
+  ],
+  "customer-service": [
+    "decrypt_contact_info",
+    "decrypt_partial_ssn",
+    "decrypt_billing_address", 
+    "read_customer_metadata"
+  ],
+  "payment-processor": [
+    "decrypt_card_data",
+    "decrypt_billing_address",
+    "decrypt_transaction_data",
+    "access_full_payment_info"
+  ],
+  "analytics": [
+    "read_metadata",
+    "read_aggregated_data",
+    "access_anonymized_trends"
+  ],
+  "compliance-audit": [
+    "read_encryption_metadata",
+    "audit_access_logs",
+    "generate_compliance_reports"
+  ],
+  "emergency-response": [
+    "decrypt_all_fields",  # Special emergency access
+    "override_time_restrictions",
+    "access_incident_data"
+  ]
+}
+```
+
+**2. Implement dynamic permissions:**
+```yaml
+# Dynamic permission loading from external system
+- name: load-dynamic-permissions
+  type: mapping
+  config:
+    mapping: |
+      let service_id = this.requesting_service.service_id
+      
+      # Load permissions from external service
+      let permissions_response = http_request(
+        "GET",
+        env("AUTH_SERVICE_URL") + "/v1/service-permissions/" + service_id,
+        {},
+        {"Authorization": "Bearer " + env("AUTH_SERVICE_API_KEY")}
+      )
+      
+      let dynamic_permissions = if permissions_response.status_code == 200 {
+        permissions_response.body.permissions
+      } else {
+        # Fallback to static permissions
+        []
+      }
+      
+      root = this.merge({
+        "service_permissions": {
+          "service_id": service_id,
+          "allowed_operations": dynamic_permissions,
+          "permission_source": "dynamic",
+          "loaded_at": now()
+        }
+      })
+```
+
+### Issue: Emergency access not working
+
+**Symptom:** Unable to decrypt data during security incidents
+
+**Solutions:**
+
+**1. Emergency access procedure:**
+```bash
+#!/bin/bash
+# emergency-access-activation.sh
+
+# Activate emergency access
+INCIDENT_ID="INC-$(date +%Y%m%d-%H%M%S)"
+echo "Activating emergency access for incident: $INCIDENT_ID"
+
+# Enable emergency service
+kubectl create secret generic emergency-access-token \
+  --from-literal=token="emergency_$(openssl rand -hex 16)"
+
+# Update pipeline with emergency permissions
+kubectl patch deployment expanso-pipeline \
+  -p '{"spec":{"template":{"spec":{"containers":[{"name":"expanso","env":[{"name":"EMERGENCY_ACCESS_ENABLED","value":"true"},{"name":"EMERGENCY_INCIDENT_ID","value":"'$INCIDENT_ID'"}]}]}}}}'
+
+# Wait for rollout
+kubectl rollout status deployment/expanso-pipeline
+
+echo "Emergency access activated. Incident ID: $INCIDENT_ID"
+echo "Remember to deactivate after incident resolution"
+```
+
+**2. Time-limited emergency access:**
+```yaml
+# Emergency access with time limits
+- name: emergency-access-validation
+  type: mapping
+  config:
+    mapping: |
+      let service_id = this.requesting_service.service_id
+      let current_time = now()
+      
+      if service_id == "emergency-access" {
+        # Check if emergency is active
+        let incident_response = http_request(
+          "GET",
+          env("INCIDENT_MANAGEMENT_URL") + "/v1/incidents/active",
+          {},
+          {"Authorization": "Bearer " + env("INCIDENT_API_KEY")}
+        )
+        
+        let active_incident = incident_response.body.active_incidents.length() > 0
+        let incident_time = incident_response.body.active_incidents[0].created_at.parse_timestamp("2006-01-02T15:04:05Z")
+        let incident_age_hours = (current_time - incident_time).duration_hours()
+        
+        # Emergency access valid for 24 hours from incident start
+        let emergency_valid = active_incident && incident_age_hours < 24
+        
+        root = if !emergency_valid {
+          throw("Emergency access denied: no active incident or access expired")
+        } else {
+          this.merge({
+            "service_permissions": {
+              "service_id": "emergency-access",
+              "allowed_operations": ["decrypt_all_fields"],
+              "permission_level": "emergency",
+              "incident_id": incident_response.body.active_incidents[0].id,
+              "expires_at": incident_time.ts_add("24h").format_timestamp("2006-01-02T15:04:05Z")
+            }
+          })
+        }
+      } else {
+        this
+      }
+```
+
+---
+
+## Compliance and Audit Issues
+
+### Issue: Audit logs missing or incomplete
+
+**Symptom:** Compliance reports showing missing audit trail
+
+**Diagnosis:**
+```bash
+# Check audit endpoint connectivity
+curl -X POST "${AUDIT_LOG_ENDPOINT}/test" \
+  -H "Authorization: Bearer ${AUDIT_API_KEY}" \
+  -d '{"test":"connectivity"}'
+
+# Review recent audit logs
+kubectl logs deployment/expanso-pipeline | grep audit
+
+# Check audit log storage
+curl -X GET "${AUDIT_LOG_ENDPOINT}/encryption-events?limit=10" \
+  -H "Authorization: Bearer ${AUDIT_API_KEY}"
+```
+
+**Solutions:**
+
+**1. Robust audit logging:**
+```yaml
+# Enhanced audit logging with retry
+- name: reliable-audit-logging
+  type: mapping
+  config:
+    mapping: |
+      let audit_entry = {
+        "event_type": "field_encryption_complete",
+        "transaction_id": this.transaction_id,
+        "encrypted_fields": this.encryption_metadata.encrypted_fields,
+        "timestamp": now(),
+        "node_id": env("NODE_ID"),
+        "compliance_data": this.compliance_status
+      }
+      
+      # Try primary audit endpoint
+      let primary_response = http_request(
+        "POST",
+        env("AUDIT_LOG_ENDPOINT"),
+        audit_entry,
+        {
+          "Authorization": "Bearer " + env("AUDIT_API_KEY"),
+          "Content-Type": "application/json"
+        }
+      )
+      
+      # Fallback to secondary if primary fails
+      if primary_response.status_code >= 400 {
+        let fallback_response = http_request(
+          "POST",
+          env("AUDIT_FALLBACK_ENDPOINT"),
+          audit_entry,
+          {
+            "Authorization": "Bearer " + env("AUDIT_FALLBACK_API_KEY"),
+            "Content-Type": "application/json"
+          }
+        )
+        
+        # Local logging if both fail
+        if fallback_response.status_code >= 400 {
+          log.error("Audit logging failed - storing locally: " + (audit_entry | json.encode()))
+        }
+      }
+      
+      root = this.merge({"audit_logged": primary_response.status_code < 400})
+```
+
+**2. Local audit backup:**
+```yaml
+# Local audit storage for compliance
+- name: local-audit-backup
+  type: mapping
+  config:
+    mapping: |
+      # Always write audit locally as backup
+      let audit_record = {
+        "timestamp": now(),
+        "transaction_id": this.transaction_id,
+        "encryption_summary": {
+          "fields_encrypted": this.encryption_metadata.encrypted_field_count,
+          "key_version": this.encryption_metadata.key_version,
+          "compliance_score": this.compliance_status.overall_score
+        },
+        "node_id": env("NODE_ID")
+      }
+      
+      # Write to local audit log
+      file.append("/var/log/expanso/audit.jsonl", audit_record | json.encode() + "\n")
+      
+      root = this
+```
+
+### Issue: Compliance score below threshold
+
+**Symptom:** Compliance monitoring showing scores below 95%
+
+**Solutions:**
+
+**1. Compliance improvement checklist:**
+```bash
+# Comprehensive compliance check
+#!/bin/bash
+
+echo "=== Field Encryption Compliance Check ==="
+
+# Check encryption coverage
+COVERAGE=$(curl -s -k https://localhost:8443/metrics | grep 'encryption_coverage_percent' | awk '{print $2}')
+echo "Encryption Coverage: ${COVERAGE}%"
+
+if (( $(echo "$COVERAGE < 95" | bc -l) )); then
+  echo "❌ ISSUE: Encryption coverage below 95%"
+  echo "Action: Review unencrypted fields and update pipeline"
+else
+  echo "✅ PASS: Encryption coverage adequate"
+fi
+
+# Check key rotation status  
+DAYS_SINCE_ROTATION=$(vault kv get -field=rotation_date secret/expanso/encryption/current | xargs -I {} date -d {} +%s | xargs -I {} echo $(( ($(date +%s) - {}) / 86400 )))
+echo "Days since last key rotation: $DAYS_SINCE_ROTATION"
+
+if [ "$DAYS_SINCE_ROTATION" -gt 90 ]; then
+  echo "❌ ISSUE: Keys overdue for rotation (90+ days)"
+  echo "Action: Run manual key rotation immediately"
+else
+  echo "✅ PASS: Key rotation up to date"
+fi
+
+# Check access control effectiveness
+UNAUTHORIZED_ATTEMPTS=$(curl -s "${AUDIT_LOG_ENDPOINT}/unauthorized-attempts/24h" \
+  -H "Authorization: Bearer ${AUDIT_API_KEY}" | jq '.count')
+echo "Unauthorized access attempts (24h): $UNAUTHORIZED_ATTEMPTS"
+
+if [ "$UNAUTHORIZED_ATTEMPTS" -gt 5 ]; then
+  echo "❌ ISSUE: High number of unauthorized access attempts"
+  echo "Action: Review access controls and investigate sources"
+else
+  echo "✅ PASS: Access controls effective"
+fi
+```
+
+**2. Automated compliance remediation:**
+```yaml
+# Auto-fix compliance issues
+- name: compliance-auto-remediation
+  type: mapping
+  config:
+    mapping: |
+      let compliance_issues = []
+      
+      # Check encryption coverage
+      if this.compliance_status.overall_score < 95 {
+        # Identify unencrypted fields
+        let unencrypted_fields = []
+        
+        if this.payment.exists() && !this.payment.card_number_encrypted.exists() && this.payment.card_number.exists() {
+          unencrypted_fields = unencrypted_fields.append("payment.card_number")
+        }
+        
+        if this.customer.exists() && !this.customer.email_encrypted.exists() && this.customer.email.exists() {
+          unencrypted_fields = unencrypted_fields.append("customer.email")
+        }
+        
+        compliance_issues = compliance_issues.append({
+          "issue": "low_encryption_coverage",
+          "severity": "high",
+          "unencrypted_fields": unencrypted_fields,
+          "remediation": "encrypt_missing_fields"
+        })
+      }
+      
+      # Auto-remediate where possible
+      let remediation_actions = compliance_issues.map_each(issue -> 
+        if issue.issue == "low_encryption_coverage" {
+          # Auto-encrypt missing fields if keys available
+          "auto_encrypt_missing_fields"
+        } else {
+          "manual_intervention_required"
+        }
+      )
+      
+      root = this.merge({
+        "compliance_remediation": {
+          "issues_found": compliance_issues,
+          "auto_actions": remediation_actions,
+          "remediation_timestamp": now()
+        }
+      })
+```
+
+---
+
+## Getting Help
+
+If you're still experiencing issues after trying these solutions:
+
+### Enable Debug Logging
+
+```bash
+# Increase logging verbosity
+kubectl patch deployment expanso-pipeline \
+  -p '{"spec":{"template":{"spec":{"containers":[{"name":"expanso","env":[{"name":"LOG_LEVEL","value":"debug"}]}]}}}}'
+
+# Watch logs in real-time
+kubectl logs deployment/expanso-pipeline -f
+```
+
+### Collect Diagnostic Information
+
+```bash
+#!/bin/bash
+# collect-diagnostics.sh
+
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+DIAG_DIR="encryption_diagnostics_$TIMESTAMP"
+mkdir -p "$DIAG_DIR"
+
+echo "Collecting field encryption diagnostics..."
+
+# Pipeline status
+expanso job status complete-field-encryption > "$DIAG_DIR/pipeline_status.txt"
+
+# Recent logs
+expanso job logs complete-field-encryption --tail=1000 > "$DIAG_DIR/pipeline_logs.txt"
+
+# Vault status
+vault status > "$DIAG_DIR/vault_status.txt"
+
+# Key information (no actual keys)
+vault kv list secret/expanso/encryption/ > "$DIAG_DIR/key_list.txt"
+vault kv get -field=version secret/expanso/encryption/current > "$DIAG_DIR/current_key_version.txt"
+
+# Performance metrics
+curl -k https://localhost:8443/metrics > "$DIAG_DIR/metrics.txt"
+
+# Network connectivity tests
+curl -k https://localhost:8443/health > "$DIAG_DIR/health_check.txt"
+
+# Kubernetes resources
+kubectl get pods,deployments,services -l app=expanso-pipeline -o yaml > "$DIAG_DIR/k8s_resources.yaml"
+
+# Configuration
+kubectl get configmap expanso-config -o yaml > "$DIAG_DIR/config.yaml" 2>/dev/null || echo "No config map found"
+
+# Compress diagnostics
+tar -czf "encryption_diagnostics_$TIMESTAMP.tar.gz" "$DIAG_DIR"
+rm -rf "$DIAG_DIR"
+
+echo "Diagnostics collected in: encryption_diagnostics_$TIMESTAMP.tar.gz"
+echo "Please share this file when requesting support"
+```
+
+### Community Support
+
+1. **Check Documentation**
+   - [Expanso Documentation](https://docs.expanso.io/)
+   - [Mapping Processor Reference](https://docs.expanso.io/components/processors/mapping)
+
+2. **Community Forums**
+   - [GitHub Issues](https://github.com/expanso-io/expanso/issues)
+   - [Community Discord](https://discord.gg/expanso)
+
+3. **Professional Support**
+   - [Expanso Support Portal](https://support.expanso.io/)
+   - [Enterprise Support](https://expanso.io/enterprise-support)
+
+### When Requesting Help
+
+Include these details:
+
+- **Version Information**: `expanso version`
+- **Error Messages**: Exact error text and context
+- **Configuration**: Relevant pipeline configuration (sanitized)
+- **Environment**: Kubernetes version, cluster details
+- **Steps to Reproduce**: What you were trying to do
+- **Diagnostic Bundle**: Output from collect-diagnostics.sh script
+
+---
+
+**Remember:** Never share actual encryption keys, tokens, or sensitive data when requesting help. Always sanitize logs and configuration files before sharing.

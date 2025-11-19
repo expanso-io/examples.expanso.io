@@ -1,0 +1,999 @@
+---
+title: Step 4 - Prevent Priority Starvation
+sidebar_label: Step 4 - Prevent Starvation
+sidebar_position: 7
+description: Implement age-based priority escalation and fairness guarantees to prevent low-priority messages from being starved indefinitely
+keywords: [starvation, fairness, age-based, escalation, priority-boost, queue-management, message-aging]
+---
+
+# Step 4: Prevent Priority Starvation
+
+**Ensure fairness with age-based priority escalation.** This step implements sophisticated anti-starvation mechanisms that gradually boost priority for aging messages while maintaining the effectiveness of your priority queue system.
+
+## Why Starvation Prevention Is Critical
+
+Priority queues create a natural tension: high-priority messages get immediate attention, but low-priority messages can wait indefinitely if high-priority traffic is constant. This leads to several serious problems:
+
+- **Message starvation:** Low-priority messages never process during busy periods
+- **System unfairness:** Free tier users or routine operations get completely blocked
+- **Accumulating backlogs:** Millions of unprocessed messages consume storage and memory
+- **Compliance violations:** Data retention requirements can't be met if messages never process
+- **Hidden system state:** Important trends buried in never-processed low-priority data
+
+Starvation prevention ensures **all messages eventually process** while preserving the benefits of prioritization.
+
+## The Anti-Starvation Transformation
+
+**Before (Pure Priority):**
+```json
+{
+  "priority": "low",               // ❌ Stays low priority forever
+  "created_at": "2024-01-15T09:00:00Z",  // ❌ 6 hours old, still low priority
+  "queue_depth": 50000,            // ❌ Stuck behind thousands of higher priority messages
+  "processing_guarantee": "none"   // ❌ May never process during busy periods
+}
+```
+
+**After (Age-Based Escalation):**
+```json
+{
+  "priority": "high",              // ✅ Escalated from "low" due to age
+  "created_at": "2024-01-15T09:00:00Z",  // ✅ 6 hours old triggers escalation
+  "age_seconds": 21600,            // ✅ Age tracking for escalation logic
+  "age_boost": 40,                 // ✅ +40 points for being 6+ hours old
+  "original_priority": "low",      // ✅ Audit trail of original classification
+  "escalation_reason": "age_based_fairness",  // ✅ Transparent escalation logic
+  "processing_guarantee": "within_24h"        // ✅ Fairness guarantee
+}
+```
+
+## Implementation
+
+Enhance your multi-criteria pipeline with comprehensive starvation prevention:
+
+```yaml title="anti-starvation-priority-queues.yaml"
+name: anti-starvation-priority-queues
+description: Priority queues with age-based escalation and fairness guarantees
+type: pipeline
+namespace: production
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+      timeout: 5s
+
+  pipeline:
+    processors:
+      # Step 1: Parse and validate incoming events
+      - json_documents:
+          parts: []
+
+      # Step 2: Enhanced priority scoring with age-based escalation
+      - mapping: |
+          root = this
+
+          # === FIELD NORMALIZATION ===
+          root.severity = this.severity.or("INFO").string().uppercase()
+          root.customer_tier = this.customer_tier.or(this.user.subscription_plan.or("free")).lowercase()
+          root.event_type = this.event_type.or(this.type.or("unknown")).lowercase()
+          root.urgency = this.urgency.or("normal").lowercase()
+          root.service = this.service.or("unknown").lowercase()
+
+          # === TIMESTAMP HANDLING AND AGE CALCULATION ===
+          # Parse timestamp from multiple possible sources
+          root.created_at = match {
+            this.timestamp.exists() => this.timestamp
+            this.created_at.exists() => this.created_at
+            this.event_time.exists() => this.event_time
+            _ => now().format_timestamp_rfc3339()
+          }
+
+          # Calculate message age in seconds
+          let message_timestamp = root.created_at.parse_timestamp_rfc3339()
+          root.age_seconds = (now().unix() - message_timestamp.unix()).round()
+
+          # Age classification for monitoring
+          root.age_category = match {
+            root.age_seconds < 300 => "fresh"           # < 5 minutes
+            root.age_seconds < 1800 => "recent"         # < 30 minutes  
+            root.age_seconds < 3600 => "aging"          # < 1 hour
+            root.age_seconds < 14400 => "old"           # < 4 hours
+            root.age_seconds < 86400 => "very_old"      # < 24 hours
+            _ => "ancient"                              # > 24 hours
+          }
+
+          # === BASE PRIORITY SCORING (same as Step 3) ===
+          let severity_score = match root.severity {
+            "CRITICAL" => 85, "FATAL" => 85, "ERROR" => 60,
+            "WARNING" => 35, "WARN" => 35, "INFO" => 15,
+            "DEBUG" => 8, "TRACE" => 5, _ => 20
+          }
+
+          let tier_multiplier = match root.customer_tier {
+            "enterprise" => 4.0, "premium" => 3.0, "pro" => 2.5,
+            "standard" => 2.0, "basic" => 1.5, "free" => 1.0,
+            "trial" => 0.8, "suspended" => 0.5, _ => 1.0
+          }
+
+          let event_type_score = match {
+            root.event_type.has_prefix("security.") => 50
+            root.event_type.has_prefix("auth.") => 45
+            root.event_type.has_prefix("payment.") => 40
+            root.event_type.has_prefix("billing.") => 35
+            root.event_type.has_prefix("api.") => 30
+            root.event_type.has_prefix("system.") => 25
+            root.event_type.has_prefix("user.") => 15
+            root.event_type.has_prefix("analytics.") => 5
+            _ => 10
+          }
+
+          # === AGE-BASED ESCALATION LOGIC ===
+          # Progressive age boost to prevent starvation
+          let age_boost = match {
+            # Ancient messages (>24h): Emergency escalation
+            root.age_seconds > 86400 => 100          # +100 points: guarantees critical priority
+            
+            # Very old messages (4-24h): Strong escalation  
+            root.age_seconds > 14400 => 60           # +60 points: likely high priority
+            
+            # Old messages (1-4h): Moderate escalation
+            root.age_seconds > 3600 => 35            # +35 points: boost toward normal/high
+            
+            # Aging messages (30m-1h): Gentle escalation
+            root.age_seconds > 1800 => 15            # +15 points: small boost
+            
+            # Recent messages (5-30m): Minimal escalation
+            root.age_seconds > 300 => 5              # +5 points: very small boost
+            
+            # Fresh messages (<5m): No age boost
+            _ => 0
+          }
+
+          # Track original priority before age boost
+          let base_score = (severity_score * tier_multiplier) + event_type_score
+          root.original_priority_score = base_score
+
+          # === STARVATION DETECTION AND ESCALATION ===
+          # Detect if message is at risk of starvation
+          let is_low_base_priority = base_score < 50
+          let is_aging_significantly = root.age_seconds > 3600
+          let starvation_risk = is_low_base_priority && is_aging_significantly
+
+          # Apply escalation multiplier for starvation risk
+          let starvation_multiplier = if starvation_risk { 2.0 } else { 1.0 }
+          let final_age_boost = age_boost * starvation_multiplier
+
+          # Calculate final priority score with age boost
+          root.priority_score = base_score + final_age_boost
+
+          # === FAIRNESS GUARANTEES ===
+          # Implement absolute fairness guarantees
+          root.priority = match {
+            # Emergency escalation: Ancient messages always get critical priority
+            root.age_seconds > 86400 => "critical"
+            
+            # Age-based minimum guarantees
+            root.age_seconds > 14400 && root.priority_score < 120 => "high"    # 4+ hours: minimum high
+            root.age_seconds > 7200 && root.priority_score < 60 => "normal"    # 2+ hours: minimum normal
+            
+            # Standard score-based routing (same thresholds as Step 3)
+            root.priority_score >= 200 => "critical"
+            root.priority_score >= 120 => "high"
+            root.priority_score >= 60 => "normal"
+            root.priority_score >= 20 => "low"
+            _ => "bulk"
+          }
+
+          # Capture the original priority before escalation
+          root.original_priority = match {
+            root.original_priority_score >= 200 => "critical"
+            root.original_priority_score >= 120 => "high"
+            root.original_priority_score >= 60 => "normal"
+            root.original_priority_score >= 20 => "low"
+            _ => "bulk"
+          }
+
+          # === ESCALATION AUDIT TRAIL ===
+          let was_escalated = root.priority != root.original_priority
+          
+          root.escalation_info = {
+            "escalated": was_escalated,
+            "original_priority": root.original_priority,
+            "final_priority": root.priority,
+            "age_boost_applied": final_age_boost,
+            "starvation_risk": starvation_risk,
+            "escalation_reason": match {
+              root.age_seconds > 86400 => "ancient_message_emergency"
+              root.age_seconds > 14400 => "very_old_message_fairness"
+              root.age_seconds > 3600 => "old_message_escalation"
+              was_escalated => "age_based_boost"
+              _ => "none"
+            }
+          }
+
+          # === COMPREHENSIVE SCORING BREAKDOWN ===
+          root.scoring_breakdown = {
+            "age_analysis": {
+              "message_age_seconds": root.age_seconds,
+              "age_category": root.age_category,
+              "age_boost_points": final_age_boost,
+              "starvation_risk_detected": starvation_risk
+            },
+            "priority_scoring": {
+              "severity_base": severity_score,
+              "tier_multiplier": tier_multiplier,
+              "event_type_boost": event_type_score,
+              "base_score": root.original_priority_score,
+              "age_boost": final_age_boost,
+              "final_score": root.priority_score
+            },
+            "fairness_guarantees": {
+              "original_priority": root.original_priority,
+              "final_priority": root.priority,
+              "escalation_applied": was_escalated,
+              "min_processing_guarantee": match root.priority {
+                "critical" => "immediate"
+                "high" => "within_1h"
+                "normal" => "within_4h"
+                "low" => "within_12h"
+                "bulk" => "within_24h"
+                _ => "best_effort"
+              }
+            }
+          }
+
+          # Add processing metadata
+          root.processed_at = now()
+          root.edge_node_id = env("NODE_ID").or("unknown")
+          root.routing_strategy = "anti-starvation-v1"
+
+          # === QUEUE DEPTH MONITORING ===
+          # Track queue depth for additional starvation detection
+          # In production, this would query actual queue metrics
+          root.queue_monitoring = {
+            "estimated_queue_depth": match root.priority {
+              "critical" => 0           # Critical queue should be near-empty
+              "high" => 50              # High queue moderate depth
+              "normal" => 500           # Normal queue higher depth
+              "low" => 5000             # Low queue significant depth
+              "bulk" => 50000           # Bulk queue very high depth
+              _ => 1000
+            },
+            "processing_estimate": match root.priority {
+              "critical" => "immediate"
+              "high" => "minutes"  
+              "normal" => "hours"
+              "low" => "hours_to_day"
+              "bulk" => "day_to_week"
+              _ => "unknown"
+            }
+          }
+
+  output:
+    switch:
+      cases:
+        # Case 1: Critical priority (including age-escalated)
+        - check: this.priority == "critical"
+          output:
+            label: critical_queue
+            broker:
+              pattern: fan_out
+              outputs:
+                # Primary processing
+                - kafka:
+                    addresses: ["${KAFKA_BROKERS}"]
+                    topic: critical-priority-events
+                    
+                    batching:
+                      count: 1
+                      period: 0s
+                    
+                    max_in_flight: 1
+                    ack_replicas: true
+                    max_retries: 15
+                    
+                    backoff:
+                      initial_interval: 50ms
+                      max_interval: 1s
+                
+                # Age-escalated messages get special monitoring
+                - switch:
+                    cases:
+                      - check: this.escalation_info.escalated == true
+                        output:
+                          http_client:
+                            url: ${MONITORING_WEBHOOK_URL}/age-escalation-alert
+                            verb: POST
+                            headers:
+                              Content-Type: application/json
+                            timeout: 2s
+                            body: |
+                              {
+                                "alert_type": "age_escalation",
+                                "message_id": "${!json("id")}",
+                                "original_priority": "${!json("original_priority")}",
+                                "escalated_to": "${!json("priority")}",
+                                "age_hours": ${!json("age_seconds") / 3600},
+                                "escalation_reason": "${!json("escalation_info.escalation_reason")}"
+                              }
+
+        # Case 2: High priority
+        - check: this.priority == "high"
+          output:
+            label: high_priority_queue
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: high-priority-events
+              
+              batching:
+                count: 15
+                period: 2s
+              
+              max_in_flight: 5
+              max_retries: 8
+              compression: snappy
+
+        # Case 3: Normal priority  
+        - check: this.priority == "normal"
+          output:
+            label: normal_priority_queue
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: normal-priority-events
+              
+              batching:
+                count: 75
+                period: 8s
+              
+              max_in_flight: 10
+              max_retries: 5
+              compression: snappy
+
+        # Case 4: Low priority with enhanced monitoring
+        - check: this.priority == "low"
+          output:
+            label: low_priority_queue
+            broker:
+              pattern: fan_out
+              outputs:
+                # Primary processing
+                - kafka:
+                    addresses: ["${KAFKA_BROKERS}"]
+                    topic: low-priority-events
+                    
+                    batching:
+                      count: 500
+                      period: 30s
+                    
+                    max_in_flight: 15
+                    max_retries: 3
+
+                # Monitor for potential starvation
+                - switch:
+                    cases:
+                      - check: this.age_seconds > 3600
+                        output:
+                          file:
+                            path: /var/expanso/monitoring/starvation-watch.jsonl
+                            codec: lines
+                            batching:
+                              count: 100
+                              period: 5m
+
+        # Case 5: Bulk priority with aggressive batching
+        - check: this.priority == "bulk"
+          output:
+            label: bulk_priority_queue
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: bulk-priority-events
+              
+              batching:
+                count: 2000
+                period: 5m
+              
+              max_in_flight: 25
+              max_retries: 1
+              compression: gzip
+
+        # Default: Normal processing
+        - output:
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: normal-priority-events
+```
+
+## Environment Setup
+
+Add monitoring webhook for escalation alerts:
+
+```bash
+# Add monitoring webhook URL for age escalation alerts
+export MONITORING_WEBHOOK_URL="https://monitoring.yourcompany.com/webhooks"
+
+# Create monitoring directory for starvation detection
+sudo mkdir -p /var/expanso/monitoring
+sudo chown $USER:$USER /var/expanso/monitoring
+
+# Verify setup
+echo "Monitoring webhook: $MONITORING_WEBHOOK_URL"
+ls -la /var/expanso/monitoring
+```
+
+## Deploy and Test Anti-Starvation
+
+Deploy the anti-starvation pipeline:
+
+```bash
+# Deploy the anti-starvation pipeline
+expanso pipeline deploy anti-starvation-priority-queues.yaml
+
+# Verify deployment
+expanso pipeline status anti-starvation-priority-queues
+```
+
+Test age-based escalation scenarios:
+
+```bash
+# Test Scenario 1: Fresh low-priority message (should stay low)
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+    "event_type": "analytics.pageview",
+    "severity": "INFO",
+    "customer_tier": "free",
+    "message": "Fresh analytics event"
+  }'
+
+# Test Scenario 2: Old low-priority message (should escalate)
+# Create a message with timestamp 6 hours ago
+old_timestamp=$(date -u -d '6 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "timestamp": "'$old_timestamp'",
+    "event_type": "analytics.pageview", 
+    "severity": "INFO",
+    "customer_tier": "free",
+    "message": "6-hour-old analytics event (should escalate)"
+  }'
+
+# Test Scenario 3: Ancient message (should get critical priority)
+ancient_timestamp=$(date -u -d '30 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "timestamp": "'$ancient_timestamp'",
+    "event_type": "user.activity",
+    "severity": "DEBUG", 
+    "customer_tier": "trial",
+    "message": "30-hour-old debug message (should get critical priority)"
+  }'
+
+# Test Scenario 4: Simulate message backlog with varying ages
+for hours_ago in 0 1 2 4 8 12 24 48; do
+  backlog_timestamp=$(date -u -d "$hours_ago hours ago" +%Y-%m-%dT%H:%M:%SZ)
+  curl -X POST http://localhost:8080/events \
+    -H "Content-Type: application/json" \
+    -d '{
+      "timestamp": "'$backlog_timestamp'",
+      "event_type": "system.metrics",
+      "severity": "DEBUG",
+      "customer_tier": "free",
+      "message": "Backlog message from '$hours_ago' hours ago",
+      "hours_old": '$hours_ago'
+    }'
+done
+```
+
+## Monitor Age-Based Escalations
+
+Create monitoring tools to track escalation behavior:
+
+```bash
+# Create escalation monitoring script
+cat << 'EOF' > monitor-escalations.sh
+#!/bin/bash
+
+echo "=== AGE-BASED ESCALATION MONITORING ==="
+echo "Generated at: $(date)"
+echo
+
+# Check for escalated messages in critical queue
+echo "Recent Age-Escalated Messages:"
+timeout 10s $KAFKA_HOME/bin/kafka-console-consumer.sh \
+  --bootstrap-server $KAFKA_BROKERS \
+  --topic critical-priority-events \
+  --from-beginning \
+  --max-messages 10 | jq -r 'select(.escalation_info.escalated == true) | "\(.timestamp) Age: \(.age_seconds)s Priority: \(.original_priority) → \(.priority) Reason: \(.escalation_info.escalation_reason)"'
+
+echo
+echo "Age Distribution Analysis:"
+for topic in critical-priority-events high-priority-events normal-priority-events low-priority-events bulk-priority-events; do
+  echo "  $topic:"
+  timeout 5s $KAFKA_HOME/bin/kafka-console-consumer.sh \
+    --bootstrap-server $KAFKA_BROKERS \
+    --topic $topic \
+    --from-beginning \
+    --max-messages 20 | jq -r '.age_category' | sort | uniq -c | head -5
+done
+
+echo
+echo "Starvation Risk Detection:"
+if [ -f /var/expanso/monitoring/starvation-watch.jsonl ]; then
+  echo "  Messages at starvation risk:"
+  tail -10 /var/expanso/monitoring/starvation-watch.jsonl | jq -r '"\(.timestamp) \(.event_type) Age: \(.age_seconds)s"'
+else
+  echo "  No starvation risk detected"
+fi
+
+EOF
+
+chmod +x monitor-escalations.sh
+./monitor-escalations.sh
+```
+
+## Advanced Anti-Starvation Strategies
+
+### Strategy 1: Adaptive Age Thresholds
+
+Adjust escalation thresholds based on system load:
+
+```bloblang
+# Adaptive thresholds based on system state
+let system_load = http_client(
+  "http://monitoring.internal/api/load",
+  {"timeout": "100ms", "verb": "GET"}
+).queue_depth.or(1000)
+
+# Tighten escalation thresholds when system is heavily loaded
+let escalation_threshold_multiplier = match {
+  system_load > 10000 => 0.5     # Escalate more aggressively under high load
+  system_load > 5000 => 0.7      # Moderate escalation adjustment
+  system_load < 1000 => 1.5      # Relax escalation when system is idle
+  _ => 1.0                       # Standard thresholds
+}
+
+# Apply adaptive thresholds
+let adaptive_age_boost = match {
+  root.age_seconds > (86400 * escalation_threshold_multiplier) => 100
+  root.age_seconds > (14400 * escalation_threshold_multiplier) => 60
+  root.age_seconds > (3600 * escalation_threshold_multiplier) => 35
+  root.age_seconds > (1800 * escalation_threshold_multiplier) => 15
+  root.age_seconds > (300 * escalation_threshold_multiplier) => 5
+  _ => 0
+}
+```
+
+### Strategy 2: Customer Tier-Specific Fairness
+
+Apply different fairness guarantees based on customer tier:
+
+```bloblang
+# Tier-specific fairness guarantees
+let tier_fairness_limits = match root.customer_tier {
+  "enterprise" => {
+    "max_age_seconds": 3600,      # 1 hour max for enterprise
+    "escalation_multiplier": 2.0   # Stronger escalation
+  }
+  "premium" => {
+    "max_age_seconds": 7200,       # 2 hours max for premium
+    "escalation_multiplier": 1.5
+  }
+  "standard" => {
+    "max_age_seconds": 14400,      # 4 hours max for standard
+    "escalation_multiplier": 1.2
+  }
+  _ => {
+    "max_age_seconds": 86400,      # 24 hours max for free/trial
+    "escalation_multiplier": 1.0
+  }
+}
+
+# Apply tier-specific escalation
+let tier_adjusted_boost = if root.age_seconds > tier_fairness_limits.max_age_seconds {
+  100 * tier_fairness_limits.escalation_multiplier  # Emergency escalation
+} else {
+  age_boost * tier_fairness_limits.escalation_multiplier
+}
+```
+
+### Strategy 3: Event Type-Specific Aging
+
+Different event types may have different aging characteristics:
+
+```bloblang
+# Event-specific aging policies
+let event_aging_policy = match {
+  root.event_type.has_prefix("security.") => {
+    "max_age": 1800,              # Security events must process within 30 minutes
+    "escalation_rate": 3.0
+  }
+  root.event_type.has_prefix("payment.") => {
+    "max_age": 3600,              # Payment events within 1 hour
+    "escalation_rate": 2.5
+  }
+  root.event_type.has_prefix("analytics.") => {
+    "max_age": 604800,            # Analytics can age up to 1 week
+    "escalation_rate": 0.5
+  }
+  _ => {
+    "max_age": 86400,             # Default 24 hours
+    "escalation_rate": 1.0
+  }
+}
+
+# Apply event-specific aging
+let event_age_boost = if root.age_seconds > event_aging_policy.max_age {
+  100  # Emergency processing for aged events
+} else {
+  age_boost * event_aging_policy.escalation_rate
+}
+```
+
+## Fairness Monitoring and Alerting
+
+### Comprehensive Fairness Dashboard
+
+Create a dashboard to monitor fairness guarantees:
+
+```bash
+# Create fairness monitoring dashboard
+cat << 'EOF' > fairness-dashboard.py
+#!/usr/bin/env python3
+import json
+import subprocess
+import sys
+from datetime import datetime, timedelta
+
+def get_messages_with_age(topic, max_messages=100):
+    """Get messages from topic and calculate age statistics"""
+    cmd = [
+        f"{os.environ.get('KAFKA_HOME', '/opt/kafka')}/bin/kafka-console-consumer.sh",
+        "--bootstrap-server", os.environ.get('KAFKA_BROKERS', 'localhost:9092'),
+        "--topic", topic,
+        "--from-beginning",
+        f"--max-messages", str(max_messages)
+    ]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        messages = []
+        for line in result.stdout.strip().split('\n'):
+            if line:
+                try:
+                    msg = json.loads(line)
+                    if 'age_seconds' in msg:
+                        messages.append(msg)
+                except json.JSONDecodeError:
+                    continue
+        return messages
+    except subprocess.TimeoutExpired:
+        return []
+
+def analyze_fairness():
+    """Analyze fairness across priority queues"""
+    print("=== FAIRNESS ANALYSIS DASHBOARD ===")
+    print(f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print()
+    
+    priority_topics = [
+        'critical-priority-events',
+        'high-priority-events', 
+        'normal-priority-events',
+        'low-priority-events',
+        'bulk-priority-events'
+    ]
+    
+    total_escalations = 0
+    total_messages = 0
+    age_violations = []
+    
+    for topic in priority_topics:
+        priority = topic.replace('-priority-events', '')
+        messages = get_messages_with_age(topic, 50)
+        
+        if not messages:
+            continue
+            
+        total_messages += len(messages)
+        escalated = [m for m in messages if m.get('escalation_info', {}).get('escalated', False)]
+        total_escalations += len(escalated)
+        
+        # Age analysis
+        ages = [m.get('age_seconds', 0) for m in messages]
+        max_age = max(ages) if ages else 0
+        avg_age = sum(ages) / len(ages) if ages else 0
+        
+        print(f"{priority.upper()} Priority Queue:")
+        print(f"  Messages: {len(messages)}")
+        print(f"  Escalated: {len(escalated)} ({len(escalated)/len(messages)*100:.1f}%)")
+        print(f"  Max age: {max_age/3600:.1f} hours")
+        print(f"  Avg age: {avg_age/3600:.1f} hours")
+        
+        # Check for fairness violations
+        if priority in ['low', 'bulk'] and max_age > 86400:  # > 24 hours
+            age_violations.append(f"{priority}: {max_age/3600:.1f} hours")
+        elif priority == 'normal' and max_age > 14400:  # > 4 hours
+            age_violations.append(f"{priority}: {max_age/3600:.1f} hours")
+        
+        print()
+    
+    # Summary
+    print("=== FAIRNESS SUMMARY ===")
+    print(f"Total messages analyzed: {total_messages}")
+    print(f"Total escalations: {total_escalations}")
+    if total_messages > 0:
+        print(f"Escalation rate: {total_escalations/total_messages*100:.2f}%")
+    
+    if age_violations:
+        print("\n⚠️  FAIRNESS VIOLATIONS DETECTED:")
+        for violation in age_violations:
+            print(f"  - {violation}")
+    else:
+        print("\n✅ No fairness violations detected")
+
+if __name__ == "__main__":
+    import os
+    analyze_fairness()
+EOF
+
+chmod +x fairness-dashboard.py
+python3 fairness-dashboard.py
+```
+
+### Automated Starvation Alerts
+
+Set up automated alerts for starvation conditions:
+
+```bash
+# Create automated starvation detection
+cat << 'EOF' > starvation-monitor.sh
+#!/bin/bash
+
+ALERT_THRESHOLD_HOURS=12
+WEBHOOK_URL="${MONITORING_WEBHOOK_URL}/starvation-alert"
+
+# Check for messages older than threshold in low/bulk queues
+for queue in low bulk; do
+  topic="${queue}-priority-events"
+  
+  # Get recent messages and check ages
+  old_messages=$(timeout 10s $KAFKA_HOME/bin/kafka-console-consumer.sh \
+    --bootstrap-server $KAFKA_BROKERS \
+    --topic $topic \
+    --from-beginning \
+    --max-messages 100 | \
+    jq -r "select(.age_seconds > ($ALERT_THRESHOLD_HOURS * 3600)) | \"\(.age_seconds) \(.event_type) \(.customer_tier)\"" | \
+    wc -l)
+  
+  if [ "$old_messages" -gt 10 ]; then
+    echo "ALERT: $old_messages messages in $queue queue older than $ALERT_THRESHOLD_HOURS hours"
+    
+    # Send webhook alert
+    curl -X POST "$WEBHOOK_URL" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"alert_type\": \"starvation_detected\",
+        \"queue\": \"$queue\",
+        \"old_message_count\": $old_messages,
+        \"threshold_hours\": $ALERT_THRESHOLD_HOURS,
+        \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+      }"
+  fi
+done
+
+EOF
+
+chmod +x starvation-monitor.sh
+
+# Run starvation monitoring every 30 minutes
+(crontab -l 2>/dev/null; echo "*/30 * * * * /path/to/starvation-monitor.sh") | crontab -
+```
+
+## Performance Impact Analysis
+
+### Age Boost Computational Cost
+
+The age-based escalation adds minimal computational overhead:
+
+```yaml
+# Performance impact metrics
+processing_overhead:
+  timestamp_parsing: "~0.5ms per message"
+  age_calculation: "~0.1ms per message" 
+  escalation_logic: "~0.2ms per message"
+  total_overhead: "~0.8ms per message"
+
+# Throughput impact
+throughput_reduction: "< 2%"  # Negligible impact on overall throughput
+
+# Memory impact  
+memory_overhead: "< 100 bytes per message"  # For age tracking metadata
+```
+
+### Escalation Rate Optimization
+
+Monitor and tune escalation rates to balance fairness and efficiency:
+
+```bloblang
+# Configurable escalation parameters
+let config = {
+  "escalation_enabled": env("AGE_ESCALATION_ENABLED").or("true") == "true",
+  "escalation_aggressiveness": env("ESCALATION_AGGRESSIVENESS").or("normal"),
+  "max_age_hours": env("MAX_MESSAGE_AGE_HOURS").or("24").number()
+}
+
+# Tunable escalation based on configuration
+let age_boost = if config.escalation_enabled {
+  match config.escalation_aggressiveness {
+    "conservative" => match {
+      root.age_seconds > 172800 => 100   # 48 hours for conservative
+      root.age_seconds > 86400 => 60     # 24 hours
+      root.age_seconds > 14400 => 25     # 4 hours
+      _ => 0
+    }
+    "aggressive" => match {
+      root.age_seconds > 43200 => 100    # 12 hours for aggressive
+      root.age_seconds > 7200 => 60      # 2 hours
+      root.age_seconds > 1800 => 25      # 30 minutes
+      _ => 0
+    }
+    _ => match {  # normal escalation (default)
+      root.age_seconds > 86400 => 100
+      root.age_seconds > 14400 => 60
+      root.age_seconds > 3600 => 35
+      _ => 0
+    }
+  }
+} else {
+  0  # Escalation disabled
+}
+```
+
+## Troubleshooting Anti-Starvation
+
+### Issue: Too Many Messages Being Escalated
+
+**Symptom:** Critical queue overwhelmed with age-escalated low-priority messages.
+
+**Cause:** Escalation thresholds too aggressive or system backlog too large.
+
+**Solutions:**
+
+1. **Increase escalation thresholds:**
+```bloblang
+# More conservative escalation
+let age_boost = match {
+  root.age_seconds > 172800 => 100    # 48 hours instead of 24
+  root.age_seconds > 43200 => 60      # 12 hours instead of 4
+  root.age_seconds > 7200 => 35       # 2 hours instead of 1
+  _ => 0
+}
+```
+
+2. **Implement escalation rate limiting:**
+```bloblang
+# Limit escalation rate to prevent critical queue overflow
+let escalation_budget = http_client(
+  "http://monitoring.internal/api/escalation-budget",
+  {"timeout": "50ms", "verb": "GET"}
+).remaining_escalations.or(100)
+
+# Only escalate if we have budget
+let age_boost = if escalation_budget > 0 {
+  # Normal age boost calculation
+  calculated_age_boost
+} else {
+  0  # No escalation when budget exhausted
+}
+```
+
+### Issue: Fairness Violations Still Occurring
+
+**Symptom:** Messages aging beyond acceptable limits despite escalation.
+
+**Cause:** Insufficient consumer capacity or escalation logic bugs.
+
+**Solutions:**
+
+1. **Add emergency escalation:**
+```bloblang
+# Emergency escalation for severely aged messages
+if root.age_seconds > 259200 {  # > 72 hours
+  root.priority = "critical"
+  root.emergency_escalation = true
+  
+  # Send immediate alert
+  http_client(
+    env("EMERGENCY_WEBHOOK_URL"),
+    {"timeout": "2s", "verb": "POST"},
+    {
+      "alert": "emergency_escalation",
+      "message_age_hours": root.age_seconds / 3600,
+      "original_priority": root.original_priority,
+      "event_details": this.without("message", "details")
+    }
+  )
+}
+```
+
+2. **Scale consumer capacity:**
+```bash
+# Auto-scale consumers based on queue depth
+kubectl patch deployment low-priority-consumer --patch '{"spec":{"replicas":10}}'
+kubectl patch deployment bulk-priority-consumer --patch '{"spec":{"replicas":15}}'
+```
+
+### Issue: False Age Escalations
+
+**Symptom:** Recently created messages getting escalated due to timestamp issues.
+
+**Cause:** Clock skew or incorrect timestamp parsing.
+
+**Solutions:**
+
+1. **Add timestamp validation:**
+```bloblang
+# Validate timestamps are reasonable
+let parsed_timestamp = root.created_at.parse_timestamp_rfc3339()
+let timestamp_age = now().unix() - parsed_timestamp.unix()
+
+# Reject obviously wrong timestamps
+if timestamp_age < 0 || timestamp_age > 2592000 {  # Negative or > 30 days
+  root.created_at = now().format_timestamp_rfc3339()
+  root.timestamp_corrected = true
+  root.age_seconds = 0
+}
+```
+
+2. **Add clock skew tolerance:**
+```bloblang
+# Account for reasonable clock skew
+let skew_tolerance = 300  # 5 minutes
+let adjusted_age = if root.age_seconds < skew_tolerance {
+  0
+} else {
+  root.age_seconds - skew_tolerance
+}
+
+# Use adjusted age for escalation decisions
+root.age_seconds_adjusted = adjusted_age
+```
+
+## Next Steps
+
+With anti-starvation mechanisms implemented, you now have:
+
+✅ **Fairness guarantees** that ensure all messages process within reasonable time limits
+✅ **Age-based escalation** that gradually boosts priority for aging messages
+✅ **Starvation prevention** with automatic detection and escalation of at-risk messages
+✅ **Transparent audit trails** showing original vs escalated priorities with reasoning
+✅ **Monitoring and alerting** for fairness violations and system health
+✅ **Tunable parameters** to balance fairness with system performance
+
+**Next:** Deploy the complete priority queue pipeline and review the final solution.
+
+<div style={{display: 'flex', gap: '1rem', marginTop: '2rem', marginBottom: '2rem', flexWrap: 'wrap'}}>
+  <a href="./complete-priority-pipeline" className="button button--primary button--lg" style={{flex: '1', minWidth: '200px'}}>
+    Complete Pipeline
+  </a>
+  <a href="./troubleshooting" className="button button--secondary button--lg" style={{flex: '1', minWidth: '200px'}}>
+    Troubleshooting Guide
+  </a>
+</div>
+
+## What You Built
+
+This step completed your priority queue system with comprehensive anti-starvation protection:
+
+- **Age tracking** with automatic calculation from message timestamps
+- **Progressive escalation** with increasing priority boosts for aging messages (5-100 points)
+- **Fairness guarantees** with absolute limits (24h max age, escalated to critical)
+- **Starvation detection** with monitoring and alerting for at-risk messages
+- **Comprehensive audit trails** showing original priorities, escalation reasons, and processing guarantees
+
+Your priority queue system now balances efficiency, fairness, and business priorities while ensuring no message is forgotten or starved indefinitely.
