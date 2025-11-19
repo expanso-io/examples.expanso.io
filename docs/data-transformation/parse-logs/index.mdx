@@ -8,156 +8,40 @@ keywords: [log parsing, json logs, csv parsing, syslog, grok patterns, apache lo
 
 # Parse Structured Logs
 
-**Transform raw log files into structured, queryable data streams**. This step-by-step guide teaches you 5 essential parsing techniques through hands-on exercises and real-world examples.
+Transform raw log files into structured, queryable data streams.
 
 ## The Problem
 
-Log files come in dozens of formats, making analysis and routing difficult:
+Log files come in dozens of formats making analysis difficult:
+- JSON, CSV, Apache/Nginx access logs, syslog messages
+- Each format requires different parsing logic
+- Difficult to build unified analytics and monitoring
+- No field-indexed queries
 
-```text
-// Different formats from the same system
-{"timestamp":"2025-10-20T14:23:45.123Z","level":"error","message":"DB failed"}  ❌ JSON
-2025-10-20,temperature,sensor-01,35.5,celsius                                   ❌ CSV  
-203.0.113.45 - - [20/Oct/2025:14:23:45 +0000] "GET /api/users HTTP/1.1" 200   ❌ Access log
-&lt;134&gt;Oct 20 14:23:45 edge-node-01 app[12345]: Connection established           ❌ Syslog
-```
+## The Solution
 
-**The challenge:** Each format requires different parsing logic, making it difficult to build unified analytics and monitoring.
+Learn 5 format-specific parsing techniques:
 
-## The Solution: 5 Format-Specific Parsing Techniques  
-
-This guide teaches you how to apply the right parsing technique for each log format:
-
-### 1. **JSON Document Parsing** → Application Logs
-Parse JSON application logs with timestamp normalization and field validation
-- **Use case:** Microservice logs, API logs, structured application output
-- **Method:** `json_documents` processor with field mapping
-- **Result:** Structured objects ready for analytics and alerting
-
-### 2. **CSV Column Parsing** → Sensor Data
-Parse CSV sensor data with column mapping, type conversion, and validation
-- **Use case:** IoT sensor logs, export files, tabular data streams
-- **Method:** `csv` processor with named columns and data validation
-- **Result:** Typed fields with validation and enrichment metadata
-
-### 3. **Web Access Log Parsing** → Traffic Analysis  
-Parse Apache/Nginx access logs using grok patterns for traffic analytics
-- **Use case:** Web server logs, CDN logs, load balancer logs
-- **Method:** `grok` processor with Common Log Format patterns
-- **Result:** Request metrics with client analysis and error classification
-
-### 4. **Syslog Message Parsing** → System Events
-Parse RFC3164 syslog messages with priority, facility, and severity extraction
-- **Use case:** System logs, network device logs, security events
-- **Method:** `syslog` processor with priority decomposition
-- **Result:** Categorized system events with severity levels for alerting
-
-### 5. **Multi-Format Detection** → Mixed Sources
-Automatically detect and route multiple log formats in a single pipeline
-- **Use case:** Centralized logging, mixed infrastructure, legacy systems
-- **Method:** Format detection with conditional routing
-- **Result:** Unified processing of diverse log formats with format-specific handling
-
-## Why Process at the Edge?
-
-**Compliance:** Parse and redact sensitive data before it leaves your network  
-**Performance:** Reduce bandwidth by 60-80% through filtering and compression  
-**Real-time:** Enable sub-second alerting on critical events  
-**Cost:** Eliminate expensive cloud parsing and storage of raw logs
-
-## What You'll Learn
-
-By the end of this guide, you'll be able to:
-
-✅ **Parse JSON logs** with timestamp normalization and error handling  
-✅ **Process CSV data** with column mapping and type validation  
-✅ **Extract web metrics** from access logs using grok patterns  
-✅ **Decompose syslog messages** into facility, severity, and content  
-✅ **Build multi-format pipelines** that automatically detect and route formats  
-✅ **Handle edge cases** with fallback processing and dead letter queues  
-✅ **Optimize performance** with batching, compression, and sampling
+1. **JSON Document Parsing** - `json_documents` processor with field mapping and timestamp normalization
+2. **CSV Column Parsing** - `csv` processor with named columns, type conversion, and validation
+3. **Web Access Log Parsing** - `grok` processor with Common Log Format patterns for traffic analytics
+4. **Syslog Message Parsing** - `syslog` processor with priority decomposition for system events
+5. **Multi-Format Detection** - Automatic format detection with conditional routing for mixed sources
 
 ## Get Started
 
-### Option 1: Interactive Explorer (Recommended)
-**See** each parsing technique in action with side-by-side before/after views.
+Choose your path:
 
-[**→ Launch Interactive Explorer**](./explorer)
+### [Interactive Explorer](./explorer)
+See each parsing technique with side-by-side before/after views
 
-### Option 2: Step-by-Step Tutorial
-**Build** the parsing pipeline incrementally, one format at a time.
+### [Step-by-Step Tutorial](./setup)
+Build the pipeline incrementally:
+1. [Parse JSON Logs](./step-1-parse-json-logs)
+2. [Parse CSV Data](./step-2-parse-csv-data)
+3. [Parse Access Logs](./step-3-parse-access-logs)
+4. [Parse Syslog Messages](./step-4-parse-syslog-messages)
+5. [Multi-Format Detection](./step-5-multi-format-detection)
 
-1. [**Setup Guide**](./setup) - Configure environment and deploy shell parser
-2. [**Step 1: Parse JSON Logs**](./step-1-parse-json-logs) - Application log processing
-3. [**Step 2: Parse CSV Data**](./step-2-parse-csv-data) - Sensor data with validation
-4. [**Step 3: Parse Access Logs**](./step-3-parse-access-logs) - Web traffic analysis
-5. [**Step 4: Parse Syslog Messages**](./step-4-parse-syslog-messages) - System event processing
-6. [**Step 5: Multi-Format Detection**](./step-5-multi-format-detection) - Unified pipeline
-
-### Option 3: Jump to Final Pipeline
-**Download** the complete, production-ready multi-format parser.
-
-[**→ Get Complete Parser**](./complete-parser)
-
-## Who This Guide Is For
-
-- **Platform Engineers** who need to unify logging across diverse systems
-- **DevOps Teams** building centralized monitoring and observability 
-- **Data Engineers** processing mixed-format data streams at scale
-- **Security Teams** parsing and correlating logs from multiple sources
-
-## Prerequisites
-
-- Expanso CLI installed ([Installation Guide](https://docs.expanso.io/installation))
-- Basic familiarity with YAML configuration
-- Understanding of log formats (helpful but not required)
-- Terminal access for testing and deployment
-
-## Time to Complete
-
-- **Interactive Explorer:** 10 minutes
-- **Step-by-Step Tutorial:** 45-60 minutes  
-- **Quick Deploy:** 5 minutes
-
-## Real-World Impact
-
-**Before Structured Parsing:**
-```
-- Processing speed: 5,000 logs/sec
-- Error detection: Manual investigation (hours)
-- Query performance: Full-text search only
-- Storage costs: 100% raw log retention
-- Alert latency: 5-15 minutes
-```
-
-**After Structured Parsing:**
-```
-- Processing speed: 50,000+ logs/sec (10x faster)  
-- Error detection: Automated alerts (seconds)
-- Query performance: Field-indexed queries (100x faster)
-- Storage costs: 30-40% (compression + filtering)
-- Alert latency: &lt;30 seconds (real-time)
-```
-
----
-
-## Next Steps
-
-Ready to start? Choose your learning path:
-
-<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
-  <a href="./explorer" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Interactive Explorer
-  </a>
-  <a href="./setup" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Step-by-Step Tutorial
-  </a>
-</div>
-
-**Questions?** Check [Troubleshooting](./troubleshooting) or see [Related Examples](#related-examples) below.
-
-## Related Examples
-
-- [**Remove PII**](../../data-security/remove-pii/) - Anonymize parsed log data for compliance
-- [**Deduplicate Events**](../deduplicate-events/) - Remove duplicate entries from parsed logs  
-- [**Fan-Out Pattern**](../../data-routing/fan-out-pattern/) - Route parsed logs to multiple destinations
+### [Complete Pipeline](./complete-parser)
+Download the production-ready solution

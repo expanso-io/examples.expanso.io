@@ -8,158 +8,39 @@ keywords: [fan-out, broker, multiple outputs, kafka, s3, elasticsearch, data rou
 
 # Fan-Out Pattern for Multiple Destinations
 
-**Send data to multiple destinations simultaneously without duplication overhead**. This step-by-step guide teaches you 5 essential routing techniques through an interactive explorer and hands-on exercises.
+Send data to multiple destinations simultaneously without duplication overhead.
 
 ## The Problem
 
-When processing data at the edge, you often need to send the same information to multiple destinations for different purposes:
+Edge processing needs to send the same data to multiple destinations:
+- Kafka for real-time streaming, S3 for archive, Elasticsearch for search
+- Each destination has different requirements and failure modes
+- One destination failure shouldn't block others
 
-```json
-{
-  "sensor_reading": {
-    "id": "sensor-42",
-    "temperature": 23.5,
-    "timestamp": "2025-01-20T10:00:00Z"
-  }
-  // ❌ Need to send to Kafka, S3, AND Elasticsearch
-  // ❌ Each destination has different requirements
-  // ❌ One failure shouldn't break others
-}
-```
+## The Solution
 
-**The challenge:** Traditional approaches require complex duplication logic, shared failure points, and inconsistent delivery guarantees across destinations.
+Learn 5 fan-out routing techniques:
 
-## The Solution: 5 Fan-Out Routing Techniques
-
-This guide teaches you how to apply the right technique for each destination requirement:
-
-### 1. **Concurrent Distribution** → Real-time + Archive + Search
-Send each message to all outputs simultaneously, not sequentially
-- **Use case:** When you need multiple data sinks with independent timing
-- **Method:** Broker output with fan_out pattern
-- **Result:** Parallel delivery with no blocking between destinations
-
-### 2. **Independent Retry Logic** → Resilience per Destination  
-Configure different retry strategies for each destination's characteristics
-- **Use case:** Kafka needs fast retries, S3 needs patient retries
-- **Method:** Per-output retry and backoff configuration
-- **Result:** Optimized reliability for each destination type
-
-### 3. **Batching Optimization** → Performance per Use Case
-Tune batch sizes and timing for each destination's efficiency profile
-- **Use case:** Real-time vs archive vs search requirements
-- **Method:** Destination-specific batching and compression
-- **Result:** Optimal throughput and latency for each sink
-
-### 4. **Failure Isolation** → Graceful Degradation
-Ensure one destination failure doesn't affect others
-- **Use case:** Elasticsearch down shouldn't block Kafka streaming
-- **Method:** Independent error handling and circuit breakers
-- **Result:** High availability with partial service degradation
-
-### 5. **Local Fallback Chains** → Edge Computing Resilience
-Maintain data availability when cloud services are unreachable
-- **Use case:** Edge nodes with intermittent connectivity
-- **Method:** Local buffering with automatic cloud sync
-- **Result:** Zero data loss during network outages
-
-## Why Process at the Edge?
-
-**Compliance:** Keep sensitive data processing close to source for GDPR/CCPA compliance
-**Cost Efficiency:** Reduce bandwidth costs by filtering and compressing before cloud transmission  
-**Resilience:** Maintain operations during network partitions or cloud service outages
-**Performance:** Lower latency for real-time processing and local analytics
-
-## What You'll Learn
-
-By the end of this guide, you'll be able to:
-
-✅ **Configure concurrent fan-out** to multiple destinations without blocking
-✅ **Optimize batching strategies** for real-time, archive, and search use cases
-✅ **Implement independent retry logic** tailored to each destination's characteristics
-✅ **Design fallback chains** for edge computing resilience
-✅ **Monitor and troubleshoot** multi-destination pipelines in production
+1. **Concurrent Distribution** - Parallel delivery with broker output and fan_out pattern
+2. **Independent Retry Logic** - Per-destination retry and backoff configuration
+3. **Batching Optimization** - Destination-specific batching and compression tuning
+4. **Failure Isolation** - Independent error handling and circuit breakers per destination
+5. **Local Fallback Chains** - Local buffering with automatic cloud sync during outages
 
 ## Get Started
 
-### Option 1: Interactive Explorer (Recommended)
-**See** each routing technique in action with side-by-side before/after views.
+Choose your path:
 
-[**→ Launch Interactive Explorer**](./explorer)
+### [Interactive Explorer](./explorer)
+See each routing technique with side-by-side before/after views
 
-### Option 2: Step-by-Step Tutorial
-**Build** the multi-destination pipeline incrementally, one concept at a time.
+### [Step-by-Step Tutorial](./setup)
+Build the pipeline incrementally:
+1. [Configure Fan-Out](./step-1-configure-broker)
+2. [Add Kafka Integration](./step-2-add-kafka)
+3. [Add S3 Archive](./step-3-add-s3)
+4. [Add Elasticsearch](./step-4-add-elasticsearch)
+5. [Implement Fallbacks](./step-5-implement-fallbacks)
 
-1. [**Setup Guide**](./setup) - Environment configuration and shell pipeline
-2. [**Step 1: Configure Fan-Out**](./step-1-configure-broker) - Basic concurrent routing
-3. [**Step 2: Add Kafka Integration**](./step-2-add-kafka) - Real-time streaming
-4. [**Step 3: Add S3 Archive**](./step-3-add-s3) - Long-term storage
-5. [**Step 4: Add Elasticsearch**](./step-4-add-elasticsearch) - Search and analytics
-6. [**Step 5: Implement Fallbacks**](./step-5-implement-fallbacks) - Edge resilience
-
-### Option 3: Jump to Final Pipeline
-**Download** the complete, production-ready multi-destination pipeline.
-
-[**→ Get Complete Pipeline**](./complete-fan-out-pipeline)
-
-## Who This Guide Is For
-
-- **Data Engineers** building resilient edge-to-cloud data pipelines
-- **Platform Engineers** implementing observability across multiple systems  
-- **Edge Computing Teams** needing local processing with cloud integration
-- **DevOps Engineers** managing data infrastructure across distributed environments
-
-## Prerequisites
-
-- Expanso edge node running and connected to orchestrator
-- Basic familiarity with YAML configuration
-- Network access to cloud services (Kafka, S3, Elasticsearch)
-
-## Time to Complete
-
-- **Interactive Explorer:** 10 minutes
-- **Step-by-Step Tutorial:** 45-60 minutes  
-- **Quick Deploy:** 5 minutes
-
-## Real-World Impact
-
-**Before Fan-Out Pattern:**
-```
-- Duplicate pipeline configurations for each destination
-- Shared failure points affecting all outputs
-- Inconsistent delivery guarantees
-- Complex custom routing logic
-- 3-5x infrastructure complexity
-```
-
-**After Fan-Out Pattern:**
-```
-- Single configuration for all destinations
-- Independent failure handling per output
-- Optimized batching and compression per destination
-- Declarative routing with zero custom code
-- 60-80% reduction in configuration complexity
-```
-
----
-
-## Next Steps
-
-Ready to start? Choose your learning path:
-
-<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
-  <a href="./explorer" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Interactive Explorer
-  </a>
-  <a href="./setup" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Step-by-Step Tutorial
-  </a>
-</div>
-
-**Questions?** Check [Troubleshooting](./troubleshooting) or see [Related Examples](#related-examples) below.
-
-## Related Examples
-
-- [**Content-Based Routing**](../content-routing) - Route messages based on content instead of sending to all
-- [**Circuit Breakers**](../circuit-breakers) - Protect downstream systems from cascading failures
-- [**Priority Queues**](../priority-queues) - Handle urgent messages with different routing rules
+### [Complete Pipeline](./complete-fan-out-pipeline)
+Download the production-ready implementation

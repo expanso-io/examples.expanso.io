@@ -2,163 +2,46 @@
 title: Remove PII from Data Streams
 sidebar_label: Introduction
 sidebar_position: 1
-description: Learn to hash, anonymize, and remove personally identifiable information at the edge using a step-by-step interactive guide
-keywords: [pii, gdpr, ccpa, pci-dss, compliance, privacy, anonymization, hashing, pseudonymization, data security]
+description: Hash, anonymize, and remove personally identifiable information for GDPR/CCPA compliance
+keywords: [pii, gdpr, ccpa, pci-dss, compliance, privacy, anonymization, hashing, pseudonymization]
 ---
 
 # Remove PII from Data Streams
 
-**Learn to build a production-ready PII removal pipeline** that processes data at the edge—before it reaches your cloud systems. This step-by-step guide teaches you 4 essential PII removal techniques through an interactive explorer and hands-on exercises.
+Achieve compliance while preserving analytics value.
 
 ## The Problem
 
-Your user events contain personally identifiable information (PII) that creates compliance risk:
+User events contain PII that creates compliance risk:
+- Credit cards (PCI-DSS violations)
+- Emails and IPs (GDPR/CCPA violations)
+- Precise locations (GDPR violations)
 
-```json
-{
-  "event_type": "purchase",
-  "user_name": "Sarah Johnson",           // ❌ Direct PII (GDPR)
-  "email": "sarah@example.com",           // ❌ Direct PII (GDPR/CCPA)
-  "ip_address": "192.168.1.100",          // ❌ PII under GDPR
-  "payment_method": {
-    "full_number": "4532-1234-5678-9010" // ❌ High-risk (PCI-DSS)
-  },
-  "location": {
-    "latitude": 37.7749,                  // ❌ Precise location (GDPR)
-    "longitude": -122.4194,
-    "city": "San Francisco"               // ✅ Safe for analytics
-  }
-}
-```
+Without removal: massive fines, audit failures, data breaches.
 
-**The challenge:** Remove PII to achieve compliance while preserving analytics value (event types, timestamps, regional trends, user counting).
+## The Solution
 
-## The Solution: 4 PII Removal Techniques
+Learn 4 PII removal techniques:
 
-This guide teaches you how to apply the right technique for each type of PII:
-
-### 1. **Delete** → Credit Cards, Precise Coordinates
-Remove high-risk data with no analytics value.
-- **Use case:** PCI-DSS compliance (credit card numbers)
-- **Method:** Bloblang `.without()` function
-- **Result:** Data completely removed, no trace
-
-### 2. **Hash** → IPs, Emails
-One-way transformation that preserves uniqueness.
-- **Use case:** Count unique users, detect abuse patterns
-- **Method:** SHA-256 hash with secret salt
-- **Result:** Same input = same hash, irreversible
-
-### 3. **Pseudonymize** → User Names
-Replace real identifiers with consistent fake ones.
-- **Use case:** Track user journeys without knowing identity
-- **Method:** Hash to generate consistent user_id
-- **Result:** Same user = same ID across sessions
-
-### 4. **Generalize** → Locations
-Reduce precision while keeping analytics value.
-- **Use case:** Regional trends without exact tracking
-- **Method:** Keep city/country, remove lat/long
-- **Result:** "San Francisco, USA" instead of GPS coordinates
-
-## Why Process at the Edge?
-
-**Compliance:** Smaller GDPR/CCPA scope, simpler deletion requests
-**Security:** PII never reaches your cloud, reduced attack surface
-**Cost:** Lower bandwidth (30-50% reduction), less cloud processing
-**Speed:** Faster analytics (no PII scrubbing needed)
-
-## What You'll Learn
-
-By the end of this guide, you'll be able to:
-
-✅ **Delete** high-risk PII fields (credit cards, expiry dates)
-✅ **Hash** identifiers with salts (IPs, emails) for uniqueness tracking
-✅ **Pseudonymize** user names into consistent IDs for journey analytics
-✅ **Generalize** location data to preserve regional insights
-✅ **Deploy** a production-ready pipeline at the edge
-✅ **Verify** PII removal works correctly with real data
+1. **Delete** - Remove credit cards, precise coordinates (no analytics value)
+2. **Hash** - One-way transform IPs and emails (preserve uniqueness for counting)
+3. **Pseudonymize** - Replace names with IDs (preserve relationships)
+4. **Generalize** - Coordinates → city names (preserve regional trends)
 
 ## Get Started
 
-### Option 1: Interactive Explorer (Recommended)
-**See** each PII removal technique in action with side-by-side before/after views.
+Choose your path:
 
-[**→ Launch Interactive Explorer**](./explorer)
+### [→ Interactive Explorer](./explorer)
+See each technique transform real PII data
 
-### Option 2: Step-by-Step Tutorial
-**Build** the pipeline incrementally, one concept at a time.
+### [→ Step-by-Step Tutorial](./setup)
+Build the pipeline incrementally:
+1. [Delete Payment Data](./step-1-delete-payment-data)
+2. [Hash IP Addresses](./step-2-hash-ip-address)
+3. [Hash Email Addresses](./step-3-hash-email)
+4. [Pseudonymize Users](./step-4-pseudonymize-user)
+5. [Generalize Location](./step-5-generalize-location)
 
-1. [**Setup Guide**](./setup) - Configure environment and deploy shell pipeline
-2. [**Step 1: Delete Payment Data**](./step-1-delete-payment-data) - Remove credit card numbers
-3. [**Step 2: Hash IP Address**](./step-2-hash-ip-address) - Convert IPs to hashes
-4. [**Step 3: Hash Email**](./step-3-hash-email) - Hash emails + extract domains
-5. [**Step 4: Pseudonymize User**](./step-4-pseudonymize-user) - Replace names with IDs
-6. [**Step 5: Generalize Location**](./step-5-generalize-location) - Remove precise coordinates
-7. [**Complete Pipeline**](./complete-pipeline) - Deploy the full solution
-
-### Option 3: Jump to Final Pipeline
-**Download** the complete, production-ready pipeline configuration.
-
-[**→ Get Complete Pipeline**](./complete-pipeline)
-
-## Who This Guide Is For
-
-- **Data engineers** building GDPR/CCPA-compliant analytics pipelines
-- **Security engineers** implementing PII protection at the edge
-- **Compliance officers** validating PII removal processes
-- **Platform engineers** optimizing bandwidth and cloud costs
-
-## Prerequisites
-
-- Basic understanding of JSON data structures
-- Familiarity with REST APIs or event streams
-- Expanso CLI installed ([Installation Guide](https://docs.expanso.io/getting-started))
-- An edge node connected to Expanso orchestrator
-
-## Time to Complete
-
-- **Interactive Explorer:** 10 minutes (explore all 6 stages)
-- **Step-by-Step Tutorial:** 30-45 minutes (build incrementally)
-- **Quick Deploy:** 5 minutes (download and deploy complete pipeline)
-
-## Real-World Impact
-
-**Before PII Removal:**
-```
-- Event size: 2.5 KB (with PII)
-- GDPR scope: All systems (edge, cloud, analytics, storage)
-- Deletion requests: Affect 12 systems
-- Compliance audits: Quarterly reviews of entire data pipeline
-```
-
-**After PII Removal:**
-```
-- Event size: 1.8 KB (28% smaller)
-- GDPR scope: Edge devices only
-- Deletion requests: Clear edge cache, done in seconds
-- Compliance audits: Simplified, edge-only validation
-```
-
----
-
-## Next Steps
-
-Ready to start? Choose your learning path:
-
-<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
-  <a href="./explorer" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Interactive Explorer
-  </a>
-  <a href="./setup" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Step-by-Step Tutorial
-  </a>
-</div>
-
-**Questions?** Check [Troubleshooting](./troubleshooting) or see [Related Examples](#related-examples) below.
-
-## Related Examples
-
-- [**Delete Payment PII**](../delete-payment-pii) - Simpler example focused only on credit card removal
-- [**Encrypt Sensitive Data**](../encrypt-data) - For data you need to decrypt later
-- [**Enforce Schema Validation**](../enforce-schema) - Validate events before PII processing
+### [→ Complete Pipeline](./complete-pipeline)
+Download the production-ready implementation
