@@ -8,164 +8,42 @@ keywords: [encryption, aes, field-level, security, key management, pci-dss, hipa
 
 # Field-Level Encryption for Sensitive Data
 
-**Encrypt sensitive data at the edge before it leaves your network boundary**. This step-by-step guide teaches you 6 essential techniques for protecting PII and PCI data through an interactive explorer and hands-on exercises.
+Encrypt sensitive data at the edge before it leaves your network boundary.
 
 ## The Problem
 
-Modern applications handle massive volumes of sensitive data: credit card numbers, social security numbers, email addresses, phone numbers, and protected health information. While TLS encrypts data in transit, it leaves data vulnerable once it reaches storage or processing systems where operators, DBAs, and compromised cloud services can access it in plaintext.
+TLS protects data in transit but leaves it vulnerable at rest:
+- Credit card numbers exposed to cloud operators
+- SSNs visible in logs and backups
+- Email addresses accessible to compromised services
+- PII compliance violations
 
-```json
-{
-  "payment": {
-    "card_number": "4532-1234-5678-9010",  // ❌ Exposed to cloud operators
-    "cvv": "123"                          // ❌ Visible in logs and backups
-  },
-  "customer": {
-    "ssn": "123-45-6789",                 // ❌ PII compliance violation
-    "email": "sarah.johnson@example.com"   // ❌ Marketing data exposure
-  }
-}
-```
+## The Solution
 
-**The challenge:** Encrypt sensitive fields while preserving data utility for analytics, fraud detection, and business intelligence.
+Learn 6 field encryption techniques:
 
-## The Solution: 6 Field Encryption Techniques
-
-This guide teaches you how to apply the right encryption technique for each data type:
-
-### 1. **Credit Card Encryption** → PCI-DSS Compliance
-Encrypt card numbers and CVV codes while preserving last 4 digits and card brand
-- **Use case:** Payment processing, PCI-DSS compliance
-- **Method:** AES-256-GCM with partial preservation
-- **Result:** Secure cardholder data with analytics utility
-
-### 2. **PII Data Encryption** → Privacy Protection
-Encrypt SSN, email, and phone numbers with selective preservation
-- **Use case:** Customer data protection, GDPR compliance
-- **Method:** Multi-field encryption with domain/area code preservation
-- **Result:** Protected personal data with business intelligence capability
-
-### 3. **Address Data Encryption** → Location Privacy
-Encrypt street addresses and zip codes while preserving geographic trends
-- **Use case:** Shipping data protection, location analytics
-- **Method:** Granular field encryption
-- **Result:** Private addresses with regional reporting
-
-### 4. **Key Management** → Security Operations
-Implement secure key storage, rotation, and versioning
-- **Use case:** Production encryption operations
-- **Method:** Multi-key strategy with rotation schedules
-- **Result:** Enterprise-grade key lifecycle management
-
-### 5. **Selective Decryption** → Access Control
-Enable authorized services to decrypt specific data types
-- **Use case:** Fraud detection, customer service
-- **Method:** Key segregation and service authorization
-- **Result:** Granular data access with audit trails
-
-### 6. **Compliance Monitoring** → Regulatory Requirements
-Track encryption coverage and audit compliance
-- **Use case:** PCI-DSS audits, HIPAA compliance
-- **Method:** Encryption metadata and audit logging
-- **Result:** Automated compliance verification
-
-## Why Process at the Edge?
-
-**Defense in Depth:** Data encrypted before leaving your network, protected even if TLS is compromised
-**Zero Trust Architecture:** Data protected at rest in cloud systems, reducing insider threat exposure
-**Compliance Scope Reduction:** Encrypted data often exempt from strict regulatory requirements
-**Granular Access Control:** Different keys for different data types, enabling selective access
-
-## What You'll Learn
-
-By the end of this guide, you'll be able to:
-
-✅ **Encrypt credit card data** with PCI-DSS compliant methods while preserving analytics utility
-✅ **Protect PII fields** while maintaining business intelligence capabilities
-✅ **Implement key management** with rotation, versioning, and secure storage
-✅ **Deploy selective decryption** for authorized services and fraud detection
-✅ **Monitor compliance** with automated encryption coverage reporting
-✅ **Handle edge cases** like bulk encryption, performance optimization, and error recovery
+1. **Credit Card Encryption** - AES-256-GCM with partial preservation for PCI-DSS compliance
+2. **PII Data Encryption** - Multi-field encryption for SSN, email, phone with selective preservation
+3. **Address Data Encryption** - Street-level encryption while preserving geographic trends
+4. **Key Management** - Secure key storage, rotation, and versioning for production operations
+5. **Selective Decryption** - Key segregation and service authorization for granular access
+6. **Compliance Monitoring** - Encryption metadata and audit logging for regulatory requirements
 
 ## Get Started
 
-### Option 1: Interactive Explorer (Recommended)
-**See** each encryption technique in action with side-by-side before/after views.
+Choose your path:
 
-[**→ Launch Interactive Explorer**](./explorer)
+### [Interactive Explorer](./explorer)
+See each encryption technique with side-by-side before/after views
 
-### Option 2: Step-by-Step Tutorial
-**Build** the encryption pipeline incrementally, one concept at a time.
+### [Step-by-Step Tutorial](./setup)
+Build the pipeline incrementally:
+1. [Encrypt Credit Card Data](./step-1-encrypt-payment-data)
+2. [Encrypt PII Fields](./step-2-encrypt-customer-data)
+3. [Encrypt Address Data](./step-3-encrypt-location-data)
+4. [Implement Key Management](./step-4-manage-encryption-keys)
+5. [Enable Selective Decryption](./step-5-selective-decryption)
+6. [Monitor Compliance](./step-6-compliance-monitoring)
 
-1. [**Setup Guide**](./setup) - Environment configuration and key generation
-2. [**Step 1: Encrypt Credit Card Data**](./step-1-encrypt-payment-data) - PCI-DSS compliant card encryption
-3. [**Step 2: Encrypt PII Fields**](./step-2-encrypt-customer-data) - SSN, email, and phone protection
-4. [**Step 3: Encrypt Address Data**](./step-3-encrypt-location-data) - Geographic privacy with analytics
-5. [**Step 4: Implement Key Management**](./step-4-manage-encryption-keys) - Secure key operations and rotation
-6. [**Step 5: Enable Selective Decryption**](./step-5-selective-decryption) - Granular access control
-7. [**Step 6: Monitor Compliance**](./step-6-compliance-monitoring) - Automated audit and reporting
-
-### Option 3: Jump to Final Solution
-**Download** the complete, production-ready encryption pipeline.
-
-[**→ Get Complete Pipeline**](./complete-pipeline)
-
-## Who This Guide Is For
-
-- **Security Engineers** implementing data protection strategies
-- **Compliance Teams** meeting PCI-DSS, HIPAA, and GDPR requirements
-- **DevOps Engineers** deploying encryption at scale in cloud environments
-- **Data Engineers** protecting sensitive data in analytics pipelines
-
-## Prerequisites
-
-- Expanso installed and running ([Getting Started Guide](https://docs.expanso.io/getting-started))
-- Edge nodes connected to your orchestrator
-- Basic understanding of AES encryption concepts
-- HashiCorp Vault or similar key management system (optional but recommended)
-
-## Time to Complete
-
-- **Interactive Explorer:** 15 minutes
-- **Step-by-Step Tutorial:** 90-120 minutes
-- **Quick Deploy:** 30 minutes
-
-## Real-World Impact
-
-**Before Field Encryption:**
-```
-- Compliance Scope: Full system audit required
-- Security Risk: High (plaintext exposure)
-- Breach Impact: Complete data exposure
-- Audit Cost: $50,000+ annually
-```
-
-**After Field Encryption:**
-```
-- Compliance Scope: Reduced by 70%
-- Security Risk: Low (encrypted data)
-- Breach Impact: Minimal (encrypted blobs)
-- Audit Cost: $15,000+ annually
-```
-
----
-
-## Next Steps
-
-Ready to start? Choose your learning path:
-
-<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
-  <a href="./explorer" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Interactive Explorer
-  </a>
-  <a href="./setup" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Step-by-Step Tutorial
-  </a>
-</div>
-
-**Questions?** Check [Troubleshooting](./troubleshooting) or see [Related Examples](#related-examples) below.
-
-## Related Examples
-
-- [**Remove PII Data**](../remove-pii) - Hash and anonymize PII as alternative to encryption
-- [**Enforce Data Schema**](../enforce-schema) - Validate encrypted data structure and compliance
+### [Complete Pipeline](./complete-pipeline)
+Download the production-ready solution
