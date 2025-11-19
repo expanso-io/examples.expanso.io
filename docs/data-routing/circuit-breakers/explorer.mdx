@@ -77,20 +77,6 @@ Want to understand each circuit breaker technique in depth?
 - [**Step 3: Multi-Level Fallback**](./step-3-multi-level-fallback) - Build high-availability fallback chains
 - [**Step 4: Production Monitoring**](./step-4-production-monitoring) - Monitor circuit breaker metrics
 
-## Common Questions
-
-### Why fail fast instead of retrying forever?
-Infinite retries consume memory and CPU waiting for operations that will never succeed. Fast failure (5s timeout) releases resources immediately and allows the pipeline to continue processing other messages.
-
-### How do I know when to open the circuit?
-Typically after 3-5 consecutive failures within a time window. This prevents wasting resources on a service that's clearly down while allowing occasional failures from transient issues.
-
-### What's the recovery process?
-After the circuit opens, it enters a "half-open" state after a cooldown period (e.g., 60s). If the next request succeeds, the circuit closes. If it fails, the circuit stays open and cooldown resets.
-
-### How do fallback chains prevent data loss?
-Each level in the cascade has progressively more reliability: Remote API → Local Buffer → Dead Letter Queue. Even if all remote services fail, data is buffered locally and can be replayed when services recover.
-
 ---
 
 **Next:** [Set up your environment](./setup) to build circuit breaker protection yourself
