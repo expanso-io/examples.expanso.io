@@ -39,6 +39,8 @@ const sidebars: SidebarsConfig = {
             'data-security/enforce-schema/explorer',
           ],
         },
+        {
+          type: 'category',
           label: 'Delete Payment Card PII',
           collapsible: true,
           collapsed: true,
@@ -47,7 +49,6 @@ const sidebars: SidebarsConfig = {
             'data-security/delete-payment-pii/explorer',
           ],
         },
-        'data-security/enforce-schema',
       ],
     },
     {
