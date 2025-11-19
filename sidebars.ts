@@ -50,7 +50,16 @@ const sidebars: SidebarsConfig = {
       items: [
         'data-transformation/aggregate-time-windows',
         'data-transformation/deduplicate-events',
-        'data-transformation/normalize-timestamps',
+        {
+          type: 'category',
+          label: 'Normalize Timestamps',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'data-transformation/normalize-timestamps/index',
+            'data-transformation/normalize-timestamps/explorer',
+          ],
+        },
         'data-transformation/parse-logs',
         {
           type: 'category',
