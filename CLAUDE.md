@@ -113,6 +113,45 @@ metrics: {}
 - `tsconfig.json` - TypeScript configuration
 - `package.json` - Dependencies and scripts
 
+## Documentation Style Guide
+
+**CRITICAL:** Follow the "Less is More" principle for all documentation.
+
+### Core Principles
+
+1. **Terse, non-duplicative, but still meaningful**
+2. **80/20 Rule** - Focus on the 20% of content that delivers 80% of value
+3. **No Duplication** - Write once, link everywhere else
+4. **Front-Load Value** - Users get value in first 10 seconds
+
+### Page Length Limits
+
+- **Introduction pages** (index.mdx): 40-50 lines max
+- **Tutorial pages** (step-N-*.mdx): 100 lines max
+- **Reference pages**: Terse and table-driven
+
+### Before Committing Docs
+
+Run validation:
+```bash
+npm run validate-docs
+```
+
+Use the `/docs-brief` slash command to review documentation against style guidelines.
+
+**Full guidelines:** See `DOCS_STYLE_GUIDE.md`
+
+### Anti-Patterns to Avoid
+
+- ❌ Verbose explanations ("In order to successfully..." → "Prerequisites:")
+- ❌ Too many examples (5+ examples → 1-2 perfect examples)
+- ❌ Duplicated content (installation steps on 8 pages → link to one guide)
+- ❌ Wall of text (long paragraphs → bullet lists)
+
+### Remember
+
+**Every word costs the reader time. Make every word count.**
+
 ## Important Notes
 
 - **Dark mode is default** (`defaultMode: 'dark'` in config)
