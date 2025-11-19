@@ -220,7 +220,7 @@ output:
       - output:
           s3:
             bucket: temperature-storage
-            path: normal/${!timestamp_date()}/`,
+            path: normal/\${timestamp_date()}/`,
     input: [
       {
         "sensor": "temp-1",
