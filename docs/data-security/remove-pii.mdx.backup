@@ -6,11 +6,10 @@ description: Hash, anonymize, and remove personally identifiable information
 keywords: [pii, gdpr, ccpa, compliance, privacy, anonymization, hashing]
 ---
 
-import CodeBlock from '@theme/CodeBlock';
-import pipelineYaml from '!!raw-loader!../../examples/data-security/remove-pii.yaml';
-import ProgressivePipelineExplorer from '@site/src/components/ProgressivePipelineExplorer';
-import { piiRemovalStages, piiSampleInput } from './remove-pii.stages';
-
+import CodeBlock from "@theme/CodeBlock";
+import pipelineYaml from "!!raw-loader!../../examples/data-security/remove-pii.yaml";
+import ProgressivePipelineExplorer from "@site/src/components/ProgressivePipelineExplorer";
+import { piiRemovalStages, piiSampleInput } from "./remove-pii.stages";
 
 # How to Remove PII from Data Streams
 
@@ -29,16 +28,16 @@ User events contain PII that creates compliance risk under GDPR/CCPA:
 ```json
 {
   "event_type": "purchase",
-  "user_name": "Sarah Johnson",        // ❌ Direct PII
-  "email": "sarah@example.com",        // ❌ Direct PII
-  "ip_address": "192.168.1.100",       // ❌ GDPR considers this PII
+  "user_name": "Sarah Johnson", // ❌ Direct PII
+  "email": "sarah@example.com", // ❌ Direct PII
+  "ip_address": "192.168.1.100", // ❌ GDPR considers this PII
   "payment_method": {
-    "full_number": "4532-1234-5678-9010"  // ❌ High-risk PCI data
+    "full_number": "4532-1234-5678-9010" // ❌ High-risk PCI data
   },
   "location": {
-    "latitude": 37.7749,               // ❌ Precise location
+    "latitude": 37.7749, // ❌ Precise location
     "longitude": -122.4194,
-    "city": "San Francisco"            // ✅ Safe for analytics
+    "city": "San Francisco" // ✅ Safe for analytics
   }
 }
 ```
@@ -87,7 +86,6 @@ Create a file called `pii-removal-pipeline.yaml`:
 </a>
 
 ---
-
 
 This pipeline implements comprehensive PII removal in 11 processing steps:
 
@@ -290,15 +288,15 @@ The processed event sent to your analytics system will look like this:
 
 **Compare Before and After:**
 
-| Field | Before (PII) | After (Anonymized) | Technique |
-|-------|--------------|-------------------|-----------|
-| `user_name` | "Sarah Johnson" | "user_8f3e7a9c2d1b" | Pseudonymization (hash) |
-| `email` | "sarah.johnson@example.com" | "a4c2f1e9b3d7c5e8" + domain | Hash + domain extraction |
-| `ip_address` | "203.0.113.45" | "7b9d4e2f1c8a6e3b" | SHA-256 hash |
-| `location.latitude` | 37.7749 | (deleted) | Deletion |
-| `location.longitude` | -122.4194 | (deleted) | Deletion |
-| `location.postal_code` | "94102" | (deleted) | Deletion |
-| `payment_method.full_number` | "4242-4242-4242-4242" | (deleted) | Deletion |
+| Field                        | Before (PII)                | After (Anonymized)          | Technique                |
+| ---------------------------- | --------------------------- | --------------------------- | ------------------------ |
+| `user_name`                  | "Sarah Johnson"             | "user_8f3e7a9c2d1b"         | Pseudonymization (hash)  |
+| `email`                      | "sarah.johnson@example.com" | "a4c2f1e9b3d7c5e8" + domain | Hash + domain extraction |
+| `ip_address`                 | "203.0.113.45"              | "7b9d4e2f1c8a6e3b"          | SHA-256 hash             |
+| `location.latitude`          | 37.7749                     | (deleted)                   | Deletion                 |
+| `location.longitude`         | -122.4194                   | (deleted)                   | Deletion                 |
+| `location.postal_code`       | "94102"                     | (deleted)                   | Deletion                 |
+| `payment_method.full_number` | "4242-4242-4242-4242"       | (deleted)                   | Deletion                 |
 
 **What's Preserved for Analytics:**
 
@@ -347,13 +345,14 @@ The output will have **the same hash values**:
 ```json
 {
   "event_id": "evt_12346",
-  "user_id": "user_8f3e7a9c2d1b",     // SAME as evt_12345
-  "email_hash": "a4c2f1e9b3d7c5e8",  // SAME as evt_12345
-  "ip_address_hash": "7b9d4e2f1c8a6e3b"  // SAME as evt_12345
+  "user_id": "user_8f3e7a9c2d1b", // SAME as evt_12345
+  "email_hash": "a4c2f1e9b3d7c5e8", // SAME as evt_12345
+  "ip_address_hash": "7b9d4e2f1c8a6e3b" // SAME as evt_12345
 }
 ```
 
 This allows your analytics system to:
+
 - Count unique users (by `user_id`)
 - Track user journeys (same `user_id` across events)
 - Detect fraud patterns (same `ip_address_hash`)
@@ -382,6 +381,7 @@ You'll see audit entries like:
 ```
 
 This audit trail proves:
+
 - When PII was processed
 - Which event was anonymized
 - How many fields were modified
@@ -411,6 +411,7 @@ cat /var/log/expanso/pii-dlq-*.jsonl | jq .
 ```
 
 In production, validation failures might occur due to:
+
 - Schema changes (new PII fields added upstream)
 - Processor bugs (removal logic fails)
 - Unexpected data formats (PII in unexpected fields)
@@ -617,6 +618,7 @@ This pipeline is designed specifically for edge deployment. Here's why edge proc
 ### Bandwidth Savings
 
 **Before (PII transmitted to cloud):**
+
 ```
 Average event size: 2.5 KB (with PII)
 Events per second: 1000
@@ -625,6 +627,7 @@ Monthly cost (at $0.09/GB): $583/month
 ```
 
 **After (PII removed at edge):**
+
 ```
 Average event size: 1.8 KB (PII removed)
 Events per second: 1000
@@ -637,12 +640,14 @@ Savings: $163/month (28% reduction)
 ### Compliance Scope Reduction
 
 **Before:**
+
 - PII exists in: edge devices, network transit, cloud storage, analytics DB
 - GDPR scope: All components
 - Encryption required: End-to-end
 - Deletion requests affect: All storage systems
 
 **After:**
+
 - PII exists in: edge devices only (removed before transmission)
 - GDPR scope: Edge devices only
 - Encryption required: Edge to first hop
@@ -651,6 +656,7 @@ Savings: $163/month (28% reduction)
 ### Latency Benefits
 
 **Cloud PII removal:**
+
 ```
 1. Edge → Cloud: 50ms
 2. Cloud processing: 10ms
@@ -659,6 +665,7 @@ Total: 80ms
 ```
 
 **Edge PII removal:**
+
 ```
 1. Edge processing: 5ms
 2. Edge → Analytics: 45ms
@@ -778,6 +785,7 @@ pipeline_output_sent_total{output="dlq"} 5             # Failed validations
 ```
 
 **Key metrics:**
+
 - **pipeline_processor_error_total** - Events that failed validation (sent to DLQ)
 - **`pipeline_output_sent_total{output="analytics"}`** - Successfully anonymized events
 - **`pipeline_output_sent_total{output="dlq"}`** - Failed events requiring investigation
@@ -916,10 +924,12 @@ You can go from email → hash, but never hash → email.
 ## See Also
 
 **Related How-To Guides:**
+
 - [How to Enforce Data Schema Validation](/examples/data-security/enforce-schema) - Validate data against JSON Schema
 - [How to Encrypt Sensitive Data](/examples/data-security/encrypt-data) - Field-level encryption for additional security
 
 **Reference Documentation:**
+
 - [Mapping Processor Reference](https://docs.expanso.io/components/processors/mapping) - Bloblang mapping syntax
 - [Output Broker Reference](https://docs.expanso.io/components/outputs/broker) - Fan-out pattern configuration
 - [Bloblang Guide](https://docs.expanso.io/guides/bloblang) - Transformation language reference

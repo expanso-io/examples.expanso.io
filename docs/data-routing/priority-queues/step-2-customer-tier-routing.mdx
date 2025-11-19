@@ -1,0 +1,788 @@
+---
+title: Step 2 - Customer Tier Priority Routing
+sidebar_label: Step 2 - Customer Tier Routing  
+sidebar_position: 5
+description: Implement subscription-based priority routing with SLA tracking and dedicated infrastructure for premium customers
+keywords: [customer, tier, subscription, enterprise, premium, sla, routing, priority]
+---
+
+# Step 2: Customer Tier Priority Routing
+
+**Deliver differentiated service levels based on customer value.** This step enhances priority routing by considering customer subscription tiers, ensuring premium customers get faster processing while free tier users get cost-optimized batching.
+
+## Why Customer Tier Matters
+
+In multi-tenant SaaS platforms, not all customers should receive identical service levels. Premium customers pay for better performance, while free tier users accept reasonable delays in exchange for cost optimization. Without tier-based prioritization:
+
+- **Enterprise customers** experience the same latency as free users during traffic spikes
+- **SLA violations** affect high-value customers who expect guaranteed response times
+- **Resource waste** occurs when free tier traffic consumes premium infrastructure  
+- **Revenue churn** happens when paying customers don't perceive value in their subscription
+
+## The Enhanced Transformation
+
+**Before (Severity Only):**
+```json
+{
+  "severity": "ERROR",              // ✅ Routes to high priority
+  "customer_tier": "enterprise",    // ❌ Ignored - same treatment as free tier
+  "event_type": "payment.failed",   // ❌ Not considered for routing
+  "sla_target": "100ms"             // ❌ No SLA tracking
+}
+```
+
+**After (Tier-Enhanced Routing):**
+```json
+{
+  "severity": "ERROR",              // ✅ Combined with customer tier
+  "customer_tier": "enterprise",    // ✅ Routes to dedicated enterprise queue
+  "event_type": "payment.failed",   // ✅ Gets critical priority boost
+  "priority": "critical",           // ✅ Upgraded from "high" due to tier + type
+  "sla_target_ms": 100,            // ✅ SLA tracking enabled
+  "routing_decision": "enterprise_dedicated_queue"
+}
+```
+
+## Implementation
+
+Enhance your severity-based pipeline with customer tier consideration:
+
+```yaml title="customer-tier-priority-queues.yaml"
+name: customer-tier-priority-queues
+description: Route events to priority queues based on customer subscription tier
+type: pipeline
+namespace: production
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+      timeout: 5s
+
+  pipeline:
+    processors:
+      # Step 1: Parse incoming events
+      - json_documents:
+          parts: []
+
+      # Step 2: Enhanced priority classification with customer tier
+      - mapping: |
+          root = this
+
+          # Extract and normalize customer tier from multiple sources
+          root.customer_tier = match {
+            this.user.subscription_plan.exists() => this.user.subscription_plan.lowercase()
+            this.customer_tier.exists() => this.customer_tier.lowercase()
+            this.subscription.tier.exists() => this.subscription.tier.lowercase()
+            this.plan.exists() => this.plan.lowercase()
+            _ => "free"
+          }
+
+          # Extract severity for dual-factor prioritization
+          root.severity = this.severity.or("INFO").string().uppercase()
+
+          # Extract event type for context-aware routing
+          root.event_type = this.event_type.or(this.type.or("unknown")).lowercase()
+
+          # Calculate base priority from severity
+          let severity_priority = match root.severity {
+            "CRITICAL" => 60
+            "FATAL" => 60
+            "ERROR" => 40
+            "WARNING" => 20
+            "WARN" => 20
+            "INFO" => 10
+            "DEBUG" => 5
+            "TRACE" => 5
+            _ => 15
+          }
+
+          # Calculate customer tier multiplier
+          let tier_multiplier = match root.customer_tier {
+            "enterprise" => 3.0      # 3x priority boost
+            "premium" => 2.5         # 2.5x boost
+            "pro" => 2.0             # 2x boost
+            "standard" => 1.5        # 1.5x boost
+            "basic" => 1.2           # 1.2x boost
+            "free" => 1.0            # No boost
+            "trial" => 0.8           # Slightly lower priority
+            _ => 1.0
+          }
+
+          # Calculate event type boost for critical business events
+          let event_boost = match {
+            root.event_type.has_prefix("payment.") => 25
+            root.event_type.has_prefix("auth.") => 20
+            root.event_type.has_prefix("security.") => 30
+            root.event_type.has_prefix("billing.") => 20
+            root.event_type.has_prefix("api.error") => 15
+            root.event_type.has_prefix("system.") => 10
+            _ => 0
+          }
+
+          # Calculate final priority score
+          root.priority_score = (severity_priority * tier_multiplier) + event_boost
+
+          # Map final score to priority tier
+          root.priority = match {
+            root.priority_score >= 120 => "critical"      # Enterprise critical events
+            root.priority_score >= 80 => "high"           # Premium/Pro important events
+            root.priority_score >= 40 => "normal"         # Standard tier or routine events
+            root.priority_score >= 20 => "low"            # Basic tier events  
+            _ => "bulk"                                    # Free tier bulk processing
+          }
+
+          # Add SLA targets based on customer tier
+          root.sla_target_ms = match root.customer_tier {
+            "enterprise" => 100        # 100ms SLA
+            "premium" => 500           # 500ms SLA
+            "pro" => 1000             # 1s SLA
+            "standard" => 2000         # 2s SLA
+            "basic" => 5000           # 5s SLA
+            "free" => 15000           # 15s SLA
+            "trial" => 20000          # 20s SLA
+            _ => 5000                 # Default 5s
+          }
+
+          # Add processing metadata
+          root.received_at = now()
+          root.edge_node_id = env("NODE_ID").or("unknown")
+          root.routing_strategy = "tier-enhanced"
+          
+          # Store routing decision breakdown for debugging
+          root.routing_breakdown = {
+            "severity_score": severity_priority,
+            "tier_multiplier": tier_multiplier,
+            "event_boost": event_boost,
+            "final_score": root.priority_score,
+            "assigned_priority": root.priority,
+            "sla_target": root.sla_target_ms
+          }
+
+  output:
+    switch:
+      cases:
+        # Case 1: Enterprise tier - dedicated infrastructure
+        - check: this.customer_tier == "enterprise" && this.priority == "critical"
+          output:
+            label: enterprise_critical_queue
+            broker:
+              pattern: fan_out
+              outputs:
+                # Send to dedicated enterprise Kafka cluster
+                - kafka:
+                    addresses: ["${ENTERPRISE_KAFKA_BROKERS}"]
+                    topic: enterprise-critical-events
+                    
+                    # Immediate delivery for enterprise critical
+                    batching:
+                      count: 1
+                      period: 0s
+                    
+                    # Maximum reliability
+                    max_in_flight: 1
+                    ack_replicas: true
+                    idempotent_write: true
+                    max_retries: 15        # Extra retries for enterprise
+                    
+                    # Premium backoff strategy
+                    backoff:
+                      initial_interval: 50ms
+                      max_interval: 1s
+
+                # Also send to real-time analytics for enterprise monitoring
+                - http_client:
+                    url: ${ENTERPRISE_ANALYTICS_URL}/critical-events
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                      Authorization: "Bearer ${ENTERPRISE_API_TOKEN}"
+                    timeout: 1s
+                    max_retries: 3
+
+        # Case 2: Enterprise standard events
+        - check: this.customer_tier == "enterprise"
+          output:
+            label: enterprise_queue
+            kafka:
+              addresses: ["${ENTERPRISE_KAFKA_BROKERS}"]
+              topic: enterprise-events
+              
+              batching:
+                count: 5               # Very small batches
+                period: 500ms          # Quick delivery
+              
+              max_in_flight: 3
+              ack_replicas: true
+              max_retries: 10
+              compression: snappy
+
+        # Case 3: Premium/Pro tier critical events
+        - check: (this.customer_tier == "premium" || this.customer_tier == "pro") && this.priority == "critical"
+          output:
+            label: premium_critical_queue
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: premium-critical-events
+              
+              batching:
+                count: 1
+                period: 0s
+              
+              max_in_flight: 2
+              ack_replicas: true
+              max_retries: 8
+              compression: snappy
+
+        # Case 4: Premium/Pro tier standard events  
+        - check: this.customer_tier == "premium" || this.customer_tier == "pro"
+          output:
+            label: premium_queue
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: premium-events
+              
+              batching:
+                count: 25              # Small batches for responsiveness
+                period: 2s
+              
+              max_in_flight: 5
+              ack_replicas: true
+              max_retries: 5
+              compression: snappy
+
+        # Case 5: Standard/Basic tier events
+        - check: this.customer_tier == "standard" || this.customer_tier == "basic"
+          output:
+            label: standard_queue
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: standard-events
+              
+              batching:
+                count: 100             # Standard batching
+                period: 10s
+              
+              max_in_flight: 10
+              max_retries: 3
+              compression: snappy
+
+        # Case 6: Free tier - bulk processing with local buffering
+        - check: this.customer_tier == "free" || this.customer_tier == "trial"
+          output:
+            label: free_tier_queue
+            broker:
+              pattern: fan_out
+              outputs:
+                # Buffer locally first for cost optimization
+                - file:
+                    path: /var/expanso/data/free-tier-${!timestamp_unix_date("2006-01-02")}.jsonl.gz
+                    codec: lines
+                    gzip_compression: true
+                    
+                    batching:
+                      count: 5000        # Very large local batches
+                      period: 10m        # 10-minute buffering
+                
+                # Periodic sync to cloud (cost-optimized)
+                - kafka:
+                    addresses: ["${KAFKA_BROKERS}"]
+                    topic: free-tier-events
+                    
+                    batching:
+                      count: 2000        # Large cloud batches  
+                      period: 5m         # 5-minute sync cycles
+                    
+                    max_in_flight: 20
+                    max_retries: 1       # Minimal retries for free tier
+                    compression: gzip    # Maximum compression
+
+        # Case 7: High priority events regardless of tier (emergency override)
+        - check: this.priority == "critical"
+          output:
+            label: emergency_queue
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: emergency-events
+              
+              batching:
+                count: 1
+                period: 0s
+              
+              max_retries: 5
+              compression: snappy
+
+        # Default: Standard processing
+        - output:
+            kafka:
+              addresses: ["${KAFKA_BROKERS}"]
+              topic: standard-events
+              batching:
+                count: 100
+                period: 10s
+```
+
+## Environment Setup
+
+Add enterprise cluster configuration:
+
+```bash
+# Standard Kafka brokers for multi-tenant usage
+export KAFKA_BROKERS="localhost:9092"
+
+# Dedicated enterprise cluster for premium isolation
+export ENTERPRISE_KAFKA_BROKERS="enterprise-kafka1.internal:9092,enterprise-kafka2.internal:9092"
+
+# Enterprise analytics integration
+export ENTERPRISE_ANALYTICS_URL="https://analytics.enterprise.internal"
+export ENTERPRISE_API_TOKEN="your-enterprise-analytics-token"
+
+# Verify configuration
+echo "Standard Kafka: $KAFKA_BROKERS"
+echo "Enterprise Kafka: $ENTERPRISE_KAFKA_BROKERS"
+```
+
+## Deploy and Test
+
+Deploy the enhanced tier-aware pipeline:
+
+```bash
+# Deploy the customer tier pipeline
+expanso pipeline deploy customer-tier-priority-queues.yaml
+
+# Verify deployment
+expanso pipeline status customer-tier-priority-queues
+```
+
+Test with different customer tiers:
+
+```bash
+# Test Enterprise customer critical event
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+    "event_type": "payment.failed",
+    "severity": "ERROR",
+    "user": {
+      "id": "user_123",
+      "subscription_plan": "enterprise"
+    },
+    "message": "Payment processing failed for enterprise customer",
+    "amount": 50000,
+    "currency": "USD"
+  }'
+
+# Test Premium customer standard event  
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+    "event_type": "api.request",
+    "severity": "INFO",
+    "customer_tier": "premium",
+    "user_id": "premium_user_456",
+    "message": "API request completed successfully",
+    "endpoint": "/api/v1/data",
+    "response_time": 150
+  }'
+
+# Test Free tier user event
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+    "event_type": "analytics.pageview", 
+    "severity": "INFO",
+    "customer_tier": "free",
+    "user_id": "free_user_789",
+    "message": "Page view tracked",
+    "page": "/dashboard"
+  }'
+
+# Test trial user events (should batch locally)
+for i in {1..100}; do
+  curl -X POST http://localhost:8080/events \
+    -H "Content-Type: application/json" \
+    -d '{
+      "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+      "event_type": "analytics.click",
+      "severity": "DEBUG", 
+      "customer_tier": "trial",
+      "user_id": "trial_user_'$i'",
+      "message": "Button clicked",
+      "button": "signup-cta"
+    }'
+done
+```
+
+## Verify Tier-Based Routing
+
+Check that events route to appropriate destinations based on customer tier:
+
+```bash
+# Check enterprise dedicated queue
+echo "=== Enterprise Critical Events ==="
+timeout 10s $KAFKA_HOME/bin/kafka-console-consumer.sh \
+  --bootstrap-server $ENTERPRISE_KAFKA_BROKERS \
+  --topic enterprise-critical-events \
+  --from-beginning
+
+# Check premium queue
+echo "=== Premium Events ==="
+timeout 10s $KAFKA_HOME/bin/kafka-console-consumer.sh \
+  --bootstrap-server $KAFKA_BROKERS \
+  --topic premium-events \
+  --from-beginning
+
+# Check standard queue  
+echo "=== Standard Events ==="
+timeout 10s $KAFKA_HOME/bin/kafka-console-consumer.sh \
+  --bootstrap-server $KAFKA_BROKERS \
+  --topic standard-events \
+  --from-beginning
+
+# Check free tier local buffering
+echo "=== Free Tier Local Buffer ==="
+ls -la /var/expanso/data/free-tier-*.jsonl.gz
+zcat /var/expanso/data/free-tier-$(date +%Y-%m-%d).jsonl.gz | tail -5
+```
+
+## Monitor SLA Performance
+
+Track SLA compliance by customer tier:
+
+```bash
+# Create SLA monitoring script
+cat << 'EOF' > monitor-sla.sh
+#!/bin/bash
+
+echo "=== SLA Monitoring by Customer Tier ==="
+echo
+
+# Query metrics endpoint for latency by tier
+curl -s http://localhost:8081/metrics | grep 'output_latency' | while read line; do
+  if [[ $line == *"enterprise"* ]]; then
+    echo "Enterprise Latency: $line"
+  elif [[ $line == *"premium"* ]]; then
+    echo "Premium Latency: $line"
+  elif [[ $line == *"standard"* ]]; then
+    echo "Standard Latency: $line"
+  elif [[ $line == *"free"* ]]; then
+    echo "Free Tier Latency: $line"
+  fi
+done
+
+echo
+echo "=== Message Count by Tier ==="
+curl -s http://localhost:8081/metrics | grep 'output_sent_total' | grep -E '(enterprise|premium|standard|free)'
+
+EOF
+
+chmod +x monitor-sla.sh
+./monitor-sla.sh
+```
+
+## Performance Characteristics by Tier
+
+The tier-enhanced routing provides these service level guarantees:
+
+| Customer Tier | Priority Boost | Batching | Target Latency | Infrastructure | Retries |
+|---------------|----------------|-----------|----------------|----------------|---------|
+| Enterprise | 3.0x | 1-5 msgs, &lt;500ms | &lt;100ms | Dedicated cluster | 15 |
+| Premium | 2.5x | 25 msgs, 2s | &lt;500ms | Shared premium | 8 |
+| Pro | 2.0x | 25 msgs, 2s | &lt;1s | Shared premium | 5 |
+| Standard | 1.5x | 100 msgs, 10s | &lt;2s | Standard queues | 3 |
+| Basic | 1.2x | 100 msgs, 10s | &lt;5s | Standard queues | 3 |
+| Free | 1.0x | 2000+ msgs, 5m | &lt;15s | Local buffer + bulk sync | 1 |
+| Trial | 0.8x | 5000+ msgs, 10m | &lt;20s | Local buffer + bulk sync | 1 |
+
+## Advanced Tier Strategies
+
+### Strategy 1: Dynamic Tier Upgrades
+
+Temporarily upgrade priority during customer onboarding or critical periods:
+
+```bloblang
+# Check for temporary tier upgrades
+let temp_upgrade = if this.user.onboarding_active == true { 1 } else { 0 }
+
+# Apply temporary boost
+let tier_multiplier = match root.customer_tier {
+  "enterprise" => 3.0
+  "premium" => 2.5
+  "free" => if temp_upgrade == 1 { 2.0 } else { 1.0 }  # Boost free tier during onboarding
+  _ => 1.0
+}
+```
+
+### Strategy 2: Usage-Based Tier Adjustment
+
+Adjust priority based on customer's current usage relative to their plan:
+
+```bloblang
+# Extract usage information
+let monthly_usage = this.user.monthly_api_calls.or(0)
+let plan_limit = this.user.plan_limit.or(1000)
+let usage_ratio = monthly_usage / plan_limit
+
+# Reduce priority for customers over their plan limits
+let usage_penalty = if usage_ratio > 1.0 { 0.5 } else { 1.0 }
+
+# Apply usage penalty to tier multiplier
+let tier_multiplier = match root.customer_tier {
+  "premium" => 2.5 * usage_penalty
+  "standard" => 1.5 * usage_penalty
+  _ => 1.0
+}
+```
+
+### Strategy 3: Geographic Tier Considerations
+
+Adjust priority based on customer geographic region and local regulations:
+
+```bloblang
+# Extract customer region
+root.customer_region = this.user.region.or(this.geo.country.or("US"))
+
+# Apply regional priority adjustments
+let regional_boost = match root.customer_region {
+  "EU" => 1.2          # GDPR compliance requires faster processing
+  "CA" => 1.1          # PIPEDA compliance
+  "US" => 1.0          # Standard processing
+  _ => 0.9             # Lower priority for unsupported regions
+}
+
+# Combine with tier multiplier
+let final_multiplier = tier_multiplier * regional_boost
+```
+
+## Cost Optimization Strategies
+
+### Edge Buffering for Free Tier
+
+Save 90%+ on cloud egress costs by buffering free tier traffic locally:
+
+```yaml
+# Free tier: Local buffering with periodic sync
+- check: this.customer_tier == "free"
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # Primary: Local buffering (90% of data stays local)
+        - file:
+            path: /var/expanso/data/free-tier-${!timestamp_unix_date("2006-01-02")}.jsonl.gz
+            codec: lines
+            gzip_compression: true
+            batching:
+              count: 10000       # Very large local batches
+              period: 1h         # Hourly local writes
+              
+        # Secondary: Periodic cloud sync (10% immediate, 90% daily batch)
+        - switch:
+            cases:
+              # Send critical events immediately even for free tier
+              - check: this.severity == "CRITICAL" 
+                output:
+                  kafka:
+                    addresses: ["${KAFKA_BROKERS}"]
+                    topic: free-tier-critical
+                    batching:
+                      count: 1
+                      period: 0s
+              
+              # Batch everything else for cost optimization 
+              - output:
+                  kafka:
+                    addresses: ["${KAFKA_BROKERS}"]
+                    topic: free-tier-bulk
+                    batching:
+                      count: 5000     # Massive batches
+                      period: 6h      # Sync 4 times per day
+                    compression: gzip
+```
+
+**Cost Impact:**
+- **Before:** 5GB/day × $0.09/GB × 30 days = $13.50/month per free user
+- **After:** 500MB/day × $0.09/GB × 30 days = $1.35/month per free user
+- **Savings:** 90% reduction in egress costs
+
+## Compliance and Security
+
+### GDPR Compliance by Tier
+
+Apply appropriate data protection measures based on customer tier:
+
+```bloblang
+# Add GDPR compliance metadata based on tier
+root.gdpr_compliance = {
+  "data_controller": match root.customer_tier {
+    "enterprise" => "customer_controlled"    # Enterprise customers control their data
+    _ => "platform_controlled"               # Platform controls data for other tiers
+  },
+  "retention_period": match root.customer_tier {
+    "enterprise" => "customer_defined"       # Enterprise sets retention
+    "premium" => "2y"                       # Premium gets 2 years
+    "standard" => "1y"                      # Standard gets 1 year  
+    "free" => "90d"                         # Free tier limited to 90 days
+    _ => "30d"
+  },
+  "processing_purpose": "service_delivery",
+  "lawful_basis": "contract"
+}
+```
+
+### PCI DSS Compliance for Payment Events
+
+Apply enhanced security for payment-related events based on customer tier:
+
+```bloblang
+# Enhanced security for payment events
+if root.event_type.has_prefix("payment.") {
+  # Enterprise customers get dedicated secure processing
+  if root.customer_tier == "enterprise" {
+    root.security_level = "pci_level_1"
+    root.encryption_required = true
+    root.audit_level = "detailed"
+  } else {
+    root.security_level = "pci_level_4" 
+    root.encryption_required = true
+    root.audit_level = "standard"
+  }
+  
+  # Remove sensitive payment data for non-enterprise tiers
+  if root.customer_tier != "enterprise" {
+    root = root.without("card_number", "cvv", "billing_address")
+  }
+}
+```
+
+## Troubleshooting Tier-Based Routing
+
+### Issue: Enterprise Events Going to Standard Queue
+
+**Symptom:** Enterprise customer events appear in standard-events topic instead of enterprise queues.
+
+**Cause:** Customer tier not properly detected or normalized.
+
+**Solution:** Enhanced tier detection:
+
+```bloblang
+# Debug tier detection
+root.tier_debug = {
+  "user_subscription": this.user.subscription_plan.or("missing"),
+  "customer_tier_field": this.customer_tier.or("missing"),
+  "subscription_tier": this.subscription.tier.or("missing"),
+  "plan_field": this.plan.or("missing"),
+  "detected_tier": root.customer_tier
+}
+
+# Robust tier extraction with fallbacks
+root.customer_tier = match {
+  this.user.subscription_plan.exists() && this.user.subscription_plan != "" => this.user.subscription_plan.lowercase()
+  this.customer.tier.exists() && this.customer.tier != "" => this.customer.tier.lowercase()
+  this.subscription.plan.exists() && this.subscription.plan != "" => this.subscription.plan.lowercase()
+  this.headers."x-customer-tier".exists() => this.headers."x-customer-tier".lowercase()
+  _ => "free"  # Safe default
+}
+```
+
+### Issue: Free Tier Costs Still High
+
+**Symptom:** Free tier customers generating significant cloud egress costs.
+
+**Cause:** Critical events bypassing local buffering.
+
+**Solution:** Audit critical event classification:
+
+```bloblang
+# Add audit trail for critical event classification
+if root.priority == "critical" {
+  root.critical_audit = {
+    "original_severity": this.severity,
+    "customer_tier": root.customer_tier,
+    "event_type": root.event_type,
+    "priority_score": root.priority_score,
+    "bypass_reason": "critical_priority"
+  }
+}
+
+# Stricter critical criteria for free tier
+if root.customer_tier == "free" || root.customer_tier == "trial" {
+  # Only true emergencies get critical priority for free tier
+  root.priority = match {
+    root.priority_score >= 150 => "critical"  # Higher threshold for free tier
+    root.priority_score >= 80 => "high"
+    _ => "normal"
+  }
+}
+```
+
+### Issue: SLA Violations for Premium Customers
+
+**Symptom:** Premium customers experiencing &gt;500ms latency, violating SLA.
+
+**Cause:** Insufficient resource allocation or configuration issues.
+
+**Solutions:**
+
+1. **Verify dedicated resources:**
+```yaml
+# Ensure premium queues have adequate resources
+premium_queue:
+  max_in_flight: 10          # Increase concurrency
+  batching:
+    count: 10                # Smaller batches
+    period: 1s               # Faster delivery
+```
+
+2. **Add SLA monitoring:**
+```bloblang
+# Add SLA violation alerting
+if root.customer_tier == "premium" {
+  let processing_time = now().unix() - this.timestamp.parse_timestamp_unix("2006-01-02T15:04:05Z")
+  
+  if processing_time > root.sla_target_ms / 1000 {
+    root.sla_violation = {
+      "customer_tier": root.customer_tier,
+      "target_ms": root.sla_target_ms,
+      "actual_ms": processing_time * 1000,
+      "violation_severity": "high"
+    }
+  }
+}
+```
+
+## Next Steps
+
+With customer tier routing implemented, you now have:
+
+✅ **Differentiated service levels** based on customer subscription value
+✅ **Dedicated infrastructure** for enterprise customers with isolated processing
+✅ **Cost optimization** with local buffering for free tier (90% egress cost reduction)  
+✅ **SLA tracking** with tier-appropriate response time targets
+✅ **Compliance integration** with GDPR and PCI DSS considerations
+
+**Next:** Implement multi-criteria scoring to combine tier, severity, event type, and urgency into sophisticated prioritization logic.
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./step-3-multi-criteria-scoring" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Step 3: Multi-Criteria Scoring
+  </a>
+  <a href="./troubleshooting" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Troubleshooting Guide
+  </a>
+</div>
+
+## What You Built
+
+This step enhanced your priority queue system with customer tier awareness:
+
+- **Enterprise customers** → Dedicated infrastructure, &lt;100ms SLA, maximum reliability
+- **Premium/Pro customers** → Fast processing, &lt;500ms-1s SLA, strong guarantees  
+- **Standard/Basic customers** → Balanced processing, 2-5s SLA, cost-optimized
+- **Free/Trial customers** → Bulk processing, 15-20s SLA, local buffering for 90% cost savings
+
+The next step will add multi-criteria scoring to handle complex prioritization scenarios where multiple factors influence routing decisions.

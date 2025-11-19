@@ -1,0 +1,743 @@
+# Complete Multi-Format Transformation Pipeline
+# Production-ready solution for JSON, Avro, Parquet, and Protobuf transformations
+# with intelligent format detection and dynamic routing
+
+apiVersion: expanso.io/v1
+kind: Pipeline
+metadata:
+  name: complete-format-transformation-pipeline
+  description: "Production-ready multi-format transformation platform with auto-detection and intelligent routing"
+  version: "2.0.0"
+  labels:
+    environment: "production"
+    component: "data-transformation"
+    capability: "multi-format-processing"
+
+spec:
+  # Universal input configuration - accepts data in any format
+  inputs:
+    # Primary HTTP endpoint for real-time transformations
+    - name: http-api
+      connector: http
+      config:
+        port: 8080
+        paths:
+          - path: "/transform"
+            methods: ["POST", "PUT"]
+            max_body_size: 104857600  # 100MB max
+          - path: "/transform/{format}"
+            methods: ["POST"]
+            max_body_size: 104857600
+          - path: "/health"
+            methods: ["GET"]
+        
+        # Security and rate limiting
+        security:
+          cors:
+            enabled: true
+            allow_origins: ["*"]
+            allow_methods: ["POST", "PUT", "GET", "OPTIONS"]
+            allow_headers: ["Content-Type", "Accept", "Authorization"]
+          rate_limiting:
+            enabled: true
+            requests_per_minute: 1000
+            burst_size: 100
+          authentication:
+            enabled: true
+            type: "bearer_token"
+            
+        # Content handling for all formats
+        content_handling:
+          preserve_binary: true
+          include_headers: true
+          max_header_size: 8192
+
+    # Kafka input for streaming data
+    - name: kafka-input
+      connector: kafka
+      config:
+        bootstrap_servers: 
+          - "kafka-1:9092"
+          - "kafka-2:9092" 
+          - "kafka-3:9092"
+        topics: ["raw-data", "format-conversion-requests"]
+        group_id: "format-transformation-consumer"
+        auto_offset_reset: "earliest"
+        
+        # Performance optimization
+        fetch_min_bytes: 1048576      # 1MB
+        fetch_max_wait_ms: 500
+        max_poll_records: 1000
+        
+        # Multi-format deserializers
+        value_deserializers:
+          - format: "avro"
+            schema_registry_url: "${SCHEMA_REGISTRY_URL}"
+          - format: "json"
+          - format: "protobuf"
+          - format: "binary"
+
+    # File input for batch processing
+    - name: file-upload
+      connector: file
+      config:
+        watch_directories: ["/data/input"]
+        file_patterns: ["*.json", "*.avro", "*.parquet", "*.pb"]
+        recursive: true
+        delete_after_processing: false
+        move_to_processed: "/data/processed"
+
+  # Processing pipeline with format detection and transformation
+  processors:
+    # Stage 1: Input normalization and metadata extraction
+    - name: input-normalization
+      type: script
+      config:
+        language: javascript
+        source: |
+          function process(event) {
+            // Normalize input from different sources
+            const normalized = {
+              raw_body: event.body,
+              headers: event.headers || {},
+              source_connector: event.source || 'unknown',
+              processing_id: generateProcessingId(),
+              processing_start: Date.now(),
+              
+              // Extract metadata hints
+              metadata: {
+                content_type: event.headers?.['content-type'] || 'application/octet-stream',
+                content_length: Buffer.byteLength(event.body),
+                accept_header: event.headers?.['accept'],
+                tenant_id: extractTenantId(event),
+                request_id: event.headers?.['x-request-id'] || generateRequestId()
+              }
+            };
+            
+            return normalized;
+          }
+          
+          function generateProcessingId() {
+            return 'proc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+          }
+          
+          function generateRequestId() {
+            return 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+          }
+          
+          function extractTenantId(event) {
+            return event.headers?.['x-tenant-id'] || 
+                   event.query?.tenant || 
+                   'default';
+          }
+
+    # Stage 2: Intelligent format detection
+    - name: format-detection
+      type: script
+      config:
+        language: javascript
+        source: |
+          function process(event) {
+            const data = event.raw_body;
+            const metadata = event.metadata;
+            
+            // Multi-method format detection
+            const detectionResults = [];
+            
+            // 1. Content-Type header detection (highest priority)
+            const contentTypeResult = detectFromContentType(metadata.content_type);
+            if (contentTypeResult.confidence > 0.9) {
+              detectionResults.push(contentTypeResult);
+            }
+            
+            // 2. Binary signature detection
+            const signatureResult = detectFromSignature(data);
+            if (signatureResult.confidence > 0.85) {
+              detectionResults.push(signatureResult);
+            }
+            
+            // 3. Structure analysis for text formats
+            const structureResult = detectFromStructure(data);
+            if (structureResult.confidence > 0.8) {
+              detectionResults.push(structureResult);
+            }
+            
+            // Select best detection result
+            const finalDetection = detectionResults.length > 0 
+              ? detectionResults.reduce((best, current) => 
+                  current.confidence > best.confidence ? current : best)
+              : { format: 'UNKNOWN', confidence: 0.0, method: 'failed' };
+            
+            return {
+              ...event,
+              format_detection: {
+                detected_format: finalDetection.format,
+                confidence_score: finalDetection.confidence,
+                detection_method: finalDetection.method,
+                all_results: detectionResults
+              }
+            };
+          }
+          
+          function detectFromContentType(contentType) {
+            const ct = contentType.toLowerCase();
+            const mappings = {
+              'application/json': { format: 'JSON', confidence: 0.95 },
+              'application/avro': { format: 'AVRO', confidence: 0.95 },
+              'application/x-protobuf': { format: 'PROTOBUF', confidence: 0.95 },
+              'application/parquet': { format: 'PARQUET', confidence: 0.95 }
+            };
+            
+            for (const [type, result] of Object.entries(mappings)) {
+              if (ct.includes(type.split('/')[1])) {
+                return { ...result, method: 'content_type' };
+              }
+            }
+            
+            return { format: 'UNKNOWN', confidence: 0.0, method: 'content_type' };
+          }
+          
+          function detectFromSignature(data) {
+            if (!data || data.length < 4) {
+              return { format: 'UNKNOWN', confidence: 0.0, method: 'signature' };
+            }
+            
+            const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+            const sig = Array.from(buffer.slice(0, 4));
+            
+            // Parquet signature: "PAR1"
+            if (sig[0] === 0x50 && sig[1] === 0x41 && sig[2] === 0x52 && sig[3] === 0x31) {
+              return { format: 'PARQUET', confidence: 0.98, method: 'binary_signature' };
+            }
+            
+            // Avro signature: "Obj\x01"
+            if (sig[0] === 0x4F && sig[1] === 0x62 && sig[2] === 0x6A && sig[3] === 0x01) {
+              return { format: 'AVRO', confidence: 0.98, method: 'binary_signature' };
+            }
+            
+            // Schema registry Avro (starts with \x00 + schema ID)
+            if (buffer.length >= 5 && buffer[0] === 0x00) {
+              return { format: 'AVRO', confidence: 0.85, method: 'schema_registry' };
+            }
+            
+            return { format: 'UNKNOWN', confidence: 0.0, method: 'signature' };
+          }
+          
+          function detectFromStructure(data) {
+            const text = String(data).trim();
+            
+            // JSON structure detection
+            if ((text.startsWith('{') && text.endsWith('}')) ||
+                (text.startsWith('[') && text.endsWith(']'))) {
+              try {
+                JSON.parse(text);
+                return { format: 'JSON', confidence: 0.92, method: 'structure_analysis' };
+              } catch (e) {
+                return { format: 'UNKNOWN', confidence: 0.0, method: 'structure_analysis' };
+              }
+            }
+            
+            return { format: 'UNKNOWN', confidence: 0.0, method: 'structure_analysis' };
+          }
+
+    # Stage 3: Intelligent transformation routing
+    - name: transformation-routing
+      type: script
+      config:
+        language: javascript
+        source: |
+          function process(event) {
+            const sourceFormat = event.format_detection?.detected_format || 'UNKNOWN';
+            const metadata = event.metadata;
+            const acceptHeader = metadata.accept_header || '';
+            
+            // Analyze data characteristics
+            const dataAnalysis = analyzeDataCharacteristics(event.raw_body, sourceFormat);
+            
+            // Determine optimal target format
+            const routingDecision = determineOptimalRoute(
+              sourceFormat, 
+              acceptHeader, 
+              dataAnalysis
+            );
+            
+            return {
+              ...event,
+              data_analysis: dataAnalysis,
+              transformation_route: routingDecision
+            };
+          }
+          
+          function analyzeDataCharacteristics(data, sourceFormat) {
+            const size = Buffer.byteLength(data);
+            let recordCount = 1;
+            let useCase = 'unknown';
+            
+            if (sourceFormat === 'JSON') {
+              try {
+                const parsed = JSON.parse(data);
+                if (Array.isArray(parsed)) {
+                  recordCount = parsed.length;
+                  
+                  if (recordCount > 1000) {
+                    useCase = 'batch_analytics';
+                  } else if (recordCount > 10) {
+                    useCase = 'medium_batch';
+                  } else {
+                    useCase = 'single_record';
+                  }
+                }
+              } catch (e) {
+                // Invalid JSON, continue with defaults
+              }
+            }
+            
+            return {
+              size_bytes: size,
+              size_category: categorizeSize(size),
+              record_count: recordCount,
+              inferred_use_case: useCase
+            };
+          }
+          
+          function categorizeSize(size) {
+            if (size < 1024) return 'tiny';
+            if (size < 102400) return 'small';
+            if (size < 1048576) return 'medium';
+            if (size < 10485760) return 'large';
+            return 'huge';
+          }
+          
+          function determineOptimalRoute(sourceFormat, acceptHeader, dataAnalysis) {
+            // Priority 1: Explicit Accept header
+            if (acceptHeader) {
+              const explicitTarget = parseAcceptHeader(acceptHeader);
+              if (explicitTarget !== 'UNKNOWN') {
+                return {
+                  target_format: explicitTarget,
+                  reasoning: 'explicit_accept_header',
+                  confidence: 0.95,
+                  transformation_type: getTransformationType(sourceFormat, explicitTarget)
+                };
+              }
+            }
+            
+            // Priority 2: Data characteristics-based routing
+            const { inferred_use_case, record_count } = dataAnalysis;
+            
+            // Analytics workloads → Parquet
+            if (inferred_use_case === 'batch_analytics' || record_count > 1000) {
+              return {
+                target_format: 'PARQUET',
+                reasoning: 'analytics_workload',
+                confidence: 0.9,
+                transformation_type: getTransformationType(sourceFormat, 'PARQUET')
+              };
+            }
+            
+            // Medium batches → Avro for streaming
+            if (inferred_use_case === 'medium_batch' && sourceFormat === 'JSON') {
+              return {
+                target_format: 'AVRO',
+                reasoning: 'streaming_workload',
+                confidence: 0.85,
+                transformation_type: getTransformationType(sourceFormat, 'AVRO')
+              };
+            }
+            
+            // Small messages → Protobuf for services
+            if (dataAnalysis.size_category === 'small' || dataAnalysis.size_category === 'tiny') {
+              return {
+                target_format: 'PROTOBUF',
+                reasoning: 'microservice_communication',
+                confidence: 0.8,
+                transformation_type: getTransformationType(sourceFormat, 'PROTOBUF')
+              };
+            }
+            
+            // Default patterns
+            const defaultTargets = {
+              'JSON': 'AVRO',
+              'AVRO': 'PARQUET', 
+              'PROTOBUF': 'JSON',
+              'PARQUET': 'JSON'
+            };
+            
+            const targetFormat = defaultTargets[sourceFormat] || 'JSON';
+            
+            return {
+              target_format: targetFormat,
+              reasoning: 'default_pattern',
+              confidence: 0.6,
+              transformation_type: getTransformationType(sourceFormat, targetFormat)
+            };
+          }
+          
+          function parseAcceptHeader(acceptHeader) {
+            const formats = {
+              'application/json': 'JSON',
+              'application/avro': 'AVRO',
+              'application/x-protobuf': 'PROTOBUF',
+              'application/parquet': 'PARQUET'
+            };
+            
+            for (const [contentType, format] of Object.entries(formats)) {
+              if (acceptHeader.includes(contentType)) {
+                return format;
+              }
+            }
+            
+            return 'UNKNOWN';
+          }
+          
+          function getTransformationType(source, target) {
+            if (source === target) return 'passthrough';
+            return `${source.toLowerCase()}_to_${target.toLowerCase()}`;
+          }
+
+    # Stage 4: Format transformation execution
+    - name: transformation-execution
+      type: router
+      config:
+        routing_field: "transformation_route.transformation_type"
+        routes:
+          # JSON to other formats
+          "json_to_avro":
+            processors:
+              - name: json-to-avro-transformer
+                type: avro_encoder
+                config:
+                  schema_registry_url: "${SCHEMA_REGISTRY_URL}"
+                  subject: "multi-format-data-value"
+                  compression: "snappy"
+                  include_schema_id: true
+          
+          "json_to_protobuf":
+            processors:
+              - name: json-to-protobuf-transformer
+                type: protobuf_encoder
+                config:
+                  proto_file: "/config/multi-format.proto"
+                  message_type: "MultiFormatData"
+                  validate_schema: true
+          
+          "json_to_parquet":
+            processors:
+              - name: json-to-parquet-transformer
+                type: parquet_encoder
+                config:
+                  compression: "snappy"
+                  page_size: 1048576
+                  row_group_size: 134217728
+                  enable_statistics: true
+          
+          # Avro to other formats
+          "avro_to_parquet":
+            processors:
+              - name: avro-to-parquet-transformer
+                type: parquet_encoder
+                config:
+                  input_format: "avro"
+                  compression: "snappy"
+                  preserve_avro_schema: true
+          
+          "avro_to_json":
+            processors:
+              - name: avro-to-json-transformer
+                type: avro_decoder
+                config:
+                  schema_registry_url: "${SCHEMA_REGISTRY_URL}"
+                  output_format: "json"
+          
+          # Protobuf to other formats
+          "protobuf_to_json":
+            processors:
+              - name: protobuf-to-json-transformer
+                type: protobuf_decoder
+                config:
+                  proto_file: "/config/multi-format.proto"
+                  output_format: "json"
+          
+          # Parquet to other formats  
+          "parquet_to_json":
+            processors:
+              - name: parquet-to-json-transformer
+                type: parquet_decoder
+                config:
+                  output_format: "json"
+                  include_metadata: false
+          
+          # Passthrough for same format
+          "passthrough":
+            processors:
+              - name: passthrough-processor
+                type: script
+                config:
+                  source: |
+                    function process(event) {
+                      return {
+                        ...event,
+                        transformed_data: event.raw_body,
+                        transformation_applied: false
+                      };
+                    }
+
+    # Stage 5: Add transformation metadata and output routing
+    - name: finalize-transformation
+      type: script
+      config:
+        language: javascript
+        source: |
+          function process(event) {
+            const targetFormat = event.transformation_route?.target_format || 'JSON';
+            
+            // Calculate transformation metrics
+            const transformationSummary = {
+              processing_id: event.metadata.processing_id,
+              source_format: event.format_detection?.detected_format,
+              target_format: targetFormat,
+              transformation_type: event.transformation_route?.transformation_type,
+              
+              // Performance metrics
+              total_processing_time_ms: Date.now() - event.processing_start,
+              
+              // Data metrics
+              input_size_bytes: event.data_analysis?.size_bytes || 0,
+              record_count: event.data_analysis?.record_count || 1,
+              
+              // Quality metrics
+              detection_confidence: event.format_detection?.confidence_score || 0,
+              routing_confidence: event.transformation_route?.confidence || 0,
+              
+              // Success indicator
+              success: true
+            };
+            
+            return {
+              transformed_data: event.transformed_data || event.raw_body,
+              transformation_summary: transformationSummary,
+              content_type: getContentType(targetFormat),
+              original_metadata: event.metadata
+            };
+          }
+          
+          function getContentType(format) {
+            const contentTypes = {
+              'JSON': 'application/json',
+              'AVRO': 'application/avro',
+              'PROTOBUF': 'application/x-protobuf',
+              'PARQUET': 'application/parquet'
+            };
+            
+            return contentTypes[format] || 'application/octet-stream';
+          }
+
+  # Multiple output destinations based on use case
+  outputs:
+    # Primary HTTP response for real-time API
+    - name: http-response
+      connector: http
+      config:
+        response_mode: true
+        content_type_field: "content_type"
+        include_transformation_headers: true
+        headers:
+          X-Transformation-Source: "{transformation_summary.source_format}"
+          X-Transformation-Target: "{transformation_summary.target_format}"
+          X-Processing-Time: "{transformation_summary.total_processing_time_ms}ms"
+          X-Detection-Confidence: "{transformation_summary.detection_confidence}"
+
+    # Data lake storage for analytics workloads
+    - name: analytics-data-lake
+      connector: s3
+      config:
+        bucket: "${DATA_LAKE_BUCKET}"
+        key_prefix: "processed-data/{year}/{month}/{day}/{transformation_summary.target_format}/"
+        filename_pattern: "{transformation_summary.processing_id}-{timestamp}.{format_extension}"
+        
+        # Only route analytics workloads
+        route_condition: |
+          transformation_summary.record_count > 100 || 
+          data_analysis.inferred_use_case === 'batch_analytics'
+        
+        # Lifecycle management
+        lifecycle:
+          transition_to_ia_days: 30
+          transition_to_glacier_days: 90
+          expiration_days: 2555
+
+    # Kafka for streaming workloads
+    - name: streaming-kafka
+      connector: kafka
+      config:
+        bootstrap_servers: 
+          - "kafka-1:9092"
+          - "kafka-2:9092"
+          - "kafka-3:9092"
+        topic: "processed-data-stream"
+        key_field: "transformation_summary.processing_id"
+        
+        # Route medium batch workloads
+        route_condition: |
+          data_analysis.inferred_use_case === 'medium_batch'
+        
+        # Kafka optimization
+        acks: "1"
+        batch_size: 16384
+        linger_ms: 5
+        compression_type: "lz4"
+
+    # Analytics and monitoring metrics
+    - name: analytics-metrics
+      connector: kafka
+      config:
+        bootstrap_servers:
+          - "kafka-1:9092" 
+          - "kafka-2:9092"
+          - "kafka-3:9092"
+        topic: "format-transformation-analytics"
+        
+        # Comprehensive analytics payload
+        value_template: |
+          {
+            "processing_id": "{transformation_summary.processing_id}",
+            "timestamp": {transformation_summary.processing_start},
+            "source_format": "{transformation_summary.source_format}",
+            "target_format": "{transformation_summary.target_format}",
+            "transformation_type": "{transformation_summary.transformation_type}",
+            "performance_metrics": {
+              "total_processing_time_ms": {transformation_summary.total_processing_time_ms},
+              "detection_confidence": {transformation_summary.detection_confidence},
+              "routing_confidence": {transformation_summary.routing_confidence}
+            },
+            "data_metrics": {
+              "input_size_bytes": {transformation_summary.input_size_bytes},
+              "record_count": {transformation_summary.record_count}
+            },
+            "success": {transformation_summary.success}
+          }
+
+  # Production-grade error handling
+  error_handling:
+    strategy: comprehensive_error_management
+    
+    # Format detection errors
+    detection_errors:
+      strategy: fallback_to_json
+      confidence_threshold: 0.3
+      
+    # Transformation errors
+    transformation_errors:
+      strategy: retry_with_exponential_backoff
+      max_retries: 3
+      initial_delay_ms: 1000
+      max_delay_ms: 30000
+      
+    # Dead letter queue for failed transformations
+    dead_letter_queue:
+      enabled: true
+      topic: "transformation-dlq"
+      include_full_context: true
+      retention_days: 30
+
+  # Comprehensive monitoring and observability  
+  monitoring:
+    # Health check endpoints
+    health_checks:
+      - name: "overall_pipeline_health"
+        endpoint: "/health"
+        interval_seconds: 30
+        timeout_seconds: 10
+      
+      - name: "format_detection_health" 
+        endpoint: "/health/detection"
+        interval_seconds: 60
+        
+      - name: "transformation_health"
+        endpoint: "/health/transformation"  
+        interval_seconds: 60
+
+    # Key performance metrics
+    metrics:
+      # Detection accuracy
+      - name: "format_detection_accuracy"
+        type: "histogram"
+        labels: ["detected_format", "detection_method"]
+        buckets: [0.1, 0.3, 0.5, 0.7, 0.85, 0.95]
+        
+      # Transformation performance
+      - name: "transformation_success_rate"
+        type: "counter"
+        labels: ["source_format", "target_format"]
+        
+      - name: "transformation_latency"
+        type: "histogram"
+        labels: ["transformation_type"]
+        buckets: [10, 50, 100, 500, 1000, 5000]
+        
+      # Data volume metrics
+      - name: "data_volume_processed"
+        type: "counter"
+        labels: ["format", "tenant_id"]
+        unit: "bytes"
+        
+      # Business value metrics
+      - name: "compression_efficiency"
+        type: "histogram"
+        labels: ["source_format", "target_format"]
+        buckets: [10, 30, 50, 70, 85, 95]
+
+    # Production alerting rules
+    alerts:
+      # Critical system alerts
+      - name: "transformation_failure_rate_high"
+        condition: "transformation_success_rate < 0.95"
+        severity: "critical"
+        message: "Format transformation success rate below 95%"
+        
+      - name: "detection_confidence_low"
+        condition: "format_detection_accuracy < 0.8"  
+        severity: "critical"
+        message: "Format detection accuracy below 80%"
+        
+      # Performance alerts
+      - name: "transformation_latency_high"
+        condition: "transformation_latency > 5000"
+        severity: "warning"
+        message: "Format transformation latency above 5 seconds"
+        
+      # Business alerts
+      - name: "data_volume_spike"
+        condition: "data_volume_processed > 10GB/hour"
+        severity: "info"
+        message: "Unusual spike in data volume processed"
+
+  # Auto-scaling for production workloads
+  scaling:
+    enabled: true
+    
+    # Horizontal scaling based on load
+    horizontal:
+      min_replicas: 2
+      max_replicas: 20
+      
+      # Resource-based scaling
+      cpu_threshold: 70
+      memory_threshold: 80
+      
+      # Custom metrics scaling  
+      custom_metrics:
+        - metric: "transformation_latency"
+          scale_up_threshold: 1000
+          scale_down_threshold: 200
+          
+        - metric: "queue_depth"
+          scale_up_threshold: 500
+          scale_down_threshold: 50
+
+# Environment variable configuration
+# Set these variables in your deployment environment:
+#
+# SCHEMA_REGISTRY_URL=http://schema-registry:8081
+# DATA_LAKE_BUCKET=your-data-lake-bucket
+# KAFKA_BOOTSTRAP_SERVERS=kafka-1:9092,kafka-2:9092,kafka-3:9092

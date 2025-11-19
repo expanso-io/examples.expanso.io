@@ -1,0 +1,1394 @@
+---
+title: Format Transformation Troubleshooting
+sidebar_label: Troubleshooting
+sidebar_position: 8
+description: Comprehensive troubleshooting guide for format transformation issues, performance problems, and production deployment challenges
+keywords: [troubleshooting, format-transformation, performance-issues, debugging, error-resolution, production-support]
+---
+
+# Format Transformation Troubleshooting
+
+**Comprehensive troubleshooting guide** for resolving issues with multi-format data transformation pipelines. Covers detection problems, transformation failures, performance issues, and production deployment challenges.
+
+## Quick Diagnostic Checklist
+
+Start with these basic checks before diving into specific issues:
+
+```bash
+# 1. Check pipeline status
+expanso pipeline status complete-format-transformation-pipeline
+
+# 2. Verify recent logs
+expanso pipeline logs complete-format-transformation-pipeline --tail 100
+
+# 3. Check health endpoints
+curl -f http://localhost:8080/health
+
+# 4. Verify dependencies
+curl -f http://localhost:8081/subjects  # Schema registry
+curl -f http://localhost:9092           # Kafka health
+
+# 5. Check resource usage
+expanso pipeline metrics complete-format-transformation-pipeline --resource-usage
+
+# 6. Test simple transformation
+curl -X POST http://localhost:8080/transform \
+  -H "Content-Type: application/json" \
+  -d '{"test": true}'
+```
+
+---
+
+## Format Detection Issues
+
+### Issue: Low Detection Confidence Scores
+
+**Symptom:** Detection confidence consistently below 0.7
+
+**Diagnosis:**
+```bash
+# Check detection analytics
+expanso pipeline analytics complete-format-transformation-pipeline \
+  --metric format_detection_confidence \
+  --breakdown-by detection_method \
+  --period 1h
+
+# Examine detection logs
+expanso pipeline logs complete-format-transformation-pipeline \
+  --filter "detection_confidence < 0.7" \
+  --tail 50
+
+# Test specific samples
+curl -X POST http://localhost:8080/transform \
+  -H "Content-Type: application/json" \
+  -d @problematic-sample.json \
+  -v
+```
+
+**Root Causes & Solutions:**
+
+**1. Missing or Incorrect Content-Type Headers**
+```bash
+# Problem: Content-Type not specified or wrong
+curl -X POST http://localhost:8080/transform \
+  --data-binary @data.avro  # Missing Content-Type
+
+# Solution: Always specify correct Content-Type
+curl -X POST http://localhost:8080/transform \
+  -H "Content-Type: application/avro" \
+  --data-binary @data.avro
+```
+
+**2. Ambiguous Binary Data**
+```yaml
+# Enhanced binary detection configuration
+processors:
+  - name: enhanced-binary-detection
+    type: script
+    config:
+      source: |
+        function process(event) {
+          const data = event.raw_body;
+          
+          // More sophisticated binary analysis
+          const analysis = {
+            entropy: calculateEntropy(data),
+            magic_numbers: checkExtendedMagicNumbers(data),
+            structure_patterns: analyzeStructurePatterns(data),
+            compression_indicators: detectCompressionSignatures(data)
+          };
+          
+          // Improve confidence based on multiple signals
+          let confidence = 0.5;  // Base confidence
+          
+          if (analysis.magic_numbers.found) {
+            confidence += 0.4;
+          }
+          if (analysis.entropy > 7.5) {  // High entropy suggests binary
+            confidence += 0.2;
+          }
+          if (analysis.structure_patterns.consistent) {
+            confidence += 0.3;
+          }
+          
+          return {
+            ...event,
+            enhanced_detection: {
+              format: analysis.magic_numbers.format || 'BINARY',
+              confidence: Math.min(0.98, confidence),
+              analysis_details: analysis
+            }
+          };
+        }
+        
+        function calculateEntropy(data) {
+          const freq = {};
+          for (let i = 0; i < Math.min(data.length, 1024); i++) {
+            const byte = data[i];
+            freq[byte] = (freq[byte] || 0) + 1;
+          }
+          
+          const total = Object.values(freq).reduce((a, b) => a + b, 0);
+          let entropy = 0;
+          
+          for (const count of Object.values(freq)) {
+            const p = count / total;
+            entropy -= p * Math.log2(p);
+          }
+          
+          return entropy;
+        }
+```
+
+**3. Corrupted or Partial Data**
+```yaml
+# Data integrity validation
+processors:
+  - name: data-integrity-validator
+    type: script
+    config:
+      source: |
+        function process(event) {
+          const data = event.raw_body;
+          const integrity = validateDataIntegrity(data, event.metadata);
+          
+          if (!integrity.valid) {
+            throw new Error(`Data integrity check failed: ${integrity.reason}`);
+          }
+          
+          return {
+            ...event,
+            integrity_check: integrity
+          };
+        }
+        
+        function validateDataIntegrity(data, metadata) {
+          // Check for truncation
+          const expectedSize = parseInt(metadata.content_length || '0');
+          if (expectedSize > 0 && data.length !== expectedSize) {
+            return {
+              valid: false,
+              reason: `Size mismatch: expected ${expectedSize}, got ${data.length}`
+            };
+          }
+          
+          // Check for common corruption patterns
+          if (data.length > 0 && data[data.length - 1] === 0) {
+            return {
+              valid: false,
+              reason: 'Unexpected null termination'
+            };
+          }
+          
+          return { valid: true };
+        }
+```
+
+### Issue: Wrong Format Detection
+
+**Symptom:** Pipeline detects incorrect format (e.g., JSON detected as XML)
+
+**Solutions:**
+
+**1. Improve Detection Priority**
+```yaml
+processors:
+  - name: prioritized-detection
+    type: script
+    config:
+      source: |
+        function process(event) {
+          const detectionMethods = [
+            () => detectByContentType(event),
+            () => detectBySchemaRegistry(event),
+            () => detectByBinarySignature(event),
+            () => detectByStructure(event),
+            () => detectByMLClassifier(event)
+          ];
+          
+          let bestResult = { format: 'UNKNOWN', confidence: 0 };
+          
+          for (const method of detectionMethods) {
+            const result = method();
+            if (result.confidence > 0.9) {
+              return { ...event, format_detection: result };  // High confidence, stop
+            }
+            if (result.confidence > bestResult.confidence) {
+              bestResult = result;
+            }
+          }
+          
+          return { ...event, format_detection: bestResult };
+        }
+```
+
+**2. Add Format Validation**
+```yaml
+processors:
+  - name: format-validation
+    type: script
+    config:
+      source: |
+        function process(event) {
+          const detection = event.format_detection;
+          const data = event.raw_body;
+          
+          // Validate the detected format
+          const validation = validateFormatMatch(data, detection.format);
+          
+          if (!validation.valid && validation.confidence < 0.5) {
+            // Re-detect with stricter criteria
+            const redetection = redetectWithStrictCriteria(data);
+            return {
+              ...event,
+              format_detection: redetection,
+              validation_override: true,
+              original_detection: detection
+            };
+          }
+          
+          return event;
+        }
+        
+        function validateFormatMatch(data, format) {
+          switch (format) {
+            case 'JSON':
+              try {
+                JSON.parse(data);
+                return { valid: true, confidence: 0.95 };
+              } catch (e) {
+                return { valid: false, confidence: 0.0, error: e.message };
+              }
+              
+            case 'AVRO':
+              return validateAvroFormat(data);
+              
+            case 'PROTOBUF':
+              return validateProtobufFormat(data);
+              
+            default:
+              return { valid: true, confidence: 0.5 };  // Unknown format
+          }
+        }
+```
+
+---
+
+## Transformation Failures
+
+### Issue: Schema Validation Errors
+
+**Symptom:** `Schema validation failed` or `Field type mismatch`
+
+**Diagnosis:**
+```bash
+# Check schema registry connectivity
+curl -f http://localhost:8081/subjects
+
+# Examine schema validation logs
+expanso pipeline logs complete-format-transformation-pipeline \
+  --filter "schema.*validation.*failed" \
+  --tail 20
+
+# Test specific schema
+curl http://localhost:8081/subjects/multi-format-data-value/versions/latest
+```
+
+**Solutions:**
+
+**1. Schema Evolution Handling**
+```yaml
+processors:
+  - name: schema-evolution-handler
+    type: script
+    config:
+      source: |
+        function process(event) {
+          const data = event.raw_body;
+          const targetFormat = event.transformation_route?.target_format;
+          
+          if (targetFormat === 'AVRO') {
+            return handleAvroSchemaEvolution(event);
+          } else if (targetFormat === 'PROTOBUF') {
+            return handleProtobufSchemaEvolution(event);
+          }
+          
+          return event;
+        }
+        
+        function handleAvroSchemaEvolution(event) {
+          const data = JSON.parse(event.raw_body);
+          const currentSchema = getCurrentAvroSchema();
+          const migrated = migrateToCurrentSchema(data, currentSchema);
+          
+          return {
+            ...event,
+            raw_body: JSON.stringify(migrated),
+            schema_migration_applied: true
+          };
+        }
+        
+        function migrateToCurrentSchema(data, schema) {
+          const migrated = { ...data };
+          
+          // Add default values for new required fields
+          schema.fields.forEach(field => {
+            if (!(field.name in migrated)) {
+              if (field.default !== undefined) {
+                migrated[field.name] = field.default;
+              } else if (field.type === 'string') {
+                migrated[field.name] = '';
+              } else if (field.type === 'int' || field.type === 'long') {
+                migrated[field.name] = 0;
+              }
+            }
+          });
+          
+          // Handle deprecated fields
+          const deprecatedFields = ['old_field_name', 'legacy_timestamp'];
+          deprecatedFields.forEach(field => {
+            if (field in migrated) {
+              // Map to new field if applicable
+              if (field === 'old_field_name' && !migrated.new_field_name) {
+                migrated.new_field_name = migrated[field];
+              }
+              delete migrated[field];
+            }
+          });
+          
+          return migrated;
+        }
+```
+
+**2. Flexible Schema Validation**
+```yaml
+# Lenient validation configuration
+processors:
+  - name: flexible-avro-encoder
+    type: avro_encoder
+    config:
+      schema_registry_url: "${SCHEMA_REGISTRY_URL}"
+      subject: "multi-format-data-value"
+      
+      # Flexible validation options
+      validation:
+        strict_mode: false
+        allow_unknown_fields: true
+        auto_convert_types: true
+        use_defaults_for_missing: true
+        
+      # Type conversion rules
+      type_conversions:
+        string_to_int: true
+        int_to_string: true
+        null_to_default: true
+        
+      # Error handling
+      on_validation_error: "convert_to_string"  # Convert problematic fields to strings
+```
+
+### Issue: Type Conversion Errors
+
+**Symptom:** `Cannot convert string to number` or similar type errors
+
+**Solutions:**
+
+**1. Robust Type Conversion**
+```yaml
+processors:
+  - name: robust-type-converter
+    type: script
+    config:
+      source: |
+        function process(event) {
+          const data = typeof event.raw_body === 'string' ? 
+            JSON.parse(event.raw_body) : event.raw_body;
+          
+          const converted = convertTypesRobustly(data);
+          
+          return {
+            ...event,
+            raw_body: JSON.stringify(converted),
+            type_conversions_applied: true
+          };
+        }
+        
+        function convertTypesRobustly(data) {
+          if (Array.isArray(data)) {
+            return data.map(convertTypesRobustly);
+          }
+          
+          if (typeof data === 'object' && data !== null) {
+            const converted = {};
+            
+            for (const [key, value] of Object.entries(data)) {
+              converted[key] = convertField(key, value);
+            }
+            
+            return converted;
+          }
+          
+          return data;
+        }
+        
+        function convertField(fieldName, value) {
+          // Field-specific conversion rules
+          if (fieldName.includes('timestamp')) {
+            return convertToTimestamp(value);
+          }
+          
+          if (fieldName.includes('temperature') || fieldName.includes('humidity')) {
+            return convertToNumber(value);
+          }
+          
+          if (fieldName.includes('id')) {
+            return convertToString(value);
+          }
+          
+          // Generic conversions
+          return convertGeneric(value);
+        }
+        
+        function convertToTimestamp(value) {
+          if (typeof value === 'string') {
+            const date = new Date(value);
+            return isNaN(date.getTime()) ? Date.now() : date.getTime();
+          }
+          return typeof value === 'number' ? value : Date.now();
+        }
+        
+        function convertToNumber(value) {
+          if (typeof value === 'string') {
+            const parsed = parseFloat(value);
+            return isNaN(parsed) ? 0 : parsed;
+          }
+          return typeof value === 'number' ? value : 0;
+        }
+        
+        function convertToString(value) {
+          return String(value);
+        }
+        
+        function convertGeneric(value) {
+          // Try to maintain original type, with fallbacks
+          if (value === null || value === undefined) {
+            return null;
+          }
+          
+          if (typeof value === 'string') {
+            // Try to parse as number if it looks like one
+            if (/^-?\d+\.?\d*$/.test(value.trim())) {
+              const num = parseFloat(value);
+              return isNaN(num) ? value : num;
+            }
+            
+            // Try to parse as boolean
+            if (value.toLowerCase() === 'true') return true;
+            if (value.toLowerCase() === 'false') return false;
+          }
+          
+          return value;
+        }
+```
+
+**2. Pre-validation Data Cleaning**
+```yaml
+processors:
+  - name: data-cleaner
+    type: script
+    config:
+      source: |
+        function process(event) {
+          const data = JSON.parse(event.raw_body);
+          const cleaned = cleanData(data);
+          
+          return {
+            ...event,
+            raw_body: JSON.stringify(cleaned),
+            cleaning_applied: getCleaningReport()
+          };
+        }
+        
+        function cleanData(data) {
+          if (Array.isArray(data)) {
+            return data.map(cleanData).filter(item => item !== null);
+          }
+          
+          if (typeof data === 'object' && data !== null) {
+            const cleaned = {};
+            
+            for (const [key, value] of Object.entries(data)) {
+              const cleanedValue = cleanValue(value);
+              if (cleanedValue !== undefined) {
+                cleaned[key] = cleanedValue;
+              }
+            }
+            
+            return cleaned;
+          }
+          
+          return cleanValue(data);
+        }
+        
+        function cleanValue(value) {
+          // Remove invalid values
+          if (value === '' || value === 'null' || value === 'undefined') {
+            return null;
+          }
+          
+          // Clean string values
+          if (typeof value === 'string') {
+            // Remove excessive whitespace
+            value = value.trim();
+            
+            // Remove null characters
+            value = value.replace(/\0/g, '');
+            
+            // Remove control characters except newlines and tabs
+            value = value.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+          }
+          
+          // Clean numeric values
+          if (typeof value === 'number') {
+            if (!isFinite(value)) {
+              return null;  // Remove Infinity and NaN
+            }
+          }
+          
+          return value;
+        }
+```
+
+### Issue: Memory Exhaustion During Large Transformations
+
+**Symptom:** `OutOfMemory` errors or pipeline crashes with large files
+
+**Solutions:**
+
+**1. Streaming Transformation**
+```yaml
+processors:
+  - name: streaming-transformer
+    type: stream_processor
+    config:
+      chunk_size_mb: 16
+      buffer_size_mb: 64
+      parallel_workers: 4
+      
+      processing_strategy: "streaming"
+      
+      # Memory limits
+      max_memory_usage_mb: 512
+      gc_trigger_threshold: 0.8
+      
+      # Backpressure handling
+      backpressure:
+        enabled: true
+        high_water_mark: 1000
+        low_water_mark: 100
+        pause_threshold: 0.9
+```
+
+**2. Batch Processing for Large Datasets**
+```yaml
+processors:
+  - name: batch-processor
+    type: script
+    config:
+      source: |
+        function process(event) {
+          const data = JSON.parse(event.raw_body);
+          
+          // Check if data needs batch processing
+          if (Array.isArray(data) && data.length > 1000) {
+            return processBatches(data, event);
+          }
+          
+          return processNormally(event);
+        }
+        
+        function processBatches(data, event) {
+          const batchSize = 100;
+          const results = [];
+          
+          for (let i = 0; i < data.length; i += batchSize) {
+            const batch = data.slice(i, i + batchSize);
+            const batchResult = transformBatch(batch, event);
+            results.push(...batchResult);
+            
+            // Yield control to prevent blocking
+            if (i % 1000 === 0) {
+              setImmediate(() => {});
+            }
+          }
+          
+          return {
+            ...event,
+            raw_body: JSON.stringify(results),
+            batch_processed: true,
+            total_batches: Math.ceil(data.length / batchSize)
+          };
+        }
+```
+
+---
+
+## Performance Issues
+
+### Issue: High Transformation Latency
+
+**Symptom:** Processing takes &gt;5 seconds for typical payloads
+
+**Diagnosis:**
+```bash
+# Check latency metrics
+expanso pipeline analytics complete-format-transformation-pipeline \
+  --metric transformation_latency \
+  --breakdown-by transformation_type \
+  --period 1h
+
+# Profile individual requests
+curl -X POST http://localhost:8080/transform \
+  -H "Content-Type: application/json" \
+  -H "X-Enable-Profiling: true" \
+  -d @test-payload.json \
+  -w "Total time: %{time_total}s\n"
+
+# Check resource utilization
+expanso pipeline metrics complete-format-transformation-pipeline --resources
+```
+
+**Solutions:**
+
+**1. Optimize Detection Pipeline**
+```yaml
+processors:
+  - name: fast-detection
+    type: script
+    config:
+      optimization: "speed_priority"
+      caching:
+        enabled: true
+        ttl_seconds: 300
+        max_entries: 10000
+        
+      source: |
+        const detectionCache = new Map();
+        
+        function process(event) {
+          // Create cache key from first 1KB of data + content-type
+          const cacheKey = createCacheKey(event);
+          
+          if (detectionCache.has(cacheKey)) {
+            return {
+              ...event,
+              format_detection: detectionCache.get(cacheKey),
+              cache_hit: true
+            };
+          }
+          
+          // Fast path detection
+          const detection = fastDetection(event);
+          
+          // Cache result if confidence is high
+          if (detection.confidence > 0.8) {
+            detectionCache.set(cacheKey, detection);
+          }
+          
+          return { ...event, format_detection: detection };
+        }
+        
+        function createCacheKey(event) {
+          const data = event.raw_body;
+          const sample = data.slice(0, 1024);  // First 1KB
+          const contentType = event.headers?.['content-type'] || '';
+          
+          return `${contentType}:${hashString(sample)}`;
+        }
+        
+        function fastDetection(event) {
+          // Skip expensive ML classification for common cases
+          const contentType = event.headers?.['content-type'] || '';
+          
+          if (contentType.includes('json')) {
+            return { format: 'JSON', confidence: 0.95, method: 'content_type_fast' };
+          }
+          
+          // Quick binary check
+          const data = event.raw_body;
+          if (data.length >= 4) {
+            const sig = Array.from(data.slice(0, 4));
+            if (sig[0] === 0x50 && sig[1] === 0x41) {  // "PA" for Parquet
+              return { format: 'PARQUET', confidence: 0.98, method: 'signature_fast' };
+            }
+          }
+          
+          return { format: 'UNKNOWN', confidence: 0.0, method: 'fast_fallback' };
+        }
+```
+
+**2. Connection Pooling and Caching**
+```yaml
+# Enhanced caching configuration
+processors:
+  - name: caching-layer
+    type: cache
+    config:
+      # Schema registry caching
+      schema_cache:
+        enabled: true
+        provider: "redis"
+        connection: "redis://localhost:6379"
+        ttl_seconds: 3600
+        max_entries: 50000
+        
+      # Transformation result caching
+      result_cache:
+        enabled: true
+        cache_key_fields: ["content_hash", "target_format"]
+        ttl_seconds: 1800
+        max_size_mb: 512
+        
+      # Connection pooling
+      connection_pools:
+        schema_registry:
+          max_connections: 20
+          idle_timeout_ms: 30000
+          
+        kafka:
+          max_connections: 50
+          idle_timeout_ms: 60000
+```
+
+### Issue: Low Throughput Under Load
+
+**Symptom:** Processing rate drops significantly under concurrent load
+
+**Solutions:**
+
+**1. Parallel Processing Configuration**
+```yaml
+# Parallel processing optimization
+processors:
+  - name: parallel-transformer
+    type: parallel_processor
+    config:
+      worker_count: 8
+      queue_size: 1000
+      
+      # Load balancing
+      load_balancing_strategy: "round_robin"
+      worker_affinity: true
+      
+      # Resource allocation per worker
+      per_worker_limits:
+        memory_mb: 256
+        cpu_cores: 0.5
+        
+      # Backpressure handling
+      backpressure:
+        strategy: "drop_oldest"
+        queue_full_threshold: 0.9
+```
+
+**2. Async Processing for Non-Critical Outputs**
+```yaml
+# Async output configuration
+outputs:
+  - name: primary-response
+    connector: http
+    config:
+      response_mode: true
+      priority: "critical"
+      timeout_ms: 30000
+      
+  - name: analytics-storage
+    connector: s3
+    config:
+      async_mode: true
+      priority: "normal"
+      batch_size: 100
+      batch_timeout_ms: 5000
+      
+      # Queue for async processing
+      queue:
+        type: "kafka"
+        topic: "async-storage-queue"
+        partition_count: 16
+```
+
+---
+
+## Production Deployment Issues
+
+### Issue: High Resource Usage
+
+**Symptom:** CPU/memory usage consistently above 80%
+
+**Diagnosis:**
+```bash
+# Check resource metrics
+kubectl top pods -l app=format-transformation-pipeline
+
+# Check pipeline resource usage
+expanso pipeline metrics complete-format-transformation-pipeline \
+  --metric cpu_usage,memory_usage \
+  --period 1h
+
+# Profile memory usage
+expanso pipeline profile complete-format-transformation-pipeline \
+  --type memory \
+  --duration 5m
+```
+
+**Solutions:**
+
+**1. Resource Optimization**
+```yaml
+# Resource tuning configuration
+spec:
+  optimization:
+    # Memory management
+    memory:
+      gc_strategy: "generational"
+      heap_size_mb: 2048
+      off_heap_cache_mb: 512
+      
+      # Garbage collection tuning
+      gc_options:
+        young_generation_size_mb: 512
+        gc_threads: 4
+        concurrent_mark_sweep: true
+        
+    # CPU optimization
+    cpu:
+      thread_pool_size: 16
+      async_processing: true
+      cpu_affinity: true
+      
+    # Network optimization
+    network:
+      connection_pooling: true
+      keep_alive_timeout: 30000
+      tcp_no_delay: true
+```
+
+**2. Auto-scaling Configuration**
+```yaml
+scaling:
+  horizontal_pod_autoscaler:
+    enabled: true
+    min_replicas: 3
+    max_replicas: 50
+    
+    # CPU-based scaling
+    cpu:
+      target_utilization: 70
+      scale_up_threshold: 80
+      scale_down_threshold: 30
+      
+    # Memory-based scaling
+    memory:
+      target_utilization: 75
+      scale_up_threshold: 85
+      scale_down_threshold: 40
+      
+    # Custom metrics scaling
+    custom_metrics:
+      - name: "transformation_queue_depth"
+        target_value: 100
+        scale_up_threshold: 500
+        
+      - name: "error_rate"
+        target_value: 0.01
+        scale_up_on_high_errors: true
+        
+  vertical_pod_autoscaler:
+    enabled: true
+    update_mode: "Auto"
+    
+    resource_policy:
+      cpu:
+        min: "100m"
+        max: "4000m"
+      memory:
+        min: "256Mi"
+        max: "8Gi"
+```
+
+### Issue: Intermittent Connection Failures
+
+**Symptom:** Random connection timeouts to external services
+
+**Solutions:**
+
+**1. Circuit Breaker Pattern**
+```yaml
+processors:
+  - name: circuit-breaker
+    type: circuit_breaker
+    config:
+      # Schema registry circuit breaker
+      schema_registry:
+        failure_threshold: 5
+        recovery_timeout_ms: 60000
+        half_open_max_calls: 3
+        timeout_ms: 5000
+        
+      # Kafka circuit breaker
+      kafka:
+        failure_threshold: 10
+        recovery_timeout_ms: 30000
+        half_open_max_calls: 5
+        timeout_ms: 10000
+        
+      # Fallback strategies
+      fallback:
+        schema_registry:
+          strategy: "local_cache"
+          cache_fallback_ttl: 3600
+          
+        kafka:
+          strategy: "local_buffer"
+          buffer_max_size: 10000
+          buffer_flush_interval: 60000
+```
+
+**2. Retry and Timeout Configuration**
+```yaml
+# Enhanced retry configuration
+error_handling:
+  retry_policies:
+    exponential_backoff:
+      initial_delay_ms: 100
+      max_delay_ms: 30000
+      multiplier: 2.0
+      max_retries: 5
+      jitter: true
+      
+    circuit_breaker:
+      enabled: true
+      failure_rate_threshold: 0.1
+      slow_call_rate_threshold: 0.5
+      slow_call_duration_threshold_ms: 10000
+      
+  timeouts:
+    detection_timeout_ms: 5000
+    transformation_timeout_ms: 30000
+    output_timeout_ms: 15000
+    
+    # Per-operation timeouts
+    operations:
+      schema_registry_lookup: 3000
+      kafka_send: 10000
+      s3_upload: 60000
+```
+
+### Issue: Schema Registry Synchronization Problems
+
+**Symptom:** Schema version conflicts or sync failures
+
+**Solutions:**
+
+**1. Schema Version Management**
+```yaml
+processors:
+  - name: schema-version-manager
+    type: script
+    config:
+      source: |
+        const schemaVersionCache = new Map();
+        
+        function process(event) {
+          const targetFormat = event.transformation_route?.target_format;
+          
+          if (targetFormat === 'AVRO') {
+            return handleAvroSchemaVersioning(event);
+          }
+          
+          return event;
+        }
+        
+        function handleAvroSchemaVersioning(event) {
+          const subject = 'multi-format-data-value';
+          
+          // Get current schema version with caching
+          const currentVersion = getCachedSchemaVersion(subject);
+          
+          // Check for schema evolution
+          const dataFields = extractFieldNames(event.raw_body);
+          const schemaFields = currentVersion.schema.fields.map(f => f.name);
+          
+          // Detect new fields
+          const newFields = dataFields.filter(f => !schemaFields.includes(f));
+          
+          if (newFields.length > 0) {
+            return handleSchemaEvolution(event, newFields, currentVersion);
+          }
+          
+          return {
+            ...event,
+            schema_version: currentVersion.version,
+            schema_id: currentVersion.id
+          };
+        }
+        
+        function getCachedSchemaVersion(subject) {
+          const cacheKey = `${subject}:latest`;
+          
+          if (schemaVersionCache.has(cacheKey)) {
+            const cached = schemaVersionCache.get(cacheKey);
+            
+            // Check if cache is still valid (5 minutes)
+            if (Date.now() - cached.timestamp < 300000) {
+              return cached.version;
+            }
+          }
+          
+          // Fetch from schema registry
+          const version = fetchLatestSchemaVersion(subject);
+          schemaVersionCache.set(cacheKey, {
+            version: version,
+            timestamp: Date.now()
+          });
+          
+          return version;
+        }
+```
+
+**2. Multi-Registry Fallback**
+```yaml
+# Multi schema registry configuration
+processors:
+  - name: multi-registry-client
+    type: script
+    config:
+      source: |
+        const registryClients = [
+          { url: 'http://schema-registry-1:8081', priority: 1 },
+          { url: 'http://schema-registry-2:8081', priority: 2 },
+          { url: 'http://schema-registry-backup:8081', priority: 3 }
+        ];
+        
+        async function process(event) {
+          const subject = 'multi-format-data-value';
+          
+          // Try registries in priority order
+          for (const registry of registryClients) {
+            try {
+              const schema = await fetchSchemaFromRegistry(registry.url, subject);
+              if (schema) {
+                return {
+                  ...event,
+                  schema_info: schema,
+                  registry_used: registry.url
+                };
+              }
+            } catch (error) {
+              console.warn(`Registry ${registry.url} failed: ${error.message}`);
+              continue;  // Try next registry
+            }
+          }
+          
+          // All registries failed - use cached schema
+          const cachedSchema = getCachedSchema(subject);
+          if (cachedSchema) {
+            return {
+              ...event,
+              schema_info: cachedSchema,
+              registry_used: 'local_cache',
+              registry_fallback: true
+            };
+          }
+          
+          throw new Error('All schema registries unavailable and no cached schema');
+        }
+```
+
+---
+
+## Monitoring and Alerting Issues
+
+### Issue: Missing or Inaccurate Metrics
+
+**Symptom:** Dashboards show no data or incorrect values
+
+**Solutions:**
+
+**1. Enhanced Metrics Collection**
+```yaml
+monitoring:
+  metrics_collection:
+    enabled: true
+    interval_seconds: 10
+    
+    # Custom metrics
+    custom_metrics:
+      - name: "transformation_success_by_size"
+        type: "histogram"
+        labels: ["size_category", "target_format"]
+        buckets: [1024, 10240, 102400, 1048576]
+        
+      - name: "detection_method_effectiveness"
+        type: "counter"
+        labels: ["method", "confidence_range"]
+        
+      - name: "schema_evolution_events"
+        type: "counter"
+        labels: ["subject", "evolution_type"]
+        
+    # Business metrics
+    business_metrics:
+      - name: "cost_savings_per_transformation"
+        calculation: |
+          (input_size - output_size) * storage_cost_per_byte
+        labels: ["transformation_type"]
+        
+      - name: "processing_efficiency"
+        calculation: |
+          successful_transformations / total_attempts
+        labels: ["hour_of_day", "day_of_week"]
+```
+
+**2. Comprehensive Health Checks**
+```yaml
+monitoring:
+  health_checks:
+    # Component health checks
+    - name: "format_detection_health"
+      endpoint: "/health/detection"
+      interval_seconds: 30
+      timeout_seconds: 5
+      
+      # Health criteria
+      success_criteria:
+        - metric: "detection_success_rate"
+          threshold: 0.95
+        - metric: "detection_latency_p95"
+          threshold: 100
+          
+    - name: "transformation_pipeline_health"
+      endpoint: "/health/transformation"
+      interval_seconds: 60
+      
+      # Deep health check
+      checks:
+        - test_json_to_avro_conversion
+        - test_avro_to_parquet_conversion
+        - test_schema_registry_connectivity
+        - test_output_routing
+        
+    # External dependency health
+    - name: "dependencies_health"
+      checks:
+        schema_registry:
+          url: "http://localhost:8081/subjects"
+          timeout_ms: 3000
+          
+        kafka:
+          bootstrap_servers: ["localhost:9092"]
+          topic_list_timeout_ms: 5000
+          
+        storage:
+          s3_bucket: "${DATA_LAKE_BUCKET}"
+          access_test_timeout_ms: 10000
+```
+
+### Issue: Alert Fatigue from Too Many Notifications
+
+**Symptoms:** Too many alerts, team ignoring notifications
+
+**Solutions:**
+
+**1. Smart Alerting Rules**
+```yaml
+monitoring:
+  alerting:
+    # Intelligent alert grouping
+    alert_grouping:
+      enabled: true
+      group_by: ["severity", "component"]
+      group_wait: "30s"
+      group_interval: "5m"
+      repeat_interval: "1h"
+      
+    # Alert suppression
+    suppression_rules:
+      - name: "maintenance_window"
+        schedule: "0 2 * * *"  # 2 AM daily
+        duration: "1h"
+        suppress_all: true
+        
+      - name: "cascade_suppression"
+        condition: "kafka_cluster_down"
+        suppress_alerts: ["transformation_failures", "output_errors"]
+        
+    # Alert prioritization
+    priority_rules:
+      critical:
+        - detection_accuracy < 0.8
+        - transformation_success_rate < 0.9
+        - pipeline_down > 5m
+        
+      warning:
+        - high_latency > 5s
+        - resource_usage > 80%
+        - unknown_format_rate > 0.05
+        
+      info:
+        - new_data_pattern_detected
+        - performance_improvement_opportunity
+```
+
+**2. Contextual Alerting**
+```yaml
+monitoring:
+  contextual_alerts:
+    # Business hour vs off-hour alerting
+    - name: "business_hours_alerts"
+      schedule: "9-17 Mon-Fri"
+      severity_adjustment: "+1"  # More sensitive during business hours
+      
+    - name: "off_hours_alerts"  
+      schedule: "18-8 Mon-Fri, Sat-Sun"
+      severity_adjustment: "-1"  # Less sensitive off-hours
+      
+    # Tenant-specific alerting
+    - name: "premium_tenant_alerts"
+      condition: "tenant_id in ['premium-1', 'premium-2']"
+      severity_adjustment: "+1"
+      escalation_faster: true
+      
+    # Data volume based alerting
+    - name: "high_volume_alerts"
+      condition: "data_volume > 10GB/hour"
+      custom_thresholds:
+        latency_warning: 2000  # Lower threshold for high volume
+        error_rate_critical: 0.005  # Stricter error tolerance
+```
+
+---
+
+## Debugging Tools and Techniques
+
+### Request Tracing
+
+Enable detailed request tracing for troubleshooting:
+
+```bash
+# Enable tracing for specific request
+curl -X POST http://localhost:8080/transform \
+  -H "Content-Type: application/json" \
+  -H "X-Enable-Tracing: true" \
+  -H "X-Trace-Level: debug" \
+  -d @problematic-payload.json
+
+# View trace details
+expanso pipeline trace complete-format-transformation-pipeline \
+  --trace-id "trace-123456789" \
+  --include-internal-steps
+```
+
+### Performance Profiling
+
+```bash
+# CPU profiling
+expanso pipeline profile complete-format-transformation-pipeline \
+  --type cpu \
+  --duration 5m \
+  --output cpu-profile.json
+
+# Memory profiling  
+expanso pipeline profile complete-format-transformation-pipeline \
+  --type memory \
+  --duration 5m \
+  --output memory-profile.json
+
+# Network profiling
+expanso pipeline profile complete-format-transformation-pipeline \
+  --type network \
+  --duration 5m \
+  --output network-profile.json
+```
+
+### Log Analysis
+
+```bash
+# Search for specific error patterns
+expanso pipeline logs complete-format-transformation-pipeline \
+  --filter "ERROR" \
+  --since 1h \
+  --grep "transformation.*failed"
+
+# Analyze performance patterns
+expanso pipeline logs complete-format-transformation-pipeline \
+  --filter "performance" \
+  --since 24h \
+  --json | jq '.[] | select(.latency_ms > 1000)'
+
+# Export logs for external analysis
+expanso pipeline logs complete-format-transformation-pipeline \
+  --since 24h \
+  --format json \
+  --output logs-$(date +%Y%m%d).json
+```
+
+## Getting Help
+
+If you're still experiencing issues after trying these solutions:
+
+### 1. Collect Diagnostic Information
+
+```bash
+#!/bin/bash
+# diagnostic-collect.sh
+
+echo "Collecting diagnostic information..."
+
+# Basic system info
+echo "=== System Information ===" > diagnostic-report.txt
+date >> diagnostic-report.txt
+uname -a >> diagnostic-report.txt
+
+# Pipeline status
+echo "=== Pipeline Status ===" >> diagnostic-report.txt
+expanso pipeline status complete-format-transformation-pipeline >> diagnostic-report.txt
+
+# Recent errors
+echo "=== Recent Errors ===" >> diagnostic-report.txt
+expanso pipeline logs complete-format-transformation-pipeline \
+  --filter "ERROR" --since 1h --tail 50 >> diagnostic-report.txt
+
+# Resource usage
+echo "=== Resource Usage ===" >> diagnostic-report.txt
+expanso pipeline metrics complete-format-transformation-pipeline \
+  --resources --period 1h >> diagnostic-report.txt
+
+# Performance metrics
+echo "=== Performance Metrics ===" >> diagnostic-report.txt
+expanso pipeline analytics complete-format-transformation-pipeline \
+  --period 1h >> diagnostic-report.txt
+
+echo "Diagnostic report saved to diagnostic-report.txt"
+```
+
+### 2. Community Support
+
+- **Documentation:** Check the [complete pipeline examples](./complete-pipeline)
+- **GitHub Issues:** Search existing issues for similar problems
+- **Community Forums:** Post detailed questions with diagnostic information
+- **Professional Support:** Contact Expanso support for enterprise customers
+
+### 3. Provide Complete Context
+
+When asking for help, include:
+
+- **Error messages:** Complete error output with stack traces
+- **Configuration:** Relevant pipeline configuration (sanitized)
+- **Data samples:** Representative (anonymized) input data
+- **Environment details:** Platform, versions, resource constraints
+- **Reproduction steps:** Minimal steps to reproduce the issue
+
+---
+
+**Having persistent issues?** The troubleshooting guide covers the most common problems. For complex production issues, consider implementing comprehensive monitoring and alerting to catch problems early.

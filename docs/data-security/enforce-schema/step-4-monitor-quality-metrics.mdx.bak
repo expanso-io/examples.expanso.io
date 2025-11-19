@@ -1,0 +1,1525 @@
+---
+title: "Step 4: Monitor Data Quality Metrics"
+sidebar_label: "Step 4: Monitor Quality Metrics" 
+sidebar_position: 6
+description: Implement comprehensive monitoring with real-time metrics, alerting, and data quality dashboards
+keywords: [monitoring, metrics, data quality, prometheus, alerting, dashboards, observability]
+---
+
+# Step 4: Monitor Data Quality Metrics
+
+Learn how to implement comprehensive monitoring and alerting for your schema validation system. This step creates real-time visibility into data quality trends, validation performance, and system health with Prometheus metrics, custom dashboards, and intelligent alerting.
+
+## Understanding Data Quality Monitoring
+
+Data quality monitoring provides real-time visibility into the health and performance of your validation system. It tracks validation success rates, error patterns, processing performance, and data quality trends.
+
+### Monitoring Architecture
+
+```
+Edge Validation → Metrics Collection → Time Series DB → Dashboards + Alerts
+       ↓                ↓                  ↓               ↓
+   Local Metrics    Prometheus        Long-term        Grafana +
+   Generation       Scraping          Storage          PagerDuty
+```
+
+**Key components:**
+1. **Metrics Generation** - Collect validation and performance metrics at the edge
+2. **Metrics Collection** - Aggregate and store metrics in time series database
+3. **Dashboards** - Visualize data quality trends and system health
+4. **Alerting** - Proactive notifications for quality degradation
+5. **Analytics** - Historical analysis and capacity planning
+
+## Step 4.1: Implement Metrics Generation
+
+Create a comprehensive metrics pipeline that captures detailed validation and quality metrics:
+
+```bash
+# Create metrics collection pipeline
+mkdir -p /tmp/metrics-monitoring
+
+cat > /tmp/metrics-monitoring/metrics-collection-pipeline.yaml << 'EOF'
+name: metrics-collection
+description: Comprehensive data quality and validation metrics collection
+type: pipeline
+namespace: monitoring
+labels:
+  environment: monitoring
+  metrics: enabled
+  component: data-quality
+priority: 80
+
+selector:
+  match_labels:
+    role: sensor-collector
+    validation: required
+
+deployment:
+  strategy: rolling
+  max_parallel: 2
+  health_check:
+    type: http
+    endpoint: /ping
+    interval: 30s
+
+config:
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /sensor/readings
+      allowed_verbs:
+        - POST
+      timeout: 5s
+      rate_limit: "1000/1s"
+
+  # Comprehensive pipeline with detailed metrics generation
+  pipeline:
+    processors:
+      # Initialize metrics tracking
+      - mapping: |
+          root = this
+          meta start_time = now()
+          meta input_size = content().bytes()
+          meta message_id = uuid_v4()
+          root.message_id = meta("message_id")
+
+      # Parse JSON with metrics
+      - try:
+          - json_documents:
+              parts: []
+          
+          # Track parsing success metrics
+          - mapping: |
+              meta parse_time = now() - meta("start_time")
+              meta parse_status = "success"
+              
+              # Increment parsing success counter
+              meta metric_json_parse_success = 1
+              meta metric_json_parse_duration_ms = meta("parse_time").parse_duration().milliseconds()
+        
+        catch:
+          # Track parsing failure metrics
+          - mapping: |
+              meta parse_time = now() - meta("start_time") 
+              meta parse_status = "failed"
+              
+              # Increment parsing failure counter
+              meta metric_json_parse_failure = 1
+              meta metric_json_parse_duration_ms = meta("parse_time").parse_duration().milliseconds()
+              
+              root = {
+                "message_id": meta("message_id"),
+                "error_type": "json_parse_error",
+                "error": error(),
+                "input_size_bytes": meta("input_size"),
+                "parse_duration_ms": meta("parse_time").parse_duration().milliseconds()
+              }
+              meta validation_status = "parse_failed"
+
+      # Add pipeline metadata and performance tracking
+      - switch:
+          - check: 'meta("parse_status") == "success"'
+            processors:
+              - mapping: |
+                  root = this
+                  root.pipeline_metadata = {
+                    "message_id": meta("message_id"),
+                    "received_at": meta("start_time"),
+                    "node_id": env("NODE_ID").or("unknown"),
+                    "pipeline_version": "metrics-collection-v1.0.0",
+                    "input_size_bytes": meta("input_size")
+                  }
+
+      # Schema validation with comprehensive metrics
+      - switch:
+          - check: 'meta("parse_status") == "success"'
+            processors:
+              - mapping: |
+                  meta validation_start_time = now()
+              
+              - try:
+                  # Schema validation
+                  - json_schema:
+                      schema_path: "file:///etc/expanso/schemas/sensor-schema-v1.0.0.json"
+
+                  # Validation success metrics
+                  - mapping: |
+                      validation_duration = now() - meta("validation_start_time")
+                      
+                      root = this
+                      root.validation = {
+                        "status": "passed",
+                        "schema_version": "1.0.0",
+                        "validated_at": now(),
+                        "validation_duration_ms": validation_duration.parse_duration().milliseconds(),
+                        "total_processing_time_ms": (now() - meta("start_time")).parse_duration().milliseconds()
+                      }
+                      
+                      # Set validation metrics
+                      meta metric_schema_validation_success = 1
+                      meta metric_schema_validation_duration_ms = validation_duration.parse_duration().milliseconds()
+                      meta validation_status = "passed"
+
+                # Validation failure metrics
+                catch:
+                  - mapping: |
+                      validation_duration = now() - meta("validation_start_time")
+                      error_msg = error()
+                      
+                      # Classify error for metrics
+                      error_category = if error_msg.contains("required") { "missing_required_field" }
+                                      else if error_msg.contains("type") { "invalid_data_type" }
+                                      else if error_msg.contains("minimum") || error_msg.contains("maximum") { "value_out_of_range" }
+                                      else if error_msg.contains("additionalProperties") { "security_violation" }
+                                      else if error_msg.contains("pattern") { "format_violation" }
+                                      else { "unknown_schema_error" }
+                      
+                      root = this
+                      root.validation = {
+                        "status": "failed",
+                        "schema_version": "1.0.0",
+                        "validated_at": now(),
+                        "validation_duration_ms": validation_duration.parse_duration().milliseconds(),
+                        "total_processing_time_ms": (now() - meta("start_time")).parse_duration().milliseconds(),
+                        "error": error_msg,
+                        "error_category": error_category
+                      }
+                      
+                      # Set validation failure metrics
+                      meta metric_schema_validation_failure = 1
+                      meta metric_schema_validation_duration_ms = validation_duration.parse_duration().milliseconds()
+                      meta metric_validation_error_category = error_category
+                      meta validation_status = "failed"
+
+      # Generate comprehensive data quality metrics
+      - mapping: |
+          root = this
+          total_processing_time = now() - meta("start_time")
+          
+          # Calculate data quality score
+          quality_score = if meta("validation_status") == "passed" { 100 }
+                         else if meta("validation_status") == "failed" { 0 }
+                         else { -1 }  # Parse error
+          
+          # Assess data completeness for valid JSON
+          completeness_score = if meta("parse_status") == "success" {
+            field_count = 0
+            field_count = field_count + (if this.sensor_id.exists() { 1 } else { 0 })
+            field_count = field_count + (if this.timestamp.exists() { 1 } else { 0 })
+            field_count = field_count + (if this.location.exists() { 1 } else { 0 })
+            field_count = field_count + (if this.readings.exists() { 1 } else { 0 })
+            field_count = field_count + (if this.metadata.exists() { 1 } else { 0 })
+            field_count * 20  # 5 fields, 20 points each = 100 max
+          } else { 0 }
+          
+          # Calculate processing performance metrics
+          input_size_mb = meta("input_size") / 1024.0 / 1024.0
+          processing_time_sec = total_processing_time.parse_duration().seconds()
+          throughput_mb_per_sec = if processing_time_sec > 0 { input_size_mb / processing_time_sec } else { 0 }
+          
+          root.data_quality = {
+            "message_id": meta("message_id"),
+            "validation_passed": meta("validation_status") == "passed",
+            "quality_score": quality_score,
+            "completeness_score": completeness_score,
+            "processing_node": env("NODE_ID").or("unknown"),
+            "assessment_timestamp": now(),
+            "sensor_id": this.sensor_id.or("unknown"),
+            "performance_metrics": {
+              "total_processing_time_ms": total_processing_time.parse_duration().milliseconds(),
+              "input_size_bytes": meta("input_size"),
+              "throughput_mb_per_sec": throughput_mb_per_sec,
+              "processing_efficiency": if meta("input_size") > 0 { 
+                1000.0 / (total_processing_time.parse_duration().milliseconds() / (meta("input_size") / 1000.0))
+              } else { 0 }
+            }
+          }
+          
+          # Set comprehensive metrics for collection
+          meta metric_total_processing_time_ms = total_processing_time.parse_duration().milliseconds()
+          meta metric_data_quality_score = quality_score
+          meta metric_data_completeness_score = completeness_score
+          meta metric_throughput_mb_per_sec = throughput_mb_per_sec
+          meta metric_input_size_bytes = meta("input_size")
+
+  # Multi-destination output with metrics routing
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # Analytics path for valid data
+        - label: analytics
+          switch:
+            - check: 'meta("validation_status") == "passed"'
+              output:
+                http_client:
+                  url: "${ANALYTICS_ENDPOINT:http://localhost:9000}/ingest"
+                  verb: POST
+                  headers:
+                    Content-Type: application/json
+                    X-Message-ID: "${!json(\"message_id\")}"
+                    X-Quality-Score: "${!meta(\"metric_data_quality_score\")}"
+                  batching:
+                    count: 100
+                    period: 5s
+                  max_retries: 3
+
+            - output:
+                drop: {}
+
+        # DLQ path for invalid data
+        - label: dlq
+          switch:
+            - check: 'meta("validation_status") == "failed" || meta("validation_status") == "parse_failed"'
+              output:
+                file:
+                  path: "/var/log/expanso/dlq/${!timestamp_unix_date('2006/01/02')}/validation-failures-${!timestamp_unix()}.jsonl"
+                  codec: lines
+                  batching:
+                    count: 20
+                    period: 30s
+
+            - output:
+                drop: {}
+
+        # Dedicated metrics collection stream
+        - label: metrics_collection
+          processors:
+            # Create metrics payload
+            - mapping: |
+                metrics_timestamp = now()
+                
+                root = {
+                  "timestamp": metrics_timestamp,
+                  "message_id": this.message_id,
+                  "node_id": env("NODE_ID").or("unknown"),
+                  "sensor_id": this.sensor_id.or("unknown"),
+                  
+                  # Processing metrics
+                  "processing_metrics": {
+                    "json_parse_success": meta("metric_json_parse_success").or(0),
+                    "json_parse_failure": meta("metric_json_parse_failure").or(0),
+                    "json_parse_duration_ms": meta("metric_json_parse_duration_ms").or(0),
+                    "schema_validation_success": meta("metric_schema_validation_success").or(0),
+                    "schema_validation_failure": meta("metric_schema_validation_failure").or(0),
+                    "schema_validation_duration_ms": meta("metric_schema_validation_duration_ms").or(0),
+                    "total_processing_time_ms": meta("metric_total_processing_time_ms").or(0)
+                  },
+                  
+                  # Quality metrics
+                  "quality_metrics": {
+                    "data_quality_score": meta("metric_data_quality_score").or(0),
+                    "data_completeness_score": meta("metric_data_completeness_score").or(0),
+                    "validation_status": meta("validation_status"),
+                    "error_category": meta("metric_validation_error_category").or("none")
+                  },
+                  
+                  # Performance metrics
+                  "performance_metrics": {
+                    "throughput_mb_per_sec": meta("metric_throughput_mb_per_sec").or(0),
+                    "input_size_bytes": meta("metric_input_size_bytes").or(0),
+                    "processing_efficiency": this.data_quality.performance_metrics.processing_efficiency.or(0)
+                  }
+                }
+
+          # Send metrics to monitoring system
+          http_client:
+            url: "${METRICS_ENDPOINT:http://localhost:9001}/validation-metrics"
+            verb: POST
+            headers:
+              Content-Type: application/json
+            batching:
+              count: 50
+              period: 10s
+            max_retries: 0  # Fire and forget
+
+        # Real-time alerting stream for urgent issues
+        - label: real_time_alerts
+          switch:
+            # Alert on security violations
+            - check: 'meta("metric_validation_error_category") == "security_violation"'
+              output:
+                http_client:
+                  url: "${ALERT_ENDPOINT:http://localhost:9003}/urgent-security-violation"
+                  verb: POST
+                  headers:
+                    Content-Type: application/json
+                  max_retries: 2
+
+            # Alert on high processing times (potential performance issue)
+            - check: 'meta("metric_total_processing_time_ms") > 1000'
+              output:
+                http_client:
+                  url: "${ALERT_ENDPOINT:http://localhost:9003}/performance-degradation"
+                  verb: POST
+                  headers:
+                    Content-Type: application/json
+                  max_retries: 1
+
+            - output:
+                drop: {}
+
+# Enhanced logging with metrics
+logger:
+  level: INFO
+  format: json
+  static_fields:
+    component: metrics-collection
+    version: "1.0.0"
+
+# Prometheus metrics with detailed labels
+metrics:
+  prometheus:
+    path: /metrics
+    push_interval: 15s
+  mapping: |
+    root = this
+    meta pipeline = "metrics-collection"
+    meta monitoring = "comprehensive"
+    meta data_quality_enabled = "true"
+EOF
+
+# Deploy metrics collection pipeline
+expanso job delete production-dlq-routing 2>/dev/null || true
+expanso job deploy /tmp/metrics-monitoring/metrics-collection-pipeline.yaml
+
+# Wait for deployment
+sleep 15
+
+# Verify deployment
+expanso job status metrics-collection
+```
+
+### Test Metrics Collection
+
+```bash
+echo "=== Testing Metrics Collection ==="
+
+# Send variety of test messages to generate metrics
+echo "Generating test data for metrics..."
+
+# Valid messages
+for i in {1..10}; do
+  curl -s -X POST http://localhost:8080/sensor/readings \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"sensor_id\": \"metrics-test-sensor-$i\",
+      \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%S)Z\",
+      \"location\": {\"building\": \"warehouse-3\", \"floor\": 2, \"zone\": \"A\"},
+      \"readings\": {\"temperature_celsius\": $((RANDOM % 50 + 10)), \"humidity_percent\": $((RANDOM % 50 + 30))},
+      \"metadata\": {\"firmware_version\": \"2.1.0\", \"battery_percent\": $((RANDOM % 50 + 50))}
+    }" >/dev/null &
+done
+
+# Invalid messages with different error types
+curl -s -X POST http://localhost:8080/sensor/readings \
+  -H "Content-Type: application/json" \
+  -d '{"sensor_id": "metrics-test-missing-fields"}' >/dev/null &
+
+curl -s -X POST http://localhost:8080/sensor/readings \
+  -H "Content-Type: application/json" \
+  -d '{"invalid": "json syntax}' >/dev/null &
+
+curl -s -X POST http://localhost:8080/sensor/readings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sensor_id": "metrics-test-out-of-range",
+    "timestamp": "2025-10-20T14:30:00Z",
+    "location": {"building": "warehouse-3", "floor": 2, "zone": "A"},
+    "readings": {"temperature_celsius": -999, "humidity_percent": 200},
+    "metadata": {"firmware_version": "2.1.0", "battery_percent": 87}
+  }' >/dev/null &
+
+# Security violation test
+curl -s -X POST http://localhost:8080/sensor/readings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sensor_id": "metrics-test-security",
+    "timestamp": "2025-10-20T14:30:00Z",
+    "location": {"building": "warehouse-3", "floor": 2, "zone": "A"},
+    "readings": {"temperature_celsius": 23.5, "humidity_percent": 45.2},
+    "metadata": {"firmware_version": "2.1.0", "battery_percent": 87},
+    "admin_command": {"action": "shutdown"}
+  }' >/dev/null &
+
+wait
+
+echo "Test data sent. Waiting for metrics processing..."
+sleep 10
+
+# Check generated metrics
+echo "=== Generated Prometheus Metrics ==="
+curl -s http://localhost:8080/metrics | grep -E "(validation|quality|processing)" | head -20
+```
+
+## Step 4.2: Create Monitoring Dashboards
+
+Create comprehensive Grafana dashboards for data quality monitoring:
+
+```bash
+# Create Grafana dashboard configurations
+mkdir -p /tmp/metrics-monitoring/dashboards
+
+# Main data quality overview dashboard
+cat > /tmp/metrics-monitoring/dashboards/data-quality-overview.json << 'EOF'
+{
+  "dashboard": {
+    "id": null,
+    "title": "Data Quality Overview",
+    "tags": ["data-quality", "schema-validation", "monitoring"],
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {
+      "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m"],
+      "time_options": ["5m", "15m", "1h", "6h", "12h", "24h", "2d", "7d", "30d"]
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "node",
+          "type": "query",
+          "query": "label_values(pipeline_input_received, node_id)",
+          "refresh": 1,
+          "includeAll": true,
+          "allValue": ".*"
+        },
+        {
+          "name": "sensor",
+          "type": "query", 
+          "query": "label_values(validation_status, sensor_id)",
+          "refresh": 1,
+          "includeAll": true,
+          "allValue": ".*"
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Overall Data Quality Score",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "avg(data_quality_score{node_id=~\"$node\", sensor_id=~\"$sensor\"})",
+            "legendFormat": "Quality Score"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 80},
+                {"color": "green", "value": 95}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Validation Success Rate",
+        "type": "stat", 
+        "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(rate(schema_validation_success_total{node_id=~\"$node\"}[5m])) / sum(rate(pipeline_input_received{node_id=~\"$node\"}[5m])) * 100",
+            "legendFormat": "Success Rate %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 95},
+                {"color": "green", "value": 99}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Processing Throughput",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(rate(pipeline_input_received{node_id=~\"$node\"}[1m]))",
+            "legendFormat": "Messages/sec"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "decimals": 1
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Average Processing Time",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0},
+        "targets": [
+          {
+            "expr": "avg(total_processing_time_ms{node_id=~\"$node\"})",
+            "legendFormat": "Avg Time (ms)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms",
+            "decimals": 1,
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": 0},
+                {"color": "yellow", "value": 100},
+                {"color": "red", "value": 500}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Validation Results Over Time",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+        "targets": [
+          {
+            "expr": "sum(rate(schema_validation_success_total{node_id=~\"$node\"}[5m]))",
+            "legendFormat": "Successful Validations"
+          },
+          {
+            "expr": "sum(rate(schema_validation_failure_total{node_id=~\"$node\"}[5m]))",
+            "legendFormat": "Failed Validations"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Validations/sec",
+            "min": 0
+          }
+        ],
+        "legend": {
+          "show": true,
+          "alignAsTable": true,
+          "rightSide": false
+        }
+      },
+      {
+        "id": 6,
+        "title": "Error Categories Distribution",
+        "type": "piechart",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+        "targets": [
+          {
+            "expr": "sum by (error_category) (validation_errors_by_category_total{node_id=~\"$node\"})",
+            "legendFormat": "{{ error_category }}"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Processing Time Distribution",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(total_processing_time_ms_bucket{node_id=~\"$node\"}[5m]))",
+            "legendFormat": "95th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(total_processing_time_ms_bucket{node_id=~\"$node\"}[5m]))",
+            "legendFormat": "50th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(total_processing_time_ms_bucket{node_id=~\"$node\"}[5m]))",
+            "legendFormat": "99th percentile"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Time (ms)",
+            "min": 0
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Data Completeness by Sensor",
+        "type": "table",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+        "targets": [
+          {
+            "expr": "avg by (sensor_id) (data_completeness_score{node_id=~\"$node\", sensor_id=~\"$sensor\"})",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "columns": [
+                {"text": "Sensor ID", "value": "sensor_id"},
+                {"text": "Completeness %", "value": "Value"}
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+# Performance monitoring dashboard
+cat > /tmp/metrics-monitoring/dashboards/performance-monitoring.json << 'EOF'
+{
+  "dashboard": {
+    "id": null,
+    "title": "Schema Validation Performance",
+    "tags": ["performance", "schema-validation", "monitoring"],
+    "timezone": "browser",
+    "refresh": "15s",
+    "time": {
+      "from": "now-30m",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Pipeline Throughput",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(rate(pipeline_input_received[1m]))",
+            "legendFormat": "Input Rate"
+          },
+          {
+            "expr": "sum(rate(pipeline_output_sent_total{output=\"analytics\"}[1m]))",
+            "legendFormat": "Valid Output Rate"
+          },
+          {
+            "expr": "sum(rate(pipeline_output_sent_total{output=\"dead_letter_queue\"}[1m]))",
+            "legendFormat": "DLQ Rate"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Messages/second",
+            "min": 0
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Processing Time Heatmap",
+        "type": "heatmap",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(rate(total_processing_time_ms_bucket[2m])) by (le)",
+            "format": "heatmap",
+            "legendFormat": "{{le}}"
+          }
+        ],
+        "heatmap": {
+          "xAxis": {
+            "show": true
+          },
+          "yAxis": {
+            "show": true,
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Memory Usage",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "process_resident_memory_bytes{job=\"schema-validation\"}",
+            "legendFormat": "RSS Memory"
+          },
+          {
+            "expr": "process_virtual_memory_bytes{job=\"schema-validation\"}",
+            "legendFormat": "Virtual Memory"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Bytes",
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "CPU Usage",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+        "targets": [
+          {
+            "expr": "rate(process_cpu_seconds_total{job=\"schema-validation\"}[1m]) * 100",
+            "legendFormat": "CPU Usage %"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Percent",
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Error Rate by Node",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+        "targets": [
+          {
+            "expr": "sum by (node_id) (rate(schema_validation_failure_total[5m]))",
+            "legendFormat": "{{ node_id }}"
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+echo "Dashboard configurations created:"
+echo "  /tmp/metrics-monitoring/dashboards/data-quality-overview.json"
+echo "  /tmp/metrics-monitoring/dashboards/performance-monitoring.json"
+```
+
+## Step 4.3: Set Up Prometheus Alerting Rules
+
+Create comprehensive alerting rules for data quality monitoring:
+
+```bash
+# Create Prometheus alerting rules
+cat > /tmp/metrics-monitoring/prometheus-alerts.yaml << 'EOF'
+groups:
+  - name: data_quality_alerts
+    interval: 30s
+    rules:
+      # Critical: Low data quality score
+      - alert: LowDataQualityScore
+        expr: avg(data_quality_score) < 80
+        for: 5m
+        labels:
+          severity: critical
+          component: data-quality
+          alert_type: quality_degradation
+        annotations:
+          summary: "Data quality score has dropped below acceptable threshold"
+          description: "Current data quality score is {{ $value }}% (threshold: 80%)"
+          runbook_url: "https://wiki.company.com/data-quality-runbook"
+
+      # Critical: High validation failure rate
+      - alert: HighValidationFailureRate
+        expr: |
+          sum(rate(schema_validation_failure_total[5m])) / 
+          sum(rate(pipeline_input_received[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          component: schema-validation
+          alert_type: validation_failure
+        annotations:
+          summary: "Schema validation failure rate exceeds threshold"
+          description: "{{ $value | humanizePercentage }} of messages failing validation"
+          impact: "Data pipeline quality degraded, invalid data may be reaching analytics"
+
+      # Warning: Moderate validation failure rate
+      - alert: ModerateValidationFailureRate
+        expr: |
+          sum(rate(schema_validation_failure_total[5m])) / 
+          sum(rate(pipeline_input_received[5m])) > 0.02
+        for: 10m
+        labels:
+          severity: warning
+          component: schema-validation
+          alert_type: validation_failure
+        annotations:
+          summary: "Elevated schema validation failure rate"
+          description: "{{ $value | humanizePercentage }} of messages failing validation"
+
+      # Critical: Security violations detected
+      - alert: SecurityViolationDetected
+        expr: increase(validation_errors_by_category_total{error_category="security_violation"}[1m]) > 0
+        for: 0m  # Immediate alert
+        labels:
+          severity: critical
+          component: security
+          alert_type: security_incident
+        annotations:
+          summary: "Security violations detected in data validation"
+          description: "{{ $value }} security violations detected in the last minute"
+          impact: "Potential security breach or malicious data injection attempt"
+          action: "Investigate immediately and consider blocking suspicious sources"
+
+      # Warning: Processing performance degradation
+      - alert: ProcessingPerformanceDegradation
+        expr: |
+          histogram_quantile(0.95, rate(total_processing_time_ms_bucket[5m])) > 500
+        for: 10m
+        labels:
+          severity: warning
+          component: performance
+          alert_type: performance_degradation
+        annotations:
+          summary: "Schema validation processing time increased"
+          description: "95th percentile processing time is {{ $value }}ms (threshold: 500ms)"
+          impact: "Potential impact on data pipeline throughput"
+
+      # Critical: Processing performance severely degraded
+      - alert: ProcessingPerformanceSeverelyDegraded
+        expr: |
+          histogram_quantile(0.95, rate(total_processing_time_ms_bucket[5m])) > 2000
+        for: 5m
+        labels:
+          severity: critical
+          component: performance
+          alert_type: severe_performance_degradation
+        annotations:
+          summary: "Schema validation processing severely degraded"
+          description: "95th percentile processing time is {{ $value }}ms (threshold: 2000ms)"
+          impact: "Severe impact on data pipeline throughput, potential backlog building"
+
+      # Warning: DLQ growth rate high
+      - alert: DLQGrowthRateHigh
+        expr: |
+          rate(dlq_entries_total[10m]) > 50
+        for: 10m
+        labels:
+          severity: warning
+          component: dlq-management
+          alert_type: dlq_growth
+        annotations:
+          summary: "Dead Letter Queue growth rate is high"
+          description: "{{ $value }} entries added to DLQ in the last 10 minutes"
+          impact: "High rate of validation failures, investigate common error patterns"
+
+      # Critical: Specific sensor high failure rate
+      - alert: SensorHighFailureRate
+        expr: |
+          sum by (sensor_id) (rate(schema_validation_failure_total[10m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: data-quality
+          alert_type: sensor_issue
+        annotations:
+          summary: "High validation failure rate for sensor {{ $labels.sensor_id }}"
+          description: "Sensor {{ $labels.sensor_id }} has {{ $value }} failures per minute"
+          action: "Check sensor configuration, firmware, or consider temporary quarantine"
+
+      # Warning: Data freshness issues
+      - alert: DataFreshnessIssues
+        expr: |
+          avg(data_freshness_seconds{data_freshness_seconds > 0}) > 300
+        for: 15m
+        labels:
+          severity: warning
+          component: data-quality
+          alert_type: data_freshness
+        annotations:
+          summary: "Data freshness degraded - old data being processed"
+          description: "Average data age is {{ $value }} seconds (threshold: 300s)"
+          impact: "Analytics may be processing stale data"
+
+      # Critical: Pipeline throughput drop
+      - alert: PipelineThroughputDrop
+        expr: |
+          avg_over_time(sum(rate(pipeline_input_received[1m]))[5m:1m]) < 
+          avg_over_time(sum(rate(pipeline_input_received[1m]))[1h:1m]) * 0.5
+        for: 5m
+        labels:
+          severity: critical
+          component: pipeline
+          alert_type: throughput_drop
+        annotations:
+          summary: "Pipeline throughput dropped significantly"
+          description: "Current throughput is less than 50% of the 1-hour average"
+          impact: "Data processing capacity severely reduced"
+
+      # Warning: Memory usage high
+      - alert: MemoryUsageHigh
+        expr: |
+          process_resident_memory_bytes{job="schema-validation"} > 1e9
+        for: 10m
+        labels:
+          severity: warning
+          component: resources
+          alert_type: memory_usage
+        annotations:
+          summary: "Schema validation memory usage is high"
+          description: "Memory usage is {{ $value | humanizeBytes }} (threshold: 1GB)"
+          action: "Monitor for memory leaks and consider pipeline optimization"
+
+      # Critical: Error spike detected
+      - alert: ValidationErrorSpike
+        expr: |
+          increase(schema_validation_failure_total[5m]) > 
+          avg_over_time(increase(schema_validation_failure_total[5m])[1h]) * 3
+        for: 2m
+        labels:
+          severity: critical
+          component: anomaly-detection
+          alert_type: error_spike
+        annotations:
+          summary: "Sudden spike in validation errors detected"
+          description: "Error rate increased by {{ $value }}x compared to hourly average"
+          impact: "Potential data quality incident or system issue"
+
+  - name: dlq_management_alerts
+    interval: 60s
+    rules:
+      # Warning: DLQ disk usage high
+      - alert: DLQDiskUsageHigh
+        expr: |
+          (dlq_disk_usage_bytes / dlq_disk_total_bytes) > 0.8
+        for: 15m
+        labels:
+          severity: warning
+          component: dlq-management
+          alert_type: disk_usage
+        annotations:
+          summary: "DLQ disk usage is high"
+          description: "DLQ disk usage is {{ $value | humanizePercentage }}"
+          action: "Run DLQ cleanup or expand storage capacity"
+
+      # Critical: DLQ disk usage critical
+      - alert: DLQDiskUsageCritical
+        expr: |
+          (dlq_disk_usage_bytes / dlq_disk_total_bytes) > 0.95
+        for: 5m
+        labels:
+          severity: critical
+          component: dlq-management
+          alert_type: disk_full
+        annotations:
+          summary: "DLQ disk usage critical"
+          description: "DLQ disk usage is {{ $value | humanizePercentage }}"
+          impact: "DLQ may stop working if disk fills up"
+          action: "Immediate cleanup required or storage expansion"
+
+  - name: business_impact_alerts
+    interval: 120s
+    rules:
+      # Business impact: Data quality SLA breach
+      - alert: DataQualitySLABreach
+        expr: |
+          avg_over_time(avg(data_quality_score)[15m:1m]) < 95
+        for: 15m
+        labels:
+          severity: critical
+          component: business-impact
+          alert_type: sla_breach
+        annotations:
+          summary: "Data quality SLA breached"
+          description: "Data quality score {{ $value }}% is below SLA threshold of 95%"
+          impact: "Business reporting and analytics may be affected"
+          escalation: "Page on-call data engineering team"
+
+      # Business impact: Processing capacity at risk
+      - alert: ProcessingCapacityAtRisk
+        expr: |
+          sum(rate(pipeline_input_received[1m])) > 800  # 80% of 1000/sec capacity
+        for: 10m
+        labels:
+          severity: warning
+          component: capacity-planning
+          alert_type: capacity_warning
+        annotations:
+          summary: "Approaching processing capacity limits"
+          description: "Current throughput {{ $value }} msgs/sec approaching capacity limit"
+          action: "Consider scaling out edge nodes or optimizing pipeline"
+EOF
+
+echo "Prometheus alerting rules created: /tmp/metrics-monitoring/prometheus-alerts.yaml"
+```
+
+## Step 4.4: Create Monitoring Scripts and Tools
+
+Create tools for real-time monitoring and analysis:
+
+```bash
+# Create monitoring tools directory
+mkdir -p /tmp/metrics-monitoring/tools
+
+# Real-time data quality monitoring script
+cat > /tmp/metrics-monitoring/tools/realtime-quality-monitor.sh << 'EOF'
+#!/bin/bash
+
+PROMETHEUS_URL="http://localhost:9090"
+REFRESH_INTERVAL=10
+DASHBOARD_MODE=false
+
+show_usage() {
+  echo "Usage: $0 [options]"
+  echo "Options:"
+  echo "  --prometheus-url URL    Prometheus server URL (default: http://localhost:9090)"
+  echo "  --refresh-interval N    Refresh every N seconds (default: 10)"
+  echo "  --dashboard             Run in dashboard mode (continuous display)"
+  echo "  --help                  Show this help"
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --prometheus-url)
+      PROMETHEUS_URL="$2"
+      shift 2
+      ;;
+    --refresh-interval)
+      REFRESH_INTERVAL="$2"
+      shift 2
+      ;;
+    --dashboard)
+      DASHBOARD_MODE=true
+      shift
+      ;;
+    --help)
+      show_usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      show_usage
+      exit 1
+      ;;
+  esac
+done
+
+query_prometheus() {
+  local query="$1"
+  curl -s -G "${PROMETHEUS_URL}/api/v1/query" \
+    --data-urlencode "query=${query}" | \
+    jq -r '.data.result[0].value[1] // "0"' 2>/dev/null
+}
+
+show_metrics() {
+  echo "=== Real-time Data Quality Monitor ==="
+  echo "Time: $(date)"
+  echo "Prometheus: $PROMETHEUS_URL"
+  echo ""
+  
+  # Core metrics
+  echo "### Core Metrics ###"
+  quality_score=$(query_prometheus 'avg(data_quality_score)')
+  success_rate=$(query_prometheus 'sum(rate(schema_validation_success_total[1m])) / sum(rate(pipeline_input_received[1m])) * 100')
+  throughput=$(query_prometheus 'sum(rate(pipeline_input_received[1m]))')
+  avg_processing_time=$(query_prometheus 'avg(total_processing_time_ms)')
+  
+  printf "Data Quality Score:    %6.1f%%\n" "$quality_score"
+  printf "Validation Success:    %6.1f%%\n" "$success_rate"
+  printf "Throughput:           %6.1f msgs/sec\n" "$throughput"
+  printf "Avg Processing Time:   %6.1f ms\n" "$avg_processing_time"
+  echo ""
+  
+  # Error breakdown
+  echo "### Error Categories (last 5 minutes) ###"
+  missing_fields=$(query_prometheus 'sum(increase(validation_errors_by_category_total{error_category="missing_required_field"}[5m]))')
+  invalid_types=$(query_prometheus 'sum(increase(validation_errors_by_category_total{error_category="invalid_data_type"}[5m]))')
+  out_of_range=$(query_prometheus 'sum(increase(validation_errors_by_category_total{error_category="value_out_of_range"}[5m]))')
+  security_violations=$(query_prometheus 'sum(increase(validation_errors_by_category_total{error_category="security_violation"}[5m]))')
+  
+  printf "Missing Fields:        %6.0f\n" "$missing_fields"
+  printf "Invalid Types:         %6.0f\n" "$invalid_types"
+  printf "Out of Range:          %6.0f\n" "$out_of_range"
+  printf "Security Violations:   %6.0f\n" "$security_violations"
+  echo ""
+  
+  # Performance metrics
+  echo "### Performance Metrics ###"
+  p50=$(query_prometheus 'histogram_quantile(0.50, rate(total_processing_time_ms_bucket[5m]))')
+  p95=$(query_prometheus 'histogram_quantile(0.95, rate(total_processing_time_ms_bucket[5m]))')
+  p99=$(query_prometheus 'histogram_quantile(0.99, rate(total_processing_time_ms_bucket[5m]))')
+  
+  printf "Processing Time P50:   %6.1f ms\n" "$p50"
+  printf "Processing Time P95:   %6.1f ms\n" "$p95"
+  printf "Processing Time P99:   %6.1f ms\n" "$p99"
+  echo ""
+  
+  # DLQ status
+  echo "### DLQ Status ###"
+  dlq_rate=$(query_prometheus 'sum(rate(dlq_entries_total[5m]))')
+  dlq_urgent=$(query_prometheus 'sum(increase(dlq_urgent_entries_total[5m]))')
+  
+  printf "DLQ Entry Rate:        %6.1f entries/sec\n" "$dlq_rate"
+  printf "Urgent DLQ Entries:    %6.0f (last 5min)\n" "$dlq_urgent"
+  echo ""
+  
+  # Alerts
+  echo "### Active Alerts ###"
+  active_alerts=$(curl -s "${PROMETHEUS_URL/9090/9093}/api/v1/alerts" | jq -r '.data[] | select(.state == "firing") | .labels.alertname' 2>/dev/null | sort | uniq)
+  
+  if [ -n "$active_alerts" ]; then
+    echo "$active_alerts" | while read alert; do
+      echo "🔴 $alert"
+    done
+  else
+    echo "✅ No active alerts"
+  fi
+  
+  echo ""
+  echo "=== End Monitor ==="
+}
+
+if [ "$DASHBOARD_MODE" = true ]; then
+  echo "Starting real-time dashboard mode (press Ctrl+C to stop)"
+  echo "Refresh interval: ${REFRESH_INTERVAL}s"
+  echo ""
+  
+  while true; do
+    clear
+    show_metrics
+    sleep "$REFRESH_INTERVAL"
+  done
+else
+  show_metrics
+fi
+EOF
+
+# Data quality analysis script
+cat > /tmp/metrics-monitoring/tools/quality-analysis.sh << 'EOF'
+#!/bin/bash
+
+PROMETHEUS_URL="http://localhost:9090"
+TIME_RANGE="1h"
+
+show_usage() {
+  echo "Usage: $0 [options]"
+  echo "Options:"
+  echo "  --prometheus-url URL    Prometheus server URL (default: http://localhost:9090)"
+  echo "  --time-range RANGE      Time range for analysis (default: 1h)"
+  echo "  --help                  Show this help"
+  echo ""
+  echo "Time range examples: 5m, 30m, 1h, 6h, 1d"
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --prometheus-url)
+      PROMETHEUS_URL="$2"
+      shift 2
+      ;;
+    --time-range)
+      TIME_RANGE="$2"
+      shift 2
+      ;;
+    --help)
+      show_usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      show_usage
+      exit 1
+      ;;
+  esac
+done
+
+query_prometheus_range() {
+  local query="$1"
+  curl -s -G "${PROMETHEUS_URL}/api/v1/query" \
+    --data-urlencode "query=${query}[${TIME_RANGE}]" | \
+    jq -r '.data.result[0].value[1] // "0"' 2>/dev/null
+}
+
+echo "=== Data Quality Analysis Report ==="
+echo "Time Range: $TIME_RANGE"
+echo "Generated: $(date)"
+echo "Prometheus: $PROMETHEUS_URL"
+echo ""
+
+# Summary statistics
+echo "### Summary Statistics ###"
+total_messages=$(query_prometheus_range 'increase(pipeline_input_received)')
+valid_messages=$(query_prometheus_range 'increase(schema_validation_success_total)')
+invalid_messages=$(query_prometheus_range 'increase(schema_validation_failure_total)')
+success_rate=$(echo "scale=2; $valid_messages * 100 / $total_messages" | bc -l 2>/dev/null)
+
+printf "Total Messages:        %10.0f\n" "$total_messages"
+printf "Valid Messages:        %10.0f\n" "$valid_messages"
+printf "Invalid Messages:      %10.0f\n" "$invalid_messages"
+printf "Success Rate:          %9.2f%%\n" "$success_rate"
+echo ""
+
+# Error pattern analysis
+echo "### Error Pattern Analysis ###"
+echo "Error breakdown by category:"
+
+categories=("missing_required_field" "invalid_data_type" "value_out_of_range" "format_violation" "security_violation")
+
+for category in "${categories[@]}"; do
+  count=$(query_prometheus_range "increase(validation_errors_by_category_total{error_category=\"$category\"})")
+  percentage=$(echo "scale=1; $count * 100 / $invalid_messages" | bc -l 2>/dev/null | sed 's/^\./0./')
+  printf "%-25s %6.0f (%5.1f%%)\n" "$category:" "$count" "$percentage"
+done
+
+echo ""
+
+# Performance analysis
+echo "### Performance Analysis ###" 
+avg_processing_time=$(curl -s -G "${PROMETHEUS_URL}/api/v1/query" \
+  --data-urlencode "query=avg_over_time(avg(total_processing_time_ms)[${TIME_RANGE}:1m])" | \
+  jq -r '.data.result[0].value[1] // "0"' 2>/dev/null)
+
+max_processing_time=$(curl -s -G "${PROMETHEUS_URL}/api/v1/query" \
+  --data-urlencode "query=max_over_time(max(total_processing_time_ms)[${TIME_RANGE}:1m])" | \
+  jq -r '.data.result[0].value[1] // "0"' 2>/dev/null)
+
+printf "Average Processing Time: %8.1f ms\n" "$avg_processing_time"
+printf "Maximum Processing Time: %8.1f ms\n" "$max_processing_time"
+echo ""
+
+# Top problematic sensors
+echo "### Top Problematic Sensors ###"
+echo "(Sensors with highest failure counts)"
+
+curl -s -G "${PROMETHEUS_URL}/api/v1/query" \
+  --data-urlencode "query=topk(5, sum by (sensor_id) (increase(schema_validation_failure_total[${TIME_RANGE}])))" | \
+  jq -r '.data.result[] | "\(.metric.sensor_id): \(.value[1])"' 2>/dev/null | \
+  sort -k2 -nr | head -10 | \
+  while IFS=': ' read sensor count; do
+    printf "%-20s %6.0f failures\n" "$sensor" "$count"
+  done
+
+echo ""
+
+# Recommendations
+echo "### Recommendations ###"
+
+if (( $(echo "$success_rate < 95" | bc -l) )); then
+  echo "⚠️  Success rate ($success_rate%) is below recommended 95%"
+  echo "   - Investigate top error categories"
+  echo "   - Review sensor configurations"
+  echo "   - Consider schema validation tuning"
+fi
+
+if (( $(echo "$avg_processing_time > 100" | bc -l) )); then
+  echo "⚠️  Average processing time (${avg_processing_time}ms) is high"
+  echo "   - Consider pipeline optimization"
+  echo "   - Monitor resource utilization"
+  echo "   - Review schema complexity"
+fi
+
+security_violations=$(query_prometheus_range 'increase(validation_errors_by_category_total{error_category="security_violation"})')
+if (( $(echo "$security_violations > 0" | bc -l) )); then
+  echo "🔴 Security violations detected ($security_violations)"
+  echo "   - Investigate sources immediately"
+  echo "   - Review network security"
+  echo "   - Consider implementing IP blocking"
+fi
+
+echo ""
+echo "=== End Analysis Report ==="
+EOF
+
+# Performance monitoring script
+cat > /tmp/metrics-monitoring/tools/performance-monitor.sh << 'EOF'
+#!/bin/bash
+
+PROMETHEUS_URL="http://localhost:9090"
+
+echo "=== Performance Monitor ==="
+echo "Time: $(date)"
+echo ""
+
+# System metrics
+echo "### System Performance ###"
+memory_usage=$(curl -s -G "${PROMETHEUS_URL}/api/v1/query" \
+  --data-urlencode "query=process_resident_memory_bytes{job=\"schema-validation\"}" | \
+  jq -r '.data.result[0].value[1] // "0"' 2>/dev/null)
+
+cpu_usage=$(curl -s -G "${PROMETHEUS_URL}/api/v1/query" \
+  --data-urlencode "query=rate(process_cpu_seconds_total{job=\"schema-validation\"}[1m]) * 100" | \
+  jq -r '.data.result[0].value[1] // "0"' 2>/dev/null)
+
+printf "Memory Usage:    %10s\n" "$(numfmt --to=iec --suffix=B $memory_usage 2>/dev/null || echo "${memory_usage} bytes")"
+printf "CPU Usage:       %8.1f%%\n" "$cpu_usage"
+
+# Throughput metrics
+echo ""
+echo "### Throughput Metrics ###"
+input_rate=$(curl -s -G "${PROMETHEUS_URL}/api/v1/query" \
+  --data-urlencode "query=sum(rate(pipeline_input_received[1m]))" | \
+  jq -r '.data.result[0].value[1] // "0"' 2>/dev/null)
+
+output_rate=$(curl -s -G "${PROMETHEUS_URL}/api/v1/query" \
+  --data-urlencode "query=sum(rate(pipeline_output_sent_total{output=\"analytics\"}[1m]))" | \
+  jq -r '.data.result[0].value[1] // "0"' 2>/dev/null)
+
+dlq_rate=$(curl -s -G "${PROMETHEUS_URL}/api/v1/query" \
+  --data-urlencode "query=sum(rate(pipeline_output_sent_total{output=\"dead_letter_queue\"}[1m]))" | \
+  jq -r '.data.result[0].value[1] // "0"' 2>/dev/null)
+
+printf "Input Rate:      %8.1f msgs/sec\n" "$input_rate"
+printf "Output Rate:     %8.1f msgs/sec\n" "$output_rate"
+printf "DLQ Rate:        %8.1f msgs/sec\n" "$dlq_rate"
+
+# Processing efficiency
+efficiency=$(echo "scale=1; $output_rate * 100 / $input_rate" | bc -l 2>/dev/null || echo "0")
+printf "Processing Efficiency: %6.1f%%\n" "$efficiency"
+
+echo ""
+echo "### Latency Metrics ###"
+
+# Processing time percentiles
+p50=$(curl -s -G "${PROMETHEUS_URL}/api/v1/query" \
+  --data-urlencode "query=histogram_quantile(0.50, rate(total_processing_time_ms_bucket[5m]))" | \
+  jq -r '.data.result[0].value[1] // "0"' 2>/dev/null)
+
+p95=$(curl -s -G "${PROMETHEUS_URL}/api/v1/query" \
+  --data-urlencode "query=histogram_quantile(0.95, rate(total_processing_time_ms_bucket[5m]))" | \
+  jq -r '.data.result[0].value[1] // "0"' 2>/dev/null)
+
+p99=$(curl -s -G "${PROMETHEUS_URL}/api/v1/query" \
+  --data-urlencode "query=histogram_quantile(0.99, rate(total_processing_time_ms_bucket[5m]))" | \
+  jq -r '.data.result[0].value[1] // "0"' 2>/dev/null)
+
+printf "P50 Latency:     %8.1f ms\n" "$p50"
+printf "P95 Latency:     %8.1f ms\n" "$p95"
+printf "P99 Latency:     %8.1f ms\n" "$p99"
+
+# Performance assessment
+echo ""
+echo "### Performance Assessment ###"
+
+if (( $(echo "$efficiency < 95" | bc -l) )); then
+  echo "⚠️  Processing efficiency (${efficiency}%) below optimal"
+fi
+
+if (( $(echo "$p95 > 500" | bc -l) )); then
+  echo "⚠️  P95 latency (${p95}ms) exceeds target"
+fi
+
+if (( $(echo "$memory_usage > 1073741824" | bc -l) )); then  # 1GB
+  echo "⚠️  High memory usage ($(numfmt --to=iec --suffix=B $memory_usage))"
+fi
+
+echo ""
+echo "=== End Performance Monitor ==="
+EOF
+
+# Make monitoring tools executable
+chmod +x /tmp/metrics-monitoring/tools/*.sh
+
+echo "Monitoring tools created:"
+echo "  /tmp/metrics-monitoring/tools/realtime-quality-monitor.sh"
+echo "  /tmp/metrics-monitoring/tools/quality-analysis.sh" 
+echo "  /tmp/metrics-monitoring/tools/performance-monitor.sh"
+```
+
+### Test Monitoring Tools
+
+```bash
+echo "=== Testing Monitoring Tools ==="
+
+# Generate test metrics first
+echo "Generating test data..."
+for i in {1..20}; do
+  curl -s -X POST http://localhost:8080/sensor/readings \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"sensor_id\": \"monitor-test-$i\",
+      \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%S)Z\",
+      \"location\": {\"building\": \"warehouse-3\", \"floor\": 2, \"zone\": \"A\"},
+      \"readings\": {\"temperature_celsius\": $((RANDOM % 50 + 10)), \"humidity_percent\": $((RANDOM % 50 + 30))},
+      \"metadata\": {\"firmware_version\": \"2.1.0\", \"battery_percent\": $((RANDOM % 50 + 50))}
+    }" >/dev/null &
+done
+
+# Add some failure cases
+curl -s -X POST http://localhost:8080/sensor/readings \
+  -H "Content-Type: application/json" \
+  -d '{"sensor_id": "monitor-test-invalid"}' >/dev/null &
+
+wait
+sleep 5
+
+echo "Test data generated. Waiting for metrics collection..."
+sleep 10
+
+# Test monitoring tools (if Prometheus is available)
+if curl -s http://localhost:9090/api/v1/query >/dev/null 2>&1; then
+  echo ""
+  echo "Testing real-time quality monitor:"
+  /tmp/metrics-monitoring/tools/realtime-quality-monitor.sh
+
+  echo ""
+  echo "Testing quality analysis:"
+  /tmp/metrics-monitoring/tools/quality-analysis.sh --time-range 10m
+
+  echo ""
+  echo "Testing performance monitor:"
+  /tmp/metrics-monitoring/tools/performance-monitor.sh
+else
+  echo "Note: Prometheus not available for testing monitoring tools"
+  echo "Monitoring tools are ready to use when Prometheus is deployed"
+fi
+```
+
+## Summary
+
+You've successfully implemented comprehensive data quality monitoring that:
+
+✅ **Generates detailed metrics** for validation, performance, and data quality
+✅ **Creates visual dashboards** with Grafana for real-time monitoring
+✅ **Implements intelligent alerting** with Prometheus for proactive notifications
+✅ **Provides monitoring tools** for real-time analysis and investigation
+✅ **Tracks business impact** with SLA monitoring and capacity planning
+✅ **Enables performance optimization** with detailed latency and throughput metrics
+
+**Monitoring capabilities implemented:**
+- Real-time metrics collection (validation rates, processing times, error categories)
+- Visual dashboards (data quality overview, performance monitoring)
+- Intelligent alerting (quality degradation, performance issues, security violations)
+- Monitoring tools (real-time dashboard, analysis reports, performance tracking)
+- Business impact tracking (SLA breaches, capacity warnings)
+- Historical analysis (trend analysis, capacity planning)
+
+**Key metrics tracked:**
+- Data quality score (0-100%)
+- Validation success rate (percentage of valid messages)
+- Processing performance (latency percentiles, throughput)
+- Error categorization (missing fields, type errors, security violations)
+- System health (memory usage, CPU usage, DLQ growth)
+- Business impact (SLA compliance, processing capacity)
+
+**Next step:** [Complete Schema Validation](./complete-schema-validation) to deploy the full production-ready solution with all components integrated.
+
+## Reference Files Created
+
+- `/tmp/metrics-monitoring/metrics-collection-pipeline.yaml` - Comprehensive metrics pipeline
+- `/tmp/metrics-monitoring/dashboards/data-quality-overview.json` - Main quality dashboard
+- `/tmp/metrics-monitoring/dashboards/performance-monitoring.json` - Performance dashboard
+- `/tmp/metrics-monitoring/prometheus-alerts.yaml` - Alerting rules configuration
+- `/tmp/metrics-monitoring/tools/realtime-quality-monitor.sh` - Real-time monitoring tool
+- `/tmp/metrics-monitoring/tools/quality-analysis.sh` - Quality analysis tool
+- `/tmp/metrics-monitoring/tools/performance-monitor.sh` - Performance monitoring tool

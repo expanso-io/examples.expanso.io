@@ -1,0 +1,468 @@
+---
+title: Setup Environment for Content Routing
+sidebar_label: Setup
+sidebar_position: 3
+description: Configure environment variables, destination services, and deploy a shell content routing pipeline
+keywords: [setup, environment, configuration, deployment, content-routing]
+---
+
+# Setup Environment for Content Routing
+
+Before building the content routing pipeline, you'll set up destination services, configure environment variables, and deploy a minimal shell pipeline to verify your setup works.
+
+## Prerequisites
+
+- ✅ Expanso edge node installed and running ([Installation Guide](https://docs.expanso.io/installation))
+- ✅ Kafka cluster accessible from your edge node
+- ✅ Basic familiarity with YAML configuration
+
+## Step 1: Configure Environment Variables
+
+Content routing requires credentials and endpoints for various destination services. Set these up before deploying the pipeline.
+
+```bash
+# Core Kafka configuration
+export KAFKA_BROKERS="localhost:9092"
+
+# Optional: Regional Kafka clusters for geographic routing
+export US_EAST_KAFKA="us-east-kafka.example.com:9092"
+export US_WEST_KAFKA="us-west-kafka.example.com:9092" 
+export EU_KAFKA="eu-kafka.example.com:9092"
+export AP_KAFKA="ap-kafka.example.com:9092"
+
+# Alert destinations for severity routing
+export PAGERDUTY_API_KEY="your_pagerduty_integration_key"
+export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+
+# Analytics and monitoring endpoints
+export ANALYTICS_API_URL="https://analytics.example.com/events"
+export SECURITY_MONITORING_URL="https://security.example.com/auth-events"
+export FRAUD_DETECTION_URL="https://fraud-detection.example.com/analyze"
+
+# AWS credentials for S3 storage (if using geographic routing)
+export AWS_ACCESS_KEY_ID="your_access_key"
+export AWS_SECRET_ACCESS_KEY="your_secret_key"
+
+# Verification
+echo "Environment configured for:"
+echo "- Kafka: $KAFKA_BROKERS"
+echo "- PagerDuty: ${PAGERDUTY_API_KEY:0:8}..."
+echo "- Slack: ${SLACK_WEBHOOK_URL:0:30}..."
+```
+
+**Important:** Store these credentials securely. In production, use Expanso's secret management or your organization's credential store.
+
+## Step 2: Verify Kafka Connectivity
+
+Test connectivity to your Kafka cluster before proceeding:
+
+```bash
+# Test Kafka connectivity using kafkacat or kafka-console-producer
+echo '{"test": "message", "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' | \
+  kafka-console-producer --broker-list $KAFKA_BROKERS --topic test-connectivity
+
+# Verify the message was received
+kafka-console-consumer --bootstrap-server $KAFKA_BROKERS \
+  --topic test-connectivity --from-beginning --max-messages 1
+
+# Clean up test topic
+kafka-topics --bootstrap-server $KAFKA_BROKERS --delete --topic test-connectivity
+```
+
+**Expected output:** You should see your test message consumed successfully.
+
+## Step 3: Create Required Kafka Topics
+
+Create the Kafka topics that will be used by the content routing pipeline:
+
+```bash
+# Create topics for severity-based routing
+kafka-topics --bootstrap-server $KAFKA_BROKERS --create \
+  --topic critical-alerts --partitions 3 --replication-factor 1
+
+kafka-topics --bootstrap-server $KAFKA_BROKERS --create \
+  --topic general-events --partitions 6 --replication-factor 1
+
+# Create topics for priority queue routing
+kafka-topics --bootstrap-server $KAFKA_BROKERS --create \
+  --topic critical-queue --partitions 1 --replication-factor 1
+
+kafka-topics --bootstrap-server $KAFKA_BROKERS --create \
+  --topic high-priority-queue --partitions 3 --replication-factor 1
+
+kafka-topics --bootstrap-server $KAFKA_BROKERS --create \
+  --topic normal-queue --partitions 6 --replication-factor 1
+
+kafka-topics --bootstrap-server $KAFKA_BROKERS --create \
+  --topic low-priority-queue --partitions 12 --replication-factor 1
+
+# Create topics for event type routing  
+kafka-topics --bootstrap-server $KAFKA_BROKERS --create \
+  --topic auth-events --partitions 3 --replication-factor 1
+
+kafka-topics --bootstrap-server $KAFKA_BROKERS --create \
+  --topic payment-events --partitions 6 --replication-factor 1
+
+# Verify topic creation
+kafka-topics --bootstrap-server $KAFKA_BROKERS --list | grep -E "(critical|priority|auth|payment|general)"
+```
+
+## Step 4: Deploy Shell Content Router
+
+Before adding complex routing logic, deploy a minimal "shell" router that accepts all messages and routes them to a single destination. This verifies your setup works.
+
+Create `shell-content-router.yaml`:
+
+```yaml title="shell-content-router.yaml"
+name: shell-content-router
+description: Basic content router for setup verification
+type: pipeline
+namespace: testing
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+      timeout: 5s
+      cors:
+        enabled: true
+
+  pipeline:
+    processors:
+      # Add timestamp and routing metadata
+      - mapping: |
+          root = this
+          root.received_at = now()
+          root.edge_node = env("EXPANSO_NODE_ID").or("shell-router")
+
+  output:
+    kafka:
+      addresses:
+        - ${KAFKA_BROKERS}
+      topic: general-events
+      
+      # Basic batching for efficiency
+      batching:
+        count: 50
+        period: 5s
+
+      # Add metadata for debugging
+      metadata:
+        include_patterns:
+          - "^received_at$"
+          - "^edge_node$"
+
+  # Enable metrics for monitoring
+  metrics:
+    prometheus:
+      enabled: true
+      path: /metrics
+
+  # Basic logging configuration
+  logger:
+    level: INFO
+    format: json
+```
+
+Deploy the shell router:
+
+```bash
+# Deploy to Expanso
+expanso pipeline create shell-content-router.yaml
+
+# Verify deployment
+expanso pipeline status shell-content-router
+
+# Check logs
+expanso pipeline logs shell-content-router --tail 20
+```
+
+**Expected output:**
+```
+Pipeline: shell-content-router
+Status: RUNNING
+Input: http_server (0.0.0.0:8080/events)
+Output: kafka (general-events)
+```
+
+## Step 5: Test Shell Router
+
+Send test events to verify the shell router is working correctly:
+
+```bash
+# Test basic event ingestion
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id": "test-001",
+    "timestamp": "2025-10-20T10:00:00Z",
+    "severity": "INFO",
+    "message": "Shell router test message",
+    "event_type": "test.message",
+    "region": "us-east"
+  }'
+
+# Send a few more test events with different characteristics
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id": "test-002",
+    "timestamp": "2025-10-20T10:01:00Z", 
+    "severity": "CRITICAL",
+    "message": "Test critical alert",
+    "event_type": "alert.system",
+    "region": "eu-west"
+  }'
+
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_id": "test-003",
+    "timestamp": "2025-10-20T10:02:00Z",
+    "severity": "WARN", 
+    "message": "Test warning",
+    "event_type": "user.action",
+    "region": "us-west",
+    "user_tier": "premium"
+  }'
+
+# Check the output in Kafka
+kafka-console-consumer --bootstrap-server $KAFKA_BROKERS \
+  --topic general-events --from-beginning --max-messages 3
+```
+
+**Expected output:** You should see all three test messages in the `general-events` topic with added `received_at` and `edge_node` fields.
+
+:::tip Success!
+If you see the test messages in Kafka with the additional metadata fields, your environment is correctly configured!
+
+**Next step:** You're ready to implement severity-based routing.
+:::
+
+## Step 6: Verify Optional Services
+
+If you plan to use the advanced routing features, verify connectivity to optional services:
+
+### Test PagerDuty Integration (Optional)
+
+```bash
+# Test PagerDuty integration
+curl -X POST https://events.pagerduty.com/v2/enqueue \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Token ${PAGERDUTY_API_KEY}" \
+  -d '{
+    "payload": {
+      "summary": "Test alert from content router setup",
+      "source": "content-routing-setup",
+      "severity": "info"
+    },
+    "routing_key": "test-routing-key",
+    "event_action": "trigger"
+  }'
+```
+
+### Test Slack Integration (Optional)
+
+```bash
+# Test Slack webhook
+curl -X POST $SLACK_WEBHOOK_URL \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Content routing setup test from '$(hostname)'",
+    "username": "content-router",
+    "icon_emoji": ":gear:"
+  }'
+```
+
+### Test AWS S3 Access (Optional)
+
+```bash
+# Test S3 bucket access (if using geographic routing)
+echo '{"test": "s3-access", "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' | \
+  aws s3 cp - s3://your-test-bucket/setup-test.json
+
+# Verify upload
+aws s3 ls s3://your-test-bucket/setup-test.json
+
+# Clean up
+aws s3 rm s3://your-test-bucket/setup-test.json
+```
+
+## Step 7: Monitor Shell Router Performance
+
+Check that the shell router is performing well before adding complex routing logic:
+
+```bash
+# Check pipeline metrics
+curl http://localhost:8080/metrics | grep -E "(input_received|output_sent|errors)"
+
+# View recent logs
+expanso pipeline logs shell-content-router --tail 50
+
+# Check Kafka consumer lag (if applicable)
+kafka-consumer-groups --bootstrap-server $KAFKA_BROKERS \
+  --describe --group shell-router-group
+```
+
+**Healthy metrics should show:**
+- `input_received_total` > 0 (events being received)
+- `output_sent_total` ≈ `input_received_total` (events being processed)
+- `errors_total` = 0 (no errors)
+
+## Troubleshooting Setup Issues
+
+### Issue: Pipeline Won't Start
+
+**Symptom:** `expanso pipeline create` fails or pipeline status shows `FAILED`
+
+**Diagnosis:**
+```bash
+# Check pipeline validation errors
+expanso pipeline validate shell-content-router.yaml
+
+# Check detailed logs
+expanso pipeline logs shell-content-router --level error
+```
+
+**Solutions:**
+
+**1. YAML Syntax Error**
+```yaml
+# Wrong: Invalid indentation
+  output:
+  kafka:  # Should be indented
+
+# Correct: Proper indentation  
+  output:
+    kafka:
+```
+
+**2. Environment Variable Not Set**
+```bash
+# Check if variables are set
+echo "KAFKA_BROKERS: ${KAFKA_BROKERS:-NOT_SET}"
+
+# Fix by setting the variable
+export KAFKA_BROKERS="localhost:9092"
+```
+
+### Issue: Cannot Connect to Kafka
+
+**Symptom:** Pipeline starts but shows connection errors in logs
+
+**Diagnosis:**
+```bash
+# Test network connectivity to Kafka
+telnet localhost 9092
+
+# Check if Kafka is running
+kafka-broker-api-versions --bootstrap-server $KAFKA_BROKERS
+```
+
+**Solutions:**
+
+**1. Kafka Not Running**
+```bash
+# Start Kafka (example with Docker)
+docker run -d --name kafka \
+  -p 9092:9092 \
+  confluentinc/cp-kafka:latest
+```
+
+**2. Wrong Kafka Address**
+```bash
+# Update KAFKA_BROKERS to correct address
+export KAFKA_BROKERS="your-actual-kafka-host:9092"
+```
+
+### Issue: HTTP Endpoint Not Accessible
+
+**Symptom:** `curl` requests to the pipeline fail with connection errors
+
+**Diagnosis:**
+```bash
+# Check if pipeline is listening on port
+netstat -tlnp | grep :8080
+
+# Check pipeline status
+expanso pipeline status shell-content-router
+```
+
+**Solutions:**
+
+**1. Port Already in Use**
+```yaml
+# Change to different port
+input:
+  http_server:
+    address: 0.0.0.0:8081  # Changed from 8080
+```
+
+**2. Firewall Blocking Port**
+```bash
+# Allow port through firewall (example for Ubuntu)
+sudo ufw allow 8080/tcp
+```
+
+### Issue: Messages Not Reaching Kafka
+
+**Symptom:** HTTP requests succeed (200 OK) but messages don't appear in Kafka
+
+**Diagnosis:**
+```bash
+# Check pipeline metrics for errors
+curl http://localhost:8080/metrics | grep error
+
+# Check output configuration
+expanso pipeline config shell-content-router | grep -A 10 output
+```
+
+**Solutions:**
+
+**1. Topic Doesn't Exist**
+```bash
+# Create the topic
+kafka-topics --bootstrap-server $KAFKA_BROKERS --create \
+  --topic general-events --partitions 3 --replication-factor 1
+```
+
+**2. Kafka Authentication Issues**
+```yaml
+# Add SASL authentication if required
+output:
+  kafka:
+    addresses: [${KAFKA_BROKERS}]
+    sasl:
+      mechanism: PLAIN
+      username: ${KAFKA_USERNAME}
+      password: ${KAFKA_PASSWORD}
+```
+
+## Next Steps
+
+With your shell router working, you're ready to implement content routing techniques:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./step-1-route-by-severity" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Start with Severity Routing
+  </a>
+  <a href="./explorer" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Review Interactive Explorer
+  </a>
+</div>
+
+## Environment Summary
+
+Your environment is now configured with:
+
+✅ **Kafka Topics:** critical-alerts, general-events, priority queues, event-type topics
+✅ **Environment Variables:** Service endpoints and credentials configured
+✅ **Shell Router:** Basic pipeline deployed and tested
+✅ **Connectivity:** Verified access to Kafka and optional services
+
+## Related Resources
+
+- [**Kafka Output Reference**](https://docs.expanso.io/components/outputs/kafka) - Complete Kafka configuration options
+- [**HTTP Server Input Reference**](https://docs.expanso.io/components/inputs/http_server) - HTTP endpoint configuration
+- [**Environment Variables Guide**](https://docs.expanso.io/configuration/environment-variables) - Managing credentials and configuration

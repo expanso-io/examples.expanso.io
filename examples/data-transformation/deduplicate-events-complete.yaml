@@ -1,0 +1,450 @@
+config:
+  # ===== CACHE RESOURCES =====
+  cache_resources:
+    # Primary distributed cache cluster
+    - label: distributed_primary_cache
+      redis:
+        cluster_addresses:
+          - "redis-node-1:7001"
+          - "redis-node-2:7002"
+          - "redis-node-3:7003"
+        key_prefix: "dedup:prod:v3:"
+        default_ttl: "1h"
+        # Production connection settings
+        dial_timeout: "2s"
+        read_timeout: "1s"
+        write_timeout: "1s"
+        pool_size: 100
+        min_idle_conns: 20
+        max_retries: 3
+        retry_backoff: "100ms"
+        
+    # Secondary distributed cache for critical events
+    - label: distributed_critical_cache
+      redis:
+        cluster_addresses:
+          - "redis-critical-1:7001"
+          - "redis-critical-2:7002"
+          - "redis-critical-3:7003"
+        key_prefix: "dedup:critical:v3:"
+        default_ttl: "24h"  # Longer TTL for financial events
+        pool_size: 50
+        
+    # Local fallback cache for network failures
+    - label: local_fallback_cache
+      memory:
+        default_ttl: "5m"
+        cap: 100000
+        eviction_policy: lru
+        
+    # Circuit breaker state management
+    - label: circuit_breaker_state
+      memory:
+        default_ttl: "5m"
+        cap: 50
+
+  # ===== MONITORING & METRICS =====
+  http:
+    address: "0.0.0.0:9090"
+    enabled: true
+    path: "/metrics"
+    debug_endpoints: true
+    cors:
+      enabled: true
+      allowed_origins: ["*"]
+
+  # ===== INPUT CONFIGURATION =====
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: "/webhooks/events"
+      allowed_verbs: ["POST"]
+      # Production HTTP settings
+      timeout: "30s"
+      rate_limit: "10000/s"
+      read_timeout: "10s"
+      write_timeout: "10s"
+      max_header_size: 16384
+
+  # ===== MAIN PROCESSING PIPELINE =====
+  pipeline:
+    processors:
+      # ===== INITIALIZATION & METADATA =====
+      - mapping: |
+          root = this
+          root.processing_metadata = {
+            "pipeline_version": "complete-v3.0",
+            "node_id": env("NODE_ID").or("unknown"),
+            "cluster_region": env("CLUSTER_REGION").or("unknown"),
+            "received_at": now(),
+            "request_id": uuid_v4()
+          }
+
+      # ===== INPUT VALIDATION & PARSING =====
+      - json_documents:
+          parts: []
+
+      # Comprehensive input validation
+      - mapping: |
+          root = this
+          
+          # Required field validation
+          root = if !this.event_id.exists() || this.event_id == "" {
+            throw("Missing required field: event_id")
+          } else if !this.event_type.exists() || this.event_type == "" {
+            throw("Missing required field: event_type") 
+          } else if this.event_id.length() > 500 {
+            throw("Event ID too long: maximum 500 characters")
+          } else if this.event_type.length() > 100 {
+            throw("Event type too long: maximum 100 characters")
+          } else {
+            this
+          }
+
+      # ===== STRATEGY SELECTION =====
+      - mapping: |
+          root = this
+          
+          # Intelligent strategy selection based on event characteristics
+          root.dedup_strategy = if this.event_id.match("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$") {
+            # UUID format - use ID-based (fastest)
+            "id-based"
+          } else if this.event_type.in(["user_signup", "purchase", "subscription_change", "refund"]) {
+            # Business-critical events - use fingerprint-based (most accurate)
+            "fingerprint-based"
+          } else if this.kafka_metadata.exists() && this.kafka_metadata.offset.exists() {
+            # Kafka events with reliable offsets - use ID-based
+            "id-based-kafka"
+          } else if this.event_id.starts_with("req_") || this.event_id.starts_with("txn_") {
+            # API or transaction IDs - use ID-based
+            "id-based"
+          } else {
+            # Default fallback - use hash-based
+            "hash-based"
+          }
+          
+          # Determine cache priority and settings
+          root.cache_priority = if this.event_type.in(["purchase", "refund", "charge"]) {
+            "critical"  # Financial events get critical cache
+          } else if this.event_type.in(["user_signup", "subscription_change"]) {
+            "high"      # Business events get primary cache
+          } else {
+            "standard"  # Activity events get standard cache
+          }
+          
+          # Select appropriate cache resource
+          root.cache_resource = if root.cache_priority == "critical" {
+            "distributed_critical_cache"
+          } else {
+            "distributed_primary_cache"  
+          }
+          
+          # Set TTL based on event importance
+          root.cache_ttl = if root.cache_priority == "critical" {
+            "24h"  # 24 hours for financial events
+          } else if root.cache_priority == "high" {
+            "6h"   # 6 hours for business events
+          } else {
+            "1h"   # 1 hour for activity events
+          }
+
+      # ===== DEDUPLICATION KEY GENERATION =====
+      - mapping: |
+          root = this
+          
+          # Generate deduplication key based on selected strategy
+          root.dedup_key = if this.dedup_strategy == "id-based" {
+            # Direct ID usage with normalization
+            this.event_id.trim().lowercase()
+          } else if this.dedup_strategy == "id-based-kafka" {
+            # Kafka-specific ID generation
+            this.kafka_metadata.topic + "-p" + this.kafka_metadata.partition.string() + "-o" + this.kafka_metadata.offset.string()
+          } else if this.dedup_strategy == "fingerprint-based" {
+            # Business fingerprint generation
+            let business_fields = if this.event_type == "user_signup" {
+              {
+                "event_type": "user_signup",
+                "user_email": this.user.email.lowercase().trim(),
+                "signup_source": this.signup_details.source.or("unknown"),
+                "plan": this.signup_details.plan.or("free")
+              }
+            } else if this.event_type == "purchase" {
+              {
+                "event_type": "purchase", 
+                "user_id": this.user.id,
+                "product_id": this.purchase.product_id,
+                "amount_cents": this.purchase.amount_cents,
+                "currency": this.purchase.currency.or("USD"),
+                "purchase_date": this.timestamp.ts_parse().ts_format("%Y-%m-%d")
+              }
+            } else if this.event_type == "subscription_change" {
+              {
+                "event_type": "subscription_change",
+                "user_id": this.user.id,
+                "old_plan": this.subscription.old_plan,
+                "new_plan": this.subscription.new_plan,
+                "change_date": this.timestamp.ts_parse().ts_format("%Y-%m-%d")
+              }
+            } else {
+              # Default business fingerprint
+              {
+                "event_type": this.event_type,
+                "user_id": this.user.id.or("anonymous"),
+                "action": this.action.or("unknown")
+              }
+            }
+            
+            # Generate fingerprint hash
+            business_fields.filter(field -> field.value != null).json_format().hash("sha256")
+          } else {
+            # Hash-based fallback
+            let normalized_event = this.without(
+              "processing_metadata",
+              "timestamp"  # Exclude timestamp for network retry scenarios
+            )
+            normalized_event.json_format().hash("sha256")
+          }
+
+      # ===== CIRCUIT BREAKER MANAGEMENT =====
+      - cache:
+          resource: circuit_breaker_state
+          operator: get
+          key: ${! "circuit:" + this.cache_resource }
+
+      - mapping: |
+          root = this
+          let circuit_data = meta("cache")
+          
+          # Initialize or update circuit breaker state
+          root.circuit_breaker = if !circuit_data.exists() {
+            {
+              "state": "closed",
+              "failure_count": 0,
+              "success_count": 0,
+              "last_failure": null,
+              "opened_at": null
+            }
+          } else {
+            circuit_data
+          }
+          
+          # Determine if cache operations should be attempted
+          root.should_attempt_distributed_cache = if this.circuit_breaker.state == "open" {
+            # Circuit open - check if we should try half-open
+            let time_since_open = (now() - this.circuit_breaker.opened_at.ts_parse()).total_seconds()
+            time_since_open > 30  # Try half-open after 30 seconds
+          } else {
+            true  # Closed or half-open - attempt cache
+          }
+
+      # ===== DISTRIBUTED CACHE OPERATIONS =====
+      - branch:
+          # Primary distributed cache lookup
+          request_map: |
+            root = if this.should_attempt_distributed_cache {
+              this
+            } else {
+              deleted()
+            }
+          processors:
+            - cache:
+                resource: ${! this.cache_resource }
+                operator: get
+                key: ${! this.dedup_key }
+                
+            - mapping: |
+                root = this
+                let cache_result = meta("cache")
+                let cache_error = meta("cache_error")
+                let cache_success = !cache_error.exists()
+                
+                # Record cache operation result
+                root.distributed_cache_result = {
+                  "attempted": true,
+                  "success": cache_success,
+                  "hit": cache_result.exists() && cache_success,
+                  "error": cache_error.or(null),
+                  "cache_resource": this.cache_resource
+                }
+                
+                # Update circuit breaker based on result
+                let updated_circuit = if cache_success {
+                  # Success - reset failure count, ensure circuit is closed
+                  {
+                    "state": "closed",
+                    "failure_count": 0,
+                    "success_count": this.circuit_breaker.success_count + 1,
+                    "last_failure": this.circuit_breaker.last_failure,
+                    "opened_at": null
+                  }
+                } else {
+                  # Failure - increment failure count, potentially open circuit
+                  let new_failure_count = this.circuit_breaker.failure_count + 1
+                  {
+                    "state": if new_failure_count >= 5 { "open" } else { this.circuit_breaker.state },
+                    "failure_count": new_failure_count,
+                    "success_count": this.circuit_breaker.success_count,
+                    "last_failure": now(),
+                    "opened_at": if new_failure_count >= 5 { now() } else { this.circuit_breaker.opened_at }
+                  }
+                }
+                
+                # Store updated circuit state
+                _ = cache_set("circuit_breaker_state", "circuit:" + this.cache_resource, updated_circuit, "5m")
+                
+                # Set duplicate detection metadata
+                meta distributed_duplicate = cache_result.exists() && cache_success
+                this
+                
+          result_map: |
+            root.distributed_cache_result = this.distributed_cache_result.or({"attempted": false, "success": false})
+            meta distributed_duplicate = meta("distributed_duplicate")
+            root
+
+      # ===== LOCAL FALLBACK CACHE =====
+      - branch:
+          # Local fallback for cache failures or circuit breaker open
+          request_map: |
+            root = if !this.distributed_cache_result.success {
+              this
+            } else {
+              deleted()
+            }
+          processors:
+            - cache:
+                resource: local_fallback_cache
+                operator: get
+                key: ${! this.dedup_key }
+                
+            - mapping: |
+                root = this
+                let local_cache_result = meta("cache")
+                
+                root.local_cache_result = {
+                  "used": true,
+                  "hit": local_cache_result.exists(),
+                  "fallback_reason": if !this.should_attempt_distributed_cache {
+                    "circuit_breaker_open"
+                  } else {
+                    "distributed_cache_failure"
+                  }
+                }
+                
+                # Set local duplicate detection
+                meta local_duplicate = local_cache_result.exists()
+                this
+                
+          result_map: |
+            root.local_cache_result = this.local_cache_result.or({"used": false})
+            meta local_duplicate = meta("local_duplicate")
+            root
+
+      # ===== DUPLICATE DETECTION CONSOLIDATION =====
+      - mapping: |
+          root = this
+          
+          let is_distributed_duplicate = meta("distributed_duplicate") == true
+          let is_local_duplicate = meta("local_duplicate") == true
+          let is_duplicate = is_distributed_duplicate || is_local_duplicate
+          
+          # Comprehensive duplicate analysis
+          root.duplicate_analysis = {
+            "detected": is_duplicate,
+            "detection_source": if is_distributed_duplicate {
+              "distributed_cache"
+            } else if is_local_duplicate {
+              "local_fallback"
+            } else {
+              "none"
+            },
+            "confidence": if is_distributed_duplicate {
+              "high"     # Global state confirmation
+            } else if is_local_duplicate {
+              "medium"   # Local state only
+            } else {
+              "none"
+            },
+            "strategy_used": this.dedup_strategy,
+            "cache_resource": this.cache_resource
+          }
+          
+          # Set global duplicate flag
+          meta is_duplicate = is_duplicate
+          
+          # Handle cache storage for new events
+          root = if !is_duplicate {
+            let cache_entry = {
+              "timestamp": now(),
+              "node_id": this.processing_metadata.node_id,
+              "region": this.processing_metadata.cluster_region,
+              "event_type": this.event_type,
+              "strategy": this.dedup_strategy,
+              "original_event_id": this.event_id,
+              "cache_priority": this.cache_priority
+            }
+            
+            # Store in appropriate cache
+            let storage_success = if this.distributed_cache_result.success {
+              cache_set(this.cache_resource, this.dedup_key, cache_entry, this.cache_ttl)
+            } else {
+              cache_set("local_fallback_cache", this.dedup_key, cache_entry, "5m")
+            }
+            
+            this
+          } else {
+            this
+          }
+
+      # ===== OUTPUT PREPARATION =====
+      - mapping: |
+          root = if meta("is_duplicate") == true {
+            deleted()  # Remove duplicates from output
+          } else {
+            # Add final processing metadata for successful events
+            root.deduplication_verified = {
+              "pipeline_verified": true,
+              "strategy_used": this.dedup_strategy,
+              "global_uniqueness_confirmed": this.distributed_cache_result.success.or(false),
+              "processing_node": this.processing_metadata.node_id,
+              "verified_at": now()
+            }
+            
+            # Clean up internal processing fields
+            this.without(
+              "processing_metadata",
+              "dedup_key",
+              "cache_resource",
+              "cache_priority",
+              "cache_ttl",
+              "circuit_breaker",
+              "should_attempt_distributed_cache",
+              "distributed_cache_result",
+              "local_cache_result",
+              "duplicate_analysis"
+            )
+          }
+
+  # ===== OUTPUT CONFIGURATION =====
+  output:
+    # Production-ready output with comprehensive batching and error handling
+    http_client:
+      url: "${ANALYTICS_ENDPOINT}/verified_unique_events"
+      verb: POST
+      headers:
+        Content-Type: application/json
+        X-Dedup-Pipeline: complete-v3.0
+        X-Processing-Node: ${NODE_ID}
+        X-Verification-Level: production
+        X-Compliance-Assured: "true"
+      # Performance optimization
+      batching:
+        count: 200
+        period: "3s"
+        byte_size: 2097152  # 2MB batches
+      compression: gzip
+      # Reliability settings
+      retry_period: "2s"
+      max_retries: 5
+      timeout: "20s"
+      # Circuit breaker for output
+      max_in_flight: 200

@@ -1,0 +1,503 @@
+---
+title: Setup Environment for Event Deduplication
+sidebar_label: Setup
+sidebar_position: 3
+description: Configure cache resources, test data, and deploy a shell deduplication pipeline
+keywords: [setup, environment, configuration, deployment, cache, deduplication]
+---
+
+# Setup Environment for Event Deduplication
+
+Before building the deduplication pipeline, you'll set up cache resources, prepare test data with realistic duplicates, and deploy a minimal shell pipeline to verify your environment.
+
+## Prerequisites
+
+- ✅ Expanso IO CLI installed ([Installation Guide](https://docs.expanso.io/getting-started/installation))
+- ✅ Docker available for Redis (distributed cache setup)
+- ✅ Basic familiarity with JSON event formats and HTTP APIs
+
+## Step 1: Configure Environment Variables
+
+Set up the environment variables needed for testing and production deployment:
+
+```bash
+# Analytics endpoint for processed events
+export ANALYTICS_ENDPOINT="https://analytics.example.com/api/v1"
+
+# Redis connection for distributed cache (optional)
+export REDIS_URL="redis://localhost:6379"
+
+# Cache configuration
+export DEDUP_TTL="1h"
+export DEDUP_CACHE_SIZE="100000"
+
+# Test webhook endpoint
+export WEBHOOK_PORT="8080"
+
+# Verify configuration
+echo "Analytics Endpoint: $ANALYTICS_ENDPOINT"
+echo "Redis URL: $REDIS_URL"
+echo "Cache TTL: $DEDUP_TTL"
+```
+
+## Step 2: Prepare Test Data
+
+Create realistic test data that demonstrates different types of duplicates you'll encounter in production:
+
+```bash
+# Create test data directory
+mkdir -p dedup-test-data
+cd dedup-test-data
+
+# Create exact duplicate events (network retry scenario)
+cat > exact-duplicates.json << 'EOF'
+{"event_id":"evt_001","event_type":"user_signup","timestamp":"2025-01-15T10:00:00Z","user":{"id":"user_123","email":"alice@example.com","name":"Alice Smith"}}
+{"event_id":"evt_001","event_type":"user_signup","timestamp":"2025-01-15T10:00:00Z","user":{"id":"user_123","email":"alice@example.com","name":"Alice Smith"}}
+EOF
+
+# Create semantic duplicate events (load balancer retry scenario)
+cat > semantic-duplicates.json << 'EOF'
+{"event_id":"evt_002","event_type":"user_signup","timestamp":"2025-01-15T10:00:05Z","user":{"id":"user_123","email":"alice@example.com","name":"Alice Smith"}}
+{"event_id":"evt_003","event_type":"user_signup","timestamp":"2025-01-15T10:00:07Z","user":{"id":"user_123","email":"alice@example.com","name":"Alice Smith"}}
+EOF
+
+# Create unique events (should not be deduplicated)
+cat > unique-events.json << 'EOF'
+{"event_id":"evt_004","event_type":"user_signup","timestamp":"2025-01-15T10:01:00Z","user":{"id":"user_456","email":"bob@example.com","name":"Bob Jones"}}
+{"event_id":"evt_005","event_type":"purchase","timestamp":"2025-01-15T10:02:00Z","user":{"id":"user_123","email":"alice@example.com"},"product":{"id":"prod_789","amount":99.99}}
+EOF
+
+# Create mixed scenario test data
+cat > mixed-test-events.json << 'EOF'
+{"event_id":"evt_001","event_type":"user_signup","timestamp":"2025-01-15T10:00:00Z","user":{"id":"user_123","email":"alice@example.com","name":"Alice Smith"}}
+{"event_id":"evt_001","event_type":"user_signup","timestamp":"2025-01-15T10:00:00Z","user":{"id":"user_123","email":"alice@example.com","name":"Alice Smith"}}
+{"event_id":"evt_002","event_type":"user_signup","timestamp":"2025-01-15T10:00:05Z","user":{"id":"user_123","email":"alice@example.com","name":"Alice Smith"}}
+{"event_id":"evt_004","event_type":"user_signup","timestamp":"2025-01-15T10:01:00Z","user":{"id":"user_456","email":"bob@example.com","name":"Bob Jones"}}
+{"event_id":"evt_005","event_type":"purchase","timestamp":"2025-01-15T10:02:00Z","user":{"id":"user_123","email":"alice@example.com"},"product":{"id":"prod_789","amount":99.99}}
+EOF
+
+echo "Test data created successfully!"
+```
+
+## Step 3: Deploy Shell Deduplication Pipeline
+
+Before adding sophisticated deduplication logic, deploy a minimal "shell" pipeline that just receives events and forwards them. This verifies your setup works.
+
+Create `shell-dedup.yaml`:
+
+```yaml title="shell-dedup.yaml"
+config:
+  # Basic in-memory cache for testing
+  cache_resources:
+    - label: dedup_cache
+      memory:
+        default_ttl: "1h"
+        cap: 10000
+        eviction_policy: lru
+
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: "/webhooks/events"
+      allowed_verbs: ["POST"]
+
+  pipeline:
+    processors:
+      # Parse and validate JSON events
+      - json_documents:
+          parts: []
+
+      # Add basic metadata for testing
+      - mapping: |
+          root = this
+          root.processed_at = now()
+          root.pipeline_version = "shell-v1"
+
+  output:
+    # For testing, output to stdout instead of HTTP
+    stdout:
+      codec: lines
+```
+
+Deploy the shell pipeline:
+
+```bash
+# Deploy to Expanso IO
+expanso deploy shell-dedup.yaml
+
+# Verify deployment
+expanso status
+
+# Expected output should show running pipeline
+```
+
+**Expected output:**
+```
+Pipeline: shell-dedup.yaml
+Status: RUNNING
+Input: http_server (0.0.0.0:8080/webhooks/events)
+Cache: dedup_cache (memory, TTL: 1h)
+Output: stdout
+```
+
+## Step 4: Test Shell Pipeline
+
+Test that your environment can receive and process events correctly:
+
+```bash
+# Send a test event
+curl -X POST http://localhost:8080/webhooks/events \
+  -H "Content-Type: application/json" \
+  -d '{"event_id":"test_001","event_type":"test","user":{"id":"test_user"}}'
+
+# Check the output in Expanso logs
+expanso logs --follow
+
+# Send multiple test events from file
+curl -X POST http://localhost:8080/webhooks/events \
+  -H "Content-Type: application/json" \
+  --data-binary @exact-duplicates.json
+```
+
+**Expected output:** You should see processed events with added metadata in the logs:
+```json
+{
+  "event_id": "test_001",
+  "event_type": "test",
+  "user": {"id": "test_user"},
+  "processed_at": "2025-01-15T10:30:00.123Z",
+  "pipeline_version": "shell-v1"
+}
+```
+
+## Step 5: Verify Cache Resource
+
+Before proceeding, verify that the cache resource is working correctly for deduplication:
+
+```bash
+# Create a simple cache test configuration
+cat > cache-test.yaml << 'EOF'
+config:
+  cache_resources:
+    - label: test_cache
+      memory:
+        default_ttl: "30s"
+        cap: 100
+
+  input:
+    http_server:
+      address: "0.0.0.0:8081"
+      path: "/test"
+
+  pipeline:
+    processors:
+      - json_documents:
+          parts: []
+          
+      # Test cache set/get
+      - cache:
+          resource: test_cache
+          operator: get
+          key: ${! this.test_key }
+          
+      - mapping: |
+          root = this
+          root.cache_exists = meta("cache").exists()
+          
+          # Set cache if not exists
+          root = if !meta("cache").exists() {
+            _ = cache_set("test_cache", this.test_key, "cached_value", "30s")
+            root.cache_action = "set"
+            this
+          } else {
+            root.cache_action = "found"
+            this
+          }
+
+  output:
+    stdout:
+      codec: lines
+EOF
+
+# Deploy cache test
+expanso deploy cache-test.yaml
+
+# Test cache functionality
+curl -X POST http://localhost:8081/test \
+  -H "Content-Type: application/json" \
+  -d '{"test_key":"key1","data":"value1"}'
+
+# Send same key again (should hit cache)
+curl -X POST http://localhost:8081/test \
+  -H "Content-Type: application/json" \
+  -d '{"test_key":"key1","data":"value2"}'
+
+# Clean up test
+expanso stop cache-test
+```
+
+:::tip Success!
+If you see `"cache_action": "set"` for the first request and `"cache_action": "found"` for the second request, your cache is working correctly!
+
+**Next step:** You're ready to implement hash-based deduplication
+:::
+
+## Step 6: Prepare Redis for Distributed Cache (Optional)
+
+If you'll be deploying across multiple nodes, set up Redis for distributed caching:
+
+```bash
+# Start Redis using Docker
+docker run -d --name dedup-redis \
+  -p 6379:6379 \
+  redis:7-alpine \
+  redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+
+# Verify Redis connection
+redis-cli ping
+# Expected: PONG
+
+# Test Redis connectivity from your pipeline
+cat > redis-test.yaml << 'EOF'
+config:
+  cache_resources:
+    - label: redis_cache
+      redis:
+        url: "redis://localhost:6379"
+        key_prefix: "dedup:"
+        default_ttl: "1h"
+
+  input:
+    http_server:
+      address: "0.0.0.0:8082"
+      path: "/redis-test"
+
+  pipeline:
+    processors:
+      - json_documents:
+          parts: []
+          
+      # Test Redis cache
+      - cache:
+          resource: redis_cache
+          operator: get
+          key: ${! this.test_key }
+          
+      - mapping: |
+          root = this
+          root.redis_exists = meta("cache").exists()
+          
+          root = if !meta("cache").exists() {
+            _ = cache_set("redis_cache", this.test_key, "redis_value", "1h")
+            root.redis_action = "set"
+            this
+          } else {
+            root.redis_action = "found" 
+            this
+          }
+
+  output:
+    stdout: {}
+EOF
+
+# Test Redis cache
+expanso deploy redis-test.yaml
+
+curl -X POST http://localhost:8082/redis-test \
+  -H "Content-Type: application/json" \
+  -d '{"test_key":"redis_test_1"}'
+
+# Verify in Redis directly
+redis-cli get "dedup:redis_test_1"
+
+# Clean up
+expanso stop redis-test
+```
+
+## Step 7: Monitoring Setup
+
+Configure basic monitoring to track deduplication effectiveness:
+
+```bash
+# Enable metrics endpoint in your pipeline
+export METRICS_PORT="9090"
+
+# Verify metrics are available
+curl http://localhost:9090/metrics | grep -E "(cache|dedup)" | head -10
+
+# Expected metrics:
+# expanso_cache_items{cache="dedup_cache"} 0
+# expanso_cache_hits_total{cache="dedup_cache"} 0
+# expanso_cache_misses_total{cache="dedup_cache"} 0
+```
+
+## Step 8: Performance Baseline
+
+Establish performance baselines before adding deduplication:
+
+```bash
+# Create performance test script
+cat > perf-test.sh << 'EOF'
+#!/bin/bash
+
+echo "Starting performance baseline test..."
+
+# Send 1000 events rapidly
+for i in {1..1000}; do
+  curl -X POST http://localhost:8080/webhooks/events \
+    -H "Content-Type: application/json" \
+    -d "{\"event_id\":\"perf_$i\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)\"}" \
+    --silent --output /dev/null &
+  
+  # Batch requests to avoid overwhelming
+  if [ $((i % 100)) -eq 0 ]; then
+    wait
+    echo "Sent $i events..."
+  fi
+done
+
+wait
+echo "Performance test complete!"
+EOF
+
+chmod +x perf-test.sh
+
+# Run baseline test
+./perf-test.sh
+
+# Check metrics after test
+curl http://localhost:9090/metrics | grep expanso_input_received
+# Note this baseline for comparison with deduplication metrics
+```
+
+## Troubleshooting
+
+### Issue: Cannot Connect to Pipeline
+
+**Symptoms:** `Connection refused` when testing endpoints
+
+**Diagnosis:**
+```bash
+# Check if pipeline is running
+expanso status
+
+# Check port binding
+netstat -an | grep 8080
+
+# Check pipeline logs for errors
+expanso logs --tail 50
+```
+
+**Solutions:**
+
+1. **Pipeline Not Deployed:**
+```bash
+expanso deploy shell-dedup.yaml
+```
+
+2. **Port Already in Use:**
+```bash
+# Find what's using the port
+lsof -i :8080
+
+# Kill existing process or change port
+pkill -f "port:8080"
+```
+
+3. **Configuration Error:**
+```bash
+# Validate YAML syntax
+expanso validate shell-dedup.yaml
+
+# Check for indentation errors
+yaml-lint shell-dedup.yaml
+```
+
+### Issue: Cache Not Working
+
+**Symptoms:** Same events not being cached properly
+
+**Diagnosis:**
+```bash
+# Check cache metrics
+curl http://localhost:9090/metrics | grep cache
+
+# Enable debug logging
+export LOG_LEVEL=debug
+expanso restart shell-dedup.yaml
+
+# Check logs for cache operations
+expanso logs | grep cache
+```
+
+**Solutions:**
+
+1. **Cache Resource Not Defined:**
+```yaml
+cache_resources:
+  - label: dedup_cache  # Must match processor reference
+    memory:
+      default_ttl: "1h"
+      cap: 10000
+```
+
+2. **TTL Too Short:**
+```yaml
+# Increase TTL for testing
+memory:
+  default_ttl: "6h"  # Instead of "1h"
+```
+
+3. **Cache Key Issues:**
+```bash
+# Debug cache keys being generated
+curl http://localhost:8080/webhooks/events \
+  -H "Content-Type: application/json" \
+  -d '{"debug":true,"event_id":"debug_001"}'
+```
+
+### Issue: Test Data Not Loading
+
+**Symptoms:** JSON parsing errors or empty events
+
+**Solutions:**
+
+1. **Validate JSON Format:**
+```bash
+# Test JSON validity
+jq . exact-duplicates.json
+
+# Check for hidden characters
+cat -A exact-duplicates.json
+```
+
+2. **Ensure Proper Line Endings:**
+```bash
+# Convert to Unix line endings
+dos2unix *.json
+
+# Or recreate files with proper format
+```
+
+3. **Check Content-Type Header:**
+```bash
+# Ensure JSON content type is set
+curl -X POST http://localhost:8080/webhooks/events \
+  -H "Content-Type: application/json" \
+  -d @exact-duplicates.json
+```
+
+## Next Steps
+
+Your environment is now configured and ready for implementing deduplication strategies!
+
+**Environment Status Check:**
+- ✅ Shell pipeline deployed and responding
+- ✅ Cache resources configured and functional  
+- ✅ Test data prepared with realistic duplicate scenarios
+- ✅ Monitoring baseline established
+- ✅ Redis configured for distributed caching (if needed)
+
+**Ready for Step 1:** [Implement Hash-Based Deduplication](./step-1-hash-based-exact-duplicates)
+
+The next step will add SHA-256 content hashing to detect exact duplicates, building on the shell pipeline you just deployed.

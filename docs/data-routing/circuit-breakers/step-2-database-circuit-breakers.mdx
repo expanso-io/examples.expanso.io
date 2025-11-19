@@ -1,0 +1,936 @@
+---
+title: Step 2 - Database Circuit Breakers
+sidebar_label: Step 2 - Database Circuit Breakers
+sidebar_position: 4
+description: Implement circuit breaker protection for database connections with connection pooling and query timeouts
+keywords: [database-circuit-breaker, sql, connection-pool, query-timeout, postgres]
+---
+
+# Step 2: Database Circuit Breakers
+
+Database failures are among the most critical issues in edge pipelines because they can cause connection pool exhaustion, leading to complete pipeline failure. Unlike HTTP APIs, database connections are often pooled and reused, so connection failures can have cascading effects. Database circuit breakers protect your pipeline by preventing connection pool exhaustion and providing fallback mechanisms when database queries fail.
+
+In this step, you'll implement database circuit breakers using Expanso's `sql_select` and `sql_insert` processors with connection pooling, query timeouts, and sophisticated fallback strategies.
+
+## Understanding Database Circuit Breaker Mechanics
+
+### Database-Specific Failure Modes
+
+Database failures differ from HTTP failures in several important ways:
+
+**Connection-Level Failures:**
+- **Connection pool exhaustion:** All connections in use, new requests wait
+- **Connection timeout:** Database unreachable or overloaded
+- **Authentication failures:** Invalid credentials or permission changes
+- **Network partitions:** Database accessible but network unstable
+
+**Query-Level Failures:**
+- **Query timeout:** Long-running queries exceeding timeout
+- **Lock contention:** Queries waiting for locks on busy tables
+- **Resource exhaustion:** Database out of memory or disk space
+- **Constraint violations:** Data doesn't match schema requirements
+
+**Recovery Considerations:**
+- **Connection reuse:** Failed connections should be discarded from pool
+- **Transaction state:** Failed transactions leave connections in undefined state
+- **Read vs. Write:** Read failures can often use stale cache, write failures need special handling
+
+### Database Circuit Breaker Configuration
+
+Key configuration parameters for database circuit breakers:
+
+```yaml
+sql_select:
+  # Connection management
+  max_open_connections: 10      # Total connections in pool
+  max_idle_connections: 5       # Idle connections to maintain
+  connection_max_lifetime: 30m  # Recycle connections periodically
+  
+  # Query timeouts  
+  timeout: 5s                   # Per-query timeout
+  
+  # Circuit breaker behavior (implicit through connection limits)
+  # When pool is exhausted, new queries wait or fail
+```
+
+## Implementation: Basic Database Circuit Breaker
+
+Let's implement a database circuit breaker that enriches user events with user profile data from PostgreSQL.
+
+### Pipeline Configuration
+
+Create `database-circuit-breaker.yaml`:
+
+```yaml title="database-circuit-breaker.yaml"
+name: database-circuit-breaker
+description: Database enrichment with circuit breaker protection
+type: pipeline
+namespace: circuit-breaker-test
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8084
+      path: /user-events
+      timeout: 30s
+
+  pipeline:
+    processors:
+      # Step 1: Validate incoming user event
+      - mapping: |
+          root = this
+          
+          # Ensure required fields exist
+          if !this.user_id.exists() {
+            throw("missing required field: user_id")
+          }
+          
+          if !this.event_type.exists() {
+            throw("missing required field: event_type")
+          }
+          
+          # Add processing metadata
+          root.db_enrichment_started_at = now()
+          root.db_query_attempts = 0
+
+      # Step 2: Database lookup with circuit breaker protection
+      - try:
+          # Increment attempt counter
+          - mapping: |
+              root = this
+              root.db_query_attempts = (this.db_query_attempts || 0) + 1
+
+          # Database query with circuit breaker settings
+          - sql_select:
+              driver: postgres
+              data_source_name: ${DB_CONNECTION_STRING}
+              
+              # Circuit breaker configuration
+              timeout: 3s                    # Query timeout
+              max_open_connections: 10       # Connection pool size
+              max_idle_connections: 5        # Idle connections
+              connection_max_lifetime: 30m   # Connection recycling
+              connection_max_idle_time: 5m   # Idle connection timeout
+              
+              # User lookup query
+              query: |
+                SELECT 
+                  user_name,
+                  user_tier,
+                  account_type,
+                  created_at,
+                  last_login_at
+                FROM users 
+                WHERE user_id = $1
+
+              # Query parameters
+              args_mapping: |
+                root = [ this.user_id ]
+
+          # Step 3: Process successful database response
+          - mapping: |
+              root = this
+              
+              # Check if user was found
+              if this.user_name.exists() && this.user_name != "" {
+                # User found - merge profile data
+                root.user_profile = {
+                  "name": this.user_name,
+                  "tier": this.user_tier,
+                  "account_type": this.account_type,
+                  "created_at": this.created_at,
+                  "last_login_at": this.last_login_at
+                }
+                root.user_found = true
+                root.db_enrichment_status = "success"
+              } else {
+                # User not found in database
+                root.user_profile = null
+                root.user_found = false
+                root.db_enrichment_status = "user_not_found"
+              }
+              
+              # Track successful database interaction
+              root.db_enriched = true
+              root.db_enrichment_completed_at = now()
+              root.db_query_duration = (now() - this.db_enrichment_started_at).seconds()
+
+        # Step 4: Handle database failures (circuit breaker fallback)
+        catch:
+          - mapping: |
+              root = this
+              
+              # Mark database enrichment as failed
+              root.user_profile = null
+              root.user_found = null
+              root.db_enriched = false
+              root.db_enrichment_status = "circuit_breaker_open"
+              root.db_failure_at = now()
+              
+              # Classify error type for monitoring
+              error_msg = error().string()
+              if error_msg.contains("timeout") {
+                root.db_error_type = "timeout"
+              } else if error_msg.contains("connection") {
+                root.db_error_type = "connection_failure"
+              } else if error_msg.contains("pool") {
+                root.db_error_type = "pool_exhaustion"  
+              } else {
+                root.db_error_type = "unknown"
+              }
+              
+              # Add error details for troubleshooting
+              root.db_error_details = {
+                "message": error_msg,
+                "query_attempts": this.db_query_attempts,
+                "failure_timestamp": now()
+              }
+
+          # Log database circuit breaker activation
+          - log:
+              level: WARN
+              message: "Database circuit breaker activated for user_id: ${!this.user_id}, error: ${!this.db_error_type}"
+
+      # Step 5: Add processing summary
+      - mapping: |
+          root = this
+          root.processing_completed_at = now()
+          root.total_processing_time = (now() - this.db_enrichment_started_at).seconds()
+
+  # Output routing based on enrichment status
+  output:
+    switch:
+      cases:
+        # Successfully enriched events
+        - check: this.db_enriched == true
+          output:
+            processors:
+              - mapping: |
+                  root = this
+                  root.output_destination = "enriched_events"
+            stdout:
+              codec: lines
+
+        # Failed enrichment but valid event
+        - check: this.db_enriched == false && this.user_id.exists()
+          output:
+            processors:
+              - mapping: |
+                  root = this
+                  root.output_destination = "unenriched_events"
+                  root.processing_note = "processed_without_db_enrichment"
+            stdout:
+              codec: lines
+
+        # Invalid events
+        - output:
+            processors:
+              - log:
+                  level: ERROR
+                  message: "Invalid event rejected: ${!this}"
+            drop: {}
+```
+
+### Deploy and Test
+
+Deploy the database circuit breaker pipeline:
+
+```bash
+# Deploy pipeline
+expanso apply -f database-circuit-breaker.yaml
+
+# Verify deployment
+expanso get pipeline database-circuit-breaker
+
+# Check that database is accessible
+docker exec circuit-test-db psql -U test -d circuit_test -c "SELECT COUNT(*) FROM users;"
+```
+
+### Test Normal Database Operation
+
+Test with valid user IDs that exist in the database:
+
+```bash
+# Test with existing user
+curl -X POST http://localhost:8084/user-events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user_001",
+    "event_type": "login",
+    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+    "ip_address": "192.168.1.100"
+  }'
+
+# Check pipeline logs
+expanso logs pipeline database-circuit-breaker --tail=10
+```
+
+**Expected successful output:**
+```json
+{
+  "user_id": "user_001",
+  "event_type": "login",
+  "timestamp": "2024-01-15T15:30:10Z",
+  "ip_address": "192.168.1.100",
+  "db_enrichment_started_at": "2024-01-15T15:30:15.123Z",
+  "db_query_attempts": 1,
+  "user_profile": {
+    "name": "Alice Johnson",
+    "tier": "premium", 
+    "account_type": "business",
+    "created_at": "2024-01-10T08:00:00Z",
+    "last_login_at": "2024-01-15T12:00:00Z"
+  },
+  "user_found": true,
+  "db_enrichment_status": "success",
+  "db_enriched": true,
+  "db_enrichment_completed_at": "2024-01-15T15:30:15.456Z",
+  "db_query_duration": 0.333,
+  "processing_completed_at": "2024-01-15T15:30:15.789Z",
+  "total_processing_time": 0.666,
+  "output_destination": "enriched_events"
+}
+```
+
+### Test Circuit Breaker Activation
+
+Simulate database failure to test the circuit breaker:
+
+```bash
+# Stop database to simulate failure
+docker stop circuit-test-db
+
+# Send request that will trigger circuit breaker
+curl -X POST http://localhost:8084/user-events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user_002",
+    "event_type": "purchase",
+    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+    "amount": 99.99
+  }'
+
+# Check logs for circuit breaker activation
+expanso logs pipeline database-circuit-breaker --tail=15
+```
+
+**Expected fallback output:**
+```json
+{
+  "user_id": "user_002", 
+  "event_type": "purchase",
+  "timestamp": "2024-01-15T15:35:10Z",
+  "amount": 99.99,
+  "db_enrichment_started_at": "2024-01-15T15:35:15.123Z",
+  "db_query_attempts": 1,
+  "user_profile": null,
+  "user_found": null,
+  "db_enriched": false,
+  "db_enrichment_status": "circuit_breaker_open",
+  "db_failure_at": "2024-01-15T15:35:18.456Z",
+  "db_error_type": "connection_failure",
+  "db_error_details": {
+    "message": "connection refused",
+    "query_attempts": 1,
+    "failure_timestamp": "2024-01-15T15:35:18.456Z"
+  },
+  "processing_completed_at": "2024-01-15T15:35:18.789Z",
+  "total_processing_time": 3.666,
+  "output_destination": "unenriched_events",
+  "processing_note": "processed_without_db_enrichment"
+}
+```
+
+```bash
+# Restart database for next tests
+docker start circuit-test-db
+sleep 10
+```
+
+## Advanced Database Circuit Breaker Patterns
+
+### Pattern 1: Read-Write Circuit Breaker Separation
+
+Implement different circuit breaker policies for read and write operations:
+
+```yaml title="read-write-circuit-breaker.yaml"
+name: read-write-circuit-breaker
+description: Separate circuit breakers for read and write database operations
+type: pipeline
+namespace: circuit-breaker-test
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8085
+      path: /user-operations
+
+  pipeline:
+    processors:
+      # Route based on operation type
+      - switch:
+          cases:
+            # Read operations: Tolerant circuit breaker
+            - check: this.operation == "read" || this.operation == "query"
+              processors:
+                - try:
+                    - sql_select:
+                        driver: postgres
+                        data_source_name: ${DB_CONNECTION_STRING}
+                        
+                        # Read circuit breaker: More tolerant
+                        timeout: 10s               # Longer timeout for reads
+                        max_open_connections: 20   # More connections for reads
+                        max_idle_connections: 10   # More idle connections
+                        
+                        query: ${!this.sql_query}
+                        args_mapping: ${!this.sql_args || []}
+                        
+                  catch:
+                    - mapping: |
+                        root = this
+                        root.read_operation_failed = true
+                        root.fallback_to_cache = true
+
+            # Write operations: Conservative circuit breaker  
+            - check: this.operation == "write" || this.operation == "insert" || this.operation == "update"
+              processors:
+                - try:
+                    - sql_insert:
+                        driver: postgres
+                        data_source_name: ${DB_CONNECTION_STRING}
+                        
+                        # Write circuit breaker: More conservative
+                        timeout: 5s                # Shorter timeout for writes
+                        max_open_connections: 5    # Fewer connections for writes
+                        max_idle_connections: 2    # Fewer idle connections
+                        
+                        query: ${!this.sql_query}
+                        args_mapping: ${!this.sql_args || []}
+                        
+                  catch:
+                    - mapping: |
+                        root = this
+                        root.write_operation_failed = true
+                        root.requires_retry = true
+
+  output:
+    switch:
+      cases:
+        # Failed writes need special handling
+        - check: this.write_operation_failed == true
+          output:
+            processors:
+              - mapping: |
+                  root = this
+                  root.retry_queue_destination = true
+            # Route to retry queue (would be implemented)
+            stdout:
+              codec: lines
+              
+        # Failed reads can often continue with stale data
+        - check: this.read_operation_failed == true
+          output:
+            processors:
+              - mapping: |
+                  root = this
+                  root.degraded_mode = true
+            stdout:
+              codec: lines
+              
+        # Successful operations
+        - output:
+            stdout:
+              codec: lines
+```
+
+### Pattern 2: Database Circuit Breaker with Caching
+
+Reduce database load and improve resilience with intelligent caching:
+
+```yaml title="cached-database-circuit-breaker.yaml"
+name: cached-database-circuit-breaker
+description: Database circuit breaker with multi-level caching
+type: pipeline
+namespace: circuit-breaker-test
+
+config:
+  cache_resources:
+    # Short-term cache for frequent queries
+    - label: user_cache
+      memory:
+        cap: 5000
+        default_ttl: 2m
+
+    # Long-term cache for fallback during outages
+    - label: user_cache_fallback
+      memory:
+        cap: 10000
+        default_ttl: 1h
+
+  input:
+    http_server:
+      address: 0.0.0.0:8086
+      path: /cached-user-lookup
+
+  pipeline:
+    processors:
+      # Step 1: Check short-term cache
+      - cache:
+          resource: user_cache
+          operator: get
+          key: user_${!this.user_id}
+
+      # Step 2: Route based on cache status
+      - switch:
+          cases:
+            # Cache hit: Use cached data
+            - check: this.cached_user_data.exists()
+              processors:
+                - mapping: |
+                    root = this
+                    root.user_profile = this.cached_user_data.parse_json()
+                    root.data_source = "cache"
+                    root.cache_hit = true
+
+            # Cache miss: Query database with circuit breaker
+            - processors:
+                - try:
+                    # Database query with circuit breaker
+                    - sql_select:
+                        driver: postgres
+                        data_source_name: ${DB_CONNECTION_STRING}
+                        timeout: 3s
+                        max_open_connections: 8
+                        max_idle_connections: 4
+                        
+                        query: |
+                          SELECT user_name, user_tier, account_type, created_at
+                          FROM users WHERE user_id = $1
+
+                        args_mapping: |
+                          root = [this.user_id]
+
+                    # Process successful database response
+                    - mapping: |
+                        root = this
+                        if this.user_name.exists() {
+                          user_data = {
+                            "name": this.user_name,
+                            "tier": this.user_tier,
+                            "account_type": this.account_type,
+                            "created_at": this.created_at
+                          }
+                          root.user_profile = user_data
+                          root.data_source = "database"
+                          root.cache_hit = false
+                        } else {
+                          root.user_profile = null
+                          root.user_not_found = true
+                        }
+
+                    # Cache successful result in both caches
+                    - cache:
+                        resource: user_cache
+                        operator: set
+                        key: user_${!this.user_id}
+                        value: ${!this.user_profile.format_json()}
+
+                    - cache:
+                        resource: user_cache_fallback
+                        operator: set
+                        key: user_${!this.user_id}
+                        value: ${!this.user_profile.format_json()}
+
+                  # Database failure: Try fallback cache
+                  catch:
+                    - cache:
+                        resource: user_cache_fallback
+                        operator: get
+                        key: user_${!this.user_id}
+
+                    - mapping: |
+                        root = this
+                        if this.cached_user_data.exists() {
+                          root.user_profile = this.cached_user_data.parse_json()
+                          root.data_source = "fallback_cache"
+                          root.db_circuit_breaker_activated = true
+                        } else {
+                          root.user_profile = null
+                          root.data_source = "none"
+                          root.db_circuit_breaker_activated = true
+                          root.no_fallback_data = true
+                        }
+
+  output:
+    stdout:
+      codec: lines
+```
+
+### Pattern 3: Connection Pool Health Monitoring
+
+Monitor connection pool health and adjust circuit breaker behavior:
+
+```yaml title="monitored-database-circuit-breaker.yaml"
+name: monitored-database-circuit-breaker
+description: Database circuit breaker with connection pool monitoring
+type: pipeline
+namespace: circuit-breaker-test
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8087
+      path: /monitored-db
+
+  pipeline:
+    processors:
+      # Pre-query health check (lightweight query)
+      - try:
+          - sql_select:
+              driver: postgres
+              data_source_name: ${DB_CONNECTION_STRING}
+              timeout: 1s
+              max_open_connections: 2  # Separate pool for health checks
+              
+              query: "SELECT 1 as health_check"
+
+          - mapping: |
+              root = this
+              root.db_health_check_passed = true
+              
+        catch:
+          - mapping: |
+              root = this
+              root.db_health_check_passed = false
+
+      # Adaptive query based on health
+      - switch:
+          cases:
+            # Database is healthy: Normal circuit breaker settings
+            - check: this.db_health_check_passed == true
+              processors:
+                - try:
+                    - sql_select:
+                        driver: postgres
+                        data_source_name: ${DB_CONNECTION_STRING}
+                        timeout: 8s        # Generous timeout when healthy
+                        max_open_connections: 15
+                        max_idle_connections: 8
+                        
+                        query: ${!this.main_query}
+                        args_mapping: ${!this.query_args || []}
+
+                    - mapping: |
+                        root = this
+                        root.query_result_source = "database_healthy"
+
+                  catch:
+                    - mapping: |
+                        root = this
+                        root.query_failed_despite_health_check = true
+
+            # Database is unhealthy: Aggressive circuit breaker or skip
+            - processors:
+                - mapping: |
+                    root = this
+                    root.query_skipped = true
+                    root.reason = "database_health_check_failed"
+                    root.query_result_source = "skipped"
+
+      # Track metrics for monitoring
+      - metric:
+          type: counter
+          name: database_queries_total
+          labels:
+            health_status: ${!this.db_health_check_passed}
+            result_source: ${!this.query_result_source}
+
+  output:
+    stdout:
+      codec: lines
+```
+
+## Production Database Circuit Breaker Patterns
+
+### Connection Pool Sizing Guidelines
+
+**High-throughput systems:**
+```yaml
+sql_select:
+  max_open_connections: 20      # Higher concurrency
+  max_idle_connections: 10      # More warm connections
+  connection_max_lifetime: 15m  # Shorter lifetime for freshness
+```
+
+**Resource-constrained environments:**
+```yaml
+sql_select:
+  max_open_connections: 5       # Limited connections
+  max_idle_connections: 2       # Minimal idle connections
+  connection_max_lifetime: 1h   # Longer lifetime to reduce overhead
+```
+
+**Mixed workload environments:**
+```yaml
+# Separate pools for different query types
+# Read queries
+max_open_connections: 15
+max_idle_connections: 8
+
+# Write queries  
+max_open_connections: 5
+max_idle_connections: 2
+```
+
+### Query Timeout Strategies
+
+**OLTP queries (fast, frequent):**
+```yaml
+timeout: 2s                # Aggressive timeout
+retries: 2                 # Quick failure
+```
+
+**Analytics queries (slow, infrequent):**
+```yaml
+timeout: 30s               # Patient timeout
+retries: 1                 # Don't retry expensive queries
+```
+
+**Lookup queries (cached, frequent):**
+```yaml
+timeout: 1s                # Very aggressive - should be fast
+retries: 3                 # Retry since data is critical
+```
+
+### Error Classification and Handling
+
+```yaml
+processors:
+  - try:
+      - sql_select:
+          driver: postgres
+          data_source_name: ${DB_CONNECTION_STRING}
+          query: ${!this.sql_query}
+          
+    catch:
+      - mapping: |
+          root = this
+          error_msg = error().string()
+          
+          # Connection-level errors (circuit breaker should open)
+          if error_msg.contains("connection refused") || 
+             error_msg.contains("connection timeout") ||
+             error_msg.contains("too many connections") {
+            root.error_category = "connection"
+            root.circuit_breaker_recommendation = "open"
+            root.retry_recommended = false
+          }
+          
+          # Query-level errors (may retry with different query)
+          else if error_msg.contains("timeout") ||
+                  error_msg.contains("deadlock") ||
+                  error_msg.contains("lock timeout") {
+            root.error_category = "query_execution"
+            root.circuit_breaker_recommendation = "monitor"
+            root.retry_recommended = true
+          }
+          
+          # Data-level errors (application logic issue)
+          else if error_msg.contains("constraint") ||
+                  error_msg.contains("invalid input") ||
+                  error_msg.contains("syntax error") {
+            root.error_category = "data_validation"
+            root.circuit_breaker_recommendation = "none"
+            root.retry_recommended = false
+          }
+          
+          else {
+            root.error_category = "unknown"
+            root.circuit_breaker_recommendation = "monitor"
+            root.retry_recommended = false
+          }
+```
+
+## Troubleshooting Database Circuit Breakers
+
+### Issue: Connection Pool Exhaustion
+
+**Symptoms:**
+- Queries hang waiting for available connections
+- "too many connections" errors
+- Pipeline stops processing
+
+**Diagnosis:**
+```bash
+# Check connection pool settings
+expanso get pipeline database-circuit-breaker -o yaml | grep -A5 max_open_connections
+
+# Check database connection count
+docker exec circuit-test-db psql -U test -d circuit_test -c "SELECT count(*) FROM pg_stat_activity WHERE state = 'active';"
+```
+
+**Solutions:**
+
+1. **Increase pool size:**
+```yaml
+sql_select:
+  max_open_connections: 20  # was: 10
+  max_idle_connections: 10  # was: 5
+```
+
+2. **Reduce connection lifetime:**
+```yaml
+sql_select:
+  connection_max_lifetime: 10m  # was: 30m
+  connection_max_idle_time: 2m  # was: 5m
+```
+
+3. **Add connection timeout:**
+```yaml
+sql_select:
+  timeout: 3s  # Fail fast instead of waiting for pool
+```
+
+### Issue: Slow Query Performance
+
+**Symptoms:**
+- Frequent query timeouts
+- High database CPU usage
+- Circuit breaker activating on healthy database
+
+**Diagnosis:**
+```bash
+# Check query performance
+docker exec circuit-test-db psql -U test -d circuit_test -c "
+  SELECT query, mean_exec_time, calls 
+  FROM pg_stat_statements 
+  ORDER BY mean_exec_time DESC 
+  LIMIT 10;"
+
+# Check for long-running queries
+docker exec circuit-test-db psql -U test -d circuit_test -c "
+  SELECT pid, state, query_start, query 
+  FROM pg_stat_activity 
+  WHERE state = 'active' AND query_start < now() - interval '5 seconds';"
+```
+
+**Solutions:**
+
+1. **Add database indexes:**
+```sql
+-- Add index for frequently queried columns
+CREATE INDEX idx_users_user_id ON users(user_id);
+CREATE INDEX idx_users_tier ON users(user_tier);
+```
+
+2. **Optimize queries:**
+```yaml
+query: |
+  SELECT user_name, user_tier, account_type
+  FROM users 
+  WHERE user_id = $1
+  LIMIT 1  -- Add LIMIT for safety
+```
+
+3. **Implement query caching:**
+```yaml
+# Add caching layer before database query
+cache:
+  resource: query_cache
+  operator: get
+  key: query_${!this.user_id}
+```
+
+### Issue: Database Recovery After Outage
+
+**Symptoms:**
+- Database is back online but circuit breaker still failing
+- Connection errors persist after database restart
+- Stale connections in pool
+
+**Diagnosis:**
+```bash
+# Check database status
+docker ps | grep circuit-test-db
+docker logs circuit-test-db --tail=20
+
+# Test direct connection
+docker exec circuit-test-db psql -U test -d circuit_test -c "SELECT version();"
+```
+
+**Solutions:**
+
+1. **Force connection pool refresh:**
+```yaml
+sql_select:
+  connection_max_lifetime: 1m  # Force quick connection recycling
+```
+
+2. **Restart pipeline to clear connection pools:**
+```bash
+expanso restart pipeline database-circuit-breaker
+```
+
+3. **Add connection validation:**
+```yaml
+sql_select:
+  # Test connections before use
+  timeout: 1s  # Quick connection test timeout
+```
+
+### Issue: Inconsistent Circuit Breaker Behavior
+
+**Symptoms:**
+- Some queries succeed, others fail
+- Circuit breaker state appears random
+- Connection pool behaves unpredictably
+
+**Diagnosis:**
+```bash
+# Check for multiple pipeline instances
+expanso get pipeline database-circuit-breaker -o wide
+
+# Check resource allocation
+expanso describe pipeline database-circuit-breaker
+```
+
+**Solutions:**
+
+1. **Standardize connection settings across pipeline instances:**
+```yaml
+sql_select:
+  max_open_connections: 10      # Same on all instances
+  max_idle_connections: 5       # Same on all instances
+  connection_max_lifetime: 30m  # Same on all instances
+```
+
+2. **Use shared connection pool configuration:**
+```yaml
+# Reference shared database configuration
+data_source_name: ${SHARED_DB_CONNECTION_STRING}
+```
+
+3. **Add connection debugging:**
+```yaml
+- log:
+    level: DEBUG
+    message: "DB connection attempt: pool_stats=${!this.db_pool_stats}"
+```
+
+## What You've Learned
+
+You've successfully implemented database circuit breakers that:
+
+✅ **Protect against connection pool exhaustion** with intelligent pool management
+✅ **Handle query timeouts gracefully** preventing pipeline hangs
+✅ **Provide sophisticated fallback strategies** including multi-level caching
+✅ **Distinguish between read and write failures** with appropriate handling
+✅ **Monitor database health** proactively to prevent failures
+✅ **Include comprehensive error classification** for better troubleshooting
+
+The database circuit breaker automatically detects database failures and manages connection pools to prevent cascading failures while maintaining data processing capability.
+
+---
+
+**Next:** [Step 3: Multi-Level Fallback](./step-3-multi-level-fallback) - Implement comprehensive fallback strategies with dead letter queues and recovery mechanisms

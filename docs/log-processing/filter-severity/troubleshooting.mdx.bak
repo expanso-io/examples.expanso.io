@@ -1,0 +1,1037 @@
+---
+title: Troubleshooting Log Severity Filtering
+sidebar_label: Troubleshooting
+sidebar_position: 7
+description: Comprehensive troubleshooting guide for common log filtering issues including parsing failures, routing problems, and performance issues
+keywords: [troubleshooting, debugging, log-processing, error-resolution, performance-tuning]
+---
+
+# Troubleshooting Log Severity Filtering
+
+This comprehensive troubleshooting guide covers the most common issues encountered when implementing log severity filtering, from parsing failures to performance problems and routing issues.
+
+---
+
+## Parsing Issues
+
+### Issue: JSON Parsing Fails for Valid JSON Logs
+
+**Symptom:** Logs that appear to be valid JSON are being processed as plain text instead of parsed JSON objects.
+
+**Diagnosis:**
+```bash
+# Check for hidden characters or encoding issues
+hexdump -C /var/log/app/application.log | head -10
+
+# Test JSON validity manually
+tail -5 /var/log/app/application.log | jq .
+
+# Check for trailing commas or malformed JSON
+grep -n '{.*}' /var/log/app/application.log | head -5
+
+# Test with a specific log entry
+echo '{"timestamp":"2024-01-15T10:30:00Z","level":"ERROR","message":"Test"}' | jq .
+```
+
+**Solutions:**
+
+**1. Clean Hidden Characters:**
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        # Clean input before parsing
+        let cleaned = this.trim()
+        let cleaned = cleaned.re_replace_all("[\x00-\x1F\x7F]", "")  # Remove control characters
+        let cleaned = cleaned.re_replace_all("\\\\n", "")           # Remove escaped newlines
+        
+        let parsed = cleaned.parse_json().catch(null)
+        
+        if parsed != null {
+          root = parsed
+          root.parsing_cleaned = true
+        } else {
+          root.original_message = this
+          root.parsing_failed = true
+        }
+```
+
+**2. Handle Encoding Issues:**
+```yaml
+input:
+  file:
+    paths:
+      - /var/log/app/*.log
+    codec: lines
+    encoding: UTF-8  # Explicitly set encoding
+    # Alternative encodings to try: UTF-16, ISO-8859-1, Windows-1252
+```
+
+**3. Debug Parsing Step-by-Step:**
+```yaml
+- mapping: |
+    # Add debug information
+    let original = this
+    let trimmed = original.trim()
+    let cleaned = trimmed.re_replace_all("[\x00-\x1F\x7F]", "")
+    let parsed = cleaned.parse_json().catch(null)
+    
+    this.debug_parsing = {
+      "original_length": original.length(),
+      "trimmed_length": trimmed.length(),
+      "cleaned_length": cleaned.length(),
+      "starts_with_brace": cleaned.has_prefix("{"),
+      "ends_with_brace": cleaned.has_suffix("}"),
+      "parse_result": if parsed != null { "success" } else { "failed" }
+    }
+```
+
+### Issue: Plain Text Logs Not Extracting Severity Levels
+
+**Symptom:** Plain text logs are not having their severity levels extracted, remaining as UNKNOWN level.
+
+**Diagnosis:**
+```bash
+# Check plain text log format
+head -10 /var/log/app/legacy.log
+
+# Test regex pattern manually
+echo "2024-01-15 10:30:00 [ERROR] Database connection failed" | grep -oE '\[([A-Z]+)\]'
+
+# Check for different date/time formats
+grep -E '\[(ERROR|WARN|INFO|DEBUG)\]' /var/log/app/*.log | head -5
+```
+
+**Solutions:**
+
+**1. Enhanced Pattern Matching:**
+```yaml
+- mapping: |
+    let original = this
+    
+    # Try multiple common log patterns
+    let patterns = [
+      # Standard format: "2024-01-15 10:30:00 [ERROR] message"
+      "(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}) \\[([A-Z]+)\\] (.+)",
+      # Alternative format: "Jan 15 10:30:00 ERROR: message"  
+      "(\\w{3} \\d{2} \\d{2}:\\d{2}:\\d{2}) ([A-Z]+): (.+)",
+      # Syslog format: "Jan 15 10:30:00 host app[123]: ERROR message"
+      "(\\w{3} \\d{2} \\d{2}:\\d{2}:\\d{2}) \\w+ \\w+\\[\\d+\\]: ([A-Z]+) (.+)",
+      # Simple format: "ERROR: message"
+      "([A-Z]+): (.+)"
+    ]
+    
+    let matched = false
+    patterns.for_each(pattern -> {
+      if !matched {
+        let match = original.re_find_all(pattern)
+        if match.length() > 0 {
+          # Handle different pattern groups
+          if match.0.length() == 4 {  # Full timestamp pattern
+            this.timestamp = match.0.1
+            this.level = match.0.2
+            this.message = match.0.3
+          } else if match.0.length() == 3 { # No timestamp
+            this.level = match.0.1
+            this.message = match.0.2
+          }
+          this.extracted_fields = true
+          this.pattern_matched = pattern
+          matched = true
+        }
+      }
+    })
+    
+    if !matched {
+      this.original_message = original
+      this.level = "UNKNOWN"
+    }
+```
+
+**2. Case-Insensitive Level Detection:**
+```yaml
+- mapping: |
+    # Handle case variations in log levels
+    let content = this.string().uppercase()
+    let level_patterns = {
+      "ERROR": ["ERROR", "ERR", "FATAL", "CRITICAL", "CRIT"],
+      "WARN": ["WARN", "WARNING", "ALERT", "CAUTION"],
+      "INFO": ["INFO", "INFORMATION", "NOTICE"],
+      "DEBUG": ["DEBUG", "DBG", "TRACE", "VERBOSE"]
+    }
+    
+    level_patterns.for_each(key, values -> {
+      values.for_each(pattern -> {
+        if content.contains(pattern) && !this.has("level") {
+          this.level = key
+          this.level_detected_by = "pattern_matching"
+        }
+      })
+    })
+```
+
+### Issue: Mixed Format Logs Causing Parser Confusion
+
+**Symptom:** Logs containing both JSON and plain text elements causing parsing errors.
+
+**Example problematic log:**
+```
+2024-01-15 10:30:00 [ERROR] Request failed: {"error":"timeout","duration":"30s"}
+```
+
+**Solution:**
+```yaml
+- mapping: |
+    let original = this
+    
+    # Check if log contains embedded JSON
+    let json_match = original.re_find_all('\\{[^}]+\\}')
+    
+    if json_match.length() > 0 {
+      # Extract the JSON portion
+      let json_part = json_match.0.0
+      let parsed_json = json_part.parse_json().catch(null)
+      
+      # Extract the plain text portion  
+      let text_part = original.re_replace_all('\\{[^}]+\\}', '').trim()
+      
+      if parsed_json != null {
+        root = parsed_json
+        root.log_prefix = text_part
+        root.format_type = "mixed_json_embedded"
+      } else {
+        root.original_message = original
+        root.format_type = "mixed_invalid_json"
+      }
+    } else {
+      # Standard parsing logic
+      let parsed = original.parse_json().catch(null)
+      root = if parsed != null { parsed } else { {"original_message": original} }
+    }
+```
+
+---
+
+## Filtering Issues
+
+### Issue: Important Logs Being Filtered Out
+
+**Symptom:** Expected ERROR or WARN logs are not appearing in the output, being incorrectly filtered.
+
+**Diagnosis:**
+```bash
+# Check the actual level values in your logs
+grep -o '"level":"[^"]*"' /var/log/app/*.log | sort | uniq -c
+
+# Test filtering logic with a specific log
+echo '{"level":"ERROR","message":"test"}' | expanso test filter-pipeline.yaml
+
+# Check for case sensitivity issues
+grep -i error /var/log/app/*.log | head -5
+
+# Verify filtering conditions
+expanso logs filter-pipeline --debug --tail=10
+```
+
+**Solutions:**
+
+**1. Handle Level Field Variations:**
+```yaml
+- mapping: |
+    # Normalize different level field names and values
+    let level_fields = ["level", "severity", "priority", "log_level"]
+    let detected_level = "UNKNOWN"
+    
+    level_fields.for_each(field -> {
+      let value = this.get(field)
+      if value.exists() && detected_level == "UNKNOWN" {
+        detected_level = value.string().uppercase()
+      }
+    })
+    
+    # Normalize level values
+    let level_mappings = {
+      "FATAL": "ERROR",
+      "SEVERE": "ERROR", 
+      "CRITICAL": "ERROR",
+      "WARNING": "WARN",
+      "NOTICE": "INFO",
+      "TRACE": "DEBUG"
+    }
+    
+    this.level = level_mappings.get(detected_level).or(detected_level)
+    this.original_level = detected_level
+```
+
+**2. Add Filter Debug Information:**
+```yaml
+- mapping: |
+    # Add debugging for filter decisions
+    let level = this.level.string().uppercase()
+    let should_pass = level == "ERROR" || level == "WARN"
+    
+    if env("DEBUG_FILTER") == "true" {
+      this.filter_debug = {
+        "level_value": this.level,
+        "level_uppercase": level,
+        "should_pass": should_pass,
+        "has_level_field": this.has("level"),
+        "level_type": typeof(this.level)
+      }
+    }
+    
+    # Apply filter with debug info
+    root = if should_pass { this } else { deleted() }
+```
+
+**3. Flexible Level Matching:**
+```yaml
+- mapping: |
+    # More flexible level matching
+    let level_str = this.level.string().uppercase()
+    let content = this.get("message").string().lowercase()
+    
+    # Primary level check
+    let is_error = level_str == "ERROR" || level_str == "ERR" || level_str == "FATAL"
+    let is_warn = level_str == "WARN" || level_str == "WARNING" || level_str == "ALERT"
+    
+    # Secondary content-based check
+    if !is_error && !is_warn {
+      let error_keywords = ["error", "exception", "fail", "crash", "critical"]
+      let warn_keywords = ["warn", "alert", "caution", "deprecated"]
+      
+      is_error = error_keywords.any(keyword -> content.contains(keyword))
+      is_warn = warn_keywords.any(keyword -> content.contains(keyword))
+    }
+    
+    root = if is_error || is_warn { this } else { deleted() }
+```
+
+### Issue: Too Many False Positives from Keyword Detection
+
+**Symptom:** Non-error logs are being classified as errors due to overly broad keyword matching.
+
+**Examples of false positives:**
+- "Error handling completed successfully"
+- "Warning: this is normal behavior"
+- "Failed to find optional configuration (using defaults)"
+
+**Solution:**
+```yaml
+- mapping: |
+    let content = this.get("message").string().lowercase()
+    
+    # Improved keyword detection with context
+    let error_patterns = [
+      "error occurred",
+      "exception thrown",
+      "failed to (?!find optional)",  # Exclude optional failures
+      "critical failure",
+      "system error",
+      "\\berror\\b(?!.*(handling|recovery|fixed))"  # Exclude error handling
+    ]
+    
+    let warn_patterns = [
+      "warning(?!.*(normal|expected))",  # Exclude normal warnings
+      "deprecated",
+      "will be removed", 
+      "rate limit",
+      "high usage"
+    ]
+    
+    # Negative patterns that indicate false positives
+    let false_positive_patterns = [
+      "error handling",
+      "error recovery",
+      "no error",
+      "error fixed",
+      "warning.*normal",
+      "successfully"
+    ]
+    
+    # Check for false positives first
+    let is_false_positive = false_positive_patterns.any(pattern -> content.re_test(pattern))
+    
+    if !is_false_positive {
+      if error_patterns.any(pattern -> content.re_test(pattern)) {
+        this.level = "ERROR"
+        this.severity_detected_by = "improved_keyword_analysis"
+      } else if warn_patterns.any(pattern -> content.re_test(pattern)) {
+        this.level = "WARN"
+        this.severity_detected_by = "improved_keyword_analysis"
+      }
+    }
+```
+
+---
+
+## Routing Issues
+
+### Issue: Logs Not Reaching Expected Destination
+
+**Symptom:** ERROR logs are appearing in stdout instead of the designated error file, or logs are going to unexpected destinations.
+
+**Diagnosis:**
+```bash
+# Check routing conditions
+echo '{"level":"ERROR","message":"test"}' | expanso test routing-pipeline.yaml --debug
+
+# Verify file permissions and directory existence
+ls -la /var/log/expanso/
+touch /var/log/expanso/test-write && rm /var/log/expanso/test-write
+
+# Check for case sensitivity in routing
+grep -E '(check:|level)' routing-pipeline.yaml
+
+# Monitor routing decisions
+tail -f /var/log/expanso/routing-audit.log
+```
+
+**Solutions:**
+
+**1. Fix Case Sensitivity in Routing:**
+```yaml
+output:
+  switch:
+    cases:
+      - check: this.level.string().uppercase() == "ERROR"  # Case-insensitive
+        output:
+          file:
+            path: /var/log/expanso/errors.json
+            codec: lines
+
+      - check: this.level.string().uppercase() == "WARN"
+        output:
+          stdout:
+            codec: lines
+```
+
+**2. Add Routing Debug Information:**
+```yaml
+pipeline:
+  processors:
+    # Add routing debug before output
+    - mapping: |
+        let level = this.level.string().uppercase()
+        
+        if env("DEBUG_ROUTING") == "true" {
+          this.routing_debug = {
+            "level_value": this.level,
+            "level_uppercase": level,
+            "is_error": level == "ERROR",
+            "is_warn": level == "WARN",
+            "routing_timestamp": now()
+          }
+        }
+```
+
+**3. Implement Fallback Routing:**
+```yaml
+output:
+  switch:
+    cases:
+      - check: this.level.string().uppercase() == "ERROR"
+        output:
+          broker:
+            pattern: try
+            outputs:
+              # Primary: file output
+              - file:
+                  path: /var/log/expanso/errors.json
+                  codec: lines
+              
+              # Fallback: stdout if file fails
+              - stdout:
+                  codec: lines
+                processors:
+                  - mapping: |
+                      this.routing_fallback = "file_write_failed"
+
+      - output:  # Catch-all for any unmatched logs
+          file:
+            path: /var/log/expanso/unrouted.json
+            codec: lines
+```
+
+### Issue: File Write Failures
+
+**Symptom:** Logs are missing from output files, often with disk space or permission errors.
+
+**Diagnosis:**
+```bash
+# Check disk space
+df -h /var/log/expanso/
+
+# Check permissions
+ls -la /var/log/expanso/
+
+# Check for file locks or processes holding files
+lsof /var/log/expanso/errors.json
+
+# Check system logs for I/O errors
+dmesg | grep -i "error\|fail" | tail -10
+
+# Test file write manually
+echo "test" > /var/log/expanso/test-write.json
+```
+
+**Solutions:**
+
+**1. Implement Disk Space Monitoring:**
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        # Check available disk space (if df command available)
+        let disk_check = "df -h /var/log/expanso/ | tail -1 | awk '{print $5}' | sed 's/%//'"
+        
+        # Simple heuristic based on file count (fallback)
+        let error_files = "/var/log/expanso/errors/*.json"
+        
+        # Add warning if disk might be full
+        if this.level == "ERROR" {
+          this.disk_usage_warning = "monitor_disk_space"
+          this.fallback_recommended = true
+        }
+```
+
+**2. Add File Rotation:**
+```yaml
+output:
+  switch:
+    cases:
+      - check: this.level == "ERROR"
+        output:
+          file:
+            path: /var/log/expanso/errors/${!timestamp_unix_date()}.json
+            codec: lines
+            # Automatic file rotation
+            batching:
+              count: 1000        # New file every 1000 logs
+              period: 3600s      # Or every hour
+            # Compression for old files
+            compression: gzip
+```
+
+**3. Implement Graceful Fallback:**
+```yaml
+output:
+  switch:
+    cases:
+      - check: this.level == "ERROR"
+        output:
+          broker:
+            pattern: try
+            outputs:
+              # Primary: regular file
+              - file:
+                  path: /var/log/expanso/errors.json
+                  codec: lines
+
+              # Fallback 1: temporary file
+              - file:
+                  path: /tmp/expanso-errors-fallback.json
+                  codec: lines
+
+              # Fallback 2: stdout 
+              - stdout:
+                  codec: lines
+```
+
+---
+
+## Performance Issues
+
+### Issue: High Memory Usage During Processing
+
+**Symptom:** Pipeline consuming excessive memory, especially with large log files or high volume.
+
+**Diagnosis:**
+```bash
+# Monitor memory usage
+ps aux | grep expanso
+top -p $(pgrep expanso)
+
+# Check log file sizes
+ls -lh /var/log/app/*.log
+
+# Monitor processing queue depth
+expanso stats pipeline-name --memory
+
+# Check for memory leaks
+valgrind --tool=memcheck expanso run pipeline.yaml
+```
+
+**Solutions:**
+
+**1. Optimize Memory Settings:**
+```yaml
+input:
+  file:
+    paths:
+      - /var/log/app/*.log
+    codec: lines
+    # Reduce memory footprint
+    max_buffer: 10MB      # Reduce from default 100MB
+    multipart: false      # Prevent loading entire files
+    scanner:
+      max_buffer: 100KB   # Smaller scanner buffer
+```
+
+**2. Implement Streaming Processing:**
+```yaml
+pipeline:
+  processors:
+    # Process in smaller batches
+    - archive:
+        format: lines
+        
+    - branch:
+        # Limit concurrent processing
+        max_in_flight: 100
+        processors:
+          - mapping: |
+              # Lightweight processing only
+              let parsed = this.parse_json().catch(null)
+              root = if parsed != null { 
+                {"level": parsed.level, "message": parsed.message}
+              } else { 
+                {"original": this}
+              }
+```
+
+**3. Add Memory Monitoring:**
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        # Periodic memory usage reporting
+        let counter = meta("message_count").or(0) + 1
+        meta message_count = counter
+        
+        if counter % 1000 == 0 {
+          # Log memory usage periodically
+          this.memory_check = {
+            "messages_processed": counter,
+            "check_timestamp": now()
+          }
+        }
+```
+
+### Issue: High CPU Usage with Complex Regex
+
+**Symptom:** CPU usage spikes when processing logs with complex pattern matching.
+
+**Diagnosis:**
+```bash
+# Profile CPU usage
+perf top -p $(pgrep expanso)
+
+# Check regex complexity
+echo "complex pattern" | time expanso test pipeline.yaml
+
+# Monitor processing rate
+expanso logs pipeline-name --stats
+```
+
+**Solutions:**
+
+**1. Optimize Regex Patterns:**
+```yaml
+- mapping: |
+    # Use simple string operations before expensive regex
+    let original = this
+    
+    if original.contains("[") && original.contains("]") {
+      # Only use regex on logs that likely match
+      let match = original.re_find_all("(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}) \\[([A-Z]+)\\] (.+)")
+      
+      if match.length() > 0 {
+        root.timestamp = match.0.1
+        root.level = match.0.2
+        root.message = match.0.3
+      }
+    } else {
+      # Skip regex for obviously non-matching logs
+      root.original_message = original
+      root.level = "UNKNOWN"
+    }
+```
+
+**2. Use Simpler Alternatives:**
+```yaml
+- mapping: |
+    # Replace complex regex with string operations
+    let original = this
+    
+    # Find level using string operations
+    let level_start = original.index_of("[")
+    let level_end = original.index_of("]")
+    
+    if level_start >= 0 && level_end > level_start {
+      let level_part = original.slice(level_start + 1, level_end)
+      
+      if ["ERROR", "WARN", "INFO", "DEBUG"].contains(level_part) {
+        root.level = level_part
+        root.message = original.slice(level_end + 2)  # Skip "] "
+        root.timestamp = original.slice(0, level_start).trim()
+      } else {
+        root.original_message = original
+      }
+    }
+```
+
+### Issue: Slow File Processing
+
+**Symptom:** Pipeline takes a long time to process log files, especially large ones.
+
+**Solutions:**
+
+**1. Parallel File Processing:**
+```yaml
+input:
+  file:
+    paths:
+      - /var/log/app/*.log
+    codec: lines
+    # Process multiple files concurrently
+    max_readers: 4  # Number of concurrent file readers
+    
+pipeline:
+  processors:
+    # Parallel processing branches
+    - branch:
+        processors:
+          - mapping: |
+              # Lightweight processing in parallel
+              root = this.parse_json().catch({"original": this})
+        # Control concurrency
+        max_in_flight: 500
+```
+
+**2. Skip Large Files:**
+```yaml
+input:
+  file:
+    paths:
+      - /var/log/app/*.log
+    codec: lines
+    # Skip excessively large files
+    max_log_size: 100MB
+    
+    # File filtering
+    ignore_patterns:
+      - "*.gz"      # Skip compressed files
+      - "*debug*"   # Skip debug logs
+```
+
+---
+
+## Output Issues
+
+### Issue: Missing Log Entries in Output Files
+
+**Symptom:** Some logs are processed but don't appear in the expected output files.
+
+**Diagnosis:**
+```bash
+# Compare input vs output counts
+echo "Input logs: $(wc -l /var/log/app/*.log)"
+echo "Output logs: $(wc -l /var/log/expanso/errors.json)"
+
+# Check for filtering statistics
+expanso logs pipeline --grep "filtered\|deleted" --tail=20
+
+# Verify output file integrity
+tail -10 /var/log/expanso/errors.json | jq .
+```
+
+**Solutions:**
+
+**1. Add Processing Statistics:**
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        # Count processed vs filtered logs
+        let counter = meta("total_processed").or(0) + 1
+        let filtered = meta("total_filtered").or(0)
+        
+        meta total_processed = counter
+        
+        if this.level == "ERROR" || this.level == "WARN" {
+          # Log passes filter
+          this.processing_stats = {
+            "total_processed": counter,
+            "total_filtered": filtered,
+            "pass_rate": counter / (counter + filtered)
+          }
+          root = this
+        } else {
+          # Log filtered out
+          meta total_filtered = filtered + 1
+          root = deleted()
+        }
+```
+
+**2. Implement Audit Logging:**
+```yaml
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Main output
+      - switch:
+          cases:
+            - check: this.level == "ERROR"
+              output:
+                file:
+                  path: /var/log/expanso/errors.json
+      
+      # Processing audit
+      - file:
+          path: /var/log/expanso/processing-audit.log
+        processors:
+          - mapping: |
+              root = {
+                "timestamp": now(),
+                "original_level": this.level,
+                "processing_decision": "passed_filter",
+                "output_destination": if this.level == "ERROR" { "error_file" } else { "monitoring" }
+              }
+```
+
+### Issue: Corrupted Output Files
+
+**Symptom:** Output files contain malformed JSON or incomplete log entries.
+
+**Diagnosis:**
+```bash
+# Check for malformed JSON
+jq . /var/log/expanso/errors.json
+
+# Look for truncated entries
+tail -5 /var/log/expanso/errors.json | wc -c
+
+# Check file permissions and locks
+lsof /var/log/expanso/errors.json
+```
+
+**Solutions:**
+
+**1. Add Data Validation:**
+```yaml
+output:
+  switch:
+    cases:
+      - check: this.level == "ERROR"
+        output:
+          file:
+            path: /var/log/expanso/errors.json
+            codec: lines
+        processors:
+          - mapping: |
+              # Validate data before output
+              let required_fields = ["level", "processed_at", "node_id"]
+              let validation_passed = required_fields.all(field -> this.has(field))
+              
+              if validation_passed {
+                root = this
+              } else {
+                root.validation_error = "missing_required_fields"
+                root.missing_fields = required_fields.filter(field -> !this.has(field))
+              }
+```
+
+**2. Implement File Integrity Checking:**
+```yaml
+output:
+  file:
+    path: /var/log/expanso/errors.json
+    codec: lines
+    # Add file integrity features
+    sync_every: 100     # Force sync every 100 writes
+    close_after: 3600s  # Close and reopen files periodically
+```
+
+---
+
+## Network and Connectivity Issues
+
+### Issue: Remote Output Destinations Failing
+
+**Symptom:** When using HTTP outputs or remote destinations, logs fail to reach their destination.
+
+**Diagnosis:**
+```bash
+# Test network connectivity
+curl -v http://remote-endpoint/test
+
+# Check DNS resolution
+nslookup remote-endpoint
+
+# Monitor network traffic
+tcpdump -i any host remote-endpoint
+
+# Check proxy settings
+echo $http_proxy $https_proxy
+```
+
+**Solutions:**
+
+**1. Implement Retry Logic:**
+```yaml
+output:
+  http_client:
+    url: http://remote-endpoint/logs
+    verb: POST
+    # Retry configuration
+    retry_until_success: true
+    max_retries: 5
+    backoff:
+      initial_interval: 1s
+      max_interval: 30s
+      multiplier: 2.0
+```
+
+**2. Add Local Fallback:**
+```yaml
+output:
+  broker:
+    pattern: try
+    outputs:
+      # Primary: remote endpoint
+      - http_client:
+          url: http://remote-endpoint/logs
+          verb: POST
+          
+      # Fallback: local file
+      - file:
+          path: /var/log/expanso/remote-fallback.json
+          codec: lines
+        processors:
+          - mapping: |
+              this.fallback_reason = "remote_endpoint_unavailable"
+              this.retry_recommended = true
+```
+
+---
+
+## Compliance and Security Issues
+
+### Issue: Sensitive Data in Logs
+
+**Symptom:** Logs contain PII, credentials, or other sensitive data that shouldn't be stored or transmitted.
+
+**Diagnosis:**
+```bash
+# Scan for common PII patterns
+grep -E '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}' /var/log/expanso/errors.json
+grep -E '\b\d{3}-\d{2}-\d{4}\b' /var/log/expanso/errors.json
+grep -i -E 'password|secret|token|key' /var/log/expanso/errors.json
+```
+
+**Solutions:**
+
+**1. Implement Data Sanitization:**
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        # Detect and sanitize sensitive data
+        let content = this.get("message").string()
+        
+        # Email sanitization
+        content = content.re_replace_all("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}", "[EMAIL_REDACTED]")
+        
+        # SSN sanitization
+        content = content.re_replace_all("\\b\\d{3}-\\d{2}-\\d{4}\\b", "[SSN_REDACTED]")
+        
+        # Credit card sanitization
+        content = content.re_replace_all("\\b\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}\\b", "[CC_REDACTED]")
+        
+        # Password/secret sanitization
+        content = content.re_replace_all("(?i)(password|secret|token|key)\\s*[:=]\\s*[^\\s]+", "$1=[REDACTED]")
+        
+        this.message = content
+        this.sanitization_applied = true
+```
+
+**2. Add Data Classification:**
+```yaml
+- mapping: |
+    # Classify data sensitivity
+    let content = this.get("message").string().lowercase()
+    let sensitive_indicators = ["password", "token", "key", "secret", "ssn", "email"]
+    
+    this.data_classification = if sensitive_indicators.any(indicator -> content.contains(indicator)) {
+      "SENSITIVE"
+    } else {
+      "INTERNAL"
+    }
+    
+    # Apply retention policies based on classification
+    if this.data_classification == "SENSITIVE" {
+      this.retention_days = 30
+      this.encryption_required = true
+    } else {
+      this.retention_days = 90
+    }
+```
+
+---
+
+## Getting Help
+
+If you're still experiencing issues after trying these solutions:
+
+1. **Enable Debug Logging:**
+```bash
+export DEBUG_FILTER=true
+export DEBUG_ROUTING=true
+export DEBUG_PARSING=true
+expanso run pipeline.yaml --log-level debug
+```
+
+2. **Collect Diagnostic Information:**
+```bash
+# System information
+uname -a
+df -h
+free -m
+
+# Expanso information
+expanso version
+expanso config show
+
+# Log samples
+head -20 /var/log/app/*.log
+tail -20 /var/log/expanso/*.json
+```
+
+3. **Simplify the Problem:**
+   - Start with a minimal configuration
+   - Test with a single small log file
+   - Add complexity gradually
+   - Isolate the failing component
+
+4. **Community Support:**
+   - [Expanso Documentation](https://docs.expanso.io)
+   - [Community Forum](https://community.expanso.io)
+   - [GitHub Issues](https://github.com/expanso-io/expanso/issues)
+
+5. **Provide Context When Asking for Help:**
+   - Complete error messages
+   - Configuration files (with sensitive data removed)
+   - Log samples showing the issue
+   - Environment details (OS, Expanso version, etc.)
+   - Steps to reproduce the problem
+
+---
+
+## Related Resources
+
+- [**Complete Pipeline**](./complete-filter-severity) - Full production-ready configuration
+- [**Step-by-Step Tutorials**](./setup) - Individual component tutorials
+- [**Performance Tuning Guide**](https://docs.expanso.io/performance) - Optimization best practices
+- [**Security Best Practices**](https://docs.expanso.io/security) - Data protection guidelines

@@ -1,0 +1,632 @@
+---
+title: "Step 5 - Enable Selective Decryption"
+sidebar_label: "Step 5: Selective Decryption"
+sidebar_position: 8
+description: Implement granular access control for decrypting specific data types by authorized services
+keywords: [decryption, access-control, authorization, service-authentication, granular-permissions]
+---
+
+# Step 5: Enable Selective Decryption
+
+Production systems require granular access control where different services can decrypt only the data they need. This step implements selective decryption with service-based authorization, allowing fraud detection systems to access card data while customer service accesses contact information.
+
+## Learning Objectives
+
+By the end of this step, you'll be able to:
+
+✅ **Implement service-based authorization** for decryption access
+✅ **Segregate decryption keys** by data type and use case
+✅ **Audit decryption requests** for compliance and security monitoring
+✅ **Handle authorization failures** gracefully with proper error responses
+✅ **Support emergency access** procedures for incident response
+✅ **Monitor decryption patterns** for security anomaly detection
+
+## Problem: All-or-Nothing Access
+
+Traditional encryption provides binary access: either decrypt everything or nothing:
+
+```json title="Traditional approach - decrypt all or none"
+{
+  "payment": {
+    // Either ALL fields decrypted or NONE
+    "card_number": "4532-1234-5678-9010",      // ❌ Fraud system needs this
+    "cvv": "123",                             // ❌ But NOT this  
+    "cardholder_name": "Sarah Johnson"         // ❌ Or this
+  },
+  "customer": {
+    "ssn": "123-45-6789",                     // ❌ Customer service needs this
+    "email": "sarah.johnson@example.com",      // ❌ And this
+    "phone": "+1-415-555-0123"                // ❌ And this
+  }
+}
+```
+
+**Security problems:**
+- **Over-privileged access** - Services get more data than needed
+- **Single key vulnerability** - One key compromise affects all data
+- **Audit complexity** - Cannot track which data types are accessed
+- **Compliance violations** - Principle of least privilege not followed
+
+## Solution: Granular Decryption Control
+
+Implement service-specific decryption permissions:
+
+```yaml title="Service authorization matrix"
+services:
+  fraud-detection:
+    permissions: ["decrypt_card_data", "decrypt_transaction_patterns"]
+    prohibited: ["decrypt_pii", "decrypt_contact_info"]
+    
+  customer-service:  
+    permissions: ["decrypt_contact_info", "decrypt_partial_pii"]
+    prohibited: ["decrypt_card_data", "decrypt_full_ssn"]
+    
+  analytics:
+    permissions: ["read_metadata", "read_aggregated_data"] 
+    prohibited: ["decrypt_any_fields"]
+    
+  payment-processor:
+    permissions: ["decrypt_card_data", "decrypt_billing_address"]
+    prohibited: ["decrypt_personal_pii"]
+```
+
+## Implementation
+
+### Step 5.1: Service Authorization System
+
+```yaml title="selective-decryption.yaml"
+apiVersion: expanso.io/v1
+kind: DataPipeline
+metadata:
+  name: selective-decryption-service
+  namespace: default
+spec:
+  processors:
+    - name: authenticate-service
+      type: mapping
+      config:
+        mapping: |
+          # Extract service identity from request
+          let service_id = metadata().http.request.headers."X-Service-ID"
+          let auth_token = metadata().http.request.headers."Authorization"
+          let api_key = metadata().http.request.headers."X-API-Key"
+          
+          # Validate service authentication
+          root = if service_id.type() != "string" || service_id.length() == 0 {
+            throw("X-Service-ID header is required")
+          } else if auth_token.type() != "string" || !auth_token.has_prefix("Bearer ") {
+            throw("Valid Authorization Bearer token is required")
+          } else {
+            this.merge({
+              "requesting_service": {
+                "service_id": service_id,
+                "auth_token": auth_token.slice(7),  # Remove "Bearer "
+                "api_key": api_key,
+                "request_timestamp": now(),
+                "source_ip": metadata().http.request.remote_addr
+              }
+            })
+          }
+          
+    - name: validate-service-permissions
+      type: mapping
+      config:
+        mapping: |
+          let service_id = this.requesting_service.service_id
+          
+          # Define service permission matrix
+          let service_permissions = {
+            "fraud-detection": [
+              "decrypt_card_data", 
+              "decrypt_transaction_metadata",
+              "read_fraud_indicators"
+            ],
+            "customer-service": [
+              "decrypt_contact_info",
+              "decrypt_partial_ssn", 
+              "decrypt_billing_address",
+              "read_customer_metadata"
+            ],
+            "payment-processor": [
+              "decrypt_card_data",
+              "decrypt_billing_address",
+              "decrypt_transaction_data"
+            ],
+            "analytics": [
+              "read_metadata",
+              "read_aggregated_data"
+            ],
+            "compliance-audit": [
+              "read_encryption_metadata",
+              "audit_access_logs"
+            ],
+            "emergency-access": [
+              "decrypt_all_fields"  # Special emergency override
+            ]
+          }
+          
+          # Get permissions for requesting service
+          let allowed_permissions = service_permissions.get(service_id)
+          
+          root = if allowed_permissions.type() == "null" {
+            throw("Unauthorized service: " + service_id)
+          } else {
+            this.merge({
+              "service_permissions": {
+                "service_id": service_id,
+                "allowed_operations": allowed_permissions,
+                "permission_level": if allowed_permissions.contains("decrypt_all_fields") {
+                  "emergency"
+                } else if allowed_permissions.contains("decrypt_card_data") {
+                  "high_privilege" 
+                } else if allowed_permissions.contains("decrypt_contact_info") {
+                  "medium_privilege"
+                } else {
+                  "read_only"
+                }
+              }
+            })
+          }
+          
+    - name: selective-field-decryption
+      type: mapping
+      config:
+        mapping: |
+          let permissions = this.service_permissions.allowed_operations
+          let service_id = this.service_permissions.service_id
+          
+          root = this
+          
+          # Decrypt payment data based on permissions
+          root.payment = if this.payment.exists() && permissions.contains("decrypt_card_data") {
+            # Retrieve card encryption key
+            let card_key_response = http_request(
+              "GET",
+              env("VAULT_ADDR") + "/v1/secret/data/expanso/encryption/current",
+              {},
+              {"X-Vault-Token": env("VAULT_TOKEN")}
+            )
+            let card_key = card_key_response.body.data.data.card_encryption_key
+            
+            # Decrypt card fields
+            this.payment.merge({
+              "card_number": if this.payment.card_number_encrypted.exists() {
+                crypto.decrypt_aes256_gcm(
+                  this.payment.card_number_encrypted.split(":").slice(1).join(":"),
+                  card_key
+                )
+              },
+              "cvv": if this.payment.cvv_encrypted.exists() && service_id != "fraud-detection" {
+                # CVV only for payment processors, not fraud detection
+                crypto.decrypt_aes256_gcm(
+                  this.payment.cvv_encrypted.split(":").slice(1).join(":"),
+                  card_key
+                )
+              }
+            }).without_keys(["card_number_encrypted", "cvv_encrypted"])
+          } else {
+            # Return only metadata for unauthorized services
+            this.payment.without_keys([
+              "card_number_encrypted", "cvv_encrypted", "cardholder_name_encrypted"
+            ]).merge({
+              "decryption_denied": {
+                "reason": "insufficient_permissions",
+                "required_permission": "decrypt_card_data",
+                "service_permissions": permissions
+              }
+            })
+          }
+          
+          # Decrypt customer PII based on permissions
+          root.customer = if this.customer.exists() && permissions.contains("decrypt_contact_info") {
+            # Retrieve PII encryption key
+            let pii_key_response = http_request(
+              "GET", 
+              env("VAULT_ADDR") + "/v1/secret/data/expanso/encryption/current",
+              {},
+              {"X-Vault-Token": env("VAULT_TOKEN")}
+            )
+            let pii_key = pii_key_response.body.data.data.pii_encryption_key
+            
+            # Decrypt contact fields
+            this.customer.merge({
+              "email": if this.customer.email_encrypted.exists() {
+                crypto.decrypt_aes256_gcm(
+                  this.customer.email_encrypted.split(":").slice(1).join(":"),
+                  pii_key
+                )
+              },
+              "phone": if this.customer.phone_encrypted.exists() {
+                crypto.decrypt_aes256_gcm(
+                  this.customer.phone_encrypted.split(":").slice(1).join(":"),  
+                  pii_key
+                )
+              },
+              "ssn": if this.customer.ssn_encrypted.exists() && permissions.contains("decrypt_partial_ssn") {
+                # Only last 4 digits for customer service
+                let decrypted_ssn = crypto.decrypt_aes256_gcm(
+                  this.customer.ssn_encrypted.split(":").slice(1).join(":"),
+                  pii_key
+                )
+                "***-**-" + decrypted_ssn.slice(-4)
+              }
+            }).without_keys(["email_encrypted", "phone_encrypted", "ssn_encrypted"])
+          } else {
+            # Return only preserved metadata
+            this.customer.without_keys([
+              "email_encrypted", "phone_encrypted", "ssn_encrypted"
+            ])
+          }
+          
+    - name: log-decryption-access
+      type: mapping
+      config:
+        mapping: |
+          # Create detailed audit log
+          let audit_entry = {
+            "event_type": "selective_decryption",
+            "service_id": this.requesting_service.service_id,
+            "permission_level": this.service_permissions.permission_level,
+            "decrypted_fields": [],
+            "denied_fields": [],
+            "transaction_id": this.transaction_id,
+            "timestamp": now(),
+            "source_ip": this.requesting_service.source_ip,
+            "auth_method": "service_token",
+            "compliance_note": "access_controlled_decryption"
+          }
+          
+          # Track what was actually decrypted
+          let decrypted_fields = []
+          let denied_fields = []
+          
+          if this.payment.card_number.exists() {
+            decrypted_fields = decrypted_fields.append("payment.card_number")
+          } else if this.payment.card_number_encrypted.exists() {
+            denied_fields = denied_fields.append("payment.card_number")
+          }
+          
+          if this.customer.email.exists() {
+            decrypted_fields = decrypted_fields.append("customer.email")
+          } else if this.customer.email_encrypted.exists() {
+            denied_fields = denied_fields.append("customer.email")
+          }
+          
+          audit_entry.decrypted_fields = decrypted_fields
+          audit_entry.denied_fields = denied_fields
+          
+          # Send to audit system
+          http_request("POST", env("AUDIT_LOG_ENDPOINT"), audit_entry, {
+            "Authorization": "Bearer " + env("AUDIT_API_KEY"),
+            "Content-Type": "application/json"
+          })
+          
+          root = this.merge({
+            "access_audit": {
+              "decrypted_fields": decrypted_fields,
+              "denied_fields": denied_fields,
+              "audit_logged": true
+            }
+          })
+
+  input:
+    http_server:
+      address: "0.0.0.0:8443"
+      path: /decrypt/selective
+      allowed_verbs: ["POST"]
+      timeout: "30s"
+      tls:
+        enabled: true
+        cert_file: "/etc/expanso/certs/server.crt" 
+        key_file: "/etc/expanso/certs/server.key"
+
+  output:
+    stdout: {}
+    
+  environment:
+    VAULT_ADDR: "${VAULT_ADDR}"
+    VAULT_TOKEN: "${VAULT_TOKEN}"
+    AUDIT_LOG_ENDPOINT: "${AUDIT_LOG_ENDPOINT}"
+    AUDIT_API_KEY: "${AUDIT_API_KEY}"
+```
+
+### Step 5.2: Test Service-Based Decryption
+
+```bash title="Test fraud detection service access"
+# Fraud detection service - should get card data, no PII
+curl -X POST https://localhost:8443/decrypt/selective \
+  --cacert /etc/expanso/certs/ca.crt \
+  --cert /etc/expanso/certs/client.crt \
+  --key /etc/expanso/certs/client.key \
+  -H "Content-Type: application/json" \
+  -H "X-Service-ID: fraud-detection" \
+  -H "Authorization: Bearer fraud_service_token_123" \
+  -d '{
+    "transaction_id": "txn_fraud_001",
+    "payment": {
+      "card_number_encrypted": "v1:YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY=:8f3e2a1b9c4d7e6f",
+      "cvv_encrypted": "v1:cGFzc3dvcmQxMjM0NTY3ODkwYWJjZGVmZ2hp:1a2b3c4d5e6f7g8h",
+      "card_last_four": "9010",
+      "card_brand": "visa"
+    },
+    "customer": {
+      "email_encrypted": "v1:ZW1haWxkYXRhaGVyZWZvcnRlc3Rpbmdwcm9wb3Nlcw==:6d5c4b3a2g1h0f9e",
+      "email_domain": "example.com",
+      "ssn_last_four": "6789"
+    }
+  }'
+```
+
+**Expected response (fraud detection):**
+```json
+{
+  "transaction_id": "txn_fraud_001",
+  "payment": {
+    "card_number": "4532-1234-5678-9010",    // ✅ Decrypted for fraud analysis
+    "card_last_four": "9010",
+    "card_brand": "visa"
+    // CVV not decrypted - fraud detection doesn't need it
+  },
+  "customer": {
+    "email_domain": "example.com",             // ✅ Metadata preserved
+    "ssn_last_four": "6789",                   // ✅ Metadata preserved
+    "decryption_denied": {
+      "reason": "insufficient_permissions",
+      "required_permission": "decrypt_contact_info"
+    }
+  }
+}
+```
+
+```bash title="Test customer service access"
+# Customer service - should get contact info, partial SSN
+curl -X POST https://localhost:8443/decrypt/selective \
+  -H "Content-Type: application/json" \
+  -H "X-Service-ID: customer-service" \
+  -H "Authorization: Bearer customer_service_token_456" \
+  --cacert /etc/expanso/certs/ca.crt \
+  -d '{
+    "transaction_id": "txn_cs_001", 
+    "payment": {
+      "card_number_encrypted": "v1:YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY=",
+      "card_last_four": "9010"
+    },
+    "customer": {
+      "email_encrypted": "v1:ZW1haWxkYXRhaGVyZWZvcnRlc3Rpbmdwcm9wb3Nlcw==",
+      "phone_encrypted": "v1:cGhvbmVkYXRhaGVyZWZvcnRlc3Rpbmdwcm9wb3Nlcw==",
+      "ssn_encrypted": "v1:c3NuZGF0YWhlcmVmb3J0ZXN0aW5ncHVycG9zZXM="
+    }
+  }'
+```
+
+**Expected response (customer service):**
+```json
+{
+  "transaction_id": "txn_cs_001",
+  "payment": {
+    "card_last_four": "9010",                 // ✅ Metadata only
+    "decryption_denied": {
+      "reason": "insufficient_permissions",
+      "required_permission": "decrypt_card_data"
+    }
+  },
+  "customer": {
+    "email": "sarah.johnson@example.com",      // ✅ Decrypted for customer service  
+    "phone": "+1-415-555-0123",               // ✅ Decrypted for customer service
+    "ssn": "***-**-6789"                     // ✅ Partial decryption only
+  }
+}
+```
+
+## Advanced Authorization Patterns
+
+### Pattern 1: Time-Limited Access
+
+```yaml title="Time-based authorization"
+- name: validate-time-based-access
+  type: mapping
+  config:
+    mapping: |
+      # Check if service has time-limited access
+      let access_window = if this.requesting_service.service_id == "emergency-access" {
+        # Emergency access only during incidents
+        let incident_active = http_request("GET", env("INCIDENT_API_URL") + "/active")
+        incident_active.body.active
+      } else if this.requesting_service.service_id == "compliance-audit" {
+        # Audit access only during business hours
+        let current_hour = now().format_timestamp("15").number()
+        current_hour >= 9 && current_hour <= 17  # 9 AM - 5 PM
+      } else {
+        true  # No time restrictions
+      }
+      
+      root = if !access_window {
+        throw("Service access denied outside authorized time window")
+      } else {
+        this
+      }
+```
+
+### Pattern 2: Purpose-Based Access
+
+```yaml title="Purpose-based authorization"
+- name: validate-access-purpose
+  type: mapping
+  config:
+    mapping: |
+      let access_purpose = metadata().http.request.headers."X-Access-Purpose"
+      let service_id = this.requesting_service.service_id
+      
+      # Define valid purposes by service
+      let valid_purposes = {
+        "fraud-detection": ["fraud_investigation", "risk_assessment"],
+        "customer-service": ["customer_inquiry", "dispute_resolution"],
+        "payment-processor": ["transaction_processing", "settlement"]
+      }
+      
+      let allowed_purposes = valid_purposes.get(service_id)
+      
+      root = if !allowed_purposes.contains(access_purpose) {
+        throw("Invalid access purpose '" + access_purpose + "' for service " + service_id)
+      } else {
+        this.merge({
+          "access_context": {
+            "purpose": access_purpose,
+            "justified": true,
+            "compliance_basis": "legitimate_business_need"
+          }
+        })
+      }
+```
+
+### Pattern 3: Data Residency Controls
+
+```yaml title="Geographic access controls"
+- name: enforce-data-residency
+  type: mapping
+  config:
+    mapping: |
+      let source_country = metadata().http.request.headers."X-Source-Country"
+      let data_origin = this.customer.country  # From preserved metadata
+      
+      # EU data can only be decrypted from EU locations
+      let gdpr_restricted = if data_origin == "EU" || ["DE", "FR", "IT", "ES"].contains(data_origin) {
+        !["EU", "DE", "FR", "IT", "ES", "NL", "BE"].contains(source_country)
+      } else { false }
+      
+      root = if gdpr_restricted {
+        throw("GDPR violation: EU data cannot be decrypted from " + source_country)
+      } else {
+        this.merge({
+          "data_residency": {
+            "data_origin": data_origin,
+            "access_location": source_country,
+            "compliance_check": "passed"
+          }
+        })
+      }
+```
+
+## Security Monitoring and Anomaly Detection
+
+### Pattern 1: Access Pattern Analysis
+
+```yaml title="Access anomaly detection"
+- name: detect-access-anomalies
+  type: mapping
+  config:
+    mapping: |
+      # Analyze recent access patterns for this service
+      let access_history = http_request(
+        "GET",
+        env("ANALYTICS_API_URL") + "/access-patterns/" + this.requesting_service.service_id,
+        {},
+        {"Authorization": "Bearer " + env("ANALYTICS_API_KEY")}
+      )
+      
+      let recent_access = access_history.body
+      let current_hour = now().format_timestamp("15").number()
+      
+      # Check for anomalies
+      let anomalies = {
+        "unusual_time": current_hour < 6 || current_hour > 22,  # Outside business hours
+        "high_volume": recent_access.requests_last_hour > recent_access.avg_hourly * 3,
+        "new_source_ip": !recent_access.known_ips.contains(this.requesting_service.source_ip),
+        "unusual_fields": this.payment.exists() && this.requesting_service.service_id == "analytics"
+      }
+      
+      let risk_score = anomalies.values().fold(0, (acc, anomaly) -> if anomaly { acc + 25 } else { acc })
+      
+      # Alert on high risk access
+      if risk_score >= 50 {
+        http_request("POST", env("SECURITY_ALERT_URL"), {
+          "alert": "suspicious_decryption_access",
+          "service_id": this.requesting_service.service_id,
+          "risk_score": risk_score,
+          "anomalies": anomalies,
+          "timestamp": now()
+        })
+      }
+      
+      root = this.merge({
+        "security_analysis": {
+          "risk_score": risk_score,
+          "anomalies_detected": anomalies,
+          "access_allowed": risk_score < 75  # Deny very high risk
+        }
+      })
+```
+
+## Compliance and Audit
+
+### Access Control Audit Report
+
+```sql title="Decryption access audit"
+-- Service access patterns
+SELECT 
+  service_id,
+  COUNT(*) as total_requests,
+  COUNT(DISTINCT DATE(timestamp)) as active_days,
+  AVG(JSON_LENGTH(decrypted_fields)) as avg_fields_per_request
+FROM decryption_audit_log
+WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+GROUP BY service_id;
+
+-- Unauthorized access attempts  
+SELECT 
+  service_id,
+  source_ip,
+  denied_fields,
+  COUNT(*) as denial_count
+FROM decryption_audit_log
+WHERE JSON_LENGTH(denied_fields) > 0
+GROUP BY service_id, source_ip, denied_fields
+ORDER BY denial_count DESC;
+
+-- High-privilege access tracking
+SELECT 
+  service_id,
+  permission_level, 
+  transaction_id,
+  decrypted_fields,
+  timestamp
+FROM decryption_audit_log
+WHERE permission_level IN ('high_privilege', 'emergency')
+ORDER BY timestamp DESC;
+```
+
+## Emergency Access Procedures
+
+```bash title="Emergency access activation"
+#!/bin/bash
+# emergency-access.sh
+
+# Activate emergency access during incidents
+curl -X POST https://incident-management.company.com/activate-emergency-access \
+  -H "Authorization: Bearer $INCIDENT_COMMANDER_TOKEN" \
+  -d '{
+    "incident_id": "'$1'",
+    "requested_by": "'$USER'", 
+    "justification": "Data breach investigation requiring full decryption access",
+    "duration_hours": 24,
+    "approval_required": true
+  }'
+
+# Use emergency service credentials  
+curl -X POST https://localhost:8443/decrypt/selective \
+  -H "X-Service-ID: emergency-access" \
+  -H "Authorization: Bearer $EMERGENCY_ACCESS_TOKEN" \
+  -H "X-Incident-ID: $1" \
+  -d @encrypted_transaction_data.json
+```
+
+## Summary
+
+✅ **Service-based authorization** controlling access by service type and need
+✅ **Granular permissions** allowing different data types per service
+✅ **Comprehensive audit trails** tracking all decryption requests and denials
+✅ **Security monitoring** detecting anomalous access patterns
+✅ **Emergency access** procedures for incident response
+✅ **Compliance controls** for data residency and regulatory requirements
+
+**Next step:** [Monitor compliance and reporting](./step-6-compliance-monitoring) with automated audit trails.

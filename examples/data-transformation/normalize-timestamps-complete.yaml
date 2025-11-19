@@ -1,0 +1,519 @@
+# Complete Timestamp Normalization Pipeline
+# Production-ready configuration that handles all timestamp formats,
+# timezone conversions, and metadata enrichment with monitoring and error handling.
+
+input:
+  # Production input - configure based on your data source
+  kafka:
+    addresses: ["${KAFKA_BROKERS:localhost:9092}"]
+    topics: ["${INPUT_TOPIC:raw-events}"]
+    consumer_group: "timestamp-normalizer"
+    start_from_oldest: false
+    
+    # Performance optimization
+    batching:
+      count: 1000
+      period: "5s"
+
+pipeline:
+  processors:
+    #==========================================================================
+    # STEP 1: PARSE TIMESTAMP FORMATS
+    #==========================================================================
+    
+    # Preserve original event for audit trail
+    - mapping: |
+        root = this
+        root.timestamp_original = this.timestamp
+        root.processing_metadata = {
+          "pipeline_version": "v1.3.0",
+          "processing_start": now().format_timestamp_iso8601(),
+          "stage": "format_parsing"
+        }
+
+    # Detect timestamp format using intelligent pattern matching
+    - mapping: |
+        let ts = this.timestamp.string()
+        
+        root = this
+        root.format_detected = if ts.re_match("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}") {
+          # ISO8601 format detection
+          if ts.contains("Z") || ts.re_match("[-+]\\d{2}:?\\d{2}$") {
+            "iso8601_offset"
+          } else {
+            "iso8601_naive"
+          }
+        } else if ts.re_match("^\\d{10}$") {
+          "unix_seconds"
+        } else if ts.re_match("^\\d{13}$") {
+          "unix_milliseconds"
+        } else if ts.re_match("^\\d{2}/\\w{3}/\\d{4}:\\d{2}:\\d{2}:\\d{2}") {
+          "apache_log"
+        } else if ts.re_match("^\\d{14}$") {
+          "compact_datetime"
+        } else if ts.re_match("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$") {
+          "custom_datetime"
+        } else {
+          "unknown"
+        }
+
+    # Parse timestamp with comprehensive error handling
+    - catch:
+      - mapping: |
+          let format = this.format_detected
+          let ts = this.timestamp_original
+          
+          root = this
+          
+          # Extract original timezone information for audit trail
+          root.timezone_original = if format == "iso8601_offset" {
+            if ts.string().contains("Z") {
+              "UTC"
+            } else {
+              ts.string().re_find_all("[-+]\\d{2}:?\\d{2}$").index(0)
+            }
+          } else if format == "custom_datetime" && this.timezone.type() == "string" {
+            this.timezone
+          } else {
+            "unknown"
+          }
+          
+          # Parse to standardized timestamp object
+          root.timestamp_parsed = if format == "iso8601_offset" {
+            ts.parse_timestamp_iso8601()
+          } else if format == "iso8601_naive" {
+            (ts.string() + "Z").parse_timestamp_iso8601()
+          } else if format == "unix_seconds" {
+            ts.timestamp_unix()
+          } else if format == "unix_milliseconds" {
+            (ts.number() / 1000).timestamp_unix()
+          } else if format == "apache_log" {
+            ts.parse_timestamp("02/Jan/2006:15:04:05 -0700")
+          } else if format == "compact_datetime" {
+            ts.parse_timestamp("20060102150405")
+          } else if format == "custom_datetime" {
+            if this.timezone.type() == "string" {
+              ts.string().parse_timestamp_strptime("%Y-%m-%d %H:%M:%S", this.timezone)
+            } else {
+              (ts.string() + " UTC").parse_timestamp("2006-01-02 15:04:05 MST")
+            }
+          } else {
+            throw("Unsupported timestamp format: " + format + " for value: " + ts.string())
+          }
+          
+          # Mark successful parsing
+          root.processing_metadata.parse_success = true
+      
+      # Error handling for parse failures - route to DLQ with diagnostic info
+      - mapping: |
+          root = this
+          root.processing_metadata.parse_success = false
+          root.processing_metadata.parse_error = error()
+          root.dlq_reason = "timestamp_parse_failed"
+          root.timestamp_parsed = null
+
+    #==========================================================================
+    # STEP 2: CONVERT TO UTC WITH TIMEZONE CONTEXT
+    #==========================================================================
+    
+    - mapping: |
+        root = this
+        root.processing_metadata.stage = "timezone_conversion"
+        
+        # Skip conversion if parsing failed
+        root = if !this.processing_metadata.parse_success {
+          this
+        } else {
+          let parsed_ts = this.timestamp_parsed
+          let tz_original = this.timezone_original.string()
+          
+          # Convert to UTC while preserving timezone context
+          root.timestamp_utc = if tz_original == "UTC" || tz_original == "Z" || tz_original == "unknown" {
+            parsed_ts
+          } else {
+            parsed_ts.format_timestamp_iso8601("UTC")
+          }
+          
+          # Calculate timezone offset in minutes for analytics
+          root.timezone_offset_minutes = if tz_original == "UTC" || tz_original == "Z" || tz_original == "unknown" {
+            0
+          } else if tz_original.re_match("^[-+]\\d{2}:?\\d{2}$") {
+            # Parse offset string (+01:00 = +60 minutes)
+            let clean_tz = tz_original.re_replace_all("[^-+\\d]", "")
+            let sign = if clean_tz.index(0) == "-" { -1 } else { 1 }
+            let hours = clean_tz.slice(1, 3).number()
+            let minutes = clean_tz.slice(3, 5).number()
+            sign * (hours * 60 + minutes)
+          } else {
+            # Named timezone - calculate from timestamp difference
+            let original_unix = parsed_ts.timestamp_unix()
+            let utc_unix = this.timestamp_utc.parse_timestamp_iso8601().timestamp_unix()
+            (original_unix - utc_unix) / 60
+          }
+          
+          # Set primary timestamp to UTC
+          root.timestamp = this.timestamp_utc
+          root.processing_metadata.conversion_success = true
+          
+          # Create audit trail for compliance (GDPR Article 30)
+          root.timezone_audit = {
+            "original_timezone": tz_original,
+            "original_timestamp": this.timestamp_original,
+            "utc_timestamp": this.timestamp,
+            "offset_minutes": this.timezone_offset_minutes,
+            "conversion_time": now().format_timestamp_iso8601()
+          }
+          
+          this
+        }
+
+    #==========================================================================
+    # STEP 3: ENRICH TIME METADATA FOR ANALYTICS
+    #==========================================================================
+    
+    - mapping: |
+        root = this
+        root.processing_metadata.stage = "metadata_enrichment"
+        
+        # Skip enrichment if previous steps failed
+        root = if !this.processing_metadata.parse_success {
+          this
+        } else {
+          let ts = this.timestamp.parse_timestamp_iso8601()
+          let year = ts.format_timestamp("2006", "UTC").number()
+          let month = ts.format_timestamp("01", "UTC").number()
+          let day = ts.format_timestamp("02", "UTC").number()
+          let hour = ts.format_timestamp("15", "UTC").number()
+          let minute = ts.format_timestamp("04", "UTC").number()
+          let second = ts.format_timestamp("05", "UTC").number()
+          let dow = ts.format_timestamp("1", "UTC").number()  # 1=Monday, 7=Sunday
+          
+          # Comprehensive time metadata for analytics optimization
+          root.time_metadata = {
+            # Basic date/time components
+            "year": year,
+            "month": month,
+            "day": day,
+            "hour": hour,
+            "minute": minute,
+            "second": second,
+            
+            # Calendar information
+            "day_of_week": ts.format_timestamp("Monday", "UTC"),
+            "day_of_week_num": dow,
+            "day_of_year": ts.format_timestamp("002", "UTC").number(),
+            "week_of_year": ts.format_timestamp("02", "UTC").number(),
+            
+            # Business logic flags
+            "is_weekend": dow >= 6,
+            "is_business_hours": (dow >= 1 && dow <= 5) && (hour >= 9 && hour < 17),
+            
+            # Holiday detection (US federal holidays - simplified)
+            "is_holiday": (month == 1 && day == 1) ||    # New Year
+                         (month == 7 && day == 4) ||     # Independence Day
+                         (month == 12 && day == 25),     # Christmas
+            
+            # Calendar quarters
+            "quarter": if month <= 3 { "Q1" }
+                      else if month <= 6 { "Q2" }
+                      else if month <= 9 { "Q3" }
+                      else { "Q4" },
+            "quarter_num": if month <= 3 { 1 }
+                          else if month <= 6 { 2 }
+                          else if month <= 9 { 3 }
+                          else { 4 },
+            
+            # Fiscal year (October start)
+            "fiscal_year": if month >= 10 { year + 1 } else { year },
+            "fiscal_quarter": if month >= 10 || month <= 12 { "FQ1" }
+                             else if month >= 1 && month <= 3 { "FQ2" }
+                             else if month >= 4 && month <= 6 { "FQ3" }
+                             else { "FQ4" },
+            
+            # Seasonal information
+            "season": if month >= 3 && month <= 5 { "spring" }
+                     else if month >= 6 && month <= 8 { "summer" }
+                     else if month >= 9 && month <= 11 { "fall" }
+                     else { "winter" },
+            
+            # Aggregation buckets for time-series queries
+            "hour_bucket": ts.format_timestamp("2006-01-02T15", "UTC") + ":00:00Z",
+            "day_bucket": ts.format_timestamp("2006-01-02", "UTC"),
+            "week_bucket": year.string() + "-W" + ts.format_timestamp("02", "UTC"),
+            "month_bucket": ts.format_timestamp("2006-01", "UTC"),
+            "quarter_bucket": year.string() + "-" + this.time_metadata.quarter,
+            
+            # Unix timestamp for calculations
+            "unix_timestamp": ts.timestamp_unix()
+          }
+          
+          # Business day calculation (not weekend, not holiday)
+          root.time_metadata.is_business_day = !this.time_metadata.is_weekend && 
+                                              !this.time_metadata.is_holiday
+          
+          # Time period classification for analytics
+          root.time_metadata.time_period = if this.time_metadata.is_weekend {
+            "weekend"
+          } else if this.time_metadata.is_business_hours {
+            "business_hours"
+          } else if hour >= 17 && hour < 22 {
+            "evening"
+          } else if hour >= 22 || hour < 6 {
+            "night"
+          } else {
+            "morning"
+          }
+          
+          root.processing_metadata.enrichment_success = true
+          
+          this
+        }
+
+    #==========================================================================
+    # VALIDATION & QUALITY SCORING
+    #==========================================================================
+    
+    - mapping: |
+        root = this
+        
+        # Comprehensive validation
+        let now_unix = now().timestamp_unix()
+        let ts_unix = if this.time_metadata.unix_timestamp.type() == "number" {
+          this.time_metadata.unix_timestamp
+        } else {
+          0
+        }
+        
+        root.validation = {
+          "parse_success": this.processing_metadata.parse_success,
+          "conversion_success": this.processing_metadata.conversion_success || true,
+          "enrichment_success": this.processing_metadata.enrichment_success || true,
+          "timestamp_exists": this.timestamp.type() == "string",
+          "utc_format": this.timestamp.contains("Z"),
+          "timestamp_reasonable": ts_unix > (now_unix - 31536000) && ts_unix < (now_unix + 86400),  # 1 year past to 1 day future
+          "offset_reasonable": if this.timezone_offset_minutes.type() == "number" { 
+            this.timezone_offset_minutes.abs() <= 840  # ±14 hours max
+          } else { 
+            true 
+          },
+          "metadata_consistent": if this.time_metadata.type() == "object" {
+            this.time_metadata.is_weekend == (this.time_metadata.day_of_week_num >= 6)
+          } else {
+            false
+          }
+        }
+        
+        # Calculate quality score (0.0 to 1.0)
+        let validations = this.validation.values()
+        let true_count = validations.map_each(v -> if v { 1 } else { 0 }).sum()
+        root.quality_score = true_count / validations.length()
+        
+        # Set DLQ reason if quality is poor
+        root.dlq_reason = if this.quality_score < 0.6 {
+          if !this.validation.parse_success {
+            "timestamp_parse_failed"
+          } else if !this.validation.timestamp_reasonable {
+            "timestamp_out_of_range"
+          } else if !this.validation.offset_reasonable {
+            "invalid_timezone_offset"
+          } else {
+            "low_quality_score"
+          }
+        } else {
+          null
+        }
+
+    #==========================================================================
+    # PERFORMANCE & MONITORING METRICS
+    #==========================================================================
+    
+    # Add processing completion timestamp
+    - mapping: |
+        root = this
+        root.processing_metadata.processing_end = now().format_timestamp_iso8601()
+        root.processing_metadata.processing_duration_ms = (
+          now().timestamp_unix_milli() - 
+          this.processing_metadata.processing_start.parse_timestamp_iso8601().timestamp_unix_milli()
+        )
+
+    # Performance metrics for monitoring
+    - metric:
+        type: counter
+        name: "timestamp_events_processed_total"
+        labels:
+          format: '${! json("format_detected") }'
+          success: '${! if json("quality_score") >= 0.8 { "true" } else { "false" } }'
+          stage: '${! json("processing_metadata.stage") }'
+        value: 1
+
+    - metric:
+        type: histogram
+        name: "timestamp_processing_duration_ms"
+        value: '${! json("processing_metadata.processing_duration_ms") }'
+        labels:
+          format: '${! json("format_detected") }'
+
+    - metric:
+        type: gauge
+        name: "timestamp_quality_score"
+        value: '${! json("quality_score") }'
+        labels:
+          format: '${! json("format_detected") }'
+
+    # Business metrics for analytics insights
+    - metric:
+        type: counter
+        name: "timestamp_business_hours_total"
+        labels:
+          is_business_hours: '${! json("time_metadata.is_business_hours").string() }'
+          time_period: '${! json("time_metadata.time_period") }'
+        value: 1
+
+    - metric:
+        type: counter
+        name: "timestamp_timezone_distribution_total"
+        labels:
+          original_timezone: '${! json("timezone_original") }'
+          offset_hours: '${! (json("timezone_offset_minutes") / 60).round().string() }'
+        value: 1
+
+    #==========================================================================
+    # ERROR ROUTING TO DEAD LETTER QUEUE
+    #==========================================================================
+    
+    # Route failed events to DLQ for analysis and reprocessing
+    - switch:
+      - check: 'json("quality_score") < 0.6'
+        output:
+          kafka:
+            addresses: ["${KAFKA_BROKERS:localhost:9092}"]
+            topic: "${DLQ_TOPIC:timestamp-dlq}"
+            key: '${! json("event_id") }'
+            metadata:
+              include_patterns: [".*"]
+            
+            # Add DLQ-specific metadata
+            processors:
+              - mapping: |
+                  root = this
+                  root.dlq_metadata = {
+                    "routed_at": now().format_timestamp_iso8601(),
+                    "reason": this.dlq_reason,
+                    "quality_score": this.quality_score,
+                    "validation_failures": this.validation.map_each(k, v -> if !v { k } else { deleted() }).values(),
+                    "retry_count": 0,
+                    "max_retries": 3
+                  }
+
+    #==========================================================================
+    # CLEAN OUTPUT (REMOVE PROCESSING METADATA)
+    #==========================================================================
+    
+    # Remove internal processing metadata from successful events
+    - mapping: |
+        root = this.without("processing_metadata").without("validation").without("dlq_reason")
+        
+        # Ensure consistent field order for downstream systems
+        root = {
+          "event_id": this.event_id,
+          "event_type": this.event_type,
+          "timestamp": this.timestamp,
+          "timestamp_original": this.timestamp_original,
+          "timezone_original": this.timezone_original,
+          "timezone_offset_minutes": this.timezone_offset_minutes,
+          "format_detected": this.format_detected,
+          "time_metadata": this.time_metadata,
+          "timezone_audit": this.timezone_audit,
+          "quality_score": this.quality_score
+        }.merge(this.without(
+          "event_id", "event_type", "timestamp", "timestamp_original", 
+          "timezone_original", "timezone_offset_minutes", "format_detected",
+          "time_metadata", "timezone_audit", "quality_score"
+        ))
+
+output:
+  # Primary output - normalized events
+  kafka:
+    addresses: ["${KAFKA_BROKERS:localhost:9092}"]
+    topic: "${OUTPUT_TOPIC:normalized-timestamps}"
+    key: '${! json("event_id") }'
+    max_message_bytes: "10MB"
+    
+    # Partitioning strategy for performance and even distribution
+    partition: '${! json("time_metadata.month_bucket").hash() % 12 }'
+    
+    # Compression for throughput optimization
+    compression: "snappy"
+    
+    # Exclude internal metadata from output
+    metadata:
+      exclude_patterns: ["processing_metadata.*", "validation.*", "dlq_.*"]
+
+# Monitoring and observability configuration
+metrics:
+  prometheus:
+    path: "/metrics"
+    port: 9090
+    enabled: true
+
+# Structured logging configuration
+logging:
+  level: "${LOG_LEVEL:INFO}"
+  format: "json"
+  static_fields:
+    service: "timestamp-normalizer"
+    version: "1.3.0"
+    environment: "${ENVIRONMENT:production}"
+
+# HTTP server for health checks and debugging
+http:
+  address: "0.0.0.0:8080"
+  enabled: true
+  debug_endpoints: false
+  
+  # Health check endpoints
+  endpoints:
+    - path: "/health"
+      method: "GET"
+      response: |
+        {
+          "status": "healthy",
+          "timestamp": "${timestamp}",
+          "version": "1.3.0",
+          "uptime_seconds": "${uptime_seconds}"
+        }
+    
+    - path: "/ready"
+      method: "GET"
+      response: |
+        {
+          "status": "ready",
+          "timestamp": "${timestamp}",
+          "kafka_connected": "${kafka_connected}"
+        }
+
+# Resource limits and performance tuning
+resources:
+  # Memory management
+  max_memory: "${MAX_MEMORY:2GB}"
+  
+  # Worker threads for parallel processing
+  worker_threads: "${WORKER_THREADS:4}"
+  
+  # Batch processing configuration
+  batch_policy:
+    count: 1000
+    period: "5s"
+    max_batch_size: "50MB"
+
+# TLS and security configuration
+tls:
+  enabled: "${TLS_ENABLED:false}"
+  cert_file: "${TLS_CERT_FILE}"
+  key_file: "${TLS_KEY_FILE}"
+  ca_file: "${TLS_CA_FILE}"
+
+# Graceful shutdown configuration
+shutdown:
+  timeout: "30s"
+  drain_timeout: "15s"

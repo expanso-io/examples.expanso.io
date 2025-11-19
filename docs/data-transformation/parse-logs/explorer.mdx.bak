@@ -1,0 +1,102 @@
+---
+title: Interactive Log Parser Explorer
+sidebar_label: Interactive Explorer
+sidebar_position: 2
+description: Explore 6 stages of log parsing with live before/after comparisons across JSON, CSV, access logs, and syslog formats
+keywords: [log parsing, interactive, demo, json logs, csv, access logs, syslog, grok patterns]
+---
+
+import DataPipelineExplorer from '@site/src/components/DataPipelineExplorer';
+import { parseLogsStages } from '../parse-logs-full.stages';
+
+# Interactive Log Parser Explorer
+
+**See log parsing in action!** Use the interactive explorer below to step through 6 stages of log parsing. Watch as raw log data from different sources is progressively detected, parsed, and enriched.
+
+## How to Use This Explorer
+
+1. **Navigate** using arrow keys (← →) or click the numbered stage buttons
+2. **Compare** the Input (left) and Output (right) at each stage  
+3. **Observe** how fields are extracted (green highlight) or transformed (red strikethrough)
+4. **Inspect** the YAML code showing exactly what processor was added
+5. **Learn** from the stage description explaining the technique and benefits
+
+## Interactive Log Parser Explorer
+
+<DataPipelineExplorer
+  stages={parseLogsStages}
+  title="LOG PARSER"
+  subtitle="6-Stage Progressive Parsing Pipeline"
+/>
+
+## Understanding the Stages
+
+### Stage 1: Original Input
+Multiple log formats from different systems - JSON application logs, CSV sensor data, web access logs, and syslog messages. Each format requires different parsing logic.
+
+### Stage 2: Format Detection  
+Automatic format detection using content patterns. The pipeline analyzes log structure to determine the appropriate parser. This enables unified processing of mixed log streams.
+
+### Stage 3: JSON Log Parsing
+JSON application logs are parsed with timestamp normalization and field validation. The `json_documents` processor extracts structured data while maintaining field relationships.
+
+### Stage 4: CSV Data Parsing
+CSV sensor data is parsed with named column mapping and type conversion. The `csv` processor handles tabular data while adding validation rules and sensor metadata enrichment.
+
+### Stage 5: Access Log Parsing  
+Web server access logs are parsed using grok patterns that match Apache Combined Log Format. Client IPs are hashed for privacy while extracting request metrics.
+
+### Stage 6: Syslog Message Parsing
+RFC3164 syslog messages are decomposed into facility, severity, and content. Priority values are decoded to enable severity-based routing and alerting.
+
+## What You've Learned
+
+After exploring all 6 stages, you now understand:
+
+✅ **Format Detection** - How to automatically identify different log formats  
+✅ **JSON Parsing** - Extracting structured data from application logs  
+✅ **CSV Processing** - Handling tabular data with validation and enrichment  
+✅ **Grok Patterns** - Using pattern matching for complex log formats  
+✅ **Syslog Decoding** - Extracting priority, facility, and severity information  
+✅ **Privacy Protection** - Hashing sensitive data like IP addresses  
+
+## Try It Yourself
+
+Ready to build this parser? Follow the step-by-step tutorial:
+
+<div style={{display: 'flex', gap: '1rem', marginTop: '2rem', marginBottom: '2rem', flexWrap: 'wrap'}}>
+  <a href="./setup" className="button button--primary button--lg" style={{flex: '1', minWidth: '200px'}}>
+    Start Tutorial
+  </a>
+  <a href="./complete-parser" className="button button--secondary button--lg" style={{flex: '1', minWidth: '200px'}}>
+    Download Complete Parser
+  </a>
+</div>
+
+## Deep Dive into Each Step
+
+Want to understand each parsing technique in depth?
+
+- [**Step 1: Parse JSON Logs**](./step-1-parse-json-logs) - Application log processing with validation
+- [**Step 2: Parse CSV Data**](./step-2-parse-csv-data) - Sensor data with type conversion
+- [**Step 3: Parse Access Logs**](./step-3-parse-access-logs) - Web traffic analysis patterns
+- [**Step 4: Parse Syslog Messages**](./step-4-parse-syslog-messages) - System event processing  
+- [**Step 5: Multi-Format Detection**](./step-5-multi-format-detection) - Unified pipeline architecture
+
+## Common Questions
+
+### What formats are supported?
+The parser handles JSON documents, CSV files, Apache/Nginx access logs (Common/Combined format), RFC3164 syslog messages, and custom formats via grok patterns.
+
+### How does format detection work?
+Content-based pattern matching analyzes the first characters and structure of each log line to determine the most likely format, then routes to the appropriate parser.
+
+### Can I add custom formats?
+Yes, you can extend the format detection logic and add custom grok patterns or regex processors for proprietary log formats.
+
+### How is performance optimized?
+The pipeline uses efficient processors (`json_documents`, `csv`) for structured formats and reserves slower grok patterns only for unstructured logs.
+
+---
+
+**Next:** [Set up your environment](./setup) to build this parser yourself

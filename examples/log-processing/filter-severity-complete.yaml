@@ -1,0 +1,280 @@
+# Complete Log Severity Filtering Pipeline
+# 
+# This production-ready pipeline demonstrates comprehensive log processing:
+# 1. JSON parsing with fallback handling for mixed log formats
+# 2. Intelligent severity filtering to eliminate noise
+# 3. Conditional routing based on log severity levels
+# 4. Complete audit trails and monitoring integration
+# 
+# Features:
+# - Handles JSON, structured text, and unstructured log formats
+# - Filters to only ERROR and WARN levels (80-95% volume reduction)
+# - Routes ERROR logs to files, WARN logs to monitoring
+# - Comprehensive error handling and fallback mechanisms
+# - Production-grade metadata and audit trails
+# - Security and compliance considerations
+
+input:
+  file:
+    paths:
+      - /var/log/app/*.log
+    codec: lines
+    # Production file handling settings
+    max_buffer: 100MB
+    multipart: false
+    scanner:
+      timeout: 30s
+      max_buffer: 1MB
+    # File watching optimization
+    poll_interval: 1s
+    max_log_size: 500MB
+
+pipeline:
+  processors:
+    # Stage 1: JSON Parsing with Comprehensive Fallback
+    - mapping: |
+        let original = this
+        
+        # Attempt JSON parsing with error handling
+        let parsed = original.parse_json().catch(null)
+        
+        if parsed != null {
+          # Successfully parsed as JSON
+          root = parsed
+          root.original_format = "json"
+          root.parsing_success = true
+        } else {
+          # JSON parsing failed - try structured text extraction
+          let log_match = original.re_find_all("(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}) \\[([A-Z]+)\\] (.+)")
+          
+          if log_match.length() > 0 {
+            # Structured plain text format
+            root.timestamp = log_match.0.1
+            root.level = log_match.0.2
+            root.message = log_match.0.3
+            root.original_format = "structured_text"
+            root.parsing_success = true
+          } else {
+            # Unstructured text - preserve as-is
+            root.original_message = original
+            root.level = "UNKNOWN"
+            root.original_format = "unstructured_text"
+            root.parsing_success = false
+          }
+        }
+
+    # Stage 2: Processing Metadata Enrichment
+    - mapping: |
+        # Add comprehensive processing metadata for audit trails
+        root.processing_metadata = {
+          "processed_at": now(),
+          "node_id": env("NODE_ID").or("unknown"),
+          "pipeline_version": env("PIPELINE_VERSION").or("1.0"),
+          "datacenter": env("DATACENTER").or("unknown"),
+          "environment": env("ENVIRONMENT").or("production")
+        }
+        
+        # Add data quality metrics
+        root.data_quality = {
+          "original_length": this.get("original_message").or(this).string().length(),
+          "has_timestamp": this.has("timestamp"),
+          "has_level": this.has("level"),
+          "has_message": this.has("message")
+        }
+
+    # Stage 3: Intelligent Severity Detection and Normalization
+    - mapping: |
+        let log_level = this.level.string().uppercase()
+        
+        # Handle logs without explicit severity using keyword analysis
+        if log_level == "UNKNOWN" {
+          let content = this.get("message").string() + this.get("original_message").string()
+          let content_lower = content.lowercase()
+          
+          # Enhanced keyword patterns with context awareness
+          let error_keywords = ["error", "fail", "exception", "crash", "critical", "fatal", "panic", "abort"]
+          let warn_keywords = ["warn", "warning", "alert", "caution", "deprecat", "memory", "disk", "timeout"]
+          
+          # Avoid false positives with negative patterns
+          let false_positive_patterns = ["error handling", "error recovery", "no error", "successfully"]
+          let has_false_positive = false_positive_patterns.any(pattern -> content_lower.contains(pattern))
+          
+          if !has_false_positive {
+            if error_keywords.any(keyword -> content_lower.contains(keyword)) {
+              this.level = "ERROR"
+              this.severity_detected_by = "keyword_analysis"
+            } else if warn_keywords.any(keyword -> content_lower.contains(keyword)) {
+              this.level = "WARN"
+              this.severity_detected_by = "keyword_analysis"
+            }
+          }
+        }
+        
+        # Normalize level variations
+        let level_mappings = {
+          "FATAL": "ERROR",
+          "SEVERE": "ERROR",
+          "CRITICAL": "ERROR",
+          "WARNING": "WARN",
+          "NOTICE": "INFO"
+        }
+        
+        let normalized_level = level_mappings.get(log_level).or(log_level)
+        this.level = normalized_level
+        this.original_level = log_level
+
+    # Stage 4: Severity-Based Filtering
+    - mapping: |
+        let level = this.level.string().uppercase()
+        
+        # Filter to only ERROR and WARN logs (eliminating 80-95% of volume)
+        root = if level == "ERROR" || level == "WARN" {
+          # Add filtering metadata
+          this.filter_metadata = {
+            "passed_filter": true,
+            "filter_reason": "severity_match",
+            "filtering_timestamp": now()
+          }
+          this
+        } else {
+          # Log filtered out - completely removed from pipeline
+          deleted()
+        }
+
+    # Stage 5: Routing Preparation and Classification
+    - mapping: |
+        let level = this.level.string().uppercase()
+        let service = this.get("service").string().or("unknown")
+        
+        # Service-specific routing rules
+        let critical_services = ["payments", "auth", "security", "database"]
+        let is_critical_service = critical_services.contains(service)
+        
+        if level == "ERROR" {
+          this.routing_metadata = {
+            "destination": "error_storage",
+            "retention_days": if is_critical_service { 365 } else { 90 },
+            "compliance_required": is_critical_service,
+            "alert_severity": "high",
+            "escalation_required": is_critical_service,
+            "storage_tier": "hot"
+          }
+        } else if level == "WARN" {
+          this.routing_metadata = {
+            "destination": "monitoring_stream",
+            "retention_days": 30,
+            "alert_severity": "medium",
+            "batch_processing": true,
+            "storage_tier": "warm"
+          }
+        }
+        
+        # Add routing timestamp
+        this.routing_timestamp = now()
+
+# Production-Grade Conditional Routing
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Primary Routing Logic
+      - switch:
+          cases:
+            # ERROR logs - Persistent storage with optional real-time alerting
+            - check: this.level == "ERROR"
+              output:
+                broker:
+                  pattern: try
+                  outputs:
+                    # Primary: Date-organized error files for investigation
+                    - file:
+                        path: /var/log/expanso/errors/${!timestamp_unix_date()}.json
+                        codec: lines
+                        # Performance optimization
+                        batching:
+                          count: 100
+                          period: 10s
+                    
+                    # Fallback: stdout if file write fails
+                    - stdout:
+                        codec: lines
+                      processors:
+                        - mapping: |
+                            this.routing_status = "fallback_used"
+                            this.fallback_reason = "error_file_unavailable"
+                            this.alert_type = "CRITICAL_ERROR_FALLBACK"
+
+            # WARNING logs - Real-time monitoring stream
+            - check: this.level == "WARN"
+              output:
+                stdout:
+                  codec: lines
+                  # Batch warnings for efficiency
+                  batching:
+                    count: 50
+                    period: 5s
+                processors:
+                  - mapping: |
+                      this.alert_config = {
+                        "type": "WARNING_LOG",
+                        "batch_processing": true,
+                        "notification_channels": ["monitoring_dashboard"]
+                      }
+
+            # Catch-all for unexpected logs (safety net)
+            - output:
+                file:
+                  path: /var/log/expanso/unrouted-logs.json
+                  codec: lines
+                processors:
+                  - mapping: |
+                      this.routing_status = "unmatched"
+                      this.requires_investigation = true
+                      this.unexpected_level = this.level
+
+      # Complete Audit Trail for Compliance
+      - file:
+          path: /var/log/expanso/audit/routing-decisions.log
+          codec: lines
+        processors:
+          - mapping: |
+              # Create comprehensive audit record
+              root = {
+                "audit_id": uuid_v4(),
+                "timestamp": now(),
+                "log_source": file_path().or("unknown"),
+                "processing_node": this.processing_metadata.node_id,
+                "original_format": this.original_format,
+                "parsing_success": this.parsing_success,
+                "original_level": this.original_level,
+                "normalized_level": this.level,
+                "severity_detection_method": this.get("severity_detected_by").or("explicit"),
+                "routing_destination": this.routing_metadata.destination,
+                "compliance_required": this.routing_metadata.compliance_required.or(false),
+                "service": this.get("service").or("unknown"),
+                "environment": this.processing_metadata.environment,
+                "data_classification": if this.routing_metadata.compliance_required { "SENSITIVE" } else { "INTERNAL" }
+              }
+
+      # Performance and Health Metrics
+      - file:
+          path: /var/log/expanso/metrics/processing-stats.json
+          codec: lines
+          # Only emit metrics every 100 logs to avoid overhead
+          processors:
+            - mapping: |
+                let counter = meta("processed_count").or(0) + 1
+                meta processed_count = counter
+                
+                if counter % 100 == 0 {
+                  root = {
+                    "metric_type": "processing_stats",
+                    "timestamp": now(),
+                    "logs_processed": counter,
+                    "node_id": this.processing_metadata.node_id,
+                    "pipeline_version": this.processing_metadata.pipeline_version,
+                    "environment": this.processing_metadata.environment
+                  }
+                } else {
+                  root = deleted()
+                }
