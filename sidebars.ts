@@ -39,6 +39,15 @@ const sidebars: SidebarsConfig = {
             'data-security/enforce-schema/explorer',
           ],
         },
+          label: 'Delete Payment Card PII',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'data-security/delete-payment-pii/index',
+            'data-security/delete-payment-pii/explorer',
+          ],
+        },
+        'data-security/enforce-schema',
       ],
     },
     {
@@ -49,9 +58,27 @@ const sidebars: SidebarsConfig = {
       items: [
         'data-transformation/aggregate-time-windows',
         'data-transformation/deduplicate-events',
-        'data-transformation/normalize-timestamps',
+        {
+          type: 'category',
+          label: 'Normalize Timestamps',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'data-transformation/normalize-timestamps/index',
+            'data-transformation/normalize-timestamps/explorer',
+          ],
+        },
         'data-transformation/parse-logs',
-        'data-transformation/transform-formats',
+        {
+          type: 'category',
+          label: 'Transform Data Formats',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'data-transformation/transform-formats/index',
+            'data-transformation/transform-formats/explorer',
+          ],
+        },
       ],
     },
     {
@@ -60,9 +87,27 @@ const sidebars: SidebarsConfig = {
       collapsible: true,
       collapsed: false,
       items: [
-        'log-processing/filter-severity',
+        {
+          type: 'category',
+          label: 'Filter Logs by Severity',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'log-processing/filter-severity/index',
+            'log-processing/filter-severity/explorer',
+          ],
+        },
         'log-processing/enrich-export',
-        'log-processing/production-pipeline',
+        {
+          type: 'category',
+          label: 'Production Log Pipeline',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'log-processing/production-pipeline/index',
+            'log-processing/production-pipeline/explorer',
+          ],
+        },
       ],
     },
   ],

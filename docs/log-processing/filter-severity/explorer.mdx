@@ -1,0 +1,92 @@
+---
+title: Interactive Log Severity Filtering Explorer
+sidebar_label: Interactive Explorer
+sidebar_position: 2
+description: Explore 3 stages of severity-based log filtering with live before/after comparisons showing 90% volume reduction
+keywords: [log-filtering, severity, elasticsearch, s3, cost-optimization, log-management, interactive]
+---
+
+import DataPipelineExplorer from '@site/src/components/DataPipelineExplorer';
+import { filterSeverityStages } from '../filter-severity-full.stages';
+
+# Interactive Log Severity Filtering Explorer
+
+**See log filtering in action!** Use the interactive explorer below to step through 3 stages of severity-based filtering. Watch how DEBUG logs get dropped at the edge, saving 90% on storage costs while improving query performance.
+
+## How to Use This Explorer
+
+1. **Navigate** using arrow keys (← →) or click the numbered stage buttons
+2. **Compare** the Input (left) and Output (right) showing filtering at each stage
+3. **Observe** how DEBUG logs are removed (highlighted in red)
+4. **Inspect** the YAML code showing the filtering and routing logic
+5. **Learn** from the stage description explaining the cost and performance benefits
+
+## Interactive Log Severity Filtering Explorer
+
+<DataPipelineExplorer
+  stages={filterSeverityStages}
+  title="LOG SEVERITY FILTERING"
+  subtitle="3-Stage Volume Reduction"
+/>
+
+## Understanding the Stages
+
+### Stage 1: All Log Levels Mixed
+Without filtering, DEBUG and TRACE logs flood your analytics (57% of volume), consuming expensive storage, slowing queries, and hiding critical errors in noise.
+
+### Stage 2: Parse & Classify
+Extract severity level from each log message, normalize it (DEBUG, INFO, WARN, ERROR), and assign priority (low/medium/high/critical) to enable smart routing decisions.
+
+### Stage 3: Filter & Route
+Drop DEBUG/TRACE logs at the edge (90% volume reduction). Route ERROR/WARN to Elasticsearch for real-time alerts. Archive INFO logs in S3. Save $7,300/month on 1M logs/day.
+
+## What You've Learned
+
+After exploring all 3 stages, you now understand:
+
+✅ **Volume reduction** - How dropping DEBUG logs saves 90% on storage costs
+
+✅ **Smart routing** - How to route critical logs to real-time analytics, info logs to archival storage
+
+✅ **Query performance** - How filtering at the edge makes queries 10x faster
+
+✅ **Cost optimization** - How severity-based filtering reduces cloud costs by 86%
+
+## Try It Yourself
+
+Ready to build cost-optimized log pipelines? Follow the step-by-step tutorial:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./setup" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Start Tutorial
+  </a>
+  <a href="./complete-filter-severity" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Download Complete Solution
+  </a>
+</div>
+
+## Deep Dive into Each Step
+
+Want to understand each filtering technique in depth?
+
+- [**Step 1: Parse JSON & Add Metadata**](./step-1-parse-json-add-metadata) - Extract severity and classify priority
+- [**Step 2: Filter by Severity**](./step-2-filter-by-severity) - Drop DEBUG/TRACE logs at the edge
+- [**Step 3: Route by Severity**](./step-3-route-by-severity) - Send critical logs to Elasticsearch, info to S3
+
+## Common Questions
+
+### Why drop DEBUG logs instead of sampling?
+**Sampling** (keeping 1% of DEBUG logs) still stores 1% of waste. **Dropping** eliminates 100% of the cost while keeping all actionable logs (INFO/WARN/ERROR). Production systems rarely need DEBUG logs in analytics.
+
+### What if I need DEBUG logs for troubleshooting?
+Enable DEBUG logging **on-demand** for specific services or users (using labels/filters). Most of the time, you don't need DEBUG logs - only when actively debugging an issue.
+
+### How do I calculate my savings?
+Log into your cloud console and check current log storage costs. Multiply by 0.57 (percentage of DEBUG logs). That's your potential monthly savings. For 1M logs/day at $0.28/GB, that's $7,300/month.
+
+### Should I drop INFO logs too?
+No! INFO logs are useful for auditing (user logins, API calls, business events). Archive them in cheap S3 storage instead of expensive Elasticsearch. Drop only DEBUG/TRACE logs.
+
+---
+
+**Next:** [Set up your environment](./setup) to build log filtering pipelines yourself

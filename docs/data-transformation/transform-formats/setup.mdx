@@ -1,0 +1,154 @@
+---
+title: Format Transformation - Setup Guide
+sidebar_label: Setup Guide
+sidebar_position: 3
+description: Set up pipelines to transform JSON → Avro → Parquet for 90% cost savings
+keywords: [json, avro, parquet, format-transformation, cost-optimization, setup]
+---
+
+# Setup Guide
+
+Transform data from JSON → Avro → Parquet for 90% cost savings and 10x faster queries.
+
+## Prerequisites
+
+- **Expanso CLI** - v1.0+
+- **Avro tools** - For schema management
+- **Parquet tools** - For validation
+
+## Quick Start
+
+### 1. Install Tools
+
+```bash
+# Expanso CLI
+curl -sSL https://install.expanso.io | sh
+
+# Avro tools (optional, for testing)
+brew install avro-tools
+# or
+apt-get install avro-tools
+```
+
+### 2. Create Avro Schema
+
+Create `event.avsc`:
+
+```json
+{
+  "type": "record",
+  "name": "Event",
+  "fields": [
+    {"name": "event_id", "type": "string"},
+    {"name": "timestamp", "type": "long"},
+    {"name": "user_id", "type": "string"},
+    {"name": "event_type", "type": "string"}
+  ]
+}
+```
+
+### 3. Create Pipeline
+
+Create `transform-formats.yaml`:
+
+```yaml
+name: format-transformation
+description: JSON → Avro → Parquet pipeline
+type: pipeline
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+
+  pipeline:
+    processors:
+      # Convert JSON to Avro
+      - avro:
+          operator: to_json
+          schema_path: "./event.avsc"
+
+      # Convert Avro to Parquet
+      - parquet:
+          compression: snappy
+          row_group_size: 100000
+
+  output:
+    file:
+      path: /data/parquet/events-${timestamp}.parquet
+      codec: parquet
+```
+
+### 4. Test Transformation
+
+```bash
+expanso run transform-formats.yaml
+
+# Send JSON event
+curl -X POST http://localhost:8080 -d '{
+  "event_id": "evt-123",
+  "timestamp": 1700313000,
+  "user_id": "user-456",
+  "event_type": "purchase"
+}'
+
+# Verify Parquet output
+parquet-tools cat /data/parquet/events-*.parquet
+```
+
+## Cost Savings
+
+**JSON storage:**
+- 1 TB/month × $0.10/GB = $100/month
+
+**Parquet storage (90% reduction):**
+- 100 GB/month × $0.10/GB = $10/month
+- **Savings: $90/month per TB**
+
+**Query performance:**
+- JSON queries: 10s average
+- Parquet queries: 1s average
+- **10x faster queries**
+
+## Configuration Options
+
+### Compression Types
+
+```yaml
+parquet:
+  compression: snappy  # Balanced (default)
+  # or: gzip (max compression)
+  # or: lz4 (fastest)
+  # or: zstd (best ratio)
+```
+
+### Output Formats
+
+```yaml
+# Amazon S3
+output:
+  aws_s3:
+    bucket: my-bucket
+    path: events/${timestamp}.parquet
+
+# Google Cloud Storage
+output:
+  gcp_cloud_storage:
+    bucket: my-bucket
+    path: events/${timestamp}.parquet
+
+# Azure Blob Storage
+output:
+  azure_blob_storage:
+    container: events
+    path: ${timestamp}.parquet
+```
+
+## Next Steps
+
+1. [**Interactive Explorer**](./explorer) - See format transformation in action
+2. [**Back to Introduction**](./index) - Learn about format optimization
+
+---
+
+**Continue:** [Explore the demo](./explorer)
