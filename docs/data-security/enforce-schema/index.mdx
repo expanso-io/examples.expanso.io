@@ -8,155 +8,38 @@ keywords: [schema, validation, json schema, data quality, dead letter queue, edg
 
 # How to Enforce Data Schema Validation
 
-**Validate data structure at the edge before it corrupts your cloud analytics**. This step-by-step guide teaches you 4 essential techniques through hands-on exercises to catch malformed data, prevent downstream failures, and maintain data quality.
+Validate data structure at the edge before it corrupts your cloud analytics.
 
 ## The Problem
 
-Invalid or malformed data breaks downstream systems, corrupts analytics, and creates security vulnerabilities. Consider a sensor data collection system where IoT devices should send this structure:
+Invalid or malformed data breaks downstream systems:
+- Wrong types corrupt analytics (string instead of number)
+- Missing required fields crash processing
+- Impossible values cause alert misconfigurations
+- Malicious payloads create security vulnerabilities
 
-```json
-{
-  "sensor_id": "sensor-42",              // ✅ Required field
-  "timestamp": "2025-10-20T14:30:00Z",   // ✅ ISO 8601 format
-  "readings": {
-    "temperature_celsius": 23.5,         // ✅ Number in valid range
-    "humidity_percent": 45.2
-  }
-}
-```
+## The Solution
 
-**What goes wrong without validation:**
+Learn 4 schema validation techniques:
 
-```json
-{
-  "sensor_id": "sensor-42",
-  "timestamp": "not-a-valid-timestamp",  // ❌ Invalid format
-  "readings": {
-    "temperature_celsius": "twenty-three", // ❌ String instead of number
-    "humidity_percent": 150               // ❌ Impossible value (&gt;100%)
-  },
-  "admin_override": { "command": "shutdown" }  // ❌ Malicious payload
-}
-```
-
-**The challenge:** Invalid data reaches your cloud systems, causing analytics failures, alert misconfigurations, data corruption, and security vulnerabilities.
-
-## The Solution: 4 Schema Validation Techniques
-
-This guide teaches you how to apply the right validation technique at each stage:
-
-### 1. **Define JSON Schema** → Strict Data Contracts
-Create comprehensive schemas that validate structure, types, ranges, and formats
-- **Use case:** Enforce data contracts between edge devices and cloud systems
-- **Method:** JSON Schema with type checking, range validation, and security boundaries
-- **Result:** Clear specification of what constitutes valid data
-
-### 2. **Configure Edge Validation** → Early Error Detection
-Process validation at edge nodes before transmitting to cloud
-- **Use case:** Catch data errors close to source for faster debugging
-- **Method:** `json_schema` processor with fail-fast validation
-- **Result:** Invalid data blocked before entering cloud infrastructure
-
-### 3. **Route Validation Failures** → Investigation Pipeline
-Send failed messages to dead letter queue while passing valid data to analytics
-- **Use case:** Preserve invalid data for debugging without blocking valid processing
-- **Method:** `switch` processor with routing based on validation status
-- **Result:** Parallel processing streams for valid and invalid data
-
-### 4. **Monitor Data Quality** → Real-time Visibility
-Track validation success rates and alert on quality degradation
-- **Use case:** Proactive monitoring of data quality issues
-- **Method:** Metrics collection with Prometheus alerting
-- **Result:** Real-time visibility into data quality trends
-
-## Why Process at the Edge?
-
-**Cost Savings:** Reject invalid data before transmission (save bandwidth and processing)
-**Faster Debugging:** Error context preserved at source (reduce investigation time)
-**System Reliability:** Downstream systems only receive valid data (prevent failures)
-**Security Protection:** Malicious payloads blocked at network boundary
-
-## What You'll Learn
-
-By the end of this guide, you'll be able to:
-
-✅ **Create JSON Schemas** that validate structure, types, ranges, and security boundaries
-✅ **Configure edge validation** to catch errors before cloud transmission
-✅ **Route validation failures** to dead letter queues for investigation
-✅ **Monitor data quality** with real-time metrics and alerting
+1. **Define JSON Schema** - Comprehensive schemas with type checking, range validation, and security boundaries
+2. **Configure Edge Validation** - `json_schema` processor with fail-fast validation at edge nodes
+3. **Route Validation Failures** - `switch` processor routes failed messages to dead letter queue
+4. **Monitor Data Quality** - Metrics collection with Prometheus alerting for quality trends
 
 ## Get Started
 
-### Option 1: Step-by-Step Tutorial
-**Build** the complete schema validation solution incrementally, one concept at a time.
+Choose your path:
 
-1. [**Setup Guide**](./setup) - Configure environment and deploy shell validation pipeline
-2. [**Step 1: Define JSON Schema**](./step-1-define-json-schema) - Create comprehensive schema definitions
-3. [**Step 2: Configure Schema Validation**](./step-2-configure-validation) - Set up edge validation processing
-4. [**Step 3: Route Validation Failures**](./step-3-route-failures-dlq) - Implement dead letter queue routing
-5. [**Step 4: Monitor Data Quality**](./step-4-monitor-quality-metrics) - Track validation metrics and alerting
+### [Interactive Explorer](./explorer)
+See schema validation with live before/after examples
 
-### Option 2: Jump to Final Solution
-**Download** the complete, production-ready schema validation pipeline.
+### [Step-by-Step Tutorial](./setup)
+Build the pipeline incrementally:
+1. [Define JSON Schema](./step-1-define-json-schema)
+2. [Configure Schema Validation](./step-2-configure-validation)
+3. [Route Validation Failures](./step-3-route-failures-dlq)
+4. [Monitor Data Quality](./step-4-monitor-quality-metrics)
 
-[**→ Get Complete Schema Validation Pipeline**](./complete-schema-validation)
-
-## Who This Guide Is For
-
-- **Data Engineers** building reliable data pipelines with quality guarantees
-- **DevOps Engineers** preventing downstream system failures from invalid data
-- **Security Engineers** implementing data validation as security boundary
-- **IoT Developers** validating sensor data at edge before cloud ingestion
-
-## Prerequisites
-
-- Expanso platform deployed and running
-- Edge nodes connected to orchestrator
-- Basic familiarity with JSON Schema syntax
-- Understanding of HTTP endpoints and data pipelines
-
-## Time to Complete
-
-- **Step-by-Step Tutorial:** 45-60 minutes
-- **Quick Deploy:** 10 minutes
-
-## Real-World Impact
-
-**Before Schema Validation:**
-```
-- Data quality: 85% (150 invalid messages/hour)
-- Debugging time: 2 hours per data quality issue
-- Cloud processing: $500/month (processing invalid data)
-- Downtime: 4 hours/month from invalid data crashes
-```
-
-**After Edge Schema Validation:**
-```
-- Data quality: 99.5% (5 invalid messages/hour, caught at edge)
-- Debugging time: 15 minutes per issue (immediate error context)
-- Cloud processing: $350/month (30% reduction)
-- Downtime: 0 hours/month (invalid data never reaches cloud)
-```
-
----
-
-## Next Steps
-
-Ready to start? Choose your learning path:
-
-<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
-  <a href="./setup" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Step-by-Step Tutorial
-  </a>
-  <a href="./complete-schema-validation" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Complete Solution
-  </a>
-</div>
-
-**Questions?** Check [Troubleshooting](./troubleshooting) or see [Related Examples](#related-examples) below.
-
-## Related Examples
-
-- [**Remove PII**](../remove-pii/) - Anonymize data after validation passes
-- [**Encrypt Sensitive Data**](../encrypt-data/) - Secure validated data before storage
-- [**Deduplicate Events**](../../data-transformation/deduplicate-events/) - Remove duplicate validated events
+### [Complete Pipeline](./complete-schema-validation)
+Download the production-ready solution
