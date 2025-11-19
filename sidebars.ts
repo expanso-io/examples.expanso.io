@@ -79,7 +79,16 @@ const sidebars: SidebarsConfig = {
       collapsible: true,
       collapsed: false,
       items: [
-        'log-processing/filter-severity',
+        {
+          type: 'category',
+          label: 'Filter Logs by Severity',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'log-processing/filter-severity/index',
+            'log-processing/filter-severity/explorer',
+          ],
+        },
         'log-processing/enrich-export',
         {
           type: 'category',

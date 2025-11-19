@@ -1,0 +1,115 @@
+---
+title: Log Severity Filtering - Setup Guide
+sidebar_label: Setup Guide
+sidebar_position: 3
+description: Set up log filtering pipelines to reduce costs by 90%
+keywords: [logs, filtering, severity, cost-optimization, setup]
+---
+
+# Setup Guide
+
+Filter DEBUG logs at the edge to reduce log volume by 90% and save $7,300/month in processing costs.
+
+## Prerequisites
+
+- **Expanso CLI** - v1.0+
+- **Log source** - Application generating logs
+- **Destination** - Log aggregation system (Elasticsearch, Splunk, etc.)
+
+## Quick Start
+
+### 1. Install Expanso
+
+```bash
+curl -sSL https://install.expanso.io | sh
+```
+
+### 2. Create Pipeline
+
+Create `filter-severity.yaml`:
+
+```yaml
+name: log-severity-filter
+description: Filter DEBUG logs at edge
+type: pipeline
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /logs
+
+  pipeline:
+    processors:
+      # Only keep INFO, WARN, ERROR
+      - mapping: |
+          root = if this.severity.or("INFO") != "DEBUG" {
+            this
+          } else {
+            deleted()
+          }
+
+  output:
+    http_client:
+      url: http://logs.example.com/ingest
+      verb: POST
+```
+
+### 3. Test Filtering
+
+```bash
+# Start pipeline
+expanso run filter-severity.yaml
+
+# Send INFO log (should pass)
+curl -X POST http://localhost:8080/logs -d '{"severity":"INFO","message":"test"}'
+
+# Send DEBUG log (should be filtered)
+curl -X POST http://localhost:8080/logs -d '{"severity":"DEBUG","message":"test"}'
+```
+
+## Configuration Options
+
+### Severity Levels
+
+```yaml
+# Keep only errors
+- mapping: |
+    root = if this.severity == "ERROR" { this } else { deleted() }
+
+# Keep INFO and above
+- mapping: |
+    root = if ["INFO","WARN","ERROR"].contains(this.severity) { this } else { deleted() }
+```
+
+### Environment-based Filtering
+
+```yaml
+# Filter DEBUG in production only
+- mapping: |
+    root = if env("ENVIRONMENT") == "production" && this.severity == "DEBUG" {
+      deleted()
+    } else {
+      this
+    }
+```
+
+## Cost Calculation
+
+**Before filtering:**
+- 10M logs/day × $0.10/GB = $1,000/day
+- Monthly cost: $30,000
+
+**After filtering (90% reduction):**
+- 1M logs/day × $0.10/GB = $100/day  
+- Monthly cost: $3,000
+- **Savings: $27,000/month**
+
+## Next Steps
+
+1. [**Interactive Explorer**](./explorer) - See filtering in action
+2. [**Back to Introduction**](./index) - Learn about cost optimization
+
+---
+
+**Continue:** [Explore the demo](./explorer)
