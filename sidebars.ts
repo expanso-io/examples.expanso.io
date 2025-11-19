@@ -31,6 +31,14 @@ const sidebars: SidebarsConfig = {
         'data-security/remove-pii',
         {
           type: 'category',
+          label: 'Enforce Data Schema Validation',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'data-security/enforce-schema/index',
+            'data-security/enforce-schema/explorer',
+          ],
+        },
           label: 'Delete Payment Card PII',
           collapsible: true,
           collapsed: true,

@@ -1,0 +1,445 @@
+---
+title: Schema Enforcement - Setup Guide
+sidebar_label: Setup Guide
+sidebar_position: 3
+description: Set up your environment to build JSON Schema validation pipelines with DLQ routing
+keywords: [schema, validation, json-schema, dlq, dead-letter-queue, setup]
+---
+
+# Setup Guide
+
+This guide will help you set up your environment to build JSON Schema validation pipelines with dead-letter queue (DLQ) routing for invalid events.
+
+## Prerequisites
+
+Before you begin, ensure you have:
+
+- **Expanso CLI** - v1.0 or later
+- **Node.js** - v20 or later (for JSON Schema testing)
+- **jq** - For JSON manipulation and testing
+- **Text editor** - VS Code with JSON Schema support recommended
+
+## Installation
+
+### 1. Install Expanso CLI
+
+```bash
+curl -sSL https://install.expanso.io | sh
+expanso --version
+```
+
+### 2. Install jq (for testing)
+
+**macOS:**
+```bash
+brew install jq
+```
+
+**Linux:**
+```bash
+sudo apt-get install jq
+# or
+sudo yum install jq
+```
+
+### 3. Configure Environment
+
+```bash
+export EXPANSO_ENDPOINT="https://api.expanso.io"
+export EXPANSO_API_KEY="your-api-key"
+```
+
+## Project Setup
+
+### Create Project Directory
+
+```bash
+mkdir schema-enforcement
+cd schema-enforcement
+```
+
+### Create JSON Schema Definition
+
+Create `user-event.schema.json`:
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["user_id", "event_type", "timestamp"],
+  "properties": {
+    "user_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{24}$",
+      "description": "MongoDB ObjectId format"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": ["login", "logout", "purchase", "view"],
+      "description": "Allowed event types"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Optional event metadata"
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### Create Pipeline Configuration
+
+Create `enforce-schema.yaml`:
+
+```yaml
+name: schema-enforcement-pipeline
+description: JSON Schema validation with DLQ routing
+type: pipeline
+namespace: default
+labels:
+  quality: data-validation
+  category: data-security
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+      allowed_verbs: [POST]
+
+  pipeline:
+    processors:
+      # Validate against JSON Schema
+      - json_schema:
+          schema_path: "./user-event.schema.json"
+
+      # Catch validation errors and route to DLQ
+      - catch:
+          - mapping: |
+              root = {
+                "error": error(),
+                "original_event": this,
+                "failed_at": now(),
+                "validation": "schema_check_failed"
+              }
+
+          - http_client:
+              url: http://dlq.example.com/invalid-events
+              verb: POST
+              headers:
+                Content-Type: application/json
+
+          # Stop processing after DLQ routing
+          - mapping: 'root = deleted()'
+
+      # Add validation success metadata
+      - mapping: |
+          root.validation = {
+            "validated_at": now(),
+            "schema_version": "1.0",
+            "status": "passed"
+          }
+
+  output:
+    http_client:
+      url: http://analytics.example.com/valid-events
+      verb: POST
+      headers:
+        Content-Type: application/json
+
+logger:
+  level: INFO
+
+metrics:
+  prometheus:
+    enabled: true
+    push_interval: 10s
+```
+
+## Testing Your Setup
+
+### 1. Validate Pipeline
+
+```bash
+expanso validate enforce-schema.yaml
+```
+
+### 2. Start Pipeline
+
+```bash
+expanso run enforce-schema.yaml
+```
+
+### 3. Test with Valid Event
+
+```bash
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "507f1f77bcf86cd799439011",
+    "event_type": "login",
+    "timestamp": "2025-11-18T10:30:00Z",
+    "metadata": {
+      "ip": "192.168.1.1",
+      "user_agent": "Mozilla/5.0"
+    }
+  }'
+```
+
+**Expected:** Event passes validation, goes to analytics endpoint
+
+### 4. Test with Invalid Event
+
+```bash
+# Missing required field
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "507f1f77bcf86cd799439011",
+    "event_type": "login"
+  }'
+```
+
+**Expected:** Event fails validation, routes to DLQ
+
+```bash
+# Invalid enum value
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "507f1f77bcf86cd799439011",
+    "event_type": "invalid_type",
+    "timestamp": "2025-11-18T10:30:00Z"
+  }'
+```
+
+**Expected:** Event fails validation, routes to DLQ
+
+```bash
+# Invalid user_id format
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "not-a-valid-id",
+    "event_type": "login",
+    "timestamp": "2025-11-18T10:30:00Z"
+  }'
+```
+
+**Expected:** Event fails validation, routes to DLQ
+
+## Configuration Options
+
+### Schema Validation Methods
+
+**1. Inline Schema:**
+```yaml
+processors:
+  - json_schema:
+      schema: |
+        {
+          "type": "object",
+          "required": ["user_id"]
+        }
+```
+
+**2. External Schema File:**
+```yaml
+processors:
+  - json_schema:
+      schema_path: "./schemas/user-event.json"
+```
+
+**3. Schema Registry:**
+```yaml
+processors:
+  - json_schema:
+      schema_url: "http://schema-registry.example.com/schemas/user-event/v1"
+```
+
+### DLQ Routing Options
+
+**File-based DLQ:**
+```yaml
+- catch:
+    - mapping: |
+        root = {
+          "error": error(),
+          "original_event": this,
+          "failed_at": now()
+        }
+    - file:
+        path: /data/dlq/invalid-${timestamp}.json
+        codec: lines
+```
+
+**Kafka DLQ:**
+```yaml
+- catch:
+    - kafka:
+        addresses: ["kafka:9092"]
+        topic: schema-validation-dlq
+```
+
+**HTTP DLQ with Retry:**
+```yaml
+- catch:
+    - http_client:
+        url: http://dlq.example.com/invalid
+        verb: POST
+        retry_period: 1s
+        max_retry_backoff: 300s
+```
+
+## Troubleshooting
+
+### Schema Validation Always Fails
+
+**Problem:** All events routed to DLQ
+- **Solution:** Verify schema path is correct
+  ```bash
+  ls -la user-event.schema.json
+  # Ensure file exists and is readable
+  ```
+
+### Schema File Not Found
+
+**Problem:** `Error: schema file not found`
+- **Solution:** Use absolute path or relative to pipeline file
+  ```yaml
+  schema_path: "/absolute/path/to/schema.json"
+  # or
+  schema_path: "./relative/schema.json"
+  ```
+
+### DLQ Not Receiving Events
+
+**Problem:** Invalid events disappear
+- **Solution:** Check DLQ endpoint is reachable
+  ```bash
+  curl -X POST http://dlq.example.com/invalid-events \
+    -d '{"test": "event"}'
+  ```
+
+### Performance Issues
+
+**Problem:** Pipeline is slow
+- **Solution:** Cache schema in memory
+  ```yaml
+  processors:
+    - json_schema:
+        schema_path: "./schema.json"
+        cache_enabled: true
+  ```
+
+## Advanced Configuration
+
+### Multiple Schemas
+
+Validate different event types with different schemas:
+
+```yaml
+processors:
+  - switch:
+      - check: 'this.event_type == "user_event"'
+        processors:
+          - json_schema:
+              schema_path: "./schemas/user-event.json"
+
+      - check: 'this.event_type == "payment_event"'
+        processors:
+          - json_schema:
+              schema_path: "./schemas/payment-event.json"
+
+      - mapping: |
+          root = {
+            "error": "unknown_event_type",
+            "original": this
+          }
+```
+
+### Enriched Error Messages
+
+Add detailed validation errors:
+
+```yaml
+- catch:
+    - mapping: |
+        root = {
+          "error": error(),
+          "error_type": error().type(),
+          "validation_path": error().path(),
+          "original_event": this,
+          "failed_at": now(),
+          "pipeline": "schema-enforcement-v1"
+        }
+```
+
+### Metrics and Monitoring
+
+Track validation success/failure rates:
+
+```yaml
+metrics:
+  prometheus:
+    enabled: true
+    labels:
+      pipeline: schema-enforcement
+      environment: production
+```
+
+Query metrics:
+```bash
+# Validation failure rate
+rate(schema_validation_failures[5m])
+
+# DLQ routing rate
+rate(dlq_events_total[5m])
+```
+
+## Production Deployment
+
+### 1. Environment-specific Configuration
+
+```bash
+# Development
+export DLQ_ENDPOINT="http://localhost:9000/dlq"
+export ANALYTICS_ENDPOINT="http://localhost:9001/analytics"
+
+# Production
+export DLQ_ENDPOINT="https://dlq.prod.example.com/invalid"
+export ANALYTICS_ENDPOINT="https://analytics.prod.example.com/valid"
+```
+
+### 2. Deploy Pipeline
+
+```bash
+expanso deploy enforce-schema.yaml --namespace production
+```
+
+### 3. Monitor Validation Health
+
+```bash
+# Check DLQ volume
+expanso metrics schema-enforcement-pipeline | grep dlq
+
+# View recent errors
+expanso logs schema-enforcement-pipeline --filter "validation_failed"
+```
+
+## Next Steps
+
+Now that your environment is configured:
+
+1. [**Interactive Explorer**](./explorer) - See schema validation in action with live examples
+2. [**Back to Introduction**](./index) - Learn more about schema enforcement patterns
+3. [**View Complete Pipeline**](https://github.com/expanso/examples.expanso.io/tree/main/examples/data-security/enforce-schema.yaml) - Download the full configuration
+
+---
+
+**Continue:** [Explore the interactive demo](./explorer) to see schema enforcement step-by-step

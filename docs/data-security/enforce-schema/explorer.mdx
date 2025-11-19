@@ -1,0 +1,96 @@
+---
+title: Interactive Schema Validation Explorer
+sidebar_label: Interactive Explorer
+sidebar_position: 2
+description: Explore 4 stages of JSON Schema validation with live before/after comparisons showing data quality enforcement
+keywords: [schema, validation, json-schema, data-quality, dlq, dead-letter-queue, interactive]
+---
+
+import DataPipelineExplorer from '@site/src/components/DataPipelineExplorer';
+import { enforceSchemaStages } from '../enforce-schema-full.stages';
+
+# Interactive Schema Validation Explorer
+
+**See data quality enforcement in action!** Use the interactive explorer below to step through 4 stages of JSON Schema validation. Watch how malformed data gets caught at the edge before corrupting your analytics systems.
+
+## How to Use This Explorer
+
+1. **Navigate** using arrow keys (← →) or click the numbered stage buttons
+2. **Compare** the Input (left) and Output (right) showing validation at each stage
+3. **Observe** how invalid fields are detected and flagged (highlighted in red)
+4. **Inspect** the YAML code showing the JSON Schema definition
+5. **Learn** from the stage description explaining the data quality benefit
+
+## Interactive Schema Validation Explorer
+
+<DataPipelineExplorer
+  stages={enforceSchemaStages}
+  title="SCHEMA VALIDATION"
+  subtitle="4-Stage Data Quality Enforcement"
+/>
+
+## Understanding the Stages
+
+### Stage 1: No Validation
+Without schema validation, malformed data flows into your analytics, causing parse failures, corrupted dashboards, broken alerts, and ML models trained on garbage data.
+
+### Stage 2: Define JSON Schema
+Create a strict data contract specifying required fields, valid types, acceptable ranges, and format constraints. The schema acts as both documentation and enforcement.
+
+### Stage 3: Validate & Route
+Valid messages flow to analytics (Kafka topic: `sensor-data-valid`). Invalid messages route to Dead Letter Queue (DLQ topic: `sensor-data-dlq`) for investigation while preserving the data for debugging.
+
+### Stage 4: Monitor Quality
+Emit validation metrics (success/failure rates, error types, failing sensors) to Prometheus. Set up alerts when data quality degrades so you can investigate firmware bugs or malicious payloads.
+
+## What You've Learned
+
+After exploring all 4 stages, you now understand:
+
+✅ **JSON Schema** - How to define strict data contracts with types, ranges, and formats
+
+✅ **DLQ routing** - How to isolate invalid data without losing it
+
+✅ **Quality metrics** - How to track validation rates and detect data degradation
+
+✅ **Schema validation** - How to catch malformed data at the edge before it corrupts downstream systems
+
+## Try It Yourself
+
+Ready to build schema-validated data pipelines? Follow the step-by-step tutorial:
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./setup" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Start Tutorial
+  </a>
+  <a href="./complete-schema-validation" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Download Complete Solution
+  </a>
+</div>
+
+## Deep Dive into Each Step
+
+Want to understand each validation technique in depth?
+
+- [**Step 1: Define JSON Schema**](./step-1-define-json-schema) - Create strict data contracts
+- [**Step 2: Configure Validation**](./step-2-configure-validation) - Apply schema to incoming messages
+- [**Step 3: Route Failures to DLQ**](./step-3-route-failures-dlq) - Isolate invalid data
+- [**Step 4: Monitor Quality Metrics**](./step-4-monitor-quality-metrics) - Track validation success rates
+
+## Common Questions
+
+### Why validate at the edge instead of in the cloud?
+Edge validation catches malformed data before it reaches (and corrupts) your expensive cloud data lake, analytics systems, and ML models. You save on cloud egress costs and prevent cascading failures.
+
+### What's the difference between validation and sanitization?
+**Validation** checks if data conforms to a schema (pass/fail). **Sanitization** modifies data to make it safe (removing PII, redacting sensitive fields). Use validation first to catch structural issues, then sanitize to protect privacy.
+
+### Should I drop invalid messages or send them to DLQ?
+Always send to DLQ! Invalid data reveals bugs in IoT firmware, malicious payloads, or schema drift. By preserving it, you can debug issues, identify attack patterns, and update schemas when requirements change.
+
+### How do I evolve schemas without breaking producers?
+Use **schema versioning**: accept messages with version 1.0 or 2.0 schemas, applying the appropriate validation rules. Gradually migrate producers to v2.0 while maintaining backward compatibility with v1.0.
+
+---
+
+**Next:** [Set up your environment](./setup) to build schema-validated pipelines yourself
