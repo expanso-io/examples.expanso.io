@@ -52,7 +52,16 @@ const sidebars: SidebarsConfig = {
         'data-transformation/deduplicate-events',
         'data-transformation/normalize-timestamps',
         'data-transformation/parse-logs',
-        'data-transformation/transform-formats',
+        {
+          type: 'category',
+          label: 'Transform Data Formats',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'data-transformation/transform-formats/index',
+            'data-transformation/transform-formats/explorer',
+          ],
+        },
       ],
     },
     {
