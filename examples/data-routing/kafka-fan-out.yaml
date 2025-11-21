@@ -1,0 +1,33 @@
+name: kafka-fan-out
+type: pipeline
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+          root.edge_node_id = env("NODE_ID")
+          root.processing_timestamp = now()
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        - kafka:
+            addresses: [kafka-1.example.com:9092]
+            topic: sensor-events
+            key: \${!json("sensor_id")}
+            batching: {count: 100, period: 2s}
+            compression: snappy
+            sasl:
+              mechanism: SCRAM-SHA-512
+              user: \${KAFKA_USERNAME}
+              password: \${KAFKA_PASSWORD}
+        - file:
+            path: /var/data/archive.jsonl
+            batching: {count: 1000, period: 30s}

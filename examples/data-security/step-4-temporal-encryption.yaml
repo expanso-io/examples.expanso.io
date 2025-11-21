@@ -1,0 +1,48 @@
+# Stage 5: Temporal Data Encryption (HIPAA Compliance)
+
+pipeline:
+  processors:
+    # Birth date encryption with age analytics preservation
+    - mapping: |
+        root = this
+
+        # Parse birth date for analytics extraction
+        let birth_date = this.customer.date_of_birth.parse_timestamp("2006-01-02")
+
+        # Extract temporal analytics before encryption
+        root.customer.birth_year = birth_date.ts_format("2006").number()
+        root.customer.current_age = now().ts_format("2006").number() - root.customer.birth_year
+
+        # Generate age range for demographic analytics
+        root.customer.age_range = match {
+          root.customer.current_age < 18 => "under_18"
+          root.customer.current_age < 25 => "18_to_24"
+          root.customer.current_age < 35 => "25_to_34"
+          root.customer.current_age < 45 => "35_to_44"
+          root.customer.current_age < 55 => "45_to_54"
+          root.customer.current_age < 65 => "55_to_64"
+          _ => "65_plus"
+        }
+
+        # Generate generational cohort
+        root.customer.birth_decade = match {
+          root.customer.birth_year >= 1980 && root.customer.birth_year < 1990 => "1980s"
+          root.customer.birth_year >= 1990 && root.customer.birth_year < 2000 => "1990s"
+          root.customer.birth_year >= 2000 => "2000s"
+          _ => "pre_1980"
+        }
+
+        # Extract birth season
+        let month = birth_date.ts_format("01").number()
+        root.customer.birth_season = match {
+          month >= 3 && month <= 5 => "spring"
+          month >= 6 && month <= 8 => "summer"
+          month >= 9 && month <= 11 => "autumn"
+          _ => "winter"
+        }
+
+        # Encrypt exact birth date (HIPAA requirement)
+        root.customer.date_of_birth_encrypted = this.customer.date_of_birth.encrypt_aes("gcm", env("TEMPORAL_ENCRYPTION_KEY"))
+
+        # Remove plaintext birth date
+        root.customer.date_of_birth = deleted()

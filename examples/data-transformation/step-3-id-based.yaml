@@ -1,0 +1,23 @@
+# ID-based deduplication (fastest)
+processors:
+  - mapping: |
+      # Validate and extract unique ID
+      root = if !this.event_id.exists() || this.event_id == "" {
+        throw("Missing event_id for ID-based deduplication")
+      } else {
+        this
+      }
+      root.unique_id = this.event_id.trim()
+
+  - cache:
+      resource: dedup_cache
+      operator: get
+      key: \${! this.unique_id }
+
+  - mapping: |
+      root = if meta("cache").exists() {
+        deleted()  # Drop ID duplicates
+      } else {
+        _ = cache_set("dedup_cache", this.unique_id, now(), "30m")
+        this
+      }

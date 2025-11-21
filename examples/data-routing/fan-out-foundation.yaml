@@ -1,0 +1,19 @@
+name: fan-out-foundation
+type: pipeline
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        - file:
+            path: /var/data/realtime.jsonl
+            batching: {count: 100, period: 5s}
+        - file:
+            path: /var/data/archive.jsonl
+            batching: {count: 1000, period: 30s}

@@ -1,0 +1,11 @@
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+
+        # Remove credit card numbers (PCI-DSS Level 1)
+        # Keep last_four for fraud detection and analytics
+        root.payment_method = this.payment_method.without(
+          "full_number",
+          "expiry"
+        )

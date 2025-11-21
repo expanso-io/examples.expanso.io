@@ -1,0 +1,49 @@
+# Multi-criteria scoring with 6+ factors
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+
+        # Base severity score
+        let severity_score = match root.severity {
+          "CRITICAL" => 85, "ERROR" => 60,
+          "WARNING" => 35, "INFO" => 15, _ => 20
+        }
+
+        # Customer tier multiplier
+        let tier_multiplier = match root.customer_tier {
+          "enterprise" => 4.0, "premium" => 3.0,
+          "standard" => 2.0, "free" => 1.0, _ => 1.0
+        }
+
+        # Event type bonus
+        let event_type_score = match {
+          root.event_type.has_prefix("payment.failed") => 40
+          root.event_type.has_prefix("security.") => 50
+          root.event_type.has_prefix("auth.") => 45
+          root.event_type.has_prefix("payment.") => 25
+          _ => 10
+        }
+
+        # Urgency bonus
+        let urgency_score = match root.urgency {
+          "critical" => 20, "high" => 15,
+          "normal" => 5, "low" => 0, _ => 5
+        }
+
+        # Service criticality
+        let service_score = match root.service {
+          "payment-service" => 30
+          "auth-service" => 30
+          "billing-service" => 25
+          _ => 12
+        }
+
+        # Business hours boost
+        let business_hours = now().hour() >= 9 && now().hour() < 17
+        let temporal_score = if business_hours { 15 } else { 0 }
+
+        # Final calculation
+        let base_score = severity_score * tier_multiplier
+        let bonus_score = event_type_score + urgency_score + service_score + temporal_score
+        root.priority_score = base_score + bonus_score

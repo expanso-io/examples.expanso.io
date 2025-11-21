@@ -1,0 +1,34 @@
+pipeline:
+  processors:
+    - mapping: |
+        root = this.parse_json()
+        root.severity = this.level.uppercase()
+        root.priority = match this.severity {
+          "DEBUG" | "TRACE" => "low"
+          "INFO" => "medium"
+          "WARN" | "WARNING" => "high"
+          "ERROR" | "CRITICAL" | "FATAL" => "critical"
+          _ => "unknown"
+        }
+
+output:
+  switch:
+    cases:
+      # Drop DEBUG/TRACE logs (90% reduction)
+      - check: this.priority == "low"
+        output:
+          drop: {}
+
+      # ERROR/WARN → Elasticsearch (real-time alerts)
+      - check: this.priority == "critical" || this.priority == "high"
+        output:
+          elasticsearch:
+            urls: [http://localhost:9200]
+            index: logs-critical
+
+      # INFO → S3 (archival storage)
+      - check: this.priority == "medium"
+        output:
+          aws_s3:
+            bucket: logs-archive
+            path: info/\${!timestamp_unix()}.json

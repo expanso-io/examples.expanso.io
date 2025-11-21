@@ -1,0 +1,12 @@
+pipeline:
+  processors:
+    - switch:
+        - check: this.type() == "object"
+          processors:
+            - mapping: 'root = this # JSON detected'
+        - check: content().has_prefix("Obj\\x01")
+          processors:
+            - avro: {operator: from_json} # Avro detected
+        - processors:
+            - log:
+                message: "Unknown format: \${!content()}"

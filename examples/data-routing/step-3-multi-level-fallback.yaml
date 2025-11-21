@@ -1,0 +1,22 @@
+output:
+  fallback:
+    # Level 1: Primary API
+    - http_client:
+        url: https://primary-api.com/process
+        timeout: 5s
+        max_retries: 2
+
+    # Level 2: Secondary API
+    - http_client:
+        url: https://secondary-api.com/process
+        timeout: 5s
+        max_retries: 1
+
+    # Level 3: Local buffer
+    - file:
+        path: /var/buffer/failed-requests.jsonl
+
+    # Level 4: Dead letter queue
+    - kafka:
+        addresses: [localhost:9092]
+        topic: dlq-circuit-breaker-failures

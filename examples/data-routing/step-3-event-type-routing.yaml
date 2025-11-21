@@ -1,0 +1,32 @@
+output:
+  switch:
+    cases:
+      # Auth events to security systems
+      - check: |
+          this.event_type == "user.login" ||
+          this.event_type == "user.logout"
+        output:
+          broker:
+            pattern: fan_out
+            outputs:
+              - http_client:
+                  url: https://security-api.com/auth
+              - aws_s3:
+                  bucket: security-audit-logs
+
+      # Payment events to fraud detection
+      - check: this.event_type.has_prefix("payment.")
+        output:
+          broker:
+            outputs:
+              - kafka:
+                  topic: payment-events
+                  idempotent_write: true
+              - http_client:
+                  url: https://fraud-detection-api.com
+
+      # Telemetry to local storage
+      - check: this.event_type.has_prefix("telemetry.")
+        output:
+          file:
+            path: /var/expanso/telemetry.jsonl

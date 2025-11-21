@@ -1,0 +1,23 @@
+pipeline:
+  processors:
+    # Parse using grok pattern (Apache Combined Format)
+    - grok:
+        expressions:
+          - '%{IPORHOST:client_ip} %{USER:ident} %{USER:auth} \\[%{HTTPDATE:timestamp}\\] "(?:%{WORD:method} %{NOTSPACE:request}(?: HTTP/%{NUMBER:http_version})?|%{DATA})" %{NUMBER:status_code} (?:%{NUMBER:bytes}|-)'
+        named_captures_only: true
+
+    # Convert types and classify requests
+    - mapping: |
+        root = this
+        root.timestamp_unix = this.timestamp.parse_timestamp("02/Jan/2006:15:04:05 -0700").ts_unix()
+        root.status_code = this.status_code.number()
+        root.bytes = this.bytes.or("0").number()
+        root.request_category = if this.request.contains("/api/") {
+          "api"
+        } else if this.request.contains("/static/") {
+          "static"
+        } else { "page" }
+        root.is_error = this.status_code >= 400
+        # Hash IP for privacy
+        root.client_ip_hash = (this.client_ip + env("IP_SALT")).hash("sha256").slice(0, 16)
+        root = this.without("client_ip")
