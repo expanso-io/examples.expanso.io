@@ -21,19 +21,19 @@ config:
       codec: lines`,
     inputLines: [
 
-      { content: '{
-  "event_id": "sensor-001", 
+      { content: `{
+  "event_id": "sensor-001",
   "sensor_id": "temp-sensor-42",
   "timestamp": "2025-01-20T10:30:00Z",
   "temperature": 23.5,
   "humidity": 65.2,
   "device_type": "environmental_sensor"
-}', indent: 0 }
+}`, indent: 0 }
 
     ],
     outputLines: [
 
-      { content: 'name: single-destination-pipeline
+      { content: `name: single-destination-pipeline
 type: pipeline
 
 config:
@@ -45,7 +45,7 @@ config:
   output:
     file:
       path: /var/data/events.jsonl
-      codec: lines', indent: 0 }
+      codec: lines`, indent: 0 }
 
     ],
   },
@@ -75,19 +75,19 @@ config:
             batching: {count: 1000, period: 30s}`,
     inputLines: [
 
-      { content: '{
+      { content: `{
   "event_id": "sensor-001",
-  "sensor_id": "temp-sensor-42", 
+  "sensor_id": "temp-sensor-42",
   "timestamp": "2025-01-20T10:30:00Z",
   "temperature": 23.5,
   "humidity": 65.2,
   "device_type": "environmental_sensor"
-}', indent: 0 }
+}`, indent: 0 }
 
     ],
     outputLines: [
 
-      { content: 'name: fan-out-foundation
+      { content: `name: fan-out-foundation
 type: pipeline
 
 config:
@@ -105,7 +105,7 @@ config:
             batching: {count: 100, period: 5s}
         - file:
             path: /var/data/archive.jsonl
-            batching: {count: 1000, period: 30s}', indent: 0 }
+            batching: {count: 1000, period: 30s}`, indent: 0 }
 
     ],
   },
@@ -149,20 +149,20 @@ config:
             batching: {count: 1000, period: 30s}`,
     inputLines: [
 
-      { content: '{
+      { content: `{
   "event_id": "sensor-001",
   "sensor_id": "temp-sensor-42",
-  "timestamp": "2025-01-20T10:30:00Z", 
+  "timestamp": "2025-01-20T10:30:00Z",
   "temperature": 23.5,
   "humidity": 65.2,
   "device_type": "environmental_sensor",
   "edge_node_id": "edge-01"
-}', indent: 0 }
+}`, indent: 0 }
 
     ],
     outputLines: [
 
-      { content: 'name: kafka-fan-out
+      { content: `name: kafka-fan-out
 type: pipeline
 
 config:
@@ -194,7 +194,7 @@ config:
               password: \${KAFKA_PASSWORD}
         - file:
             path: /var/data/archive.jsonl
-            batching: {count: 1000, period: 30s}', indent: 0 }
+            batching: {count: 1000, period: 30s}`, indent: 0 }
 
     ],
   },
@@ -238,20 +238,20 @@ config:
               secret: \${AWS_SECRET_ACCESS_KEY}`,
     inputLines: [
 
-      { content: '{
+      { content: `{
   "event_id": "sensor-001",
   "sensor_id": "temp-sensor-42",
   "timestamp": "2025-01-20T10:30:00Z",
-  "temperature": 23.5, 
+  "temperature": 23.5,
   "humidity": 65.2,
   "device_type": "environmental_sensor",
   "edge_node_id": "edge-01"
-}', indent: 0 }
+}`, indent: 0 }
 
     ],
     outputLines: [
 
-      { content: 'name: s3-fan-out
+      { content: `name: s3-fan-out
 type: pipeline
 
 config:
@@ -283,7 +283,7 @@ config:
             storage_class: INTELLIGENT_TIERING
             credentials:
               id: \${AWS_ACCESS_KEY_ID}
-              secret: \${AWS_SECRET_ACCESS_KEY}', indent: 0 }
+              secret: \${AWS_SECRET_ACCESS_KEY}`, indent: 0 }
 
     ],
   },
@@ -334,20 +334,20 @@ config:
               password: \${ES_PASSWORD}`,
     inputLines: [
 
-      { content: '{
+      { content: `{
   "event_id": "sensor-001",
   "sensor_id": "temp-sensor-42",
   "timestamp": "2025-01-20T10:30:00Z",
   "temperature": 23.5,
   "humidity": 65.2,
-  "device_type": "environmental_sensor", 
+  "device_type": "environmental_sensor",
   "edge_node_id": "edge-01"
-}', indent: 0 }
+}`, indent: 0 }
 
     ],
     outputLines: [
 
-      { content: 'name: complete-fan-out
+      { content: `name: complete-fan-out
 type: pipeline
 
 config:
@@ -386,7 +386,7 @@ config:
             batching: {count: 250, period: 10s}
             basic_auth:
               username: \${ES_USERNAME}
-              password: \${ES_PASSWORD}', indent: 0 }
+              password: \${ES_PASSWORD}`, indent: 0 }
 
     ],
   }
