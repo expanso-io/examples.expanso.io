@@ -1,0 +1,33 @@
+name: s3-fan-out
+type: pipeline
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+          root.edge_node_id = env("NODE_ID")
+          root.processing_timestamp = now()
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        - kafka:
+            addresses: [kafka-1.example.com:9092]
+            topic: sensor-events
+            batching: {count: 100, period: 2s}
+        - aws_s3:
+            bucket: sensor-data-archive
+            path: "data/dt=\${!timestamp_unix_date(\\"2006-01-02\\")}/events.jsonl.gz"
+            batching: {count: 10000, period: 30m}
+            content_encoding: gzip
+            storage_class: INTELLIGENT_TIERING
+            credentials:
+              id: \${AWS_ACCESS_KEY_ID}
+              secret: \${AWS_SECRET_ACCESS_KEY}

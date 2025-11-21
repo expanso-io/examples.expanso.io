@@ -1,0 +1,26 @@
+# Stage 2: Payment Card Encryption (PCI-DSS Compliance)
+
+pipeline:
+  processors:
+    # Extract card brand before encryption
+    - mapping: |
+        root = this
+
+        let card_num = this.payment.card_number.re_replace_all("[^0-9]", "")
+        root.payment.card_brand = match {
+          card_num.re_match("^4[0-9]{12,18}$") => "visa"
+          card_num.re_match("^5[1-5][0-9]{14}$") => "mastercard"
+          _ => "unknown"
+        }
+
+        # Extract last 4 and BIN for customer service
+        root.payment.card_last_four = card_num.slice(-4)
+        root.payment.card_bin = card_num.slice(0, 6)
+
+        # Encrypt sensitive payment fields
+        root.payment.card_number_encrypted = this.payment.card_number.encrypt_aes("gcm", env("PAYMENT_ENCRYPTION_KEY"))
+        root.payment.cvv_encrypted = this.payment.cvv.encrypt_aes("gcm", env("PAYMENT_ENCRYPTION_KEY"))
+        root.payment.cardholder_name_encrypted = this.payment.cardholder_name.encrypt_aes("gcm", env("PAYMENT_ENCRYPTION_KEY"))
+
+        # Remove plaintext payment fields
+        root.payment = this.payment.without("card_number", "cvv", "cardholder_name")

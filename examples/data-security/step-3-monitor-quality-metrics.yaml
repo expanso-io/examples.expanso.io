@@ -1,0 +1,25 @@
+pipeline:
+  processors:
+    - switch:
+        - check: this.validate_json_schema(schema)
+          processors:
+            - mapping: 'root = this.with("status", "valid")'
+            - metric:
+                type: counter
+                name: schema_validation_success
+                labels:
+                  sensor_id: \${! this.sensor_id }
+        - processors:
+            - mapping: 'root = this.with("status", "invalid")'
+            - metric:
+                type: counter
+                name: schema_validation_failure
+                labels:
+                  sensor_id: \${! this.sensor_id }
+                  error_type: \${! error() }
+
+metrics:
+  prometheus:
+    enabled: true
+    path: /metrics
+  # Export validation metrics every 10s

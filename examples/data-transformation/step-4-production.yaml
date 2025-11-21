@@ -1,0 +1,81 @@
+# Production multi-level aggregation with reliability
+input:
+  kafka:
+    addresses: ["kafka-broker-1:9092", "kafka-broker-2:9092"]
+    topics: ["sensor-events"]
+    consumer_group: "aggregation-pipeline"
+
+resources:
+  caches:
+    production_cache:
+      redis:
+        url: "redis://redis-cluster:6379"
+        sentinel:
+          master_name: "aggregation-cache"
+  rate_limits:
+    input_limit:
+      count: 100000
+      per: "1s"
+
+pipeline:
+  processors:
+    - try:
+        processors:
+          - json: {}
+          - mapping: |
+              if !this.exists("sensor_id") { error("Missing sensor_id") }
+              if this.temperature < -50 || this.temperature > 100 {
+                error("Temperature out of range")
+              }
+              root = this
+              root.processing_instance = "aggregation-instance-1"
+        catch:
+          - http_client:
+              url: "https://errors.company.com/validation-errors"
+          - mapping: 'deleted()'
+
+    - branch:
+        request_map: |
+          root = [
+            this.merge({"aggregation_level": "sensor", "group_key": this.sensor_id}),
+            this.merge({"aggregation_level": "location", "group_key": this.location}),
+            this.merge({"aggregation_level": "global", "group_key": "global"})
+          ]
+        processors:
+          - cache:
+              resource: production_cache
+              key: \${! this.group_key + "|" + this.aggregation_level }
+              value: \${! this }
+          - group_by:
+              - key: \${! this.group_key }
+                value: \${! this }
+          - mapping: |
+              let level = this[0].aggregation_level
+              if level == "global" {
+                root.aggregation_level = "global"
+                root.sensor_count = this.map_each(e -> e.sensor_id).unique().length()
+                root.location_count = this.map_each(e -> e.location).unique().length()
+                root.temperature_avg = this.map_each(e -> e.temperature).mean().round(2)
+                root.system_health = "excellent"
+                root.circuit_breaker_state = "closed"
+                root.reliability_score = 0.99
+              }
+
+output:
+  circuit_breaker:
+    failure_threshold: 5
+    outputs:
+      - http_client:
+          url: "https://analytics.company.com/aggregations"
+          batching:
+            count: 500
+            period: "10s"
+      fallback:
+        - file:
+            path: "/var/buffer/aggregations.jsonl"
+
+metrics:
+  prometheus:
+    use_histogram_timing: true
+    static_labels:
+      service: "time-window-aggregation"

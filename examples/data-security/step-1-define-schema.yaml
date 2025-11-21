@@ -1,0 +1,23 @@
+pipeline:
+  processors:
+    - mapping: |
+        # Define JSON Schema for sensor data
+        let schema = {
+          "type": "object",
+          "required": ["sensor_id", "timestamp", "readings"],
+          "properties": {
+            "sensor_id": {"type": "string"},
+            "timestamp": {"type": "string", "format": "date-time"},
+            "readings": {
+              "type": "object",
+              "required": ["temperature_celsius", "humidity_percent"],
+              "properties": {
+                "temperature_celsius": {"type": "number", "minimum": -50, "maximum": 100},
+                "humidity_percent": {"type": "number", "minimum": 0, "maximum": 100}
+              }
+            }
+          }
+        }
+
+        # Validate message against schema
+        root = this.validate_json_schema(schema)

@@ -1,0 +1,40 @@
+name: complete-fan-out
+type: pipeline
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+          root.edge_node_id = env("NODE_ID")
+          root.processing_timestamp = now()
+          root.analytics = {
+            "event_hour": this.timestamp.parse_timestamp().ts_hour(),
+            "temperature_status": if this.temperature > 35 { "high" } else { "normal" }
+          }
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        - kafka:
+            addresses: [kafka-1.example.com:9092]
+            topic: sensor-events
+            batching: {count: 100, period: 2s}
+        - aws_s3:
+            bucket: sensor-data-archive
+            path: "data/dt=\${!timestamp_unix_date(\\"2006-01-02\\")}/events.jsonl.gz"
+            batching: {count: 10000, period: 30m}
+        - elasticsearch:
+            urls: [https://es-1.example.com:9200]
+            index: "sensor-events-\${!timestamp_unix_date(\\"2006-01-02\\")}"
+            id: \${!json("event_id")}
+            batching: {count: 250, period: 10s}
+            basic_auth:
+              username: \${ES_USERNAME}
+              password: \${ES_PASSWORD}

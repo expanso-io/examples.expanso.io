@@ -1,0 +1,35 @@
+# Stage 4: Address Data Encryption (Location Privacy)
+
+pipeline:
+  processors:
+    # Address encryption with demographic preservation
+    - mapping: |
+        root = this
+
+        # Extract ZIP prefixes for demographic clustering
+        root.billing_address.zip_prefix = this.billing_address.zip.re_replace_all("[^0-9]", "").slice(0, 3)
+        root.shipping_address.zip_prefix = this.shipping_address.zip.re_replace_all("[^0-9]", "").slice(0, 3)
+
+        # Determine metro areas for regional analytics
+        root.billing_address.metro_area = match {
+          this.billing_address.city.lowercase().re_match(".*(san francisco|sf).*") => "sf_bay_area"
+          this.billing_address.city.lowercase().re_match(".*(los angeles|la).*") => "la_metro"
+          _ => "other_urban"
+        }
+
+        # Encrypt precise location data
+        root.billing_address.street_encrypted = this.billing_address.street.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
+        root.billing_address.zip_encrypted = this.billing_address.zip.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
+        root.shipping_address.street_encrypted = this.shipping_address.street.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
+        root.shipping_address.zip_encrypted = this.shipping_address.zip.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
+
+        # Address relationship analysis
+        root.address_analysis = {
+          "same_city": this.billing_address.city == this.shipping_address.city,
+          "same_state": this.billing_address.state == this.shipping_address.state,
+          "same_metro": root.billing_address.metro_area == this.shipping_address.metro_area
+        }
+
+        # Remove plaintext addresses
+        root.billing_address = this.billing_address.without("street", "zip")
+        root.shipping_address = this.shipping_address.without("street", "zip")

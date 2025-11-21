@@ -1,0 +1,21 @@
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # 1. Real-time alerts (high priority)
+      - switch:
+          - check: this.priority >= 7
+            output:
+              elasticsearch:
+                urls: [http://localhost:9200]
+                index: logs-critical
+
+      # 2. Stream processing (all logs)
+      - kafka:
+          addresses: [localhost:9092]
+          topic: logs-stream
+
+      # 3. Long-term archival (S3)
+      - aws_s3:
+          bucket: logs-archive
+          path: \${!timestamp_unix()}.json
