@@ -1,4 +1,6 @@
-export const encryptionPatternsStages = [
+import type { Stage } from '@site/src/components/DataPipelineExplorer/types';
+
+export const encryptionPatternsStages: Stage[] = [
   {
     id: 1,
     title: "Original Sensitive Data",
