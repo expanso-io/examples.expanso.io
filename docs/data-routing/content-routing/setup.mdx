@@ -12,102 +12,29 @@ Before building the content routing pipeline, you'll set up destination services
 
 ## Prerequisites
 
-- ✅ Expanso edge node installed and running ([Installation Guide](https://docs.expanso.io/installation))
-- ✅ Kafka cluster accessible from your edge node
-- ✅ Basic familiarity with YAML configuration
+- **Local Services:** Follow the [Local Development Setup](/getting-started/local-development) guide to start Kafka, PostgreSQL, and Redis using Docker Compose
+- **Expanso:** Installed and running ([Installation Guide](https://docs.expanso.io/installation))
+- **Environment Variables:** Set as described in the [local development guide](/getting-started/local-development#environment-variables)
 
-## Step 1: Configure Environment Variables
+## Step 1: Configure Example-Specific Variables
 
-Content routing requires credentials and endpoints for various destination services. Set these up before deploying the pipeline.
+After setting up the core services, configure content routing-specific variables:
 
 ```bash
-# Core Kafka configuration
-export KAFKA_BROKERS="localhost:9092"
-
-# Optional: Regional Kafka clusters for geographic routing
-export US_EAST_KAFKA="us-east-kafka.example.com:9092"
-export US_WEST_KAFKA="us-west-kafka.example.com:9092" 
-export EU_KAFKA="eu-kafka.example.com:9092"
-export AP_KAFKA="ap-kafka.example.com:9092"
-
-# Alert destinations for severity routing
+# Alert destinations for severity routing (optional)
 export PAGERDUTY_API_KEY="your_pagerduty_integration_key"
 export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
 
-# Analytics and monitoring endpoints
+# Analytics and monitoring endpoints (optional)
 export ANALYTICS_API_URL="https://analytics.example.com/events"
 export SECURITY_MONITORING_URL="https://security.example.com/auth-events"
-export FRAUD_DETECTION_URL="https://fraud-detection.example.com/analyze"
-
-# AWS credentials for S3 storage (if using geographic routing)
-export AWS_ACCESS_KEY_ID="your_access_key"
-export AWS_SECRET_ACCESS_KEY="your_secret_key"
 
 # Verification
-echo "Environment configured for:"
-echo "- Kafka: $KAFKA_BROKERS"
-echo "- PagerDuty: ${PAGERDUTY_API_KEY:0:8}..."
-echo "- Slack: ${SLACK_WEBHOOK_URL:0:30}..."
+echo "Kafka: $KAFKA_BROKERS"
+echo "Slack: ${SLACK_WEBHOOK_URL:0:30}..."
 ```
 
-**Important:** Store these credentials securely. In production, use Expanso's secret management or your organization's credential store.
-
-## Step 2: Verify Kafka Connectivity
-
-Test connectivity to your Kafka cluster before proceeding:
-
-```bash
-# Test Kafka connectivity using kafkacat or kafka-console-producer
-echo '{"test": "message", "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' | \
-  kafka-console-producer --broker-list $KAFKA_BROKERS --topic test-connectivity
-
-# Verify the message was received
-kafka-console-consumer --bootstrap-server $KAFKA_BROKERS \
-  --topic test-connectivity --from-beginning --max-messages 1
-
-# Clean up test topic
-kafka-topics --bootstrap-server $KAFKA_BROKERS --delete --topic test-connectivity
-```
-
-**Expected output:** You should see your test message consumed successfully.
-
-## Step 3: Create Required Kafka Topics
-
-Create the Kafka topics that will be used by the content routing pipeline:
-
-```bash
-# Create topics for severity-based routing
-kafka-topics --bootstrap-server $KAFKA_BROKERS --create \
-  --topic critical-alerts --partitions 3 --replication-factor 1
-
-kafka-topics --bootstrap-server $KAFKA_BROKERS --create \
-  --topic general-events --partitions 6 --replication-factor 1
-
-# Create topics for priority queue routing
-kafka-topics --bootstrap-server $KAFKA_BROKERS --create \
-  --topic critical-queue --partitions 1 --replication-factor 1
-
-kafka-topics --bootstrap-server $KAFKA_BROKERS --create \
-  --topic high-priority-queue --partitions 3 --replication-factor 1
-
-kafka-topics --bootstrap-server $KAFKA_BROKERS --create \
-  --topic normal-queue --partitions 6 --replication-factor 1
-
-kafka-topics --bootstrap-server $KAFKA_BROKERS --create \
-  --topic low-priority-queue --partitions 12 --replication-factor 1
-
-# Create topics for event type routing  
-kafka-topics --bootstrap-server $KAFKA_BROKERS --create \
-  --topic auth-events --partitions 3 --replication-factor 1
-
-kafka-topics --bootstrap-server $KAFKA_BROKERS --create \
-  --topic payment-events --partitions 6 --replication-factor 1
-
-# Verify topic creation
-kafka-topics --bootstrap-server $KAFKA_BROKERS --list | grep -E "(critical|priority|auth|payment|general)"
-```
-
-## Step 4: Deploy Shell Content Router
+## Step 2: Deploy Shell Content Router
 
 Before adding complex routing logic, deploy a minimal "shell" router that accepts all messages and routes them to a single destination. This verifies your setup works.
 
