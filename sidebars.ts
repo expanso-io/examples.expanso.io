@@ -9,6 +9,15 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Getting Started',
+      collapsible: true,
+      collapsed: false,
+      items: [
+        'getting-started/local-development',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Data Routing',
       collapsible: true,
       collapsed: false,
