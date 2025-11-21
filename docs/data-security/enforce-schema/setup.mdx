@@ -462,54 +462,6 @@ for node in edge-sensor-001 edge-sensor-002; do
 done
 ```
 
-## Troubleshooting
-
-### Issue: Edge Nodes Not Listed
-
-**Symptom:** `expanso node list` returns empty or nodes missing labels
-
-**Solution:**
-```bash
-# Check if orchestrator is running
-expanso cluster status
-
-# Check edge node connection
-expanso node describe <NODE_ID>
-
-# Add missing labels
-expanso node label <NODE_ID> role=sensor-collector validation=required
-```
-
-### Issue: Shell Pipeline Not Starting
-
-**Symptom:** Pipeline status shows "failed" or "pending"
-
-**Solution:**
-```bash
-# Check pipeline logs
-expanso job logs shell-sensor-validation
-
-# Verify node selector matches labels
-expanso node list --show-labels | grep validation
-
-# Check for port conflicts
-expanso node exec <NODE_ID> -- netstat -ln | grep 8080
-```
-
-### Issue: Schema Directory Permission Denied
-
-**Symptom:** Cannot create schema directory on edge nodes
-
-**Solution:**
-```bash
-# Check current user permissions
-expanso node exec <NODE_ID> -- whoami
-
-# Use sudo if needed
-expanso node exec <NODE_ID> -- sudo mkdir -p /etc/expanso/schemas
-expanso node exec <NODE_ID> -- sudo chown expanso:expanso /etc/expanso/schemas
-```
-
 ## Next Steps
 
 With your environment set up and verified, you're ready to build the complete schema validation solution:
