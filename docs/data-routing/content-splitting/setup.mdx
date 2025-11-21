@@ -12,33 +12,29 @@ Before building the content splitting pipeline, you'll set up test data, configu
 
 ## Prerequisites
 
-- ✅ Expanso edge node installed ([Installation Guide](https://docs.expanso.io/installation))
-- ✅ Destination services available (Kafka, S3, HTTP endpoints)
-- ✅ Basic familiarity with YAML configuration ([Expanso Configuration](https://docs.expanso.io/configuration))
+- **Local Services:** Follow the [Local Development Setup](/getting-started/local-development) guide to start Kafka, PostgreSQL, and Redis
+- **Expanso:** Installed and running ([Installation Guide](https://docs.expanso.io/installation))
+- **Environment Variables:** Configured per the [local development guide](/getting-started/local-development#environment-variables)
 
-## Step 1: Configure Environment Variables
+## Step 1: Configure Example-Specific Variables
 
-Set up environment variables for your destination services. This example uses Kafka and S3, but you can substitute any destinations:
+After setting up the core services, configure content splitting-specific variables:
 
 ```bash
-# Kafka configuration
-export KAFKA_BROKERS="localhost:9092"
+# Kafka topics for split content (already created in local dev setup)
 export KAFKA_TOPIC_ALERTS="temperature-alerts"
 export KAFKA_TOPIC_STORAGE="temperature-storage"
 
-# S3 configuration (optional)
+# Optional: S3 configuration for archival
 export S3_BUCKET="your-sensor-data-bucket"
-export AWS_ACCESS_KEY_ID="your-access-key"
-export AWS_SECRET_ACCESS_KEY="your-secret-key"
 export AWS_REGION="us-west-2"
 
-# HTTP endpoint for alerts (optional)
+# Optional: HTTP endpoint for alerts
 export ALERT_WEBHOOK_URL="https://your-alerting-system.com/webhooks/temperature"
 
 # Verify configuration
 echo "Kafka: $KAFKA_BROKERS"
-echo "S3 Bucket: $S3_BUCKET"
-echo "Alert URL: $ALERT_WEBHOOK_URL"
+echo "S3 Bucket: ${S3_BUCKET:-not set}"
 ```
 
 ## Step 2: Create Sample Data Files
@@ -190,14 +186,11 @@ If you see messages being logged with correct `detected_type` values (sensor_arr
 **Next step:** You're ready to implement actual content splitting
 :::
 
-## Step 5: Verify Destination Connectivity
+## Step 5: Verify Optional Services
 
-Before proceeding, verify your destination services are reachable and properly configured:
+If using optional services, verify connectivity:
 
 ```bash
-# Test Kafka connectivity (if using Kafka)
-kafka-topics.sh --bootstrap-server $KAFKA_BROKERS --list
-
 # Test S3 connectivity (if using S3)
 aws s3 ls s3://$S3_BUCKET --region $AWS_REGION
 
