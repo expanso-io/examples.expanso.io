@@ -29,54 +29,6 @@ import { removePiiFullStages } from '../remove-pii-full.stages';
   subtitle="6-Stage Progressive Transformation"
 />
 
-## Understanding the Stages
-
-### Stage 1: Original Input
-See the raw event with **all PII fields intact**. Notice the violations:
-- `full_number` → PCI-DSS violation (credit card)
-- `email`, `ip_address` → GDPR PII
-- `user_name` → Direct identifier
-- `latitude`, `longitude` → Precise location tracking
-
-### Stage 2: Delete Payment Data
-**First transformation:** Remove the highest-risk PII using `.without()`.
-- Credit card numbers deleted (PCI-DSS compliance)
-- Expiry dates removed
-- `last_four` retained for fraud analytics
-
-### Stage 3: Hash IP Address
-**Second transformation:** Convert IP to SHA-256 hash.
-- Original IP replaced with irreversible hash
-- Same IP always produces same hash (uniqueness preserved)
-- Enables abuse detection without storing actual IPs
-
-### Stage 4: Hash Email
-**Third transformation:** Hash email + extract domain.
-- Email converted to hash for user counting
-- Domain extracted separately (`example.com`)
-- Allows organizational analytics (e.g., "20% users are @gmail.com")
-
-### Stage 5: Pseudonymize User
-**Fourth transformation:** Replace name with consistent user_id.
-- `user_name` becomes `user_id` (e.g., "user_8f3e7a9c2d1b")
-- Same user = same ID across all events
-- Enables user journey tracking without knowing identity
-
-### Stage 6: Generalize Location
-**Final transformation:** Remove precise coordinates.
-- GPS coordinates (`latitude`, `longitude`) deleted
-- City and country preserved for regional analytics
-- **Result:** Fully GDPR-compliant location data
-
-## What You've Learned
-
-After exploring all 6 stages, you now understand:
-
-✅ **Deletion** - When to completely remove fields (`.without()`)
-✅ **Hashing** - How to preserve uniqueness while removing reversibility
-✅ **Pseudonymization** - Creating consistent IDs for tracking without identity
-✅ **Generalization** - Reducing precision to balance privacy and analytics
-
 ## Try It Yourself
 
 Ready to build this pipeline? Follow the step-by-step tutorial:
