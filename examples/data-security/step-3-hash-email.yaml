@@ -1,0 +1,20 @@
+pipeline:
+  processors:
+    # Steps 1-2 from previous stages...
+
+    # Step 3: Hash email and extract domain
+    - mapping: |
+        root = this
+
+        # Get salt from environment
+        let email_salt = env("EMAIL_SALT").or("default-salt")
+
+        # Hash email for unique counting
+        root.email_hash = (this.email + email_salt)
+          .hash("sha256").slice(0, 16)
+
+        # Extract domain for org analytics
+        root.email_domain = this.email.split("@")[1]
+
+        # Remove original email
+        root = this.without("email")

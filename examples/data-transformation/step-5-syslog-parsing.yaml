@@ -1,0 +1,28 @@
+pipeline:
+  processors:
+    # Parse syslog format (RFC3164)
+    - grok:
+        expressions:
+          - '<%{POSINT:priority}>%{SYSLOGTIMESTAMP:timestamp} %{SYSLOGHOST:hostname} %{DATA:tag}(?:\\[%{POSINT:pid}\\])?: %{GREEDYDATA:message}'
+        named_captures_only: true
+
+    # Parse priority to facility and severity
+    - mapping: |
+        root = this
+        let pri = this.priority.number()
+        root.facility = (pri / 8).floor()
+        root.severity = pri % 8
+        root.severity_name = if this.severity == 0 {
+          "Emergency"
+        } else if this.severity <= 2 {
+          "Critical"
+        } else if this.severity <= 4 {
+          "Warning"
+        } else {
+          "Informational"
+        }
+        # Parse timestamp (add current year)
+        let year = now().ts_format("2006")
+        root.timestamp_unix = (year + " " + this.timestamp).parse_timestamp("2006 Jan 02 15:04:05").ts_unix()
+        root.application = this.tag
+        root.process_id = this.pid.or("").number()

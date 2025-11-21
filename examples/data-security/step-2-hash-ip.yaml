@@ -1,0 +1,22 @@
+pipeline:
+  processors:
+    # Step 1: Delete payment data
+    - mapping: |
+        root = this
+        root.payment_method = this.payment_method.without(
+          "full_number", "expiry"
+        )
+
+    # Step 2: Hash IP address
+    - mapping: |
+        root = this
+
+        # Get salt from environment (keep secret!)
+        let ip_salt = env("IP_SALT").or("default-salt-change-me")
+
+        # SHA-256 hash with salt, take first 16 chars
+        root.ip_address_hash = (this.ip_address + ip_salt)
+          .hash("sha256").slice(0, 16)
+
+        # Remove original IP
+        root = this.without("ip_address")

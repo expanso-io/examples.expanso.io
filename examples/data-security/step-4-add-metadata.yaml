@@ -1,0 +1,14 @@
+pipeline:
+  processors:
+    - mapping: |
+        root.encryption_metadata = {
+          "encrypted": true,
+          "encryption_timestamp": now(),
+          "encryption_version": "1.0",
+          "key_version": env("KEY_VERSION"),
+          "algorithm": "AES-256-GCM",
+          "node_id": env("NODE_ID"),
+          "pipeline": "payment-field-encryption",
+          "encrypted_fields": ["payment.card_number_encrypted", "payment.cvv_encrypted", "customer.ssn_encrypted"],
+          "plaintext_fields": ["transaction_id", "timestamp", "amount"]
+        }

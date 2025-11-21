@@ -1,0 +1,78 @@
+# Session window aggregation (5-minute inactivity threshold)
+resources:
+  caches:
+    session_cache:
+      memory:
+        default_ttl: "3600s"
+        max_items: 10000
+
+pipeline:
+  processors:
+    - json: {}
+    - cache:
+        resource: session_cache
+        key: \${! this.sensor_id }
+        value: \${! this }
+
+    - group_by:
+        - key: \${! this.sensor_id }
+          value: \${! this }
+
+    - mapping: |
+        let sorted_events = this.sort_by(event -> event.timestamp)
+        let inactivity_threshold_minutes = 5
+
+        # Session detection algorithm
+        let sessions = []
+        let current_session = []
+        let last_event_time = null
+
+        sorted_events.map_each(event -> {
+          let event_time = event.timestamp.parse_timestamp("2006-01-02T15:04:05Z").timestamp_unix()
+          let gap_minutes = if last_event_time != null {
+            (event_time - last_event_time) / 60.0
+          } else {
+            0
+          }
+
+          if gap_minutes > inactivity_threshold_minutes && current_session.length() > 0 {
+            # Complete current session, start new one
+            sessions = sessions + [current_session]
+            current_session = [event]
+          } else {
+            current_session = current_session + [event]
+          }
+
+          last_event_time = event_time
+        })
+
+        # Add final session
+        if current_session.length() > 0 {
+          sessions = sessions + [current_session]
+        }
+
+        root = sessions
+
+    - mapping: 'root = this'
+    - unarchive:
+        format: json_array
+
+    - mapping: |
+        let session_events = this.sort_by(event -> event.timestamp)
+        let first_event = session_events[0]
+        let last_event = session_events[session_events.length()-1]
+
+        root.sensor_id = first_event.sensor_id
+        root.session_start = first_event.timestamp
+        root.session_end = last_event.timestamp
+        root.total_events = session_events.length()
+
+        let duration_seconds = last_event.timestamp.parse_timestamp("2006-01-02T15:04:05Z").timestamp_unix() -
+                              first_event.timestamp.parse_timestamp("2006-01-02T15:04:05Z").timestamp_unix()
+        root.session_duration_minutes = (duration_seconds / 60.0).round(2)
+
+        root.activity_intensity = match {
+          root.total_events / root.session_duration_minutes > 2 => "high",
+          root.total_events / root.session_duration_minutes > 0.5 => "medium",
+          _ => "low"
+        }

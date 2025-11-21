@@ -1,0 +1,33 @@
+# Stage 3: Personal Data Encryption (GDPR/CCPA Compliance)
+
+pipeline:
+  processors:
+    # Email encryption with domain preservation
+    - mapping: |
+        root = this
+
+        # Extract email domain for B2B analytics
+        root.customer.email_domain = this.customer.email.split("@").index(1)
+        root.customer.email_domain_type = match {
+          root.customer.email_domain.re_match("(gmail|yahoo|hotmail).*") => "consumer"
+          _ => "business"
+        }
+
+        # Phone encryption with area code preservation
+        let phone_clean = this.customer.phone.re_replace_all("[^0-9+]", "")
+        root.customer.phone_country_code = if phone_clean.has_prefix("+1") { "+1" } else { "international" }
+        root.customer.phone_area_code = if phone_clean.length() == 12 { phone_clean.slice(2, 5) }
+
+        # SSN encryption with last 4 preservation
+        let ssn_clean = this.customer.ssn.re_replace_all("[^0-9]", "")
+        root.customer.ssn_last_four = ssn_clean.slice(-4)
+
+        # Encrypt all PII fields
+        root.customer.email_encrypted = this.customer.email.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
+        root.customer.phone_encrypted = this.customer.phone.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
+        root.customer.ssn_encrypted = this.customer.ssn.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
+        root.customer.first_name_encrypted = this.customer.first_name.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
+        root.customer.last_name_encrypted = this.customer.last_name.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
+
+        # Remove plaintext PII
+        root.customer = this.customer.without("email", "phone", "ssn", "first_name", "last_name")

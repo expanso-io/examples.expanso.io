@@ -1,0 +1,24 @@
+pipeline:
+  processors:
+    - switch:
+        - check: this.validate_json_schema(schema)
+          processors:
+            - mapping: 'root = this.with("status", "valid")'
+        - processors:
+            - mapping: 'root = this.with("status", "invalid")'
+            - mapping: 'root.error = error()'
+
+output:
+  switch:
+    cases:
+      - check: this.status == "valid"
+        output:
+          kafka:
+            addresses: [localhost:9092]
+            topic: sensor-data-valid
+
+      - check: this.status == "invalid"
+        output:
+          kafka:
+            addresses: [localhost:9092]
+            topic: sensor-data-dlq
