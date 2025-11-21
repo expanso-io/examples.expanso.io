@@ -1,4 +1,6 @@
-export const contentSplittingStages = [
+import type { Stage } from '@site/src/components/DataPipelineExplorer/types';
+
+export const contentSplittingStages: Stage[] = [
   {
     stage: 1,
     title: "Original Bundled Message",

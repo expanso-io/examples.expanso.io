@@ -1,4 +1,6 @@
-export const deduplicateEventsStages = [
+import type { Stage } from '@site/src/components/DataPipelineExplorer/types';
+
+export const deduplicateEventsStages: Stage[] = [
   {
     id: 1,
     title: "Original Events",

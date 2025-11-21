@@ -1,4 +1,6 @@
-export const fanOutPatternStages = [
+import type { Stage } from '@site/src/components/DataPipelineExplorer/types';
+
+export const fanOutPatternStages: Stage[] = [
   {
     title: "Stage 1: Single Destination",
     description: "Basic pipeline with single file output - the typical starting point before implementing fan-out pattern.",

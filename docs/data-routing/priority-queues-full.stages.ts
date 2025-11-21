@@ -1,4 +1,6 @@
-export const priorityQueuesStages = [
+import type { Stage } from '@site/src/components/DataPipelineExplorer/types';
+
+export const priorityQueuesStages: Stage[] = [
   {
     title: "Original Input",
     description: "All messages flow through a single processing path regardless of importance. Critical alerts compete with routine logs, causing latency spikes and SLA violations.",

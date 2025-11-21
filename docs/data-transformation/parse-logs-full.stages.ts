@@ -1,4 +1,6 @@
-export const parseLogsStages = [
+import type { Stage } from '@site/src/components/DataPipelineExplorer/types';
+
+export const parseLogsStages: Stage[] = [
   {
     title: "Stage 1: Original Input",
     description: "Raw log data from multiple sources in different formats",

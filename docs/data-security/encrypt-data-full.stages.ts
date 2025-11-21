@@ -1,4 +1,6 @@
-export const encryptDataStages = [
+import type { Stage } from '@site/src/components/DataPipelineExplorer/types';
+
+export const encryptDataStages: Stage[] = [
   {
     stage: 1,
     title: "Original Payment Data",

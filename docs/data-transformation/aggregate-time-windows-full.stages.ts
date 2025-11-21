@@ -1,4 +1,6 @@
-export const aggregateTimeWindowsStages = [
+import type { Stage } from '@site/src/components/DataPipelineExplorer/types';
+
+export const aggregateTimeWindowsStages: Stage[] = [
   {
     title: "Original High-Frequency Events",
     description: "Raw sensor data streaming at 60 events/minute per sensor, creating overwhelming data volume that needs aggregation.",
