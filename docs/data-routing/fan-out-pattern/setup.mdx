@@ -12,98 +12,53 @@ Before building the multi-destination pipeline, you'll set up cloud service cred
 
 ## Prerequisites
 
-- ✅ Expanso platform installed ([Installation Guide](https://docs.expanso.io/installation))
-- ✅ Edge node connected to orchestrator
-- ✅ Cloud service accounts (AWS, Kafka cluster, Elasticsearch cluster)
-- ✅ Basic familiarity with YAML pipeline configuration
+- **Local Services:** Follow the [Local Development Setup](/getting-started/local-development) guide to start Kafka, PostgreSQL, and Redis
+- **Expanso:** Installed and running ([Installation Guide](https://docs.expanso.io/installation))
+- **Environment Variables:** Configured per the [local development guide](/getting-started/local-development#environment-variables)
 
-## Step 1: Configure Environment Variables
+## Step 1: Configure Example-Specific Variables
 
-Set up credentials for all destination services. These will be used across all fan-out destinations.
+After setting up the core services, configure fan-out-specific variables:
 
-Create `.env` file in your working directory:
-
-```bash title="Create environment configuration"
-# Create secure environment file
-cat > .env << 'EOF'
-# Kafka Configuration
-KAFKA_USERNAME=your-kafka-username
-KAFKA_PASSWORD=your-kafka-password
-KAFKA_BROKER_1=kafka-1.your-cluster.com:9092
-KAFKA_BROKER_2=kafka-2.your-cluster.com:9092
-KAFKA_BROKER_3=kafka-3.your-cluster.com:9092
-
-# AWS S3 Configuration  
-AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
-AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-AWS_REGION=us-west-2
-S3_BUCKET=your-sensor-data-archive
-
-# Elasticsearch Configuration
-ES_USERNAME=your-elasticsearch-username
-ES_PASSWORD=your-elasticsearch-password
-ES_ENDPOINT_1=https://es-1.your-cluster.com:9200
-ES_ENDPOINT_2=https://es-2.your-cluster.com:9200
-ES_ENDPOINT_3=https://es-3.your-cluster.com:9200
-
+```bash
 # Edge Node Configuration
-NODE_ID=edge-node-01
-NODE_LOCATION=factory-floor-west
-EOF
+export NODE_ID="edge-node-01"
+export NODE_LOCATION="factory-floor-west"
 
-# Secure the environment file
-chmod 600 .env
+# Optional: Cloud service credentials (for multi-cloud fan-out)
+export S3_BUCKET="your-sensor-data-archive"
+export AWS_REGION="us-west-2"
+
+# Optional: Elasticsearch Configuration
+export ES_USERNAME="your-elasticsearch-username"
+export ES_PASSWORD="your-elasticsearch-password"
+export ES_ENDPOINT="https://es-1.your-cluster.com:9200"
+
+# Verify configuration
+echo "Node ID: $NODE_ID"
+echo "Kafka: $KAFKA_BROKERS"
+echo "S3 Bucket: ${S3_BUCKET:-not set}"
 ```
 
-**Security Note:** Never commit `.env` files to version control. Use your orchestrator's secret management for production deployments.
+**Security Note:** Never commit credentials to version control. Use your orchestrator's secret management for production deployments.
 
-## Step 2: Verify Cloud Service Connectivity
+## Step 2: Verify Optional Cloud Services
 
-Before proceeding, verify your edge node can reach all destination services.
-
-**Test Kafka connectivity:**
+If using optional cloud services, verify connectivity:
 
 ```bash
-# Install kafka tools if needed
-curl -O https://downloads.apache.org/kafka/2.8.1/kafka_2.13-2.8.1.tgz
-tar xzf kafka_2.13-2.8.1.tgz
+# Test S3 connectivity (if configured)
+if [ -n "$S3_BUCKET" ]; then
+  aws s3 ls s3://$S3_BUCKET/ --region $AWS_REGION
+fi
 
-# Test Kafka connection (replace with your broker details)
-kafka_2.13-2.8.1/bin/kafka-broker-api-versions.sh \
-  --bootstrap-server $KAFKA_BROKER_1 \
-  --command-config <(echo -e "security.protocol=SASL_SSL\nsasl.mechanism=SCRAM-SHA-512\nsasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username=\"$KAFKA_USERNAME\" password=\"$KAFKA_PASSWORD\";")
+# Test Elasticsearch connectivity (if configured)
+if [ -n "$ES_ENDPOINT" ]; then
+  curl -X GET "$ES_ENDPOINT/_cluster/health" \
+    -u "$ES_USERNAME:$ES_PASSWORD" \
+    -H "Content-Type: application/json"
+fi
 ```
-
-**Expected output:** List of API versions if successful.
-
-**Test AWS S3 connectivity:**
-
-```bash
-# Install AWS CLI if needed
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip awscliv2.zip
-sudo ./aws/install
-
-# Configure credentials
-export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-
-# Test S3 access
-aws s3 ls s3://$S3_BUCKET/ --region $AWS_REGION
-```
-
-**Expected output:** Bucket listing (may be empty) if successful.
-
-**Test Elasticsearch connectivity:**
-
-```bash
-# Test Elasticsearch connection
-curl -X GET "$ES_ENDPOINT_1/_cluster/health" \
-  -u "$ES_USERNAME:$ES_PASSWORD" \
-  -H "Content-Type: application/json"
-```
-
-**Expected output:** Cluster health JSON response.
 
 ## Step 3: Create Sample Data Generator
 
@@ -284,54 +239,49 @@ If you see events with edge metadata in the output file, your environment is cor
 **Next step:** Add real destinations to create the full fan-out pattern
 :::
 
-## Step 6: Verify Service Prerequisites
+## Step 6: Verify Setup
 
-Before proceeding to multi-destination setup, verify all required cloud services are ready:
+Verify all required services are ready:
 
-```bash title="Verify all services are ready"
+```bash title="Verify setup"
 # Create verification script
-cat > verify-services.sh << 'EOF'
+cat > verify-setup.sh << 'EOF'
 #!/bin/bash
-set -e
 
-echo "🔍 Verifying fan-out setup prerequisites..."
-
-# Source environment
-source .env
+echo "🔍 Verifying fan-out setup..."
 
 # Test Kafka
 echo "📡 Testing Kafka connectivity..."
-if kafka_2.13-2.8.1/bin/kafka-broker-api-versions.sh \
-    --bootstrap-server $KAFKA_BROKER_1 \
-    --command-config <(echo -e "security.protocol=SASL_SSL\nsasl.mechanism=SCRAM-SHA-512\nsasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username=\"$KAFKA_USERNAME\" password=\"$KAFKA_PASSWORD\";") \
-    --timeout-ms 5000 &>/dev/null; then
+if kafka-topics.sh --bootstrap-server $KAFKA_BROKERS --list > /dev/null 2>&1; then
   echo "✅ Kafka connectivity OK"
 else
   echo "❌ Kafka connectivity FAILED"
   exit 1
 fi
 
-# Test S3
-echo "📦 Testing S3 connectivity..."
-if aws s3 ls s3://$S3_BUCKET/ --region $AWS_REGION &>/dev/null; then
-  echo "✅ S3 connectivity OK"
-else
-  echo "❌ S3 connectivity FAILED"
-  exit 1
+# Test S3 (if configured)
+if [ -n "$S3_BUCKET" ]; then
+  echo "📦 Testing S3 connectivity..."
+  if aws s3 ls s3://$S3_BUCKET/ --region $AWS_REGION &>/dev/null; then
+    echo "✅ S3 connectivity OK"
+  else
+    echo "⚠️ S3 connectivity FAILED (optional)"
+  fi
 fi
 
-# Test Elasticsearch
-echo "🔍 Testing Elasticsearch connectivity..."
-if curl -s -X GET "$ES_ENDPOINT_1/_cluster/health" \
-    -u "$ES_USERNAME:$ES_PASSWORD" | grep -q '"status":"green\|yellow"'; then
-  echo "✅ Elasticsearch connectivity OK"
-else
-  echo "❌ Elasticsearch connectivity FAILED"
-  exit 1
+# Test Elasticsearch (if configured)
+if [ -n "$ES_ENDPOINT" ]; then
+  echo "🔍 Testing Elasticsearch connectivity..."
+  if curl -s -X GET "$ES_ENDPOINT/_cluster/health" \
+      -u "$ES_USERNAME:$ES_PASSWORD" | grep -q '"status":"green\|yellow"'; then
+    echo "✅ Elasticsearch connectivity OK"
+  else
+    echo "⚠️ Elasticsearch connectivity FAILED (optional)"
+  fi
 fi
 
-# Test edge node
-echo "🏭 Testing edge node pipeline..."
+# Test shell pipeline
+echo "🏭 Testing shell pipeline..."
 if expanso job status shell-fan-out-pipeline | grep -q "Running"; then
   echo "✅ Shell pipeline running OK"
 else
@@ -340,41 +290,33 @@ else
 fi
 
 echo ""
-echo "🎉 All prerequisites verified successfully!"
-echo "Ready to proceed with multi-destination fan-out pattern implementation."
+echo "🎉 Setup verified successfully!"
 EOF
 
-chmod +x verify-services.sh
-
-# Run verification
-./verify-services.sh
+chmod +x verify-setup.sh
+./verify-setup.sh
 ```
 
-## Step 7: Prepare Topic and Index
+## Step 7: Create Example-Specific Topics
 
-Create required Kafka topics and Elasticsearch indices for the destinations.
+Create Kafka topics specific to this example (core topics already exist from local dev setup):
 
-**Create Kafka topic:**
-
-```bash title="Create Kafka topic"
-# Create sensor-events topic with appropriate partitioning
-kafka_2.13-2.8.1/bin/kafka-topics.sh \
-  --bootstrap-server $KAFKA_BROKER_1 \
-  --command-config <(echo -e "security.protocol=SASL_SSL\nsasl.mechanism=SCRAM-SHA-512\nsasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username=\"$KAFKA_USERNAME\" password=\"$KAFKA_PASSWORD\";") \
+```bash title="Create example-specific Kafka topic"
+# Create sensor-events topic for fan-out example
+kafka-topics.sh --bootstrap-server $KAFKA_BROKERS \
   --topic sensor-events \
   --create \
-  --partitions 6 \
-  --replication-factor 3
+  --partitions 3 \
+  --replication-factor 1 \
+  --if-not-exists
 
 # Verify topic creation
-kafka_2.13-2.8.1/bin/kafka-topics.sh \
-  --bootstrap-server $KAFKA_BROKER_1 \
-  --command-config <(echo -e "security.protocol=SASL_SSL\nsasl.mechanism=SCRAM-SHA-512\nsasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username=\"$KAFKA_USERNAME\" password=\"$KAFKA_PASSWORD\";") \
+kafka-topics.sh --bootstrap-server $KAFKA_BROKERS \
   --topic sensor-events \
   --describe
 ```
 
-**Create Elasticsearch index template:**
+**Create Elasticsearch index template (if using Elasticsearch):**
 
 ```bash title="Create Elasticsearch index template"
 # Create index template for daily sensor event indices

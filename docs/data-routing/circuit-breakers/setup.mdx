@@ -12,13 +12,13 @@ Before building circuit breaker patterns, you'll set up a test environment with 
 
 ## Prerequisites
 
-- ✅ Expanso CLI installed ([Installation Guide](https://docs.expanso.io/installation))
-- ✅ Docker installed for mock services
-- ✅ Basic familiarity with HTTP APIs and databases
+- **Local Services:** Follow the [Local Development Setup](/getting-started/local-development) guide to start Kafka, PostgreSQL, and Redis using Docker Compose
+- **Expanso:** Installed and running ([Installation Guide](https://docs.expanso.io/installation))
+- **Environment Variables:** Set as described in the [local development guide](/getting-started/local-development#environment-variables)
 
-## Step 1: Configure Environment Variables
+## Step 1: Configure Example-Specific Variables
 
-Set up environment variables for connecting to downstream systems:
+After setting up the core services, configure circuit breaker-specific variables:
 
 ```bash
 # Circuit breaker configuration
@@ -30,16 +30,9 @@ export CIRCUIT_BREAKER_RETRY_PERIOD="2s"
 export MOCK_API_URL="http://localhost:8081"
 export API_TOKEN="test-token"
 
-# Mock database configuration  
-export DB_CONNECTION_STRING="postgres://test:test@localhost:5432/circuit_test?sslmode=disable"
-
-# Kafka configuration (for outputs)
-export KAFKA_BROKERS="localhost:9092"
-
 # Verify configuration
 echo "Circuit breaker timeout: $CIRCUIT_BREAKER_TIMEOUT"
 echo "Mock API URL: $MOCK_API_URL"
-echo "Database connection: $DB_CONNECTION_STRING"
 ```
 
 ## Step 2: Start Mock Downstream Services
@@ -162,68 +155,6 @@ MOCK_API_PID=$!
 echo "Mock API started with PID: $MOCK_API_PID"
 ```
 
-### Mock Database with Docker
-
-Start a PostgreSQL container for database circuit breaker testing:
-
-```bash
-# Start PostgreSQL container
-docker run -d \
-  --name circuit-test-db \
-  -e POSTGRES_USER=test \
-  -e POSTGRES_PASSWORD=test \
-  -e POSTGRES_DB=circuit_test \
-  -p 5432:5432 \
-  postgres:13-alpine
-
-# Wait for database to be ready
-echo "Waiting for database to be ready..."
-sleep 10
-
-# Create test table and data
-docker exec circuit-test-db psql -U test -d circuit_test -c "
-  CREATE TABLE IF NOT EXISTS users (
-    user_id VARCHAR(50) PRIMARY KEY,
-    user_name VARCHAR(100),
-    user_tier VARCHAR(20),
-    account_type VARCHAR(30),
-    created_at TIMESTAMP DEFAULT NOW()
-  );
-
-  INSERT INTO users (user_id, user_name, user_tier, account_type) VALUES
-    ('user_001', 'Alice Johnson', 'premium', 'business'),
-    ('user_002', 'Bob Smith', 'standard', 'personal'),
-    ('user_003', 'Carol Brown', 'enterprise', 'business'),
-    ('user_004', 'David Wilson', 'premium', 'personal'),
-    ('user_005', 'Eve Davis', 'standard', 'business')
-  ON CONFLICT (user_id) DO NOTHING;
-"
-
-echo "Database setup complete"
-```
-
-### Start Kafka with Docker (Optional)
-
-If you need Kafka for output testing:
-
-```bash
-# Start Kafka and Zookeeper
-docker run -d \
-  --name circuit-test-zookeeper \
-  -p 2181:2181 \
-  -e ZOOKEEPER_CLIENT_PORT=2181 \
-  confluentinc/cp-zookeeper:latest
-
-docker run -d \
-  --name circuit-test-kafka \
-  -p 9092:9092 \
-  -e KAFKA_ZOOKEEPER_CONNECT=localhost:2181 \
-  -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092 \
-  -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
-  confluentinc/cp-kafka:latest
-
-echo "Kafka setup complete (optional)"
-```
 
 ## Step 3: Deploy Shell Circuit Breaker Pipeline
 

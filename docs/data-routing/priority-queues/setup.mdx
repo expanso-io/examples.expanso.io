@@ -12,27 +12,15 @@ Before building the priority queue system, you'll set up your Kafka environment,
 
 ## Prerequisites
 
-- ✅ Expanso edge node installed ([Installation Guide](https://docs.expanso.io/getting-started/installation))
-- ✅ Kafka cluster available (local or cloud)
-- ✅ Basic familiarity with message queuing concepts
+- **Local Services:** Follow the [Local Development Setup](/getting-started/local-development) guide to start Kafka, PostgreSQL, and Redis using Docker Compose
+- **Expanso:** Installed and running ([Installation Guide](https://docs.expanso.io/installation))
+- **Environment Variables:** Set as described in the [local development guide](/getting-started/local-development#environment-variables)
 
-## Step 1: Configure Environment Variables
+## Step 1: Configure Example-Specific Variables
 
-Priority queues require Kafka broker addresses and optional authentication credentials.
+After setting up the core services, configure priority queue-specific variables:
 
 ```bash
-# Set Kafka broker addresses
-export KAFKA_BROKERS="localhost:9092"
-
-# For cloud Kafka (Confluent, AWS MSK, etc.), use multiple brokers
-# export KAFKA_BROKERS="broker1.kafka.cloud:9092,broker2.kafka.cloud:9092,broker3.kafka.cloud:9092"
-
-# Optional: Set authentication (for cloud Kafka)
-export KAFKA_USERNAME="your-username"
-export KAFKA_PASSWORD="your-password"
-export KAFKA_SECURITY_PROTOCOL="SASL_SSL"
-export KAFKA_SASL_MECHANISM="PLAIN"
-
 # Set edge node identifier for tracking
 export NODE_ID="edge-node-01"
 
@@ -41,56 +29,7 @@ echo "Kafka Brokers: $KAFKA_BROKERS"
 echo "Node ID: $NODE_ID"
 ```
 
-## Step 2: Create Kafka Topics
-
-Priority queues require separate topics for each priority level to enable differential processing.
-
-```bash
-# For local Kafka (adjust kafka-topics.sh path as needed)
-KAFKA_HOME="/opt/kafka"  # or /usr/local/kafka
-
-# Create priority-specific topics
-$KAFKA_HOME/bin/kafka-topics.sh --create \
-    --bootstrap-server $KAFKA_BROKERS \
-    --topic logs-critical \
-    --partitions 3 \
-    --replication-factor 1 \
-    --config retention.ms=86400000  # 24 hours for critical
-
-$KAFKA_HOME/bin/kafka-topics.sh --create \
-    --bootstrap-server $KAFKA_BROKERS \
-    --topic logs-high \
-    --partitions 6 \
-    --replication-factor 1 \
-    --config retention.ms=259200000  # 72 hours for high priority
-
-$KAFKA_HOME/bin/kafka-topics.sh --create \
-    --bootstrap-server $KAFKA_BROKERS \
-    --topic logs-normal \
-    --partitions 12 \
-    --replication-factor 1 \
-    --config retention.ms=604800000  # 7 days for normal
-
-$KAFKA_HOME/bin/kafka-topics.sh --create \
-    --bootstrap-server $KAFKA_BROKERS \
-    --topic logs-low \
-    --partitions 6 \
-    --replication-factor 1 \
-    --config retention.ms=604800000  # 7 days for low priority
-
-# Verify topics were created
-$KAFKA_HOME/bin/kafka-topics.sh --list --bootstrap-server $KAFKA_BROKERS | grep logs-
-```
-
-**Expected output:**
-```
-logs-critical
-logs-high
-logs-low
-logs-normal
-```
-
-## Step 3: Deploy Shell Priority Queue Pipeline
+## Step 2: Deploy Shell Priority Queue Pipeline
 
 Before adding sophisticated priority logic, deploy a minimal "shell" pipeline that just routes all messages to a normal priority queue. This verifies your Kafka setup works.
 
