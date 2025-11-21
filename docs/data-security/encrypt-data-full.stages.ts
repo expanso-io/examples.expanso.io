@@ -13,7 +13,7 @@ input:
     path: "/payments"`,
     inputLines: [
 
-      { content: '{
+      { content: `{
   "transaction_id": "txn_20251020_001",
   "timestamp": "2025-10-20T14:30:00Z",
   "merchant_id": "merchant_789",
@@ -38,12 +38,12 @@ input:
     "zip": "94102",
     "country": "US"
   }
-}', indent: 0 }
+}`, indent: 0 }
 
     ],
     outputLines: [
 
-      { content: '{
+      { content: `{
   "transaction_id": "txn_20251020_001",
   "timestamp": "2025-10-20T14:30:00Z",
   "merchant_id": "merchant_789",
@@ -68,7 +68,7 @@ input:
     "zip": "94102",
     "country": "US"
   }
-}', indent: 0 }
+}`, indent: 0 }
 
     ],
   },
@@ -90,28 +90,28 @@ input:
         root.payment.expiration = this.payment.expiration`,
     inputLines: [
 
-      { content: '{
+      { content: `{
   "payment": {
     "card_number": "4532-1234-5678-9010",
     "cvv": "123",
     "expiration": "12/27",
     "cardholder_name": "Sarah Johnson"
   }
-}', indent: 0 }
+}`, indent: 0 }
 
     ],
     outputLines: [
 
-      { content: '{
+      { content: `{
   "payment": {
     "card_number_encrypted": "AES256GCM:v1:YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY=:8f3e2a1b9c4d7e6f",
-    "cvv_encrypted": "AES256GCM:v1:cGFzc3dvcmQxMjM0NTY3ODkwYWJjZGVmZ2hp:1a2b3c4d5e6f7g8h", 
+    "cvv_encrypted": "AES256GCM:v1:cGFzc3dvcmQxMjM0NTY3ODkwYWJjZGVmZ2hp:1a2b3c4d5e6f7g8h",
     "cardholder_name_encrypted": "AES256GCM:v1:bmFtZXN0cmluZ2hlcmVmb3J0ZXN0aW5ncHVycG9zZXM=:9f8e7d6c5b4a3g2h",
     "card_last_four": "9010",
     "card_brand": "visa",
     "expiration": "12/27"
   }
-}', indent: 0 }
+}`, indent: 0 }
 
     ],
   },
@@ -133,30 +133,30 @@ input:
         root.customer.birth_year = this.customer.date_of_birth.parse_timestamp("2006-01-02").format_timestamp("2006")`,
     inputLines: [
 
-      { content: '{
+      { content: `{
   "customer": {
     "email": "sarah.johnson@example.com",
-    "phone": "+1-415-555-0123", 
+    "phone": "+1-415-555-0123",
     "ssn": "123-45-6789",
     "date_of_birth": "1985-03-15"
   }
-}', indent: 0 }
+}`, indent: 0 }
 
     ],
     outputLines: [
 
-      { content: '{
+      { content: `{
   "customer": {
     "ssn_encrypted": "AES256GCM:v1:c3NuZGF0YWhlcmVmb3J0ZXN0aW5ncHVycG9zZXM=:7e6d5c4b3a2g1h0f",
     "email_encrypted": "AES256GCM:v1:ZW1haWxkYXRhaGVyZWZvcnRlc3Rpbmdwcm9wb3Nlcw==:6d5c4b3a2g1h0f9e",
     "phone_encrypted": "AES256GCM:v1:cGhvbmVkYXRhaGVyZWZvcnRlc3Rpbmdwcm9wb3Nlcw==:5c4b3a2g1h0f9e8d",
     "date_of_birth_encrypted": "AES256GCM:v1:ZG9iZGF0YWhlcmVmb3J0ZXN0aW5ncHVycG9zZXM=:4b3a2g1h0f9e8d7c",
     "ssn_last_four": "6789",
-    "email_domain": "example.com", 
+    "email_domain": "example.com",
     "phone_area_code": "415",
     "birth_year": 1985
   }
-}', indent: 0 }
+}`, indent: 0 }
 
     ],
   },
@@ -175,20 +175,20 @@ input:
         root.billing_address.country = this.billing_address.country`,
     inputLines: [
 
-      { content: '{
+      { content: `{
   "billing_address": {
     "street": "123 Main St",
     "city": "San Francisco",
-    "state": "CA", 
+    "state": "CA",
     "zip": "94102",
     "country": "US"
   }
-}', indent: 0 }
+}`, indent: 0 }
 
     ],
     outputLines: [
 
-      { content: '{
+      { content: `{
   "billing_address": {
     "street_encrypted": "AES256GCM:v1:c3RyZWV0ZGF0YWhlcmVmb3J0ZXN0aW5ncHVycG9zZXM=:3a2g1h0f9e8d7c6b",
     "zip_encrypted": "AES256GCM:v1:emlwZGF0YWhlcmVmb3J0ZXN0aW5ncHVycG9zZXM=:2g1h0f9e8d7c6b5a",
@@ -196,7 +196,7 @@ input:
     "state": "CA",
     "country": "US"
   }
-}', indent: 0 }
+}`, indent: 0 }
 
     ],
   },
@@ -221,26 +221,26 @@ input:
         }`,
     inputLines: [
 
-      { content: '{
+      { content: `{
   // Encrypted transaction data
-}', indent: 0 }
+}`, indent: 0 }
 
     ],
     outputLines: [
 
-      { content: '{
+      { content: `{
   // Previous encrypted data plus:
   "encryption_metadata": {
     "encrypted": true,
     "encryption_timestamp": "2025-10-20T14:30:01.234Z",
-    "encryption_version": "1.0", 
+    "encryption_version": "1.0",
     "key_version": "v1_20251020",
     "algorithm": "AES-256-GCM",
     "node_id": "edge-payment-001",
     "pipeline": "payment-field-encryption",
     "encrypted_fields": [
       "payment.card_number_encrypted",
-      "payment.cvv_encrypted", 
+      "payment.cvv_encrypted",
       "payment.cardholder_name_encrypted",
       "customer.ssn_encrypted",
       "customer.email_encrypted",
@@ -257,7 +257,7 @@ input:
       "billing_address.city", "billing_address.state"
     ]
   }
-}', indent: 0 }
+}`, indent: 0 }
 
     ],
   },
@@ -273,17 +273,17 @@ output:
     topic: encrypted-payments`,
     inputLines: [
 
-      { content: '{
+      { content: `{
   // Original plaintext transaction
-}', indent: 0 }
+}`, indent: 0 }
 
     ],
     outputLines: [
 
-      { content: '{
+      { content: `{
   "transaction_id": "txn_20251020_001",
   "timestamp": "2025-10-20T14:30:00Z",
-  "merchant_id": "merchant_789", 
+  "merchant_id": "merchant_789",
   "amount": 127.50,
   "currency": "USD",
   "payment": {
@@ -296,12 +296,12 @@ output:
   },
   "customer": {
     "ssn_encrypted": "AES256GCM:v1:c3NuZGF0YWhlcmVmb3J0ZXN0aW5ncHVycG9zZXM=:7e6d5c4b3a2g1h0f",
-    "email_encrypted": "AES256GCM:v1:ZW1haWxkYXRhaGVyZWZvcnRlc3Rpbmdwcm9wb3Nlcw==:6d5c4b3a2g1h0f9e", 
+    "email_encrypted": "AES256GCM:v1:ZW1haWxkYXRhaGVyZWZvcnRlc3Rpbmdwcm9wb3Nlcw==:6d5c4b3a2g1h0f9e",
     "phone_encrypted": "AES256GCM:v1:cGhvbmVkYXRhaGVyZWZvcnRlc3Rpbmdwcm9wb3Nlcw==:5c4b3a2g1h0f9e8d",
     "date_of_birth_encrypted": "AES256GCM:v1:ZG9iZGF0YWhlcmVmb3J0ZXN0aW5ncHVycG9zZXM=:4b3a2g1h0f9e8d7c",
     "ssn_last_four": "6789",
     "email_domain": "example.com",
-    "phone_area_code": "415", 
+    "phone_area_code": "415",
     "birth_year": 1985
   },
   "billing_address": {
@@ -315,12 +315,12 @@ output:
     "encrypted": true,
     "encryption_timestamp": "2025-10-20T14:30:01.234Z",
     "encryption_version": "1.0",
-    "key_version": "v1_20251020", 
+    "key_version": "v1_20251020",
     "algorithm": "AES-256-GCM",
     "node_id": "edge-payment-001",
     "pipeline": "payment-field-encryption"
   }
-}', indent: 0 }
+}`, indent: 0 }
 
     ],
   }
