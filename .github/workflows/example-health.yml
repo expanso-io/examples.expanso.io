@@ -50,12 +50,12 @@ jobs:
           npm run check-health > health-output.txt 2>&1 || true
           cat health-output.txt
 
-          # Extract key metrics from output
-          TOTAL=$(grep "Total Examples:" health-output.txt | awk '{print $NF}' || echo "0")
-          COMPLETE=$(grep "Complete (100%):" health-output.txt | awk '{print $NF}' || echo "0")
-          PARTIAL=$(grep "Partial (50-99%):" health-output.txt | awk '{print $NF}' || echo "0")
-          MINIMAL=$(grep "Minimal (<50%):" health-output.txt | awk '{print $NF}' || echo "0")
-          AVG=$(grep "Average Completion:" health-output.txt | awk '{print $NF}' | tr -d '%' || echo "0")
+          # Extract key metrics from output (use head -1 to get only first match)
+          TOTAL=$(grep "Total Examples:" health-output.txt | head -1 | awk '{print $NF}' || echo "0")
+          COMPLETE=$(grep "Complete (100%):" health-output.txt | head -1 | awk '{print $NF}' || echo "0")
+          PARTIAL=$(grep "Partial (50-99%):" health-output.txt | head -1 | awk '{print $NF}' || echo "0")
+          MINIMAL=$(grep "Minimal (<50%):" health-output.txt | head -1 | awk '{print $NF}' || echo "0")
+          AVG=$(grep "Average Completion:" health-output.txt | head -1 | awk '{print $NF}' | tr -d '%' || echo "0")
 
           echo "total=${TOTAL}" >> $GITHUB_OUTPUT
           echo "complete=${COMPLETE}" >> $GITHUB_OUTPUT
