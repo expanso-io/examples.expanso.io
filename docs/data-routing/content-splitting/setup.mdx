@@ -268,51 +268,6 @@ tail -f /var/log/expanso/shell-splitting-*.jsonl
 curl -X POST http://localhost:8080/split/test -H "Content-Type: application/json" -d '{"test": "ready"}'
 ```
 
-## Common Setup Issues
-
-### Issue: Port 8080 Already in Use
-
-**Symptom:** Pipeline fails to start with "bind: address already in use"
-
-**Solution:**
-```bash
-# Find what's using port 8080
-lsof -i :8080
-
-# Kill the process or change the port
-# In shell-splitting.yaml, change:
-address: 0.0.0.0:8081  # Use different port
-```
-
-### Issue: Permission Denied Writing Log Files
-
-**Symptom:** Pipeline starts but no log files appear
-
-**Solution:**
-```bash
-# Create log directory with proper permissions
-sudo mkdir -p /var/log/expanso
-sudo chown $USER:$USER /var/log/expanso
-
-# Or change to a user-writable directory
-# In shell-splitting.yaml:
-path: /tmp/shell-splitting-${!timestamp_unix()}.jsonl
-```
-
-### Issue: Environment Variables Not Set
-
-**Symptom:** Pipeline fails when trying to connect to destinations
-
-**Solution:**
-```bash
-# Re-export variables
-source ~/.bashrc
-
-# Or add to pipeline config directly
-# In your YAML file:
-addresses: ["localhost:9092"]  # Instead of ${KAFKA_BROKERS}
-```
-
 ---
 
 **Next:** [Step 1: Split JSON Arrays](./step-1-split-json-arrays) to implement your first content splitting transformation.
