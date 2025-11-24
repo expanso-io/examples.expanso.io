@@ -1,0 +1,133 @@
+---
+title: "Advanced Priority Queue Patterns"
+sidebar_label: "Step 5 - Advanced Patterns"
+sidebar_position: 8
+description: Explore advanced priority queue patterns like SLA tracking, dynamic scoring, and dedicated infrastructure.
+keywords: [advanced-priority-queue, sla, dynamic-scoring, dedicated-infrastructure, production]
+---
+
+# Advanced Priority Queue Patterns & Production Tuning
+
+Once you have mastered the basics of multi-criteria scoring and age-based escalation, you can implement more sophisticated, production-grade patterns.
+
+## Pattern 1: Dedicated Infrastructure for Tiers
+
+For true performance isolation, enterprise or premium customers should be routed to entirely separate infrastructure (e.g., a different Kafka cluster). This prevents "noisy neighbor" problems, where a massive influx of low-priority data could still impact higher-tier customers at the network level.
+
+```yaml title="Dedicated Enterprise Infrastructure"
+output:
+  switch:
+    cases:
+      # Enterprise customers go to a completely separate Kafka cluster
+      - check: this.customer_tier == "enterprise"
+        output:
+          kafka:
+            addresses: [ ${ENTERPRISE_KAFKA_BROKERS} ]
+            topic: enterprise-events
+            # ... include strict reliability and security settings
+
+      # All other customers go to the standard, shared Kafka cluster
+      - output:
+          kafka:
+            addresses: [ ${KAFKA_BROKERS} ]
+            topic: standard-events
+```
+
+## Pattern 2: Dynamic Scoring Based on System Load
+
+Your scoring can be made adaptive. If the system is under heavy load, the criteria for achieving "critical" or "high" priority can be made stricter to shed load.
+
+```yaml title="Load-Aware Scoring"
+- mapping: |
+    root = this
+
+    # Fetch current system load from a monitoring endpoint (conceptual)
+    let system_load_percent = http_client(
+      "http://monitoring.internal/api/load",
+      {"timeout": "50ms"}
+    ).cpu.or(50)
+
+    # If load is high, apply a penalty to all scores
+    let load_penalty = match {
+      system_load_percent > 90 => 20, # Heavy penalty
+      system_load_percent > 75 => 10, # Moderate penalty
+      _ => 0
+    }
+
+    # Calculate score as before...
+    let base_score = ...
+
+    # Apply the penalty
+    root.priority_score = base_score - load_penalty
+```
+
+## Pattern 3: SLA Tracking and Violation Alerting
+
+For paying customers, you can explicitly track and alert on SLA (Service Level Agreement) violations.
+
+```yaml title="SLA Violation Tracking"
+- mapping: |
+    root = this
+
+    # Define SLA targets in milliseconds
+    let sla_target_ms = match this.customer_tier {
+      "enterprise" => 100,
+      "premium" => 500,
+      _ => 5000
+    }
+
+    let processing_time_ms = (now().unix_nano() - this.timestamp.parse_timestamp().unix_nano()) / 1000000
+
+    if processing_time_ms > sla_target_ms {
+      root.sla_violation = {
+        "tier": this.customer_tier,
+        "target_ms": sla_target_ms,
+        "actual_ms": processing_time_ms
+      }
+    }
+
+# Downstream, a 'switch' can route SLA violations to an alerting system.
+```
+
+## Production Kafka Tuning
+
+The minimal Kafka configurations in the steps are for learning. A production setup would have much more detailed tuning for each priority queue.
+
+```yaml title="Production-Tuned Critical Queue"
+- check: this.priority == "critical"
+  output:
+    kafka:
+      addresses: ["${KAFKA_BROKERS}"]
+      topic: logs-critical
+      batching:
+        count: 1 # No batching for speed
+        period: 0s
+      # Reliability settings
+      max_in_flight: 1
+      ack_replicas: true
+      idempotent_write: true
+      max_retries: 10
+      backoff:
+        initial_interval: 100ms
+        max_interval: 2s
+      compression: none # No compression for speed
+```
+
+```yaml title="Production-Tuned Bulk Queue"
+- check: this.priority == "bulk"
+  output:
+    kafka:
+      addresses: ["${KAFKA_BROKERS}"]
+      topic: logs-bulk
+      batching:
+        count: 5000 # Massive batches for throughput
+        period: 5m
+        byte_size: 10MB
+      # Performance settings
+      max_in_flight: 20
+      compression: gzip # High compression to save network/disk
+      # Reliability is less important
+      ack_replicas: false
+      max_retries: 1
+```
+These advanced patterns allow you to build a highly sophisticated, business-aware, and resilient routing system that can be tuned to meet specific performance, cost, and compliance goals.

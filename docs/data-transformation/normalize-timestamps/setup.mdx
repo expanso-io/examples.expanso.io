@@ -2,43 +2,23 @@
 title: Setup Environment for Timestamp Normalization
 sidebar_label: Setup
 sidebar_position: 2
-description: Configure Expanso Edge, sample data, and deploy a shell timestamp pipeline
+description: Configure Expanso Edge and sample data for timestamp normalization.
 keywords: [setup, environment, configuration, deployment, timestamp, edge]
 ---
 
 # Setup Environment for Timestamp Normalization
 
-Before building the timestamp normalization pipeline, you'll set up your Expanso Edge environment, prepare sample data, and deploy a minimal shell pipeline to verify everything works.
+Before building the timestamp normalization pipeline, you'll set up your Expanso Edge environment and prepare sample data.
 
 ## Prerequisites
 
-- **Kafka:** Set up [Kafka](/getting-started/local-development#kafka) for time-normalized data delivery
-- **Expanso:** Installed and running ([Installation Guide](https://docs.expanso.io/installation))
-- **Environment Variables:** See the [local development guide](/getting-started/local-development#environment-variables)
+This example requires the following services to be running:
 
-## Step 1: Verify Expanso Edge Environment
+*   **[Kafka](/getting-started/services/kafka)**
 
-Confirm your Expanso Edge installation is working:
+Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
 
-```bash
-# Check Expanso CLI version
-expanso version
-
-# Verify edge connectivity
-expanso edge status
-
-# List available nodes
-expanso nodes list
-```
-
-**Expected output:**
-```
-Expanso CLI v1.2.3
-Edge Status: Connected
-Nodes: 2 active, 0 inactive
-```
-
-## Step 2: Create Sample Timestamp Data
+## Step 1: Create Sample Timestamp Data
 
 Generate diverse timestamp formats for testing:
 
@@ -61,7 +41,7 @@ EOF
 echo "Sample data created with $(wc -l < ~/timestamp-samples/mixed-timestamps.jsonl) events"
 ```
 
-## Step 3: Configure Environment Variables
+## Step 2: Configure Environment Variables
 
 Set up configuration for the timestamp normalization pipeline:
 
@@ -84,94 +64,7 @@ source ~/.expanso-timestamps.env
 echo "Environment configured for project: ${EXPANSO_PROJECT}"
 ```
 
-## Step 4: Deploy Shell Timestamp Pipeline
-
-Before adding timestamp normalization logic, deploy a minimal "shell" pipeline that just forwards events. This verifies your setup works.
-
-Create `shell-timestamps.yaml`:
-
-```yaml title="shell-timestamps.yaml"
-input:
-  # Read from sample data file
-  file:
-    paths: ["/tmp/timestamp-input.jsonl"]
-    codec: lines
-    delete_on_finish: false
-
-pipeline:
-  processors:
-    # Validate input format
-    - log:
-        message: "Processing event: ${! json(\"event_id\") }"
-        level: DEBUG
-    
-    # Basic validation (shell pipeline)
-    - mapping: |
-        # Ensure we have required fields
-        root = if this.event_id.type() != "string" {
-          throw("Missing event_id field")
-        } else if this.event_type.type() != "string" {
-          throw("Missing event_type field") 
-        } else if this.timestamp.type() == "null" {
-          throw("Missing timestamp field")
-        } else {
-          this
-        }
-
-output:
-  # Write to stdout for verification
-  stdout:
-    codec: lines
-```
-
-Deploy the shell pipeline:
-
-```bash
-# Copy sample data to expected location
-cp ~/timestamp-samples/mixed-timestamps.jsonl /tmp/timestamp-input.jsonl
-
-# Deploy to Expanso Edge
-expanso deploy shell-timestamps.yaml
-
-# Verify deployment
-expanso pipelines list
-```
-
-**Expected output:**
-```
-Pipeline deployed successfully
-ID: shell-timestamps-abc123
-Status: Running
-```
-
-## Step 5: Test Shell Pipeline
-
-Verify the shell pipeline processes events correctly:
-
-```bash
-# Check pipeline status
-expanso pipeline status shell-timestamps-abc123
-
-# View pipeline logs (last 20 lines)
-expanso logs shell-timestamps-abc123 --tail 20
-
-# Check processed events
-expanso pipeline output shell-timestamps-abc123 --lines 10
-```
-
-**Expected output:**
-```json
-{"event_id": "evt_001", "event_type": "user_login", "timestamp": "2025-10-20T19:23:45.123+01:00", "user_id": "user_12345"}
-{"event_id": "evt_002", "event_type": "user_login", "timestamp": 1729450425, "user_id": "user_67890"}
-```
-
-:::tip Success!
-If you see events flowing through with their original timestamps intact, your environment is correctly configured!
-
-**Next step:** Add timestamp format parsing in [Step 1: Parse Multiple Formats](./step-1-parse-formats)
-:::
-
-## Step 6: Verify Timezone Database
+## Step 3: Verify Timezone Database
 
 Confirm your system has up-to-date timezone information:
 
@@ -182,94 +75,6 @@ zdump -v America/New_York | head -1
 # Verify common timezones work
 zdump -v Europe/London | head -1
 zdump -v Asia/Tokyo | head -1
-
-# Update if needed (varies by OS)
-# Ubuntu/Debian:
-# sudo apt-get update && sudo apt-get install -y tzdata
-# Alpine:  
-# sudo apk add tzdata
-# RHEL/CentOS:
-# sudo yum update tzdata
-```
-
-**Expected output:**
-```
-America/New_York  Sun Jan  1 00:00:00 1970 UT = Sat Dec 31 19:00:00 1969 EST isdst=0
-Europe/London     Sun Jan  1 00:00:00 1970 UT = Sun Jan  1 01:00:00 1970 BST isdst=1
-```
-
-## Step 7: Set Up Monitoring
-
-Configure basic monitoring for the timestamp normalization pipeline:
-
-```bash
-# Create monitoring configuration
-cat > ~/timestamp-monitoring.yaml << 'EOF'
-metrics:
-  prometheus:
-    enabled: true
-    path: "/metrics"
-    port: 9090
-
-logging:
-  level: "INFO"
-  format: "json"
-  
-  # Enable structured logging
-  static_fields:
-    service: "timestamp-normalization"
-    environment: "${EXPANSO_ENVIRONMENT}"
-EOF
-
-# Deploy monitoring
-expanso config update timestamp-monitoring.yaml
-```
-
-## Step 8: Performance Baseline
-
-Establish baseline performance metrics:
-
-```bash
-# Create larger test dataset for performance testing
-python3 -c "
-import json
-import time
-import random
-
-events = []
-base_time = int(time.time())
-formats = [
-    lambda t: f'{t}',  # Unix timestamp
-    lambda t: f'2025-10-20T{(base_time % 86400) // 3600:02d}:{(base_time % 3600) // 60:02d}:{base_time % 60:02d}.123Z',  # ISO8601
-    lambda t: f'2025-10-20 {(base_time % 86400) // 3600:02d}:{(base_time % 3600) // 60:02d}:{base_time % 60:02d}',  # Custom
-]
-
-for i in range(10000):
-    event = {
-        'event_id': f'evt_{i:06d}',
-        'event_type': random.choice(['login', 'purchase', 'view', 'logout']),
-        'timestamp': random.choice(formats)(base_time + i),
-        'user_id': f'user_{random.randint(10000, 99999)}'
-    }
-    if random.random() < 0.3:  # 30% have timezone field
-        event['timezone'] = random.choice(['America/New_York', 'Europe/London', 'Asia/Tokyo'])
-    
-    events.append(json.dumps(event))
-
-with open('/tmp/timestamp-perf-test.jsonl', 'w') as f:
-    f.write('\n'.join(events))
-    
-print('Generated 10,000 test events for performance testing')
-"
-
-# Measure baseline throughput
-time expanso test-throughput /tmp/timestamp-perf-test.jsonl shell-timestamps.yaml
-```
-
-**Expected baseline:**
-```
-Processed 10,000 events in 2.3 seconds
-Throughput: ~4,300 events/second
 ```
 
 ---
@@ -286,5 +91,3 @@ Environment setup complete! Now you can start building the timestamp normalizati
     Back to Overview
   </a>
 </div>
-
-**Troubleshooting:** If you encounter issues, see [Troubleshooting Guide](./troubleshooting) for comprehensive solutions.

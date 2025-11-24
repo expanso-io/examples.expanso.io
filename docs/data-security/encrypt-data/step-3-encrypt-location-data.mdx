@@ -1,411 +1,72 @@
 ---
 title: "Step 3 - Encrypt Address and Location Data"
-sidebar_label: "Step 3: Location Data Encryption"  
+sidebar_label: "Step 3: Location Data Encryption"
 sidebar_position: 6
-description: Encrypt street addresses and zip codes while preserving geographic analytics for regional reporting
-keywords: [address, location, geographic, privacy, zip-code, street-address, regional-analytics]
+description: Encrypt street addresses and zip codes while preserving regional analytics.
+keywords: [address, location, geographic, privacy, encryption]
 ---
 
 # Step 3: Encrypt Address and Location Data
 
-Geographic privacy is increasingly critical under privacy laws like GDPR and CCPA. This step implements encryption for street addresses and detailed zip codes while preserving city, state, and country information needed for regional analytics, shipping logistics, and compliance reporting.
+In addition to customer and payment PII, location data like street addresses and detailed zip codes must also be protected. In this step, you will extend your pipeline to encrypt address information while preserving city, state, and a partial zip code for regional analytics.
 
-## Learning Objectives
+## The Goal
 
-By the end of this step, you'll be able to:
-
-✅ **Encrypt street addresses** while maintaining shipping and logistics capabilities
-✅ **Protect detailed zip codes** while preserving regional analytics
-✅ **Preserve geographic hierarchy** for business intelligence and compliance
-✅ **Handle international addresses** with country-specific formatting
-✅ **Implement geo-privacy compliance** for location-based regulations
-✅ **Enable regional analytics** without exposing precise locations
-
-## Problem: Location Privacy Exposure
-
-Applications collect detailed address information that can enable precise location tracking and privacy violations:
-
-```json title="Raw address data (Privacy exposure)"
-{
-  "billing_address": {
-    "street": "123 Main St, Apt 4B",          // ❌ Precise location
-    "city": "San Francisco",                  // ✅ Safe for analytics  
-    "state": "CA",                           // ✅ Safe for analytics
-    "zip": "94102-1234",                     // ❌ Block-level precision
-    "country": "US"                          // ✅ Safe for analytics
-  },
-  "shipping_address": {
-    "street": "456 Oak Avenue",              // ❌ Different precise location
-    "city": "Palo Alto", 
-    "state": "CA",
-    "zip": "94301",                          // ❌ Neighborhood precision
-    "country": "US"
-  }
-}
-```
-
-**Privacy risks:**
-- **Precise location tracking** - Street addresses enable stalking/surveillance
-- **Residential privacy** - Home addresses exposed to data brokers
-- **ZIP+4 precision** - Block-level location accuracy  
-- **Movement patterns** - Multiple addresses reveal travel/work patterns
-- **Property ownership** - Address data linkage to real estate records
-
-## Solution: Hierarchical Geographic Encryption
-
-Encrypt precise location data while preserving regional analytics:
-
-```json title="Encrypted address data (Geographic privacy)"
-{
-  "billing_address": {
-    // Encrypted precise data
-    "street_encrypted": "AES256GCM:v1:c3RyZWV0ZGF0YWhlcmVmb3J0ZXN0aW5ncHVycG9zZXM=:3a2g1h0f9e8d7c6b",
-    "zip_encrypted": "AES256GCM:v1:emlwZGF0YWhlcmVmb3J0ZXN0aW5ncHVycG9zZXM=:2g1h0f9e8d7c6b5a",
-    
-    // Preserved regional data  
-    "city": "San Francisco",                 // ✅ City-level analytics
-    "state": "CA",                          // ✅ State-level reporting
-    "country": "US",                        // ✅ Country analytics
-    "zip_prefix": "941",                    // ✅ Region analytics (3-digit)
-    "metropolitan_area": "SF_Bay_Area",     // ✅ Metro analytics
-    "timezone": "America/Los_Angeles"       // ✅ Time zone handling
-  },
-  "shipping_address": {
-    "street_encrypted": "AES256GCM:v1:c2hpcHBpbmdzdHJlZXRkYXRhaGVyZQ==:4b3a2g1h0f9e8d7c",
-    "zip_encrypted": "AES256GCM:v1:c2hpcHBpbmd6aXBkYXRhaGVyZQ==:5c4b3a2g1h0f9e8d",
-    "city": "Palo Alto",
-    "state": "CA", 
-    "country": "US",
-    "zip_prefix": "943",
-    "metropolitan_area": "SF_Bay_Area",
-    "timezone": "America/Los_Angeles"
-  }
-}
-```
+You will enhance your processor to handle the `billing_address` object by:
+1. Encrypting the `street` and `zip` fields.
+2. Creating a `zip_prefix` field containing the first 3 digits of the zip for safe regional analysis.
+3. Deleting the original `street` and `zip` fields.
 
 ## Implementation
 
-### Step 3.1: Create Address Encryption Processor
+1. **Start with the Previous Pipeline:** Copy the `encrypt-pii.yaml` file from Step 2 to a new file named `encrypt-location.yaml`.
+    ```bash
+    cp encrypt-pii.yaml encrypt-location.yaml
+    ```
 
-```yaml title="address-encryption.yaml"
-apiVersion: expanso.io/v1
-kind: DataPipeline
-metadata:
-  name: address-encryption-step3
-  namespace: default
-spec:
-  processors:
-    - name: validate-address-data
-      type: mapping
-      config:
-        mapping: |
-          # Check for address objects
-          let has_billing = this.billing_address.exists()
-          let has_shipping = this.shipping_address.exists()
-          
-          root = if !has_billing && !has_shipping {
-            throw("At least one address (billing or shipping) is required")
-          } else {
-            this
-          }
-          
-    - name: encrypt-billing-address
-      type: mapping
-      config:
-        mapping: |
-          root = this
-          
-          # Process billing address if present
-          root.billing_address = if this.billing_address.exists() {
-            let addr = this.billing_address
-            
-            # Encrypt street address
-            let encrypted_street = if addr.street.exists() && addr.street.string().trim().length() > 0 {
-              crypto.encrypt_aes256_gcm(
-                addr.street.string().trim(),
-                env("ADDRESS_ENCRYPTION_KEY"),
-                "billing_street"
-              )
-            }
-            
-            # Handle ZIP code encryption and parsing
-            let zip_data = if addr.zip.exists() {
-              let zip = addr.zip.string().trim()
-              let clean_zip = zip.re_replace_all("[^0-9]", "")
-              
-              # Extract ZIP prefix (3 digits for regional analytics)
-              let zip_prefix = if clean_zip.length() >= 5 {
-                clean_zip.slice(0, 3)
-              } else { "unknown" }
-              
-              {
-                "zip_encrypted": crypto.encrypt_aes256_gcm(
-                  zip,
-                  env("ADDRESS_ENCRYPTION_KEY"),
-                  "billing_zip"
-                ),
-                "zip_prefix": zip_prefix,
-                "zip_type": if clean_zip.length() == 9 { "plus4" }
-                           else if clean_zip.length() == 5 { "standard" }
-                           else { "non_us" }
-              }
-            } else {
-              {"zip_prefix": "unknown", "zip_type": "unknown"}
-            }
-            
-            # Determine metropolitan area
-            let metro_area = if addr.city.exists() && addr.state.exists() {
-              let city = addr.city.string().lowercase()
-              let state = addr.state.string().lowercase()
-              
-              if (city.contains("san francisco") || city.contains("oakland") || city.contains("palo alto")) && state == "ca" {
-                "SF_Bay_Area"
-              } else if (city.contains("los angeles") || city.contains("santa monica")) && state == "ca" {
-                "LA_Metro"
-              } else if (city.contains("new york") || city.contains("brooklyn")) && state == "ny" {
-                "NYC_Metro"
-              } else if city.contains("chicago") && state == "il" {
-                "Chicago_Metro"
-              } else {
-                addr.state.string().uppercase() + "_Other"
-              }
-            } else { "Unknown_Metro" }
-            
-            # Determine timezone
-            let timezone = if addr.state.exists() {
-              let state = addr.state.string().uppercase()
-              if ["CA", "WA", "OR", "NV"].contains(state) {
-                "America/Los_Angeles"
-              } else if ["NY", "NJ", "CT", "MA", "FL"].contains(state) {
-                "America/New_York" 
-              } else if ["TX", "OK", "AR", "LA"].contains(state) {
-                "America/Chicago"
-              } else if ["AZ", "UT", "CO", "NM"].contains(state) {
-                "America/Denver"
-              } else {
-                "America/New_York"  # Default to Eastern
-              }
-            } else { "UTC" }
-            
-            # Build encrypted address object
-            addr.merge(zip_data).merge({
-              "street_encrypted": encrypted_street,
-              "metropolitan_area": metro_area,
-              "timezone": timezone,
-              "address_type": "billing"
-            }).without_keys(["street", "zip"])
-          } else {
-            this.billing_address
-          }
-          
-    - name: encrypt-shipping-address
-      type: mapping
-      config:
-        mapping: |
-          root = this
-          
-          # Process shipping address if present (similar logic to billing)
-          root.shipping_address = if this.shipping_address.exists() {
-            let addr = this.shipping_address
-            
-            let encrypted_street = if addr.street.exists() && addr.street.string().trim().length() > 0 {
-              crypto.encrypt_aes256_gcm(
-                addr.street.string().trim(),
-                env("ADDRESS_ENCRYPTION_KEY"),
-                "shipping_street"
-              )
-            }
-            
-            let zip_data = if addr.zip.exists() {
-              let zip = addr.zip.string().trim()
-              let clean_zip = zip.re_replace_all("[^0-9]", "")
-              let zip_prefix = if clean_zip.length() >= 5 {
-                clean_zip.slice(0, 3)
-              } else { "unknown" }
-              
-              {
-                "zip_encrypted": crypto.encrypt_aes256_gcm(zip, env("ADDRESS_ENCRYPTION_KEY"), "shipping_zip"),
-                "zip_prefix": zip_prefix,
-                "zip_type": if clean_zip.length() == 9 { "plus4" } else { "standard" }
-              }
-            } else {
-              {"zip_prefix": "unknown", "zip_type": "unknown"}
-            }
-            
-            addr.merge(zip_data).merge({
-              "street_encrypted": encrypted_street,
-              "address_type": "shipping"
-            }).without_keys(["street", "zip"])
-          } else {
-            this.shipping_address
-          }
-          
-    - name: add-geographic-metadata
-      type: mapping
-      config:
-        mapping: |
-          root = this
-          
-          # Collect encryption metadata
-          let encrypted_fields = []
-          let preserved_fields = []
-          
-          if this.billing_address.street_encrypted.exists() {
-            encrypted_fields = encrypted_fields.append("billing_address.street_encrypted")
-            preserved_fields = preserved_fields.concat(["billing_address.city", "billing_address.state"])
-          }
-          
-          if this.billing_address.zip_encrypted.exists() {
-            encrypted_fields = encrypted_fields.append("billing_address.zip_encrypted")  
-            preserved_fields = preserved_fields.append("billing_address.zip_prefix")
-          }
-          
-          if this.shipping_address.street_encrypted.exists() {
-            encrypted_fields = encrypted_fields.append("shipping_address.street_encrypted")
-            preserved_fields = preserved_fields.concat(["shipping_address.city", "shipping_address.state"])
-          }
-          
-          # Add geographic encryption metadata
-          root.geographic_encryption_metadata = {
-            "encrypted_fields": encrypted_fields,
-            "preserved_fields": preserved_fields,
-            "privacy_level": "street_level_protected",
-            "analytics_granularity": "city_state_level",
-            "encryption_timestamp": now(),
-            "encryption_algorithm": "AES-256-GCM",
-            "key_version": env("KEY_VERSION"),
-            "node_id": env("NODE_ID"),
-            "compliance": ["GDPR_Article_9", "CCPA_Geolocation", "PIPEDA_Location"],
-            "geographic_scope": ["US", "CA", "EU"]
-          }
+2. **Enhance the Encryption Processor:** Open `encrypt-location.yaml` and add the new location logic to the bottom of the existing `mapping` processor.
 
-  input:
-    http_server:
-      address: "0.0.0.0:8443"
-      path: /addresses/encrypt
-      allowed_verbs: ["POST"]
-      timeout: "30s"
-      tls:
-        enabled: true
-        cert_file: "/etc/expanso/certs/server.crt"
-        key_file: "/etc/expanso/certs/server.key"
+    ```yaml title="Add this to the 'mapping' processor in encrypt-location.yaml"
+    # --- Logic from Step 1 & 2 (Card & PII Encryption) ---
+    # (The existing logic for card numbers, ssn, and email remains here)
 
-  output:
-    stdout: {}
-    
-  environment:
-    ADDRESS_ENCRYPTION_KEY: "${ADDRESS_ENCRYPTION_KEY}"
-    KEY_VERSION: "${KEY_VERSION}"  
-    NODE_ID: "${NODE_ID}"
-```
+    # --- START: New additions for Location Data ---
 
-### Step 3.2: Test Address Encryption
-
-```bash title="Test complete address encryption"
-curl -X POST https://localhost:8443/addresses/encrypt \
-  --cacert /etc/expanso/certs/ca.crt \
-  --cert /etc/expanso/certs/client.crt \
-  --key /etc/expanso/certs/client.key \
-  -H "Content-Type: application/json" \
-  -d '{
-    "transaction_id": "txn_address_001",
-    "billing_address": {
-      "street": "123 Main St, Apt 4B",
-      "city": "San Francisco",
-      "state": "CA", 
-      "zip": "94102-1234",
-      "country": "US"
-    },
-    "shipping_address": {
-      "street": "456 Oak Avenue",
-      "city": "Palo Alto",
-      "state": "CA",
-      "zip": "94301",
-      "country": "US"  
-    }
-  }'
-```
-
-## Advanced Address Patterns
-
-### Pattern 1: International Address Support
-
-```yaml title="International address encryption"
-- name: encrypt-international-address
-  type: mapping
-  config:
-    mapping: |
-      # Country-specific address handling
-      let country = this.billing_address.country.string().uppercase()
-      
-      let address_format = if country == "US" || country == "CA" {
-        # North America format
-        {
-          "street_pattern": "^[0-9]+ .+",
-          "postal_pattern": "^[0-9]{5}(-[0-9]{4})?$",
-          "region_field": "state"
-        }
-      } else if country == "GB" || country == "UK" {
-        # United Kingdom format  
-        {
-          "street_pattern": "^[0-9]+ .+",
-          "postal_pattern": "^[A-Z]{1,2}[0-9][A-Z0-9]? [0-9][A-Z]{2}$",
-          "region_field": "county"
-        }
-      } else if country == "DE" {
-        # Germany format
-        {
-          "street_pattern": "^.+ [0-9]+",
-          "postal_pattern": "^[0-9]{5}$", 
-          "region_field": "state"
-        }
-      } else {
-        # Generic international
-        {"street_pattern": ".+", "postal_pattern": ".+", "region_field": "region"}
+    # 5. Encrypt Billing Address (if it exists)
+    if this.billing_address.exists() {
+      # Encrypt the street address
+      if this.billing_address.street.exists() {
+        root.billing_address.street_encrypted = this.billing_address.street.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
       }
-```
 
-## Regional Analytics Capabilities  
+      # Encrypt the zip code and extract the prefix
+      if this.billing_address.zip.exists() {
+        let clean_zip = this.billing_address.zip.re_replace_all("[^0-9]", "")
+        root.billing_address.zip_encrypted = clean_zip.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
+        if clean_zip.length() >= 3 {
+          root.billing_address.zip_prefix = clean_zip.slice(0, 3)
+        }
+      }
 
-With preserved geographic hierarchy, you can perform:
+      # Remove the original plaintext fields
+      root.billing_address = this.billing_address.without("street", "zip")
+    }
 
-```sql title="Geographic analytics with encrypted addresses"
--- Regional sales analysis (state level)
-SELECT state, COUNT(*) as transactions, SUM(amount) as revenue
-FROM transactions
-WHERE DATE(created) >= '2025-01-01'
-GROUP BY state
-ORDER BY revenue DESC;
+    # --- END: New additions ---
+    ```
+    *Note: This step uses a separate `ADDRESS_ENCRYPTION_KEY`. Ensure you have set it as an environment variable.*
 
--- Metropolitan area performance
-SELECT metropolitan_area, AVG(amount) as avg_transaction
-FROM transactions  
-GROUP BY metropolitan_area;
+3. **Deploy and Test:**
+    ```bash
+    # Deploy the new pipeline
+    expanso job deploy encrypt-location.yaml
 
--- ZIP prefix regional trends (3-digit precision)
-SELECT zip_prefix, COUNT(*) as volume
-FROM transactions
-WHERE billing_address_zip_prefix IS NOT NULL
-GROUP BY zip_prefix
-ORDER BY volume DESC;
+    # Send the sample payment data, which includes an address
+    curl -X POST http://localhost:8080/events/payment \
+      -H "Content-Type: application/json" \
+      -d @/tmp/encryption-test/sample-payment.json
+    ```
 
--- Shipping vs billing analysis
-SELECT 
-  billing_state,
-  shipping_state, 
-  COUNT(*) as cross_state_orders
-FROM transactions
-WHERE billing_state != shipping_state
-GROUP BY billing_state, shipping_state;
-```
+4. **Verify:** Check your logs. You will see that the `billing_address` object now contains `street_encrypted`, `zip_encrypted`, and the safe `zip_prefix`, while the original sensitive fields are gone. All the previous PII (card number, SSN, etc.) is still being encrypted correctly.
 
-## Summary
-
-✅ **Street address encryption** protecting precise locations
-✅ **ZIP code encryption** with regional prefix preservation  
-✅ **Geographic hierarchy** maintained for analytics
-✅ **International format** support for global operations
-✅ **Privacy compliance** for location-based regulations
-✅ **Regional insights** without location exposure
-
-**Next step:** [Implement key management](./step-4-manage-encryption-keys) with rotation and versioning.
+You have now built a comprehensive PII protection pipeline that covers payment, personal, and location data.

@@ -1,0 +1,55 @@
+name: content-router-foundation
+description: A foundation pipeline that routes all events to all destinations.
+type: pipeline
+namespace: production
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+      timeout: 5s
+      cors:
+        enabled: true
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+          root.routed_at = now()
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        - http_client:
+            url: https://events.pagerduty.com/v2/enqueue
+            verb: POST
+            headers:
+              Content-Type: application/json
+              Authorization: Token ${PAGERDUTY_API_KEY}
+            body: |
+              {
+                "routing_key": "${PAGERDUTY_ROUTING_KEY}",
+                "event_action": "trigger",
+                "payload": {
+                  "summary": this.message.or("Alert from foundation pipeline"),
+                  "source": this.source.or("content-router"),
+                  "severity": "info",
+                  "timestamp": this.timestamp.or(now())
+                }
+              }
+        - http_client:
+            url: ${SLACK_WEBHOOK_URL}
+            verb: POST
+            headers:
+              Content-Type: application/json
+            body: |
+              {
+                "text": "Event from foundation pipeline: " + this.message.or("No message")
+              }
+        - elasticsearch:
+            hosts:
+              - ${ELASTICSEARCH_HOST:http://localhost:9200}
+            index: application-logs-${!timestamp_date("2006-01-02")}
+            id: ${!this.event_id.or(uuid_v4())}

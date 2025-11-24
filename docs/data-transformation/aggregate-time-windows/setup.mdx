@@ -2,20 +2,22 @@
 title: Setup Environment for Aggregate Time Windows
 sidebar_label: Setup
 sidebar_position: 3
-description: Configure environment variables, sample IoT data, and deploy a shell aggregation pipeline
+description: Configure environment variables and sample IoT data for aggregation.
 keywords: [setup, environment, configuration, deployment, iot, sensors]
 ---
 
 # Setup Environment for Aggregate Time Windows
 
-Before building the time-windowed aggregation pipeline, you'll set up sample IoT sensor data, configure environment variables, and deploy a shell pipeline to verify your system works correctly.
+Before building the time-windowed aggregation pipeline, you'll set up sample IoT sensor data and configure environment variables.
 
 ## Prerequisites
 
-- **Kafka:** Set up [Kafka](/getting-started/local-development#kafka) for data delivery
-- **Redis:** Set up [Redis](/getting-started/local-development#redis) for aggregation state
-- **Expanso:** Installed and running ([Installation Guide](https://docs.expanso.io/installation))
-- **Environment Variables:** See the [local development guide](/getting-started/local-development#environment-variables)
+This example requires the following services to be running:
+
+*   **[Kafka](/getting-started/services/kafka)**
+*   **[Redis](/getting-started/services/redis)**
+
+Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
 
 ## Step 1: Configure Example-Specific Variables
 
@@ -57,105 +59,7 @@ head -5 sensor-data.jsonl
 {"sensor_id":"temp_003","location":"warehouse_b","temperature":73.1,"humidity":46.1,"timestamp":"2025-01-15T10:23:45.789Z"}
 ```
 
-## Step 3: Deploy Shell Aggregation Pipeline
-
-Before adding complex windowing logic, deploy a minimal "shell" pipeline that just parses events and creates basic time buckets. This verifies your setup works.
-
-Create `shell-aggregate-time-windows.yaml`:
-
-```yaml title="shell-aggregate-time-windows.yaml"
-# Shell pipeline: Parse events and create time buckets (no aggregation yet)
-
-input:
-  file:
-    paths: ["sensor-data.jsonl"]
-    scanner:
-      lines: {}
-
-pipeline:
-  processors:
-    # Parse JSON events
-    - json: {}
-    
-    # Create 1-minute time bucket
-    - mapping: |
-        root = this
-        
-        # Parse timestamp and round to 1-minute boundary
-        let parsed_time = this.timestamp.parse_timestamp("2006-01-02T15:04:05.000Z")
-        let rounded_time = parsed_time.ts_format("2006-01-02T15:04:00Z")
-        
-        root.time_bucket = rounded_time
-        root.group_key = this.sensor_id + "|" + rounded_time
-        
-        # Add window metadata for debugging
-        root.window_start = rounded_time
-        root.window_end = (parsed_time + duration("1m")).ts_format("2006-01-02T15:04:00Z")
-
-output:
-  # Log events with time buckets (no aggregation yet)
-  stdout:
-    codec: lines
-
-# Metrics for monitoring
-metrics:
-  prometheus:
-    use_histogram_timing: true
-    add_process_metrics: true
-    add_go_metrics: true
-```
-
-Deploy the shell pipeline:
-
-```bash
-# Deploy to Expanso platform
-expanso create shell-aggregate-time-windows.yaml
-
-# Verify deployment
-expanso list | grep shell-aggregate
-
-# Check initial logs
-expanso logs shell-aggregate-time-windows --tail=20
-```
-
-**Expected output (sample events with time buckets):**
-```json
-{"sensor_id":"temp_001","location":"warehouse_a","temperature":72.3,"time_bucket":"2025-01-15T10:23:00Z","group_key":"temp_001|2025-01-15T10:23:00Z","window_start":"2025-01-15T10:23:00Z","window_end":"2025-01-15T10:24:00Z"}
-{"sensor_id":"temp_002","location":"warehouse_a","temperature":71.8,"time_bucket":"2025-01-15T10:23:00Z","group_key":"temp_002|2025-01-15T10:23:00Z","window_start":"2025-01-15T10:23:00Z","window_end":"2025-01-15T10:24:00Z"}
-```
-
-## Step 4: Test Shell Pipeline
-
-Verify the shell pipeline correctly parses events and creates time buckets:
-
-```bash
-# Process sample data and capture output
-expanso run shell-aggregate-time-windows.yaml < sensor-data.jsonl > shell-output.jsonl
-
-# Check processing stats
-echo "Input events: $(wc -l < sensor-data.jsonl)"
-echo "Output events: $(wc -l < shell-output.jsonl)"
-echo "Processing rate: $(echo "scale=2; $(wc -l < shell-output.jsonl) / $(wc -l < sensor-data.jsonl)" | bc)%"
-
-# Verify time bucket creation
-grep -o '"time_bucket":"[^"]*"' shell-output.jsonl | sort | uniq -c | head -10
-```
-
-**Expected output:** Time buckets should group events by 1-minute intervals
-```
-    240 "time_bucket":"2025-01-15T10:20:00Z"
-    240 "time_bucket":"2025-01-15T10:21:00Z" 
-    240 "time_bucket":"2025-01-15T10:22:00Z"
-    240 "time_bucket":"2025-01-15T10:23:00Z"
-```
-
-:::tip Success!
-If you see consistent time buckets with ~240 events each (1000 sensors × 60 events/minute ÷ 250 buckets), your environment is correctly configured!
-
-**Next step:** Add cache-based aggregation to create windowed summaries
-:::
-
-## Step 5: Verify Cache Configuration
+## Step 3: Verify Cache Configuration
 
 Before proceeding with cache-based aggregation, verify your system can handle the memory requirements:
 
@@ -172,92 +76,6 @@ echo "Expected memory usage for 1-minute windows: ~60MB"
 echo "Expected memory usage for 1-hour windows: ~3.6GB"
 ```
 
-Create cache configuration for testing:
-
-```yaml title="cache-test.yaml"
-# Test cache configuration for aggregation
-resources:
-  caches:
-    window_cache:
-      memory:
-        default_ttl: "90s"  # 1-minute window + 30-second grace period
-        max_items: 100000   # Limit cached items to prevent OOM
-        eviction_policy: lru
-
-input:
-  generate:
-    interval: 100ms
-    count: 100
-    mapping: |
-      root.sensor_id = "sensor_" + (random_int() % 10).string()
-      root.value = random_int() % 100
-      root.timestamp = now().ts_format("2006-01-02T15:04:05.000Z")
-      root.group_key = root.sensor_id
-
-pipeline:
-  processors:
-    - cache:
-        resource: window_cache
-        key: ${! this.group_key }
-        value: ${! this }
-
-output:
-  drop: {}
-
-# Monitor cache metrics
-metrics:
-  prometheus:
-    use_histogram_timing: true
-```
-
-Test cache functionality:
-
-```bash
-# Deploy cache test
-expanso create cache-test.yaml
-
-# Monitor cache metrics
-curl http://localhost:8080/metrics | grep cache_items
-
-# Verify cache is working (should show increasing item count)
-sleep 5
-curl http://localhost:8080/metrics | grep cache_items
-
-# Clean up test
-expanso delete cache-test
-```
-
-**Expected metrics:** Cache item count should increase and then stabilize as TTL evicts old items.
-
-## Step 6: Set Up Monitoring
-
-Configure Prometheus metrics collection for monitoring aggregation performance:
-
-```bash
-# Create monitoring configuration
-cat > monitoring.yaml << 'EOF'
-# Prometheus metrics configuration for aggregation monitoring
-global:
-  scrape_interval: 15s
-
-scrape_configs:
-  - job_name: 'expanso-aggregation'
-    static_configs:
-      - targets: ['localhost:8080']
-    metrics_path: /metrics
-    scrape_interval: 5s
-EOF
-
-# Start Prometheus (optional, for production monitoring)
-# prometheus --config.file=monitoring.yaml --web.listen-address=:9090
-```
-
-Key metrics to monitor during aggregation:
-- `cache_items` - Number of cached events awaiting aggregation
-- `input_received` - Rate of incoming events
-- `output_sent` - Rate of outgoing aggregated summaries  
-- `processor_duration` - Processing latency per stage
-
 ## Next Steps
 
 Your environment is now configured for time-windowed aggregation. Choose your learning path:
@@ -270,11 +88,3 @@ Your environment is now configured for time-windowed aggregation. Choose your le
     Explore Interactive Demo
   </a>
 </div>
-
----
-
-## Related Resources
-
-- [**Cache Processor Documentation**](https://docs.expanso.io/components/processors/cache) - Detailed cache configuration options
-- [**Group By Processor Documentation**](https://docs.expanso.io/components/processors/group_by) - Grouping and aggregation syntax
-- [**Bloblang Time Functions**](https://docs.expanso.io/guides/bloblang/functions#time) - Time parsing and formatting reference

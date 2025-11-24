@@ -1,0 +1,82 @@
+---
+title: "Advanced Filtering & Routing Patterns"
+sidebar_label: "Step 4 - Advanced Patterns"
+sidebar_position: 6
+description: Explore advanced log filtering and routing patterns.
+keywords: [log-filtering, log-routing, advanced-patterns, fan-out, failover]
+---
+
+# Advanced Filtering & Routing Patterns
+
+Once you have mastered the basics of parsing, filtering, and routing, you can combine these techniques to build sophisticated, production-grade pipelines.
+
+## Pattern 1: Keyword-Based Filtering
+
+In addition to filtering on a structured `level` field, you can filter based on keywords within the raw message content. This is useful for unstructured or plain-text logs.
+
+```yaml title="Keyword-Based Filtering"
+- mapping: |
+    let content = this.message.string().lowercase()
+    let has_error_keyword = ["error", "fail", "exception", "crash"].any(kw -> content.contains(kw))
+
+    # Keep the message if it has a high-severity level OR a high-severity keyword
+    root = if this.level == "ERROR" || this.level == "WARN" || has_error_keyword {
+      this
+    } else {
+      deleted()
+    }
+```
+
+## Pattern 2: Multi-Destination Fan-Out
+
+Sometimes you want to send a message to *multiple* destinations. For example, you might want to send an `ERROR` log to both a file for long-term storage and to the console for immediate visibility. This is done by using a `broker` with the `fan_out` pattern inside a `switch` case.
+
+```yaml title="Conditional Fan-Out"
+output:
+  switch:
+    cases:
+      - check: 'this.level.string().uppercase() == "ERROR"'
+        output:
+          broker:
+            pattern: fan_out
+            outputs:
+              - file:
+                  path: /tmp/errors.jsonl
+              - stdout: {} # Also send to stdout
+
+      - check: 'this.level.string().uppercase() == "WARN"'
+        output:
+          file:
+            path: /tmp/warnings.jsonl
+```
+
+## Pattern 3: Failover Routing
+
+When sending data to an external system, the destination might be temporarily unavailable. The `try` broker pattern allows you to define a list of outputs to try in order, providing a simple failover mechanism.
+
+```yaml title="Failover Routing with 'try'"
+output:
+  switch:
+    cases:
+      - check: 'this.level.string().uppercase() == "ERROR"'
+        output:
+          broker:
+            pattern: try # Try each output in order until one succeeds
+            outputs:
+              # 1. Try sending to the primary alerting service
+              - http_client:
+                  url: "http://primary-alert-service/ingest"
+                  verb: "POST"
+                  retries: 2
+
+              # 2. If that fails, fall back to a secondary service
+              - http_client:
+                  url: "http://secondary-alert-service/ingest"
+                  verb: "POST"
+                  retries: 2
+
+              # 3. If all else fails, write to a local file
+              - file:
+                  path: /tmp/failed_alerts.jsonl
+```
+This configuration provides high reliability. The message will only be lost if all three outputs fail their retry attempts.

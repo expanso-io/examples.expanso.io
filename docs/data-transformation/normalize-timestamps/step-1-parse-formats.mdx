@@ -2,580 +2,86 @@
 title: "Step 1: Parse Multiple Timestamp Formats"
 sidebar_label: "Step 1: Parse Formats"
 sidebar_position: 3
-description: Detect and parse timestamps from ISO8601, Unix epochs, and custom formats using Bloblang
-keywords: [timestamp, parsing, ISO8601, unix-epoch, format-detection, bloblang, edge-processing]
+description: Detect and parse timestamps from various common formats like ISO8601 and Unix epochs.
+keywords: [timestamp, parsing, ISO8601, unix-epoch, normalization]
 ---
 
 # Step 1: Parse Multiple Timestamp Formats
 
-Transform diverse timestamp formats into standardized timestamp objects that can be reliably processed. This step handles ISO8601, Unix epochs (seconds and milliseconds), and custom formats through intelligent format detection.
+A common data transformation challenge is handling the variety of timestamp formats that different systems produce. This step teaches the fundamental pattern for normalizing them: **detect, then parse**.
 
-## Learning Objectives
+## The Goal
 
-By the end of this step, you'll understand:
+You will build a pipeline that can correctly parse events with different timestamp formats, such as ISO8601 strings and Unix epoch numbers, into a standardized `normalized_timestamp` field.
 
-✅ **Format Detection:** How to identify different timestamp formats automatically
-✅ **ISO8601 Parsing:** Handle timezone offsets and millisecond precision  
-✅ **Unix Epoch Handling:** Distinguish between seconds and milliseconds
-✅ **Custom Format Parsing:** Support application-specific timestamp formats
-✅ **Error Handling:** Gracefully handle malformed timestamps
-
-## The Challenge
-
-Events arrive with timestamps in multiple formats, making consistent processing impossible:
-
-### Input Variety
-
+**Input 1 (ISO8601):**
 ```json
-// ISO8601 with timezone offset
-{"timestamp": "2025-10-20T19:23:45.123+01:00"}
-
-// Unix timestamp (seconds)
-{"timestamp": 1729450425}
-
-// Unix timestamp (milliseconds) 
-{"timestamp": 1729450425123}
-
-// Custom format with separate timezone
-{"timestamp": "2025-10-20 14:23:45", "timezone": "America/New_York"}
-
-// Apache log format
-{"timestamp": "20/Oct/2025:14:23:45 +0000"}
-
-// Compact format (no separators)
-{"timestamp": "20251020142345"}
-
-// ISO8601 without timezone (assume UTC)
-{"timestamp": "2025-10-20T18:23:45.123"}
+{"event_id": "A", "timestamp": "2025-10-20T18:23:45.123Z"}
 ```
 
-### Processing Goals
-
-All these formats must be converted to a standardized internal representation:
-
+**Input 2 (Unix Seconds):**
 ```json
-{
-  "timestamp_parsed": "2025-10-20T18:23:45.123Z",
-  "timestamp_unix": 1729450425,
-  "timestamp_original": "2025-10-20T19:23:45.123+01:00",
-  "format_detected": "iso8601_offset",
-  "timezone_original": "+01:00"
-}
+{"event_id": "B", "timestamp": 1729450425}
 ```
 
-## Format Detection Logic
-
-The pipeline uses intelligent format detection based on timestamp characteristics:
-
-### Detection Algorithm
-
-```yaml
-- mapping: |
-    # Store original timestamp for audit trail
-    root.timestamp_original = this.timestamp
-    
-    # Convert timestamp to string for analysis
-    let ts = this.timestamp.string()
-    
-    # Detect format based on characteristics
-    root.format_detected = if ts.re_match("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}") {
-      if ts.contains("Z") || ts.re_match("[-+]\\d{2}:?\\d{2}$") {
-        "iso8601_offset"  # Has timezone info
-      } else {
-        "iso8601_naive"   # No timezone (assume UTC)
-      }
-    } else if ts.re_match("^\\d{10}$") {
-      "unix_seconds"      # 10 digits = seconds since epoch
-    } else if ts.re_match("^\\d{13}$") {
-      "unix_milliseconds" # 13 digits = milliseconds since epoch  
-    } else if ts.re_match("^\\d{2}/\\w{3}/\\d{4}:\\d{2}:\\d{2}:\\d{2}") {
-      "apache_log"        # Apache Common Log Format
-    } else if ts.re_match("^\\d{14}$") {
-      "compact_datetime"  # YYYYMMDDHHmmss
-    } else if ts.re_match("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$") {
-      "custom_datetime"   # YYYY-MM-DD HH:mm:ss
-    } else {
-      "unknown"
-    }
-```
-
-### Parsing Implementation
-
-Once format is detected, apply appropriate parsing logic:
-
-```yaml
-- mapping: |
-    let format = this.format_detected
-    let ts = this.timestamp.string()
-    
-    # Parse based on detected format
-    root.timestamp_parsed = if format == "iso8601_offset" {
-      # ISO8601 with timezone - parse directly
-      this.timestamp.parse_timestamp_iso8601()
-      
-    } else if format == "iso8601_naive" {
-      # ISO8601 without timezone - assume UTC
-      (ts + "Z").parse_timestamp_iso8601()
-      
-    } else if format == "unix_seconds" {
-      # Unix seconds - convert to timestamp
-      this.timestamp.timestamp_unix()
-      
-    } else if format == "unix_milliseconds" {  
-      # Unix milliseconds - convert to seconds first
-      (this.timestamp.number() / 1000).timestamp_unix()
-      
-    } else if format == "apache_log" {
-      # Apache log format: "20/Oct/2025:14:23:45 +0000"
-      ts.parse_timestamp("02/Jan/2006:15:04:05 -0700")
-      
-    } else if format == "compact_datetime" {
-      # Compact format: "20251020142345" -> "2025-10-20T14:23:45Z"
-      ts.parse_timestamp("20060102150405")
-      
-    } else if format == "custom_datetime" {
-      # Custom SQL-like format: "2025-10-20 14:23:45"
-      # Check for separate timezone field
-      if this.timezone.type() == "string" {
-        ts.parse_timestamp_strptime("%Y-%m-%d %H:%M:%S", this.timezone)
-      } else {
-        # No timezone specified - assume UTC
-        (ts.string() + " UTC").parse_timestamp("2006-01-02 15:04:05 MST")
-      }
-      
-    } else {
-      # Unknown format - throw error to DLQ
-      throw("Unsupported timestamp format: " + ts)
-    }
-```
-
-## Complete Format Parsing Pipeline
-
-Create `step1-parse-formats.yaml`:
-
-```yaml title="step1-parse-formats.yaml"
-input:
-  file:
-    paths: ["/tmp/timestamp-input.jsonl"]
-    codec: lines
-    delete_on_finish: false
-
-pipeline:
-  processors:
-    # Step 1: Preserve original timestamp
-    - mapping: |
-        root = this
-        root.timestamp_original = this.timestamp
-
-    # Step 2: Format detection
-    - mapping: |
-        let ts = this.timestamp.string()
-        
-        root.format_detected = if ts.re_match("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}") {
-          if ts.contains("Z") || ts.re_match("[-+]\\d{2}:?\\d{2}$") {
-            "iso8601_offset"
-          } else {
-            "iso8601_naive"  
-          }
-        } else if ts.re_match("^\\d{10}$") {
-          "unix_seconds"
-        } else if ts.re_match("^\\d{13}$") {
-          "unix_milliseconds"
-        } else if ts.re_match("^\\d{2}/\\w{3}/\\d{4}:\\d{2}:\\d{2}:\\d{2}") {
-          "apache_log"
-        } else if ts.re_match("^\\d{14}$") {
-          "compact_datetime"
-        } else if ts.re_match("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$") {
-          "custom_datetime"
-        } else {
-          "unknown"
-        }
-
-    # Step 3: Parse timestamp based on detected format  
-    - mapping: |
-        let format = this.format_detected
-        let ts = this.timestamp_original
-        
-        root = this
-        
-        # Extract timezone info where available
-        root.timezone_original = if format == "iso8601_offset" {
-          if ts.string().contains("Z") {
-            "UTC"
-          } else {
-            ts.string().re_find_all("[-+]\\d{2}:?\\d{2}$").index(0)
-          }
-        } else if format == "custom_datetime" && this.timezone.type() == "string" {
-          this.timezone
-        } else {
-          "unknown"
-        }
-        
-        # Parse to standard timestamp object
-        root.timestamp_parsed = if format == "iso8601_offset" {
-          ts.parse_timestamp_iso8601()
-        } else if format == "iso8601_naive" {
-          (ts.string() + "Z").parse_timestamp_iso8601()
-        } else if format == "unix_seconds" {
-          ts.timestamp_unix()
-        } else if format == "unix_milliseconds" {
-          (ts.number() / 1000).timestamp_unix()
-        } else if format == "apache_log" {
-          ts.parse_timestamp("02/Jan/2006:15:04:05 -0700")
-        } else if format == "compact_datetime" {
-          ts.parse_timestamp("20060102150405")
-        } else if format == "custom_datetime" {
-          if this.timezone.type() == "string" {
-            ts.string().parse_timestamp_strptime("%Y-%m-%d %H:%M:%S", this.timezone)
-          } else {
-            (ts.string() + " UTC").parse_timestamp("2006-01-02 15:04:05 MST")
-          }
-        } else {
-          throw("Unsupported timestamp format: " + ts.string())
-        }
-
-    # Step 4: Extract standard components
-    - mapping: |
-        root = this
-        root.timestamp_unix = this.timestamp_parsed.timestamp_unix()
-        root.timestamp_iso8601 = this.timestamp_parsed.format_timestamp_iso8601()
-
-    # Step 5: Validation
-    - mapping: |
-        # Validate timestamp is reasonable (within 10 years)
-        let now_unix = now().timestamp_unix()
-        let ts_unix = this.timestamp_unix
-        let diff_years = (ts_unix - now_unix).abs() / 31536000  # seconds per year
-        
-        root = if diff_years > 10 {
-          throw("Timestamp outside reasonable range: " + ts_unix.string())
-        } else {
-          this
-        }
-
-output:
-  stdout:
-    codec: lines
-```
-
-## Testing Format Detection
-
-Deploy and test the format parsing pipeline:
-
-```bash
-# Deploy the parsing pipeline
-expanso deploy step1-parse-formats.yaml
-
-# Test with sample data
-cat > /tmp/format-test.jsonl << 'EOF'
-{"event_id": "test_iso8601_utc", "timestamp": "2025-10-20T18:23:45.123Z"}
-{"event_id": "test_iso8601_offset", "timestamp": "2025-10-20T19:23:45.123+01:00"}
-{"event_id": "test_unix_seconds", "timestamp": 1729450425}
-{"event_id": "test_unix_millis", "timestamp": 1729450425123}
-{"event_id": "test_custom_tz", "timestamp": "2025-10-20 14:23:45", "timezone": "America/New_York"}
-{"event_id": "test_apache", "timestamp": "20/Oct/2025:14:23:45 +0000"}
-{"event_id": "test_compact", "timestamp": "20251020142345"}
-EOF
-
-# Process test data
-cp /tmp/format-test.jsonl /tmp/timestamp-input.jsonl
-expanso pipeline output step1-parse-formats --lines 10
-```
-
-**Expected output:**
-```json
-{"event_id": "test_iso8601_utc", "timestamp_original": "2025-10-20T18:23:45.123Z", "format_detected": "iso8601_offset", "timezone_original": "UTC", "timestamp_parsed": "2025-10-20T18:23:45.123Z", "timestamp_unix": 1729450425, "timestamp_iso8601": "2025-10-20T18:23:45.123Z"}
-
-{"event_id": "test_iso8601_offset", "timestamp_original": "2025-10-20T19:23:45.123+01:00", "format_detected": "iso8601_offset", "timezone_original": "+01:00", "timestamp_parsed": "2025-10-20T18:23:45.123Z", "timestamp_unix": 1729450425, "timestamp_iso8601": "2025-10-20T18:23:45.123Z"}
-
-{"event_id": "test_unix_seconds", "timestamp_original": 1729450425, "format_detected": "unix_seconds", "timezone_original": "unknown", "timestamp_parsed": "2025-10-20T18:23:45Z", "timestamp_unix": 1729450425, "timestamp_iso8601": "2025-10-20T18:23:45Z"}
-```
-
-## Advanced Format Handling
-
-### Millisecond Precision
-
-Handle sub-second precision correctly:
-
-```yaml
-# Preserve millisecond precision
-- mapping: |
-    root.timestamp_unix_millis = if this.format_detected == "unix_milliseconds" {
-      this.timestamp_original  # Keep original milliseconds
-    } else {
-      this.timestamp_unix * 1000  # Convert seconds to milliseconds
-    }
-    
-    # Format with millisecond precision
-    root.timestamp_iso8601_precise = this.timestamp_parsed.format_timestamp("2006-01-02T15:04:05.000Z", "UTC")
-```
-
-### Regional Format Support
-
-Add support for common regional formats:
-
-```yaml
-- mapping: |
-    let ts = this.timestamp.string()
-    
-    root.format_detected = if ts.re_match("^\\d{2}/\\d{2}/\\d{4}") {
-      "us_date"  # MM/dd/yyyy format
-    } else if ts.re_match("^\\d{2}\\.\\d{2}\\.\\d{4}") {
-      "eu_date"  # dd.MM.yyyy format  
-    } else if ts.re_match("^\\d{4}/\\d{2}/\\d{2}") {
-      "iso_date" # yyyy/MM/dd format
-    } else {
-      # ... existing detection logic
-    }
-
-# Parse regional formats
-- mapping: |
-    root.timestamp_parsed = if this.format_detected == "us_date" {
-      this.timestamp_original.parse_timestamp("01/02/2006 15:04:05")
-    } else if this.format_detected == "eu_date" {
-      this.timestamp_original.parse_timestamp("02.01.2006 15:04:05")
-    } else if this.format_detected == "iso_date" {
-      this.timestamp_original.parse_timestamp("2006/01/02 15:04:05")
-    } else {
-      # ... existing parsing logic
-    }
-```
-
-### Custom Application Formats
-
-Support application-specific timestamp formats:
-
-```yaml
-- mapping: |
-    # Handle custom application formats
-    let ts = this.timestamp.string()
-    
-    root.format_detected = if ts.re_match("^LOG-\\d{8}-\\d{6}") {
-      "app_log_format"  # LOG-20251020-142345
-    } else if ts.re_match("^\\d{4}\\w{3}\\d{2}") {
-      "finance_format"  # 2025Oct20
-    } else {
-      # ... existing detection logic  
-    }
-
-# Parse application formats
-- mapping: |
-    root.timestamp_parsed = if this.format_detected == "app_log_format" {
-      # Extract YYYYMMDD-HHmmss from LOG-20251020-142345
-      let parts = this.timestamp_original.string().re_find_all("\\d+")
-      let date_part = parts.index(0)  # 20251020
-      let time_part = parts.index(1)  # 142345
-      (date_part + time_part).parse_timestamp("20060102150405")
-    } else if this.format_detected == "finance_format" {
-      # Parse 2025Oct20 format
-      this.timestamp_original.parse_timestamp("2006Jan02")
-    } else {
-      # ... existing parsing logic
-    }
-```
-
-## Error Handling & Validation
-
-### Malformed Timestamp Detection
-
-```yaml
-# Catch and route malformed timestamps
-- catch:
-  - mapping: |
-      root = this
-      root.error = "Failed to parse timestamp: " + error()
-      root.dlq_reason = "timestamp_parse_error"
-      root.timestamp_parsed = null
-
-# Validate timestamp ranges  
-- mapping: |
-    let ts_unix = this.timestamp_unix
-    let current_time = now().timestamp_unix()
-    let future_limit = current_time + 86400  # 1 day in future
-    let past_limit = current_time - 31536000  # 1 year in past
-    
-    root = if ts_unix > future_limit {
-      this.assign({"dlq_reason": "timestamp_too_future"})
-    } else if ts_unix < past_limit {
-      this.assign({"dlq_reason": "timestamp_too_old"}) 
-    } else {
-      this
-    }
-```
-
-### Dead Letter Queue Routing
-
-```yaml
-# Route problematic events to DLQ
-- switch:
-  - check: 'this.dlq_reason.type() == "string"'
-    output:
-      file:
-        path: "/var/log/expanso/timestamp-dlq.jsonl"
-        codec: lines
-```
-
-## Performance Optimizations
-
-### Batch Processing
-
-Process events in batches for better throughput:
-
-```yaml
-# Add batching for performance
-input:
-  file:
-    paths: ["/tmp/timestamp-input.jsonl"] 
-    codec: lines
-  batching:
-    count: 100
-    period: "100ms"
-
-pipeline:
-  processors:
-    # Process entire batch with single mapping
-    - mapping: |
-        root = this.map_each(event -> event.merge({
-          "timestamp_original": event.timestamp,
-          "format_detected": if event.timestamp.string().re_match("^\\d{4}-\\d{2}-\\d{2}T") {
-            "iso8601"
-          } else {
-            "unix"
-          },
-          # ... format parsing logic for each event
-        }))
-```
-
-### Caching Common Formats
-
-Cache parsed results for repeated timestamps:
-
-```yaml
-# Add caching for performance (in production)
-pipeline:
-  processors:
-    - cache:
-        resource: "timestamp_cache"
-        key: '${! json("timestamp") }'
-        value: '${! json() }'
-        ttl: "1h"
-```
-
-## Analytics & Monitoring
-
-### Format Distribution Metrics
-
-Track format usage patterns:
-
-```yaml
-# Add metrics tracking
-- metric:
-    type: counter
-    name: "timestamp_formats_total"
-    labels:
-      format: '${! json("format_detected") }'
-    value: 1
-
-- metric:
-    type: histogram  
-    name: "timestamp_parse_duration_seconds"
-    value: '${! json("processing_time_ms") / 1000 }'
-```
-
-### Success Rate Monitoring
-
-Monitor parsing success rates:
-
-```yaml
-# Track success/failure rates
-- metric:
-    type: counter
-    name: "timestamp_processing_total"
-    labels:
-      status: '${! if json("dlq_reason").type() == "string" { "failed" } else { "success" } }'
-      format: '${! json("format_detected") }'
-    value: 1
-```
-
-## Testing & Validation
-
-### Unit Test Format Detection
-
-```bash
-# Test format detection accuracy
-cat > /tmp/format-detection-tests.jsonl << 'EOF'
-{"test": "iso8601_utc", "timestamp": "2025-10-20T18:23:45.123Z", "expected": "iso8601_offset"}
-{"test": "iso8601_offset", "timestamp": "2025-10-20T19:23:45.123+01:00", "expected": "iso8601_offset"}
-{"test": "unix_seconds", "timestamp": 1729450425, "expected": "unix_seconds"}
-{"test": "unix_millis", "timestamp": 1729450425123, "expected": "unix_milliseconds"}
-{"test": "custom_with_tz", "timestamp": "2025-10-20 14:23:45", "timezone": "America/New_York", "expected": "custom_datetime"}
-EOF
-
-# Run detection tests
-cp /tmp/format-detection-tests.jsonl /tmp/timestamp-input.jsonl
-expanso pipeline output step1-parse-formats | jq -r '[.test, .format_detected, .expected] | @csv'
-```
-
-### Edge Case Testing
-
-```bash
-# Test edge cases
-cat > /tmp/edge-cases.jsonl << 'EOF'
-{"test": "leap_year", "timestamp": "2024-02-29T12:00:00Z"}
-{"test": "dst_transition", "timestamp": "2025-03-09T07:00:00Z"} 
-{"test": "year_2038", "timestamp": "2038-01-19T03:14:07Z"}
-{"test": "millisecond_precision", "timestamp": 1729450425987}
-{"test": "negative_unix", "timestamp": -1}
-EOF
-
-# Process edge cases
-cp /tmp/edge-cases.jsonl /tmp/timestamp-input.jsonl
-expanso pipeline output step1-parse-formats
-```
-
-## Troubleshooting
-
-### Common Issues
-
-**Issue: Format not detected**
-```bash
-# Check regex patterns
-echo '"2025-10-20T18:23:45.123Z"' | jq -r '. | test("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}")'
-```
-
-**Issue: Parse error**
-```bash
-# Validate Go time format strings
-expanso validate-timestamp "2006-01-02T15:04:05.000Z" "2025-10-20T18:23:45.123Z"
-```
-
-**Issue: Timezone not recognized**
-```bash
-# Check timezone database
-zdump -v America/New_York | head -1
-```
-
----
-
-## What You've Learned
-
-✅ **Format Detection:** Automatically identify timestamp formats using regex patterns
-✅ **Parsing Logic:** Convert strings/numbers to standardized timestamp objects
-✅ **Error Handling:** Gracefully handle malformed timestamps with DLQ routing
-✅ **Performance:** Batch processing and caching for high-throughput scenarios
-✅ **Monitoring:** Track format distribution and parsing success rates
-
-## Next Steps
-
-Now that you can parse any timestamp format, let's convert them all to consistent UTC representation:
-
-<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
-  <a href="./step-2-convert-timezones" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Step 2: Convert Timezones
-  </a>
-  <a href="./troubleshooting" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Troubleshooting Guide
-  </a>
-</div>
-
-**Continue Reading:** [Step 2: Convert Timezones](./step-2-convert-timezones) - Standardize all timestamps to UTC representation
+**Desired Output (for both):**
+A standardized object, where `normalized_timestamp` is the same instant in time.
+
+## The "Detect -> Parse" Pattern
+
+This is implemented in a single `mapping` processor:
+1.  **Detect:** Use a `match` expression on the `type()` of the `timestamp` field to detect whether it's a `string` or a `number`.
+2.  **Parse:** Based on the type, call the appropriate parsing function (`.parse_timestamp()` for strings, `.ts_unix()` for numbers).
+
+## Implementation
+
+1.  **Create the Normalization Pipeline:** Copy the following configuration into a file named `normalize-timestamps.yaml`.
+
+    ```yaml title="normalize-timestamps.yaml"
+    name: timestamp-normalizer
+    description: A pipeline that parses multiple timestamp formats.
+
+    config:
+      input:
+        http_server:
+          address: 0.0.0.0:8080
+          path: /ingest
+
+      pipeline:
+        processors:
+          - mapping: |
+              root = this
+              root.original_timestamp = this.timestamp
+
+              # Detect the type and parse accordingly
+              root.normalized_timestamp = match this.timestamp.type() {
+                "string" => this.timestamp.parse_timestamp(),
+                "number" => this.timestamp.ts_unix(),
+                _ => "unknown format"
+              }
+
+      output:
+        stdout:
+          codec: lines
+    ```
+
+2.  **Deploy and Test:**
+    ```bash
+    # Deploy the pipeline
+    expanso job deploy normalize-timestamps.yaml
+
+    # --- Test 1: Send ISO8601 String ---
+    curl -X POST http://localhost:8080/ingest \
+      -H "Content-Type: application/json" \
+      -d '{"event_id": "A", "timestamp": "2025-10-20T18:23:45Z"}'
+
+    # --- Test 2: Send Unix Timestamp Number ---
+    curl -X POST http://localhost:8080/ingest \
+      -H "Content-Type: application/json" \
+      -d '{"event_id": "B", "timestamp": 1729450425}'
+    ```
+
+3.  **Verify:**
+    Check your logs. You will see two output messages. Both will have a `normalized_timestamp` field. Although the original formats were different, the normalized versions will both represent the same point in time.
+
+You have now built a basic but robust timestamp normalization pipeline. This same "detect -> parse" pattern can be extended to handle many other formats.

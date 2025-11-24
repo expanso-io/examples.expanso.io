@@ -2,19 +2,21 @@
 title: Setup Environment for Format Transformation
 sidebar_label: Setup
 sidebar_position: 2
-description: Configure schemas, deploy shell pipeline, and verify multi-format transformation capability
+description: Configure schemas and verify multi-format transformation capability.
 keywords: [setup, environment, schema-registry, avro, parquet, protobuf, configuration]
 ---
 
 # Setup Environment for Format Transformation
 
-Before building the complete format transformation solution, you'll set up schema registries, configure format definitions, and deploy a shell pipeline that demonstrates basic format detection.
+Before building the complete format transformation solution, you'll set up schema registries and configure format definitions.
 
 ## Prerequisites
 
-- **Kafka:** Set up [Kafka](/getting-started/local-development#kafka) for format-converted data delivery
-- **Expanso:** Installed and running ([Installation Guide](https://docs.expanso.io/installation))
-- **Environment Variables:** See the [local development guide](/getting-started/local-development#environment-variables)
+This example requires the following services to be running:
+
+*   **[Kafka](/getting-started/services/kafka)**
+
+Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
 
 ## Step 1: Configure Environment Variables
 
@@ -53,11 +55,6 @@ sleep 10
 curl -f http://localhost:8081/subjects || echo "Schema registry not ready, waiting..."
 ```
 
-**Expected output:**
-```
-[]
-```
-
 ## Step 3: Create Sample Format Definitions
 
 Create the schema definitions that will guide our format transformations:
@@ -74,29 +71,23 @@ Create `sensor-data.avsc`:
   "fields": [
     {
       "name": "sensor_id",
-      "type": "string",
-      "doc": "Unique identifier for the sensor"
+      "type": "string"
     },
     {
       "name": "location", 
-      "type": "string",
-      "doc": "Physical location of the sensor"
+      "type": "string"
     },
     {
       "name": "temperature",
-      "type": "double",
-      "doc": "Temperature reading in Celsius"
+      "type": "double"
     },
     {
       "name": "humidity",
-      "type": "double", 
-      "doc": "Humidity percentage"
+      "type": "double" 
     },
     {
       "name": "timestamp",
-      "type": "long",
-      "logicalType": "timestamp-millis",
-      "doc": "Reading timestamp in epoch milliseconds"
+      "type": "long"
     },
     {
       "name": "metadata",
@@ -154,19 +145,6 @@ Register the Avro schema with the schema registry:
 curl -X POST -H "Content-Type: application/vnd.schemaregistry.v1+json" \
   --data @sensor-data.avsc \
   http://localhost:8081/subjects/sensor-data-value/versions
-
-# Verify schema registration
-curl http://localhost:8081/subjects/sensor-data-value/versions/latest
-```
-
-**Expected output:**
-```json
-{
-  "subject": "sensor-data-value",
-  "version": 1,
-  "id": 1,
-  "schema": "{\"type\":\"record\",\"name\":\"SensorData\"...}"
-}
 ```
 
 ## Step 5: Create Sample Data Files
@@ -189,236 +167,15 @@ Create `sample-sensor-data.json`:
       "device_type": "DHT22",
       "firmware_version": "1.2.3"
     }
-  },
-  {
-    "sensor_id": "temp_43", 
-    "location": "warehouse_south",
-    "temperature": 68.1,
-    "humidity": 52.8,
-    "timestamp": "2025-10-20T14:23:46.456Z",
-    "metadata": {
-      "device_type": "DHT22",
-      "firmware_version": "1.2.3"
-    }
-  },
-  {
-    "sensor_id": "temp_44",
-    "location": "office_floor_2", 
-    "temperature": 71.2,
-    "humidity": 38.5,
-    "timestamp": "2025-10-20T14:23:47.789Z",
-    "metadata": {
-      "device_type": "SHT30",
-      "firmware_version": "2.1.0"
-    }
   }
 ]
 ```
-
-## Step 6: Deploy Shell Format Pipeline
-
-Before adding format conversions, deploy a minimal "shell" pipeline that just detects input formats. This verifies your setup works.
-
-Create `shell-format-transform.yaml`:
-
-```yaml title="shell-format-transform.yaml"
-# Shell format transformation pipeline - detects formats without conversion
-apiVersion: expanso.io/v1
-kind: Pipeline
-metadata:
-  name: shell-format-transform
-  description: "Shell pipeline that detects input formats"
-
-spec:
-  # Input stage - accepts multiple formats
-  input:
-    connector: http
-    config:
-      port: 8080
-      path: "/transform"
-      methods: ["POST"]
-      headers:
-        - "Content-Type"
-
-  # Processing stage - format detection only
-  processors:
-    - name: detect-format
-      type: script
-      config:
-        language: javascript
-        source: |
-          function process(event) {
-            const contentType = event.headers['content-type'] || 'application/json';
-            const data = event.body;
-            
-            let detectedFormat = 'unknown';
-            let sampleFields = {};
-            
-            // Detect format based on content type and structure
-            if (contentType.includes('application/json')) {
-              detectedFormat = 'json';
-              try {
-                const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-                sampleFields = Object.keys(parsed);
-              } catch (e) {
-                sampleFields = { error: 'Invalid JSON' };
-              }
-            } else if (contentType.includes('application/avro')) {
-              detectedFormat = 'avro';
-              sampleFields = { message: 'Avro format detected' };
-            } else if (contentType.includes('application/x-protobuf')) {
-              detectedFormat = 'protobuf';
-              sampleFields = { message: 'Protobuf format detected' };
-            }
-            
-            return {
-              input_format: detectedFormat,
-              content_type: contentType,
-              sample_fields: sampleFields,
-              timestamp: new Date().toISOString(),
-              conversion_ready: true
-            };
-          }
-
-  # Output stage - log detection results  
-  output:
-    connector: console
-    config:
-      format: json
-      include_metadata: true
-
-  # Basic error handling
-  error_handling:
-    strategy: log_and_continue
-    max_retries: 3
-```
-
-Deploy the shell pipeline:
-
-```bash
-# Deploy to Expanso
-expanso pipeline deploy shell-format-transform.yaml
-
-# Verify deployment
-expanso pipeline status shell-format-transform
-```
-
-**Expected output:**
-```
-Pipeline: shell-format-transform
-Status: Running
-Endpoints: http://localhost:8080/transform
-```
-
-## Step 7: Test Shell Pipeline
-
-Test format detection with sample JSON data:
-
-```bash
-# Test JSON format detection
-curl -X POST http://localhost:8080/transform \
-  -H "Content-Type: application/json" \
-  -d @sample-sensor-data.json
-
-# Test with different Content-Type headers
-curl -X POST http://localhost:8080/transform \
-  -H "Content-Type: application/avro" \
-  -d '{"test": "avro-detection"}'
-
-curl -X POST http://localhost:8080/transform \
-  -H "Content-Type: application/x-protobuf" \
-  -d '{"test": "protobuf-detection"}'
-```
-
-**Expected output:** Format detection results showing recognized input types
-
-:::tip Success!
-If you see format detection working correctly, your environment is ready for format transformation!
-
-**Next step:** [Step 1: JSON to Avro Conversion](./step-1-convert-json-avro)
-:::
-
-## Step 8: Verify Schema Tools
-
-Before proceeding, verify all required schema tools are available:
-
-```bash
-# Check if Java is available for Avro tools
-java -version
-
-# Install Avro tools if needed
-# On macOS: brew install avro-tools
-# On Ubuntu: apt-get install avro-tools
-
-# Verify Protobuf compiler
-protoc --version
-
-# Install Protocol Buffers compiler if needed
-# On macOS: brew install protobuf  
-# On Ubuntu: apt-get install protobuf-compiler
-```
-
-## Step 9: Setup Cloud Storage (Optional)
-
-If you want to test Parquet storage in cloud environments:
-
-### AWS S3 Setup
-```bash
-# Configure AWS credentials
-aws configure
-
-# Create bucket for Parquet files
-aws s3 mb s3://$CLOUD_STORAGE_BUCKET
-
-# Verify bucket access
-aws s3 ls s3://$CLOUD_STORAGE_BUCKET
-```
-
-### Google Cloud Storage Setup
-```bash
-# Authenticate with Google Cloud
-gcloud auth login
-
-# Create bucket for Parquet files
-gsutil mb gs://$CLOUD_STORAGE_BUCKET
-
-# Verify bucket access
-gsutil ls gs://$CLOUD_STORAGE_BUCKET
-```
-
-## Step 10: Performance Baseline
-
-Measure baseline performance with JSON-only processing:
-
-```bash
-# Send 100 JSON events to establish baseline
-for i in {1..100}; do
-  curl -s -X POST http://localhost:8080/transform \
-    -H "Content-Type: application/json" \
-    -d @sample-sensor-data.json > /dev/null &
-done
-
-wait
-
-# Check pipeline metrics
-expanso pipeline metrics shell-format-transform
-```
-
-Record baseline metrics:
-- **Throughput:** Events/second
-- **Latency:** Average response time
-- **Memory usage:** Pipeline memory consumption
-- **CPU usage:** Processing overhead
 
 ## Next Steps
 
 Your format transformation environment is now ready! Continue with:
 
-1. **[Step 1: JSON to Avro](./step-1-convert-json-avro)** - Convert JSON to compact binary Avro format
-2. **[Step 2: Avro to Parquet](./step-2-convert-avro-parquet)** - Transform Avro to columnar Parquet for analytics
-3. **[Step 3: JSON to Protobuf](./step-3-convert-json-protobuf)** - Create type-safe Protobuf messages
-4. **[Step 4: Auto-Detection](./step-4-auto-detect-formats)** - Implement intelligent format routing
-
----
-
-**Environment configured successfully!** Your schema registry is running, sample data is ready, and the shell pipeline demonstrates format detection capability.
+1. **[Step 1: JSON to Avro](./step-1-convert-json-avro)**
+2. **[Step 2: Avro to Parquet](./step-2-convert-avro-parquet)**
+3. **[Step 3: JSON to Protobuf](./step-3-convert-json-protobuf)**
+4. **[Step 4: Auto-Detection](./step-4-auto-detect-formats)**

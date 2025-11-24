@@ -1,848 +1,105 @@
 ---
-title: Enrich Logs with Operational Metadata
-sidebar_label: Step 3 - Enrich Metadata
-sidebar_position: 5
-description: Add node context, processing timestamps, and operational metadata to create audit trails and enhance debugging capabilities
-keywords: [enrichment, metadata, context, audit-trail, debugging, operational-intelligence]
+title: Step 3 - Enrich with Metadata
+sidebar_label: 3. Enrich Metadata
+description: Add operational context, lineage, and business data to your logs
+keywords: [enrichment, metadata, lineage, context, mapping]
 ---
 
-# Step 3: Enrich Logs with Operational Metadata
+import CodeBlock from '@theme/CodeBlock';
 
-In this step, you'll add rich operational metadata to your logs, creating detailed audit trails and enhancing debugging capabilities. This contextual information is invaluable for troubleshooting distributed systems and understanding data lineage.
+# Enrich with Metadata
 
-## Why Metadata Enrichment Matters
+Raw logs often lack context. To make them useful for debugging and auditing, we need to know *where* they were processed, *which* pipeline handled them, and *when*.
 
-Raw logs often lack the operational context needed for effective debugging and analysis. Enrichment adds:
+## Goal
 
-- **Node information** - Which edge node processed the log
-- **Processing timestamps** - When and how long processing took
-- **Pipeline context** - Version, configuration, and processing path
-- **Network metadata** - Source IP, routing information
-- **Performance data** - Processing times, resource usage
+Add the following metadata to every log event:
+- **Processing Node:** ID and region of the edge node
+- **Pipeline Info:** Version and environment
+- **Audit:** Ingestion timestamp and trace ID
 
-## Learning Objectives
+## Configuration
 
-By the end of this step, you'll understand:
+We use the `mapping` processor to inject environment variables and generated values.
 
-✅ How to capture and add node-specific metadata
-✅ How to track processing timestamps and durations  
-✅ How to add pipeline version and configuration context
-✅ How to enrich with network and request metadata
-✅ How to implement processing lineage for audit trails
+### 1. Define Metadata
 
-## Current vs. Target Architecture
-
-**Current (Basic Metadata):**
-```yaml
-- mapping: |
-    root = this
-    root.processed_at = now()
-```
-
-**Target (Rich Operational Metadata):**
-```yaml
-- mapping: |
-    root = this
-    root.metadata = {
-      node: {id, region, zone, version},
-      pipeline: {name, version, stage},
-      processing: {timestamps, duration, performance},
-      network: {source_ip, user_agent, routing},
-      audit: {lineage, compliance, retention}
-    }
-```
-
-## Step 3.1: Add Node and Infrastructure Metadata
-
-Start by enriching logs with detailed information about the processing environment:
-
-```yaml title="enrich-metadata-pipeline.yaml"
-name: log-processing-enrich-metadata
-description: Log processing with comprehensive metadata enrichment
-type: pipeline
-namespace: default
-
-selector:
-  match_labels:
-    role: log-collector
-
-config:
-  input:
-    http_server:
-      address: "0.0.0.0:8080"
-      path: /logs/ingest
-      allowed_verbs: [POST]
-      timeout: 10s
-      rate_limit: "1000/1s"
-      auth:
-        type: header
-        header: "X-API-Key"
-        required_value: "${LOG_API_KEY:secret-key}"
-
-  pipeline:
-    processors:
-      # JSON parsing and validation (from previous steps)
-      - json_documents:
-          parts: []
-      - mapping: |
-          # Basic validation (simplified from Step 2)
-          root = this
-          root.timestamp = this.timestamp.or(now())
-          root.level = this.level.or("INFO")
-          root.service = this.service.or("unknown")
-          root.message = this.message.or("No message")
-
-      # Add comprehensive node metadata
-      - mapping: |
-          root = this
-          
-          # Capture processing start time
-          let processing_start = now()
-          
-          # Node infrastructure metadata
-          root.metadata = {
-            "node": {
-              "id": env("NODE_ID").or(hostname()),
-              "name": env("NODE_NAME").or(env("HOSTNAME")).or("unknown"),
-              "region": env("NODE_REGION").or("unknown-region"),
-              "zone": env("NODE_ZONE").or("unknown-zone"),
-              "datacenter": env("NODE_DATACENTER").or("unknown-dc"),
-              "cluster": env("CLUSTER_NAME").or("default"),
-              "environment": env("ENVIRONMENT").or("production")
-            },
-            
-            "infrastructure": {
-              "platform": env("PLATFORM").or("kubernetes"),
-              "node_type": env("NODE_TYPE").or("edge"), 
-              "instance_type": env("INSTANCE_TYPE").or("unknown"),
-              "arch": env("ARCH").or("amd64"),
-              "os": env("OS").or("linux"),
-              "kernel": env("KERNEL_VERSION").or("unknown")
-            },
-            
-            "network": {
-              "internal_ip": env("NODE_INTERNAL_IP").or("unknown"),
-              "external_ip": env("NODE_EXTERNAL_IP").or("unknown"),
-              "vpc": env("VPC_ID").or("unknown"),
-              "subnet": env("SUBNET_ID").or("unknown"),
-              "security_groups": env("SECURITY_GROUPS").or("unknown").split(",")
-            }
-          }
-          
-          # Store processing start for duration calculation
-          root.metadata.processing_start = processing_start
-
-      # Add pipeline and version metadata  
-      - mapping: |
-          root = this
-          
-          # Pipeline metadata
-          root.metadata.pipeline = {
-            "name": "log-processing-enrich-metadata",
-            "version": env("PIPELINE_VERSION").or("1.3.0"),
-            "stage": "enrichment",
-            "config_hash": env("CONFIG_HASH").or("unknown"),
-            "deployed_at": env("PIPELINE_DEPLOYED_AT").or("unknown"),
-            "deployed_by": env("PIPELINE_DEPLOYED_BY").or("system")
-          }
-          
-          # Processing metadata
-          root.metadata.processing = {
-            "received_at": root.metadata.processing_start,
-            "processor": "metadata-enrichment",
-            "step": 3,
-            "phase": "enrichment"
-          }
-          
-          # Audit metadata
-          root.metadata.audit = {
-            "trace_id": uuid_v4(),
-            "correlation_id": meta("http_request_id").or(uuid_v4()),
-            "processing_node": root.metadata.node.id,
-            "data_classification": "internal",
-            "retention_policy": "7-years", 
-            "compliance_tags": ["SOX", "GDPR", "HIPAA"]
-          }
-
-  # Simple output for testing
-  output:
-    file:
-      path: "/var/log/expanso/enriched-logs-${!timestamp_unix()}.jsonl"
-      codec: lines
-      batching:
-        count: 50
-        period: 5s
-
-logger:
-  level: INFO
-```
-
-Deploy and test the basic enrichment:
-
-```bash
-# Set environment variables for richer metadata
-export NODE_ID="edge-node-$(hostname)"
-export NODE_NAME="production-edge-001"
-export NODE_REGION="us-west-2"
-export NODE_ZONE="us-west-2a" 
-export ENVIRONMENT="production"
-export PIPELINE_VERSION="1.3.0"
-
-# Deploy the enrichment pipeline
-expanso job deploy enrich-metadata-pipeline.yaml
-
-# Send test log
-curl -X POST http://localhost:8080/logs/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
-  -d '{
-    "timestamp": "2025-10-20T10:30:45.123Z",
-    "level": "INFO",
-    "service": "user-service",
-    "message": "User profile updated successfully",
-    "user_id": "user123",
-    "action": "profile_update"
-  }'
-
-# Check enriched output
-tail -1 /var/log/expanso/enriched-logs-*.jsonl | jq .metadata
-```
-
-**Expected enriched metadata:**
-```json
-{
-  "metadata": {
-    "node": {
-      "id": "edge-node-production-001",
-      "name": "production-edge-001", 
-      "region": "us-west-2",
-      "zone": "us-west-2a",
-      "environment": "production"
-    },
-    "infrastructure": {
-      "platform": "kubernetes",
-      "node_type": "edge",
-      "arch": "amd64"
-    },
-    "pipeline": {
-      "name": "log-processing-enrich-metadata",
-      "version": "1.3.0",
-      "stage": "enrichment"
-    },
-    "audit": {
-      "trace_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-      "correlation_id": "req-12345",
-      "compliance_tags": ["SOX", "GDPR", "HIPAA"]
-    }
-  }
-}
-```
-
-## Step 3.2: Add HTTP Request Metadata
-
-Capture detailed information about the HTTP request that delivered the log:
-
-```yaml title="Add HTTP request metadata processor"
-# Add after basic metadata enrichment
-- mapping: |
-    root = this
-    
-    # HTTP request metadata
-    root.metadata.http = {
-      "method": meta("http_method").or("POST"),
-      "path": meta("http_path").or("/logs/ingest"),
-      "query_params": meta("http_query_params").or(""),
-      "user_agent": meta("http_user_agent").or("unknown"),
-      "content_type": meta("http_content_type").or("application/json"),
-      "content_length": meta("http_content_length").or(0).number(),
-      "remote_addr": meta("http_remote_addr").or("unknown"),
-      "forwarded_for": meta("http_x_forwarded_for").or(""),
-      "real_ip": meta("http_x_real_ip").or(""),
-      "request_id": meta("http_x_request_id").or(""),
-      "session_id": meta("http_x_session_id").or(""),
-      "api_version": meta("http_x_api_version").or("v1")
-    }
-    
-    # Parse User-Agent for application details
-    let ua = root.metadata.http.user_agent
-    root.metadata.client = {
-      "application": ua.re_replace("([^/]+)/.*", "${1}").or("unknown"),
-      "version": ua.re_replace("[^/]+/([^\\s]+).*", "${1}").or("unknown"),
-      "raw_user_agent": ua
-    }
-    
-    # Determine source type from User-Agent or headers
-    root.metadata.source = {
-      "type": match {
-        ua.contains("curl/") => "cli-tool",
-        ua.contains("python-requests/") => "python-app",
-        ua.contains("Java/") => "java-app", 
-        ua.contains("Go-http-client/") => "go-app",
-        ua.contains("Mozilla/") => "browser",
-        meta("http_x_service_name").exists() => "microservice",
-        _ => "unknown"
-      },
-      "service_name": meta("http_x_service_name").or(""),
-      "service_version": meta("http_x_service_version").or(""),
-      "deployment": meta("http_x_deployment").or("")
-    }
-```
-
-## Step 3.3: Add Processing Performance Metadata
-
-Track processing performance and resource usage:
-
-```yaml title="Add performance tracking"
-# Add performance tracking processor
-- mapping: |
-    root = this
-    
-    # Calculate processing duration (from start time captured earlier)
-    let processing_end = now()
-    let processing_duration_ms = (processing_end.timestamp() - root.metadata.processing_start.timestamp()) * 1000
-    
-    # Processing performance metadata
-    root.metadata.performance = {
-      "processing_duration_ms": processing_duration_ms,
-      "processing_rate": "high",  # Will be calculated based on volume
-      "cpu_usage_percent": env("CPU_USAGE").or("unknown").number().or(0),
-      "memory_usage_mb": env("MEMORY_USAGE_MB").or("unknown").number().or(0),
-      "disk_usage_percent": env("DISK_USAGE_PERCENT").or("unknown").number().or(0),
-      "network_io_mbps": env("NETWORK_IO_MBPS").or("unknown").number().or(0)
-    }
-    
-    # Processing statistics
-    root.metadata.stats = {
-      "original_size_bytes": root.metadata.http.content_length,
-      "enriched_size_bytes": this.string().length(), 
-      "enrichment_ratio": this.string().length() / root.metadata.http.content_length.max(1),
-      "field_count": this.values().length(),
-      "metadata_field_count": this.metadata.values().length()
-    }
-    
-    # Update final processing metadata
-    root.metadata.processing.completed_at = processing_end
-    root.metadata.processing.total_duration_ms = processing_duration_ms
-    root.metadata.processing.status = "completed"
-    
-    # Remove temporary processing_start field
-    root.metadata = root.metadata.without("processing_start")
-```
-
-## Step 3.4: Add Data Quality and Lineage Metadata
-
-Track data quality scores and processing lineage:
-
-```yaml title="Add data quality and lineage tracking"
-# Add data quality assessment
-- mapping: |
-    root = this
-    
-    # Data quality assessment
-    let required_fields = ["timestamp", "level", "service", "message"]
-    let present_fields = required_fields.filter(field -> this.get(field).exists())
-    let quality_score = (present_fields.length() / required_fields.length()) * 100
-    
-    # Additional quality factors
-    let has_request_id = this.request_id.exists() || this.metadata.http.request_id != ""
-    let has_user_context = this.user_id.exists() || this.session_id.exists()
-    let has_timing_info = this.duration_ms.exists() || this.response_time.exists()
-    
-    root.metadata.quality = {
-      "score": quality_score,
-      "required_fields_present": present_fields.length(),
-      "required_fields_total": required_fields.length(),
-      "has_request_tracking": has_request_id,
-      "has_user_context": has_user_context,
-      "has_performance_data": has_timing_info,
-      "timestamp_format": "normalized",
-      "level_standardized": true,
-      "message_length": this.message.length().or(0)
-    }
-    
-    # Data lineage tracking
-    root.metadata.lineage = {
-      "source_system": this.service,
-      "ingestion_path": "http-api",
-      "processing_pipeline": "log-processing-enrich-metadata", 
-      "processing_steps": ["json-parse", "validation", "enrichment"],
-      "transformation_applied": ["timestamp-normalization", "metadata-enrichment"],
-      "downstream_targets": ["elasticsearch", "s3", "local-backup"],
-      "lineage_version": "1.0"
-    }
-```
-
-## Step 3.5: Add Contextual Business Metadata
-
-Enrich with business-relevant context based on log content:
-
-```yaml title="Add business context enrichment"
-# Add business context based on service and log content
-- mapping: |
-    root = this
-    
-    # Business context based on service type
-    root.metadata.business = match this.service {
-      "payment-service" => {
-        "domain": "finance",
-        "criticality": "high", 
-        "compliance_level": "pci-dss",
-        "data_sensitivity": "confidential",
-        "sla_tier": "tier-1"
-      },
-      "auth-service" => {
-        "domain": "security",
-        "criticality": "high",
-        "compliance_level": "soc2",
-        "data_sensitivity": "restricted", 
-        "sla_tier": "tier-1"
-      },
-      "user-service" => {
-        "domain": "customer", 
-        "criticality": "medium",
-        "compliance_level": "gdpr",
-        "data_sensitivity": "internal",
-        "sla_tier": "tier-2"
-      },
-      _ => {
-        "domain": "general",
-        "criticality": "low", 
-        "compliance_level": "standard",
-        "data_sensitivity": "public",
-        "sla_tier": "tier-3"
-      }
-    }
-    
-    # Extract business metrics from log content
-    root.metadata.business_metrics = {
-      "contains_error": this.level == "ERROR" || this.level == "FATAL",
-      "contains_user_action": this.user_id.exists() || this.action.exists(),
-      "contains_performance_data": this.duration_ms.exists() || this.response_time.exists(),
-      "contains_financial_data": this.amount.exists() || this.transaction_id.exists(),
-      "contains_auth_data": this.session_id.exists() || this.auth_token.exists()
-    }
-    
-    # Add customer impact assessment
-    root.metadata.impact = {
-      "customer_facing": match this.service {
-        "payment-service" => true,
-        "auth-service" => true,
-        "api-gateway" => true,
-        _ => false
-      },
-      "severity_impact": match this.level {
-        "FATAL" => "high",
-        "ERROR" => "medium", 
-        "WARN" => "low",
-        _ => "none"
-      },
-      "business_hours": {
-        let hour = this.timestamp.parse_timestamp("2006-01-02T15:04:05.000Z").format_timestamp("15").number()
-        hour >= 9 && hour <= 17
-      }
-    }
-```
-
-## Step 3.6: Add Geographic and Routing Metadata
-
-Add geographic context and routing information:
-
-```yaml title="Add geographic and routing metadata"
-# Add geographic and routing context
-- mapping: |
-    root = this
-    
-    # Geographic context (could be enhanced with GeoIP lookup)
-    root.metadata.geographic = {
-      "processing_region": root.metadata.node.region,
-      "processing_zone": root.metadata.node.zone,
-      "source_region": meta("http_x_source_region").or("unknown"),
-      "client_country": meta("http_cf_ipcountry").or("unknown"),  # Cloudflare header
-      "client_timezone": meta("http_x_timezone").or("UTC"),
-      "edge_location": root.metadata.node.region + "-" + root.metadata.node.zone
-    }
-    
-    # Routing and load balancing metadata
-    root.metadata.routing = {
-      "load_balancer": meta("http_x_forwarded_by").or("unknown"),
-      "routing_path": meta("http_x_routing_path").or("direct"),
-      "backend_pool": meta("http_x_backend_pool").or("default"),
-      "ssl_protocol": meta("http_x_ssl_protocol").or("unknown"),
-      "connection_info": {
-        "keep_alive": meta("http_connection").contains("keep-alive"),
-        "compression": meta("http_content_encoding").or("none"),
-        "cdn": meta("http_x_served_by").or("direct")
-      }
-    }
-```
-
-## Step 3.7: Test Comprehensive Enrichment
-
-Test the complete enrichment pipeline with various scenarios:
-
-```bash
-# Test with rich headers
-curl -X POST http://localhost:8080/logs/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
-  -H "X-Request-ID: req-$(date +%s)" \
-  -H "X-Service-Name: payment-service" \
-  -H "X-Service-Version: 2.1.0" \
-  -H "X-Source-Region: us-east-1" \
-  -H "User-Agent: payment-service/2.1.0 (Java/11)" \
-  -d '{
-    "timestamp": "2025-10-20T10:30:45.123Z",
-    "level": "INFO",
-    "service": "payment-service",
-    "message": "Payment processed successfully",
-    "user_id": "user123", 
-    "transaction_id": "txn456",
-    "amount": 99.99,
-    "currency": "USD",
-    "duration_ms": 250
-  }'
-
-# Test with minimal data (to see enrichment filling gaps)
-curl -X POST http://localhost:8080/logs/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
-  -d '{
-    "level": "ERROR",
-    "message": "Something went wrong"
-  }'
-
-# Test with browser user agent
-curl -X POST http://localhost:8080/logs/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
-  -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" \
-  -d '{
-    "timestamp": "2025-10-20T10:30:45.123Z",
-    "level": "WARN", 
-    "service": "frontend",
-    "message": "Client-side error detected",
-    "error_code": "JS_EXCEPTION"
-  }'
-```
-
-Examine the enriched outputs:
-
-```bash
-# View the enriched logs with full metadata
-tail -3 /var/log/expanso/enriched-logs-*.jsonl | jq .
-
-# Check specific metadata sections
-tail -1 /var/log/expanso/enriched-logs-*.jsonl | jq .metadata.business
-tail -1 /var/log/expanso/enriched-logs-*.jsonl | jq .metadata.quality  
-tail -1 /var/log/expanso/enriched-logs-*.jsonl | jq .metadata.performance
-```
-
-## Advanced Enrichment Patterns
-
-### Pattern 1: Dynamic Field Mapping
-
-Map field names dynamically based on source system:
+We'll add a `metadata` object to keep things organized.
 
 ```yaml
-- mapping: |
-    root = this
-    
-    # Field mapping based on source system
-    let field_mapping = {
-      "apache": {
-        "timestamp": "time",
-        "level": "severity", 
-        "message": "msg",
-        "user_id": "uid"
-      },
-      "nginx": {
-        "timestamp": "time_local",
-        "level": "alert_level",
-        "message": "request",
-        "user_id": "remote_user" 
-      }
-    }
-    
-    let source_type = root.metadata.source.type
-    let mapping = field_mapping.get(source_type)
-    
-    # Apply field mapping if found
-    root = if mapping != null {
-      # Rename fields according to mapping
-      # ... field renaming logic ...
-      root
-    } else {
-      root
-    }
-```
-
-### Pattern 2: Conditional Enrichment
-
-Apply different enrichment based on log level or service:
-
-```yaml
-- mapping: |
-    root = this
-    
-    # Enhanced enrichment for ERROR/FATAL logs
-    root = if ["ERROR", "FATAL"].contains(this.level) {
-      # Add enhanced debugging context
-      root.metadata.debug = {
-        "requires_investigation": true,
-        "escalation_level": match this.level {
-          "ERROR" => "team",
-          "FATAL" => "oncall"
-        },
-        "debug_info_collected": now(),
-        "incident_category": "production-issue"
-      }
-      
-      # Add stack trace if available
-      root.metadata.technical = if this.stack_trace.exists() {
-        {
-          "has_stack_trace": true,
-          "stack_depth": this.stack_trace.split("\n").length(),
-          "exception_type": this.exception_type.or("unknown")
+    - mapping: |
+        root = this
+        root.metadata = {
+          "ingest_timestamp": now(),
+          "trace_id": uuid_v4(),
+          "node_id": env("NODE_ID").or("unknown_node"),
+          "region": env("AWS_REGION").or("unknown_region"),
+          "environment": env("ENVIRONMENT").or("dev")
         }
-      }
-      
-      root
-    } else {
-      root
-    }
 ```
 
-### Pattern 3: External Data Enrichment
+## Complete Step 3 Configuration
 
-Enrich with data from external sources (caches, databases):
+```yaml title="production-pipeline-step-3.yaml"
+input:
+  http_server:
+    address: "0.0.0.0:8080"
+    path: /logs/ingest
+    rate_limit: "1000/1s"
+    auth:
+      type: header
+      header: "X-API-Key"
+      required_value: "${LOG_API_KEY}"
 
-```yaml
-# Example: Enrich with user information from cache
-- http:
-    url: "http://user-cache-service/users/${!json(\"user_id\")}"
-    verb: GET
-    headers:
-      "Authorization": "Bearer ${USER_CACHE_TOKEN}"
-    timeout: 100ms
-    retry_as_batch: false
-    drop_on_error: false
-    
-- mapping: |
-    root = this
-    
-    # Add user context from external lookup
-    root.metadata.user_context = if this.user_lookup_result.exists() {
-      {
-        "user_tier": this.user_lookup_result.tier,
-        "account_type": this.user_lookup_result.account_type, 
-        "registration_date": this.user_lookup_result.created_at,
-        "enrichment_source": "user-cache"
-      }
-    } else {
-      {
-        "enrichment_source": "none",
-        "lookup_failed": true
-      }
-    }
+pipeline:
+  processors:
+    # 1. Parse & Validate (from Step 2)
+    - mapping: |
+        root = this.parse_json().catch({"message": content()})
+        if !root.exists("timestamp") { root.timestamp = now() }
+        if !root.exists("level") { root.level = "INFO" }
+
+    # 2. Enrich
+    - mapping: |
+        root = this
+        root.metadata = {
+          "ingest_time": now(),
+          "processing_node": env("NODE_ID").or("local"),
+          "pipeline_version": "1.0.0"
+        }
+        
+        # Example: Add 'urgent' flag for high severity
+        if root.level == "ERROR" || root.level == "FATAL" {
+           root.metadata.urgent = true
+        }
+
+output:
+  stdout: {}
 ```
 
-## Performance Optimization for High-Volume Enrichment
+## Deployment & Verification
 
-### Optimize Metadata Size
+1.  **Set Env Vars:**
+    ```bash
+    export NODE_ID="node-01"
+    ```
 
-For high-volume environments, optimize metadata size:
+2.  **Deploy:**
+    ```bash
+    expanso job deploy production-pipeline-step-3.yaml
+    ```
 
-```yaml
-# Conditional metadata based on log level
-- mapping: |
-    root = this
-    
-    # Full metadata for important logs, minimal for debug
-    root.metadata = if ["ERROR", "FATAL", "WARN"].contains(this.level) {
-      # Full enrichment for important logs
-      root.metadata  
-    } else {
-      # Minimal enrichment for debug/info logs
-      {
-        "node": {"id": root.metadata.node.id},
-        "pipeline": {"version": root.metadata.pipeline.version},
-        "processing": {"completed_at": now()}
-      }
-    }
-```
-
-### Batch Metadata Operations
-
-Reduce processing overhead with batched operations:
-
-```yaml
-# Use batch processing for enrichment
-- archive:
-    format: json_array
-    
-- mapping: |
-    # Process entire batch at once
-    root = this.map_each(log -> {
-      # Apply enrichment to each log in batch
-      log.metadata = create_metadata(log)
-      log
-    })
-    
-- unarchive:
-    format: json_array
-```
-
-## Troubleshooting
-
-### Issue: Enrichment Causing High Latency
-
-**Symptom:** Processing time increased significantly after enrichment
-
-**Diagnosis:**
-```bash
-# Check processing performance metrics
-curl http://localhost:8080/metrics | grep duration
-
-# Check enriched log sizes
-ls -lah /var/log/expanso/enriched-logs-*.jsonl
-
-# Compare with non-enriched logs
-du -sh /var/log/expanso/enriched-logs-*.jsonl
-```
-
-**Solutions:**
-1. **Reduce metadata granularity:**
-```yaml
-# Remove expensive metadata collection
-metadata:
-  node: {id, region}  # Minimal node info
-  processing: {completed_at}  # Essential timing only
-```
-
-2. **Conditional enrichment:**
-```yaml
-# Only enrich high-value logs
-root.metadata = if this.level != "DEBUG" { full_metadata } else { minimal_metadata }
-```
-
-### Issue: Metadata Inconsistencies
-
-**Symptom:** Different logs have different metadata structures
-
-**Diagnosis:**
-```bash
-# Check metadata field consistency
-jq '.metadata | keys' /var/log/expanso/enriched-logs-*.jsonl | sort | uniq -c
-```
-
-**Solutions:**
-1. **Standardize metadata structure:**
-```yaml
-# Always include all metadata fields with defaults
-root.metadata = {
-  "node": root.metadata.node.or({"id": "unknown"}),
-  "pipeline": root.metadata.pipeline.or({"version": "unknown"}),
-  # ... ensure all fields present
-}
-```
-
-### Issue: Missing Environment Variables
-
-**Symptom:** Metadata fields showing "unknown" values
-
-**Diagnosis:**
-```bash
-# Check environment variables
-env | grep NODE_
-env | grep PIPELINE_
-
-# Check what's available in pipeline
-expanso job logs log-processing-enrich-metadata | grep "env("
-```
-
-**Solutions:**
-1. **Set required environment variables:**
-```bash
-# Add to deployment
-export NODE_ID="$(hostname)"
-export NODE_REGION="$(curl -s http://169.254.169.254/latest/meta-data/placement/region)"
-export PIPELINE_VERSION="1.3.0"
-```
-
-2. **Add fallback values:**
-```yaml
-"node_id": env("NODE_ID").or(hostname()).or("unknown-" + uuid_v4().slice(0,8))
-```
-
-## Monitoring Enriched Data Quality
-
-### Track Enrichment Success Rates
-
-```bash
-# Monitor enrichment metrics
-curl http://localhost:8080/metrics | grep enrichment
-
-# Key metrics:
-# - enrichment_fields_added_total
-# - enrichment_processing_duration_seconds  
-# - metadata_size_bytes_total
-# - external_lookup_success_total
-```
-
-### Set Up Enrichment Alerts
-
-```yaml
-# Alert on enrichment failures
-alerts:
-  - name: "high-enrichment-failure-rate"
-    condition: "enrichment_failures > 5% for 5 minutes"
-    action: "page-oncall"
-    
-  - name: "enrichment-latency-high" 
-    condition: "enrichment_duration > 100ms for 10 minutes"
-    action: "slack-alert"
-```
-
-## What You've Accomplished
-
-✅ **Added comprehensive node metadata** with infrastructure and network context
-✅ **Captured HTTP request details** for complete ingestion audit trails
-✅ **Implemented processing performance tracking** with duration and resource usage
-✅ **Added data quality scoring** with lineage and compliance tagging
-✅ **Enriched with business context** based on service and content analysis
-✅ **Included geographic and routing information** for distributed system debugging
-
-## Key Takeaways
-
-1. **Context is Critical** - Rich metadata transforms logs from events into intelligence
-2. **Lineage Enables Debugging** - Knowing processing path helps troubleshoot issues
-3. **Quality Tracking** - Measuring data quality helps improve upstream systems  
-4. **Performance Impact** - Balance enrichment value against processing overhead
-5. **Standardization Matters** - Consistent metadata structure enables reliable analysis
+3.  **Test:**
+    ```bash
+    curl -X POST http://localhost:8080/logs/ingest \
+      -H "X-API-Key: $LOG_API_KEY" \
+      -d '{"level": "ERROR", "message": "DB fail"}'
+    ```
+    *Result should include `metadata` with `processing_node: "node-01"` and `urgent: true`.*
 
 ## Next Steps
 
-Your logs now contain rich operational context and audit trails! Next, you'll add intelligent filtering and scoring:
+With enriched data, we can now make intelligent decisions about what to keep and how to prioritize it.
 
-**Next:** [Filter and Score Logs](./step-4-filter-score-logs) - Implement severity scoring and intelligent filtering to reduce noise and prioritize important events.
+👉 [**Step 4: Filter & Score Logs**](./step-4-filter-score-logs)
 
-## Enrichment Summary
-
-Here's the complete enrichment metadata you've implemented:
-
-```yaml
-metadata:
-  node: {id, region, zone, environment}
-  infrastructure: {platform, type, arch, os}
-  network: {internal_ip, vpc, subnet}
-  pipeline: {name, version, stage, config_hash}
-  processing: {duration, performance, stats}
-  http: {method, user_agent, headers, routing}
-  client: {application, version, type}
-  quality: {score, field_completeness, standards}
-  business: {domain, criticality, compliance, sla}
-  lineage: {source, transformations, targets}
-  audit: {trace_id, compliance_tags, retention}
-```
-
-This comprehensive metadata transforms simple log events into rich, contextual data assets that support debugging, compliance, and business intelligence.

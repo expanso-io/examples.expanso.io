@@ -2,19 +2,21 @@
 title: Setup Environment for Priority Queues
 sidebar_label: Setup
 sidebar_position: 3
-description: Configure environment variables, Kafka brokers, and deploy a shell priority queue pipeline
+description: Configure environment variables and Kafka brokers for a priority queue pipeline.
 keywords: [setup, environment, configuration, deployment, kafka, priority-queues]
 ---
 
 # Setup Environment for Priority Queues
 
-Before building the priority queue system, you'll set up your Kafka environment, configure routing credentials, and deploy a minimal test pipeline to verify everything works.
+Before building the priority queue system, you'll set up your Kafka environment and configure routing credentials.
 
 ## Prerequisites
 
-- **Kafka:** Set up [Kafka](/getting-started/local-development#kafka) for priority-based topic routing
-- **Expanso:** Installed and running ([Installation Guide](https://docs.expanso.io/installation))
-- **Environment Variables:** See the [local development guide](/getting-started/local-development#environment-variables)
+This example requires the following services to be running:
+
+*   **[Kafka](/getting-started/services/kafka)**
+
+Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
 
 ## Step 1: Configure Example-Specific Variables
 
@@ -29,115 +31,7 @@ echo "Kafka Brokers: $KAFKA_BROKERS"
 echo "Node ID: $NODE_ID"
 ```
 
-## Step 2: Deploy Shell Priority Queue Pipeline
-
-Before adding sophisticated priority logic, deploy a minimal "shell" pipeline that just routes all messages to a normal priority queue. This verifies your Kafka setup works.
-
-Create `shell-priority-queues.yaml`:
-
-```yaml title="shell-priority-queues.yaml"
-name: shell-priority-queues
-description: Basic pipeline to test Kafka connectivity
-type: pipeline
-namespace: test
-
-config:
-  input:
-    http_server:
-      address: 0.0.0.0:8080
-      path: /logs
-      timeout: 5s
-
-  pipeline:
-    processors:
-      # Parse JSON and add basic metadata
-      - json_documents:
-          parts: []
-      
-      - mapping: |
-          root = this
-          root.received_at = now()
-          root.edge_node_id = env("NODE_ID").or("unknown")
-          root.pipeline = "shell-priority-queues"
-
-  output:
-    kafka:
-      addresses: ["${KAFKA_BROKERS}"]
-      topic: logs-normal
-      batching:
-        count: 10
-        period: 5s
-```
-
-Deploy the shell pipeline:
-
-```bash
-# Save the YAML content above to shell-priority-queues.yaml
-
-# Deploy to Expanso
-expanso pipeline deploy shell-priority-queues.yaml
-
-# Verify deployment
-expanso pipeline list | grep shell-priority
-```
-
-**Expected output:**
-```
-shell-priority-queues    test    pipeline    running    edge-node-01
-```
-
-## Step 4: Test Shell Pipeline
-
-Send test messages to verify the pipeline receives and routes messages to Kafka.
-
-```bash
-# Test with a simple log message
-curl -X POST http://localhost:8080/logs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "timestamp": "2024-01-15T10:30:00Z",
-    "severity": "INFO",
-    "message": "Application started successfully",
-    "service": "api-gateway",
-    "version": "1.2.3"
-  }'
-
-# Send a batch of test messages
-for severity in CRITICAL ERROR WARNING INFO DEBUG; do
-  curl -X POST http://localhost:8080/logs \
-    -H "Content-Type: application/json" \
-    -d '{
-      "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
-      "severity": "'$severity'",
-      "message": "Test message with severity '$severity'",
-      "service": "test-service"
-    }'
-done
-```
-
-Check that messages are arriving in Kafka:
-
-```bash
-# Consumer from the normal priority topic
-$KAFKA_HOME/bin/kafka-console-consumer.sh \
-    --bootstrap-server $KAFKA_BROKERS \
-    --topic logs-normal \
-    --from-beginning \
-    --max-messages 10
-```
-
-**Expected output:** You should see JSON messages with added metadata:
-```json
-{"timestamp":"2024-01-15T10:30:00Z","severity":"INFO","message":"Application started successfully","service":"api-gateway","version":"1.2.3","received_at":"2024-01-15T10:30:01.234Z","edge_node_id":"edge-node-01","pipeline":"shell-priority-queues"}
-```
-
-:::tip Success!
-If you see messages with the added metadata (`received_at`, `edge_node_id`, `pipeline`), your environment is correctly configured!
-
-**Next step:** Replace the shell pipeline with severity-based routing in Step 1.
-:::
-
-## Step 5: Verify Priority Topics
+## Step 2: Verify Priority Topics
 
 Before proceeding, verify all required priority topics exist and are accessible:
 
@@ -164,22 +58,9 @@ for topic in critical high normal low; do
 done
 ```
 
-## Step 6: Set Up Monitoring (Optional)
-
-Enable Expanso metrics to monitor priority queue performance:
-
-```bash
-# Check if metrics endpoint is available
-curl http://localhost:8081/metrics | grep pipeline_output_sent_total
-
-# Set up environment variable for metrics collection
-export EXPANSO_METRICS_PORT=8081
-export EXPANSO_METRICS_PATH="/metrics"
-```
-
 ## Next Steps
 
-With your environment configured and shell pipeline deployed, you're ready to implement priority-based routing:
+With your environment configured, you're ready to implement priority-based routing:
 
 <div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
   <a href="./step-1-severity-routing" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>

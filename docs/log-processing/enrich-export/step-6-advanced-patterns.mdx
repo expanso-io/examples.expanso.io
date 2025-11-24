@@ -1,0 +1,75 @@
+---
+title: "Advanced Enrichment & Export Patterns"
+sidebar_label: "Step 6 - Advanced Patterns"
+sidebar_position: 9
+description: Explore advanced log enrichment and export patterns.
+keywords: [log-enrichment, advanced-patterns, s3, partitioning, compression]
+---
+
+# Advanced Enrichment & Export Patterns
+
+Once you have mastered the basic "enrich, restructure, batch, export" pattern, you can implement more sophisticated, production-grade features.
+
+## Pattern 1: Hive-Style S3 Partitioning
+
+For large-scale analytics, storing files with a simple date prefix isn't enough. **Hive-style partitioning** is a naming convention (`key=value`) that is automatically understood by big data query engines like AWS Athena, Presto, and Spark. This allows them to dramatically prune the data they need to scan, saving time and money.
+
+```yaml title="S3 Output with Hive-Style Partitioning"
+output:
+  aws_s3:
+    bucket: ${S3_BUCKET_NAME}
+    # This path creates partitions that analytics engines can use for pruning
+    path: "logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/hour=${!timestamp("15")}/${!uuid_v4()}.jsonl.gz"
+    # ... other config
+```
+A query like `WHERE year=2025 AND month=10` would now only scan files within that specific folder, ignoring all other data.
+
+## Pattern 2: Compression
+
+To save on storage costs and improve query performance, you should compress your batches before sending them to S3. This can be done with a `compress` processor inside the `batching` block.
+
+```yaml title="S3 Output with Gzip Compression"
+output:
+  aws_s3:
+    bucket: ${S3_BUCKET_NAME}
+    path: "logs/.../${!uuid_v4()}.jsonl.gz" # Note the .gz extension
+    batching:
+      count: 100
+      period: 60s
+      # This processor runs on the batch *before* it gets sent
+      processors:
+        - compress:
+            algorithm: gzip
+    # Let S3 know the content is compressed
+    content_encoding: gzip
+```
+
+## Pattern 3: Multi-Destination Routing
+
+You may want to send different types of logs to different places. For example, `ERROR` logs might go to a high-priority S3 bucket for immediate alerting, while `INFO` logs go to a standard bucket for archival.
+
+```yaml title="Multi-Destination S3 Export"
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # --- Output 1: ERROR logs to a priority bucket ---
+      - processors:
+          # This processor filters the batch to only include errors
+          - mapping: `root = this.filter(log -> log.event.level == "ERROR")`
+        aws_s3:
+          bucket: "my-priority-error-logs"
+          path: "errors/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz"
+          # ... use a smaller, faster batching policy here
+
+      # --- Output 2: All other logs to a standard bucket ---
+      - processors:
+          - mapping: `root = this.filter(log -> log.event.level != "ERROR")`
+        aws_s3:
+          bucket: "my-standard-logs"
+          path: "logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz"
+          # ... use a larger, more cost-effective batching policy here
+```
+This pattern uses a `broker` to fan out the data, with each output having its own processor to filter the batch for the appropriate log level before sending it to S3.
+
+```

@@ -2,41 +2,35 @@
 title: Local Development Setup
 sidebar_label: Local Development
 sidebar_position: 3
-description: Set up Kafka, PostgreSQL, Redis, and other services locally using Docker Compose for testing Expanso examples
-keywords: [local-development, docker, docker-compose, kafka, postgres, redis, setup]
+description: Set up a local development environment for running Expanso examples.
+keywords: [local-development, docker, setup]
 ---
 
 # Local Development Setup
 
-This guide helps you set up a complete local development environment with all the services needed to run Expanso examples: Kafka, PostgreSQL, Redis, and supporting tools.
+This guide helps you set up a local development environment with all the services needed to run the Expanso examples.
 
-## Quick Start
+## Philosophy
 
-Start all services with Docker Compose:
+Each example is designed to be self-contained. To support this, we provide individual Docker Compose files for each required service, such as Kafka, PostgreSQL, or Redis. You only need to start the services required for the specific example you are working on.
 
-```bash
-# Clone or navigate to the examples repo
-cd examples.expanso.io
+## Available Services
 
-# Start all services in the background
-docker compose up -d
+Each of the following services has a dedicated setup page with instructions and the necessary Docker Compose configuration file content.
 
-# Check that all services are healthy
-docker compose ps
+- **[Kafka](./services/kafka)**: A distributed event streaming platform.
+- **[PostgreSQL](./services/postgres)**: A powerful, open-source object-relational database system.
+- **[Redis](./services/redis)**: An in-memory data structure store, used as a database, cache, and message broker.
 
-# View logs (optional)
-docker compose logs -f
-```
+Please refer to the `setup.mdx` file for the example you are interested in to see which services are required.
 
-**Services will be available at:**
-- Kafka: `localhost:9092`
-- PostgreSQL: `localhost:5432` (user: `expanso`, password: `expanso`, database: `expanso_dev`)
-- Redis: `localhost:6379`
-- Kafka UI: `http://localhost:8081`
+## General Setup
 
-## Environment Variables
+The following steps are common to all examples.
 
-Set these environment variables for use across examples:
+### Environment Variables
+
+Set these environment variables for use across examples. You can add them to your `~/.bashrc` or `~/.zshrc` to make them permanent.
 
 ```bash
 # Kafka
@@ -54,135 +48,16 @@ echo "PostgreSQL: $DB_CONNECTION_STRING"
 echo "Redis: $REDIS_URL"
 ```
 
-Add these to your `~/.bashrc` or `~/.zshrc` to make them permanent.
+### Verify Expanso Installation
 
-## Verify Connectivity
-
-### Test Kafka {#kafka}
+Ensure Expanso is running and you have at least one edge node available:
 
 ```bash
-# Produce a test message
-echo '{"test": "message", "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' | \
-  docker exec -i expanso-kafka kafka-console-producer \
-  --broker-list localhost:9092 \
-  --topic test-connectivity
+# Check orchestrator status
+expanso status
 
-# Consume the message
-docker exec expanso-kafka kafka-console-consumer \
-  --bootstrap-server localhost:9092 \
-  --topic test-connectivity \
-  --from-beginning \
-  --max-messages 1
+# List available nodes
+expanso node list
 ```
 
-**Expected:** You should see your test message.
-
-### Test PostgreSQL {#postgresql}
-
-```bash
-# Connect to PostgreSQL
-docker exec -it expanso-postgres psql -U expanso -d expanso_dev
-
-# Run a test query
-expanso_dev=# SELECT version();
-expanso_dev=# \q
-```
-
-**Expected:** PostgreSQL version information.
-
-### Test Redis {#redis}
-
-```bash
-# Test Redis connection
-docker exec expanso-redis redis-cli ping
-
-# Set and get a test value
-docker exec expanso-redis redis-cli SET test:key "hello"
-docker exec expanso-redis redis-cli GET test:key
-```
-
-**Expected:** `PONG` and `hello`.
-
-## Create Kafka Topics
-
-Many examples require specific Kafka topics. Create them in advance:
-
-```bash
-# Common topics used across examples
-docker exec expanso-kafka kafka-topics \
-  --bootstrap-server localhost:9092 \
-  --create --if-not-exists \
-  --topic events --partitions 3 --replication-factor 1
-
-docker exec expanso-kafka kafka-topics \
-  --bootstrap-server localhost:9092 \
-  --create --if-not-exists \
-  --topic critical-alerts --partitions 1 --replication-factor 1
-
-docker exec expanso-kafka kafka-topics \
-  --bootstrap-server localhost:9092 \
-  --create --if-not-exists \
-  --topic general-events --partitions 6 --replication-factor 1
-
-# List all topics to verify
-docker exec expanso-kafka kafka-topics \
-  --bootstrap-server localhost:9092 \
-  --list
-```
-
-## Kafka UI
-
-Access the Kafka UI web interface at `http://localhost:8081` to:
-- View topics and partitions
-- Browse messages
-- Monitor consumer groups
-- Manage Kafka configurations
-
-## Managing Services
-
-```bash
-# Stop all services
-docker compose down
-
-# Stop and remove all data
-docker compose down -v
-
-# Restart a specific service
-docker compose restart kafka
-
-# View service logs
-docker compose logs -f kafka
-docker compose logs -f postgres
-docker compose logs -f redis
-
-# Check service health
-docker compose ps
-```
-
-## Troubleshooting
-
-If services fail to start:
-
-```bash
-# Check if ports are already in use
-lsof -i :9092  # Kafka
-lsof -i :5432  # PostgreSQL
-lsof -i :6379  # Redis
-
-# Remove existing containers and volumes
-docker compose down -v
-
-# Pull latest images
-docker compose pull
-
-# Start fresh
-docker compose up -d
-```
-
-## What's Next
-
-Now that your local environment is ready:
-
-1. **Start with a Quick Example** - Try the [Filter Severity](/log-processing/filter-severity) example
-2. **Explore Data Routing** - Learn [Content Routing](/data-routing/content-routing) patterns
-3. **Review Prerequisites** - Ensure you have [Expanso installed](https://docs.expanso.io/installation)
+If you see any issues, complete the [Expanso Installation Guide](https://docs.expanso.io/installation) first.

@@ -2,19 +2,21 @@
 title: Setup Environment for Content Routing
 sidebar_label: Setup
 sidebar_position: 3
-description: Configure environment variables, destination services, and deploy a shell content routing pipeline
+description: Configure environment variables and destination services for content routing.
 keywords: [setup, environment, configuration, deployment, content-routing]
 ---
 
 # Setup Environment for Content Routing
 
-Before building the content routing pipeline, you'll set up destination services, configure environment variables, and deploy a minimal shell pipeline to verify your setup works.
+Before building the content routing pipeline, you'll set up destination services and configure environment variables.
 
 ## Prerequisites
 
-- **Kafka:** Set up [Kafka](/getting-started/local-development#kafka) for message routing and topic-based delivery
-- **Expanso:** Installed and running ([Installation Guide](https://docs.expanso.io/installation))
-- **Environment Variables:** See the [local development guide](/getting-started/local-development#environment-variables)
+This example requires the following services to be running:
+
+*   **[Kafka](/getting-started/services/kafka)**
+
+Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
 
 ## Step 1: Configure Example-Specific Variables
 
@@ -34,140 +36,7 @@ echo "Kafka: $KAFKA_BROKERS"
 echo "Slack: ${SLACK_WEBHOOK_URL:0:30}..."
 ```
 
-## Step 2: Deploy Shell Content Router
-
-Before adding complex routing logic, deploy a minimal "shell" router that accepts all messages and routes them to a single destination. This verifies your setup works.
-
-Create `shell-content-router.yaml`:
-
-```yaml title="shell-content-router.yaml"
-name: shell-content-router
-description: Basic content router for setup verification
-type: pipeline
-namespace: testing
-
-config:
-  input:
-    http_server:
-      address: 0.0.0.0:8080
-      path: /events
-      timeout: 5s
-      cors:
-        enabled: true
-
-  pipeline:
-    processors:
-      # Add timestamp and routing metadata
-      - mapping: |
-          root = this
-          root.received_at = now()
-          root.edge_node = env("EXPANSO_NODE_ID").or("shell-router")
-
-  output:
-    kafka:
-      addresses:
-        - ${KAFKA_BROKERS}
-      topic: general-events
-      
-      # Basic batching for efficiency
-      batching:
-        count: 50
-        period: 5s
-
-      # Add metadata for debugging
-      metadata:
-        include_patterns:
-          - "^received_at$"
-          - "^edge_node$"
-
-  # Enable metrics for monitoring
-  metrics:
-    prometheus:
-      enabled: true
-      path: /metrics
-
-  # Basic logging configuration
-  logger:
-    level: INFO
-    format: json
-```
-
-Deploy the shell router:
-
-```bash
-# Deploy to Expanso
-expanso pipeline create shell-content-router.yaml
-
-# Verify deployment
-expanso pipeline status shell-content-router
-
-# Check logs
-expanso pipeline logs shell-content-router --tail 20
-```
-
-**Expected output:**
-```
-Pipeline: shell-content-router
-Status: RUNNING
-Input: http_server (0.0.0.0:8080/events)
-Output: kafka (general-events)
-```
-
-## Step 5: Test Shell Router
-
-Send test events to verify the shell router is working correctly:
-
-```bash
-# Test basic event ingestion
-curl -X POST http://localhost:8080/events \
-  -H "Content-Type: application/json" \
-  -d '{
-    "event_id": "test-001",
-    "timestamp": "2025-10-20T10:00:00Z",
-    "severity": "INFO",
-    "message": "Shell router test message",
-    "event_type": "test.message",
-    "region": "us-east"
-  }'
-
-# Send a few more test events with different characteristics
-curl -X POST http://localhost:8080/events \
-  -H "Content-Type: application/json" \
-  -d '{
-    "event_id": "test-002",
-    "timestamp": "2025-10-20T10:01:00Z", 
-    "severity": "CRITICAL",
-    "message": "Test critical alert",
-    "event_type": "alert.system",
-    "region": "eu-west"
-  }'
-
-curl -X POST http://localhost:8080/events \
-  -H "Content-Type: application/json" \
-  -d '{
-    "event_id": "test-003",
-    "timestamp": "2025-10-20T10:02:00Z",
-    "severity": "WARN", 
-    "message": "Test warning",
-    "event_type": "user.action",
-    "region": "us-west",
-    "user_tier": "premium"
-  }'
-
-# Check the output in Kafka
-kafka-console-consumer --bootstrap-server $KAFKA_BROKERS \
-  --topic general-events --from-beginning --max-messages 3
-```
-
-**Expected output:** You should see all three test messages in the `general-events` topic with added `received_at` and `edge_node` fields.
-
-:::tip Success!
-If you see the test messages in Kafka with the additional metadata fields, your environment is correctly configured!
-
-**Next step:** You're ready to implement severity-based routing.
-:::
-
-## Step 6: Verify Optional Services
+## Step 2: Verify Optional Services
 
 If you plan to use the advanced routing features, verify connectivity to optional services:
 
@@ -216,30 +85,9 @@ aws s3 ls s3://your-test-bucket/setup-test.json
 aws s3 rm s3://your-test-bucket/setup-test.json
 ```
 
-## Step 7: Monitor Shell Router Performance
-
-Check that the shell router is performing well before adding complex routing logic:
-
-```bash
-# Check pipeline metrics
-curl http://localhost:8080/metrics | grep -E "(input_received|output_sent|errors)"
-
-# View recent logs
-expanso pipeline logs shell-content-router --tail 50
-
-# Check Kafka consumer lag (if applicable)
-kafka-consumer-groups --bootstrap-server $KAFKA_BROKERS \
-  --describe --group shell-router-group
-```
-
-**Healthy metrics should show:**
-- `input_received_total` > 0 (events being received)
-- `output_sent_total` ≈ `input_received_total` (events being processed)
-- `errors_total` = 0 (no errors)
-
 ## Next Steps
 
-With your shell router working, you're ready to implement content routing techniques:
+With your environment configured, you're ready to implement content routing techniques:
 
 <div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
   <a href="./step-1-route-by-severity" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
@@ -249,18 +97,3 @@ With your shell router working, you're ready to implement content routing techni
     Review Interactive Explorer
   </a>
 </div>
-
-## Environment Summary
-
-Your environment is now configured with:
-
-✅ **Kafka Topics:** critical-alerts, general-events, priority queues, event-type topics
-✅ **Environment Variables:** Service endpoints and credentials configured
-✅ **Shell Router:** Basic pipeline deployed and tested
-✅ **Connectivity:** Verified access to Kafka and optional services
-
-## Related Resources
-
-- [**Kafka Output Reference**](https://docs.expanso.io/components/outputs/kafka) - Complete Kafka configuration options
-- [**HTTP Server Input Reference**](https://docs.expanso.io/components/inputs/http_server) - HTTP endpoint configuration
-- [**Environment Variables Guide**](https://docs.expanso.io/configuration/environment-variables) - Managing credentials and configuration

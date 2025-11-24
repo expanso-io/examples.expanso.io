@@ -1,0 +1,84 @@
+---
+title: "Advanced PII Removal Patterns"
+sidebar_label: "Step 6 - Advanced Patterns"
+sidebar_position: 9
+description: Explore advanced PII removal patterns like conditional logic and multi-destination routing.
+keywords: [pii-removal, advanced-patterns, conditional, gdpr]
+---
+
+# Advanced PII Removal Patterns
+
+The techniques of deletion, hashing, pseudonymization, and generalization are powerful building blocks. For production systems, you can combine them in more sophisticated ways.
+
+## Pattern 1: Conditional PII Removal
+
+You may want to apply PII removal logic only to certain types of users. For example, you might need to retain more data for enterprise customers for support reasons, while being more aggressive about removing PII for free-tier users.
+
+```yaml title="Conditional PII Removal"
+- mapping: |
+    root = this
+
+    # Only apply aggressive PII removal for non-enterprise tiers
+    if this.account_type != "enterprise" {
+      # Apply hashing for IP and Email
+      root.ip_hash = this.ip_address.hash("sha256", env("IP_SALT"))
+      root.email_hash = this.email.hash("sha256", env("EMAIL_SALT"))
+      root.email_domain = this.email.split("@").index(1)
+
+      # Generalize location
+      root.location = this.location.without("latitude", "longitude")
+
+      # Delete the original fields
+      root = this.without("ip_address", "email")
+    }
+```
+
+## Pattern 2: Multi-Destination PII Handling
+
+For some use cases, you need to send the same event to two different systems with different levels of PII. For example, a fraud detection system might need the raw IP address, but your analytics warehouse must not contain it.
+
+This can be achieved with a `broker` output.
+
+```yaml title="Multi-Destination PII Handling"
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Destination 1: Analytics Warehouse (PII is removed)
+      - processors:
+        - mapping: |
+            root = this
+            root.ip_hash = this.ip_address.hash("sha256", env("IP_SALT"))
+            root = this.without("ip_address", "email", "user_name")
+        kafka:
+          addresses: [ ${ANALYTICS_KAFKA_BROKER} ]
+          topic: "analytics-events"
+
+      # Destination 2: Fraud Detection System (PII is kept, but with short retention)
+      # This system must be properly secured and have a strict data retention policy.
+      - http_client:
+          url: "http://fraud-detection-service/events"
+          verb: "POST"
+```
+In this pattern, the PII removal happens *inside the output definition*, creating two different versions of the message for two different destinations.
+
+## Pattern 3: K-Anonymity for Generalization
+
+When generalizing location data, you may still be able to identify users in small towns. A more advanced pattern is to only preserve city-level data if the city's population is above a certain threshold (the "k" in k-anonymity).
+
+```yaml title="K-Anonymity for Location"
+- mapping: |
+    root = this
+
+    # A conceptual list of small towns
+    let small_towns = ["Monowi", "Buford", "Lost Springs"]
+
+    if small_towns.contains(this.location.city) {
+      # For small towns, generalize further by removing the city
+      root.location = this.location.without("latitude", "longitude", "city")
+    } else {
+      # For larger cities, keep the city
+      root.location = this.location.without("latitude", "longitude")
+    }
+```
+This ensures that you don't accidentally re-identify users by combining multiple seemingly anonymous data points.

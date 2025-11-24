@@ -1,0 +1,75 @@
+---
+title: "Advanced Fan-Out Patterns"
+sidebar_label: "Step 5 - Advanced Patterns"
+sidebar_position: 8
+description: Explore advanced fan-out patterns like failover and conditional routing.
+keywords: [advanced-fan-out, failover, conditional-routing, broker]
+---
+
+# Advanced Fan-Out Patterns
+
+Once you have mastered the basic `fan_out` broker, you can implement more sophisticated routing logic for production scenarios.
+
+## Pattern 1: Failover with the `try` Broker
+
+While `fan_out` sends to all outputs, the `try` pattern sends to them in order, stopping at the first success. This is perfect for creating a primary/fallback setup.
+
+**Use Case:** You want to send data to a primary Elasticsearch cluster, but if that is down, you want to fall back to a secondary cluster, and if that is also down, write to a local file.
+
+```yaml title="Failover Routing with the 'try' Broker"
+output:
+  broker:
+    pattern: try # Tries each output in order until one succeeds
+    outputs:
+      # 1. Primary Destination
+      - elasticsearch:
+          urls: [ ${ES_PRIMARY_ENDPOINT} ]
+          index: "primary-index"
+          retries: 2 # Try a couple of times before failing over
+
+      # 2. Secondary/Fallback Destination
+      - elasticsearch:
+          urls: [ ${ES_SECONDARY_ENDPOINT} ]
+          index: "secondary-index"
+          retries: 2
+
+      # 3. Last Resort: Local File
+      - file:
+          path: /tmp/es_fallback_buffer.jsonl
+          codec: lines
+```
+
+## Pattern 2: Conditional Routing within a Fan-Out
+
+Sometimes, you want to send a message to *most* of your fan-out destinations, but only send it to a specific one if it meets certain criteria. This can be done by nesting a `switch` inside the `broker`.
+
+**Use Case:** You want to send all logs to Kafka and S3, but only send `ERROR` level logs to an alerting service.
+
+```yaml title="Conditional Fan-Out Routing"
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Destination 1: Kafka (all messages go here)
+      - kafka:
+          addresses: [ ${KAFKA_BROKERS} ]
+          topic: "all-logs"
+
+      # Destination 2: S3 (all messages go here)
+      - aws_s3:
+          bucket: "my-log-archive"
+          path: "logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz"
+
+      # Destination 3: Alerting Service (ONLY errors go here)
+      - switch:
+          cases:
+            - check: this.level == "ERROR"
+              output:
+                http_client:
+                  url: "http://my-alerting-service/ingest"
+                  verb: "POST"
+            # If the check fails, the 'switch' does nothing,
+            # effectively dropping the message for this branch.
+```
+
+This powerful combination allows you to build complex, business-aware routing logic while maintaining the core efficiency of the fan-out pattern.

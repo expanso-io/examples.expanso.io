@@ -2,19 +2,21 @@
 title: Setup Environment for Fan-Out Pattern
 sidebar_label: Setup
 sidebar_position: 3
-description: Configure environment variables, cloud services, and deploy a shell multi-destination pipeline
+description: Configure environment variables and cloud services for a multi-destination pipeline.
 keywords: [setup, environment, configuration, deployment, kafka, s3, elasticsearch]
 ---
 
 # Setup Environment for Fan-Out Pattern
 
-Before building the multi-destination pipeline, you'll set up cloud service credentials, edge node configuration, and deploy a minimal shell pipeline to verify connectivity.
+Before building the multi-destination pipeline, you'll set up cloud service credentials and edge node configuration.
 
 ## Prerequisites
 
-- **Kafka:** Set up [Kafka](/getting-started/local-development#kafka) for fan-out message delivery
-- **Expanso:** Installed and running ([Installation Guide](https://docs.expanso.io/installation))
-- **Environment Variables:** See the [local development guide](/getting-started/local-development#environment-variables)
+This example requires the following services to be running:
+
+*   **[Kafka](/getting-started/services/kafka)**
+
+Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
 
 ## Step 1: Configure Example-Specific Variables
 
@@ -60,244 +62,7 @@ if [ -n "$ES_ENDPOINT" ]; then
 fi
 ```
 
-## Step 3: Create Sample Data Generator
-
-Create a simple data generator to test your pipeline with realistic sensor data.
-
-```bash title="Create test data generator"
-cat > generate-test-data.sh << 'EOF'
-#!/bin/bash
-
-# Generate realistic sensor events for testing
-ENDPOINT=${1:-http://localhost:8080/events}
-COUNT=${2:-10}
-
-echo "Generating $COUNT test events to $ENDPOINT..."
-
-for i in $(seq 1 $COUNT); do
-  TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  TEMP=$(echo "scale=1; 18 + $RANDOM % 20" | bc)
-  HUMIDITY=$(echo "scale=1; 30 + $RANDOM % 40" | bc)
-  
-  EVENT_JSON=$(cat <<JSON
-{
-  "event_id": "test-$(date +%s)-$i",
-  "sensor_id": "sensor-$(($i % 5 + 1))",
-  "timestamp": "$TIMESTAMP",
-  "temperature": $TEMP,
-  "humidity": $HUMIDITY,
-  "device_type": "environmental_sensor",
-  "location": {
-    "building": "factory-A",
-    "floor": 1,
-    "zone": "production-west"
-  },
-  "metadata": {
-    "firmware_version": "1.2.3",
-    "battery_level": $(($RANDOM % 100))
-  }
-}
-JSON
-)
-
-  echo "Sending event $i..."
-  curl -s -X POST "$ENDPOINT" \
-    -H "Content-Type: application/json" \
-    -d "$EVENT_JSON" | jq '.'
-  
-  sleep 1
-done
-
-echo "Generated $COUNT test events successfully!"
-EOF
-
-chmod +x generate-test-data.sh
-```
-
-## Step 4: Deploy Shell Multi-Destination Pipeline
-
-Before adding complex routing, deploy a minimal "shell" pipeline that just accepts events and sends them to a single local file destination. This verifies your setup works.
-
-Create `shell-fan-out-pipeline.yaml`:
-
-```yaml title="shell-fan-out-pipeline.yaml"
-name: shell-fan-out-pipeline
-description: Minimal pipeline for testing fan-out setup
-type: pipeline
-namespace: development
-labels:
-  environment: development
-  pattern: fan-out-shell
-
-config:
-  # Input: HTTP server for receiving test events
-  input:
-    http_server:
-      address: 0.0.0.0:8080
-      path: /events
-      timeout: 5s
-      
-      # Rate limiting to prevent abuse
-      rate_limit: "1000/s"
-      
-      # Enable CORS for web testing
-      cors:
-        enabled: true
-        allowed_origins: ["*"]
-
-  # Basic processing: Add edge node context
-  pipeline:
-    processors:
-      # Add edge metadata to all events
-      - mapping: |
-          root = this
-          root.edge_node_id = env("NODE_ID").or("unknown")
-          root.edge_location = env("NODE_LOCATION").or("unknown") 
-          root.processing_timestamp = now()
-          root.pipeline_version = "shell-v1"
-
-      # Validate essential fields exist
-      - mapping: |
-          # Ensure critical fields exist for downstream processing
-          if !this.exists("event_id") {
-            throw("missing required field: event_id")
-          }
-          if !this.exists("timestamp") {
-            throw("missing required field: timestamp")
-          }
-          root = this
-
-  # Shell output: Just write to local file to test basic flow
-  output:
-    broker:
-      pattern: fan_out
-      outputs:
-        # Single local file destination for testing
-        - file:
-            path: /tmp/expanso-test-events-${!timestamp_unix_date("2006-01-02")}.jsonl
-            codec: lines
-            
-            # Small batches for testing
-            batching:
-              count: 10
-              period: 5s
-```
-
-Deploy the shell pipeline:
-
-```bash title="Deploy shell pipeline"
-# Deploy the shell pipeline
-source .env
-expanso job deploy shell-fan-out-pipeline.yaml
-
-# Verify deployment status
-expanso job status shell-fan-out-pipeline
-```
-
-**Expected output:**
-```
-Job: shell-fan-out-pipeline
-Status: Running
-Health: Healthy
-Replicas: 1/1 ready
-```
-
-## Step 5: Test Shell Pipeline
-
-Test the shell pipeline to ensure basic data flow works before adding complex destinations.
-
-```bash title="Test shell pipeline"
-# Generate test events
-./generate-test-data.sh http://localhost:8080/events 5
-
-# Check the output file was created
-ls -la /tmp/expanso-test-events-*.jsonl
-
-# Verify events were processed correctly
-tail -5 /tmp/expanso-test-events-*.jsonl | jq '.'
-```
-
-**Expected output:** JSON events with edge metadata added:
-```json
-{
-  "event_id": "test-1705747200-1",
-  "sensor_id": "sensor-1",
-  "timestamp": "2025-01-20T10:00:00Z",
-  "temperature": 23.5,
-  "humidity": 45.2,
-  "device_type": "environmental_sensor",
-  "edge_node_id": "edge-node-01",
-  "edge_location": "factory-floor-west", 
-  "processing_timestamp": "2025-01-20T10:00:01.234Z",
-  "pipeline_version": "shell-v1"
-}
-```
-
-:::tip Success!
-If you see events with edge metadata in the output file, your environment is correctly configured!
-
-**Next step:** Add real destinations to create the full fan-out pattern
-:::
-
-## Step 6: Verify Setup
-
-Verify all required services are ready:
-
-```bash title="Verify setup"
-# Create verification script
-cat > verify-setup.sh << 'EOF'
-#!/bin/bash
-
-echo "🔍 Verifying fan-out setup..."
-
-# Test Kafka
-echo "📡 Testing Kafka connectivity..."
-if kafka-topics.sh --bootstrap-server $KAFKA_BROKERS --list > /dev/null 2>&1; then
-  echo "✅ Kafka connectivity OK"
-else
-  echo "❌ Kafka connectivity FAILED"
-  exit 1
-fi
-
-# Test S3 (if configured)
-if [ -n "$S3_BUCKET" ]; then
-  echo "📦 Testing S3 connectivity..."
-  if aws s3 ls s3://$S3_BUCKET/ --region $AWS_REGION &>/dev/null; then
-    echo "✅ S3 connectivity OK"
-  else
-    echo "⚠️ S3 connectivity FAILED (optional)"
-  fi
-fi
-
-# Test Elasticsearch (if configured)
-if [ -n "$ES_ENDPOINT" ]; then
-  echo "🔍 Testing Elasticsearch connectivity..."
-  if curl -s -X GET "$ES_ENDPOINT/_cluster/health" \
-      -u "$ES_USERNAME:$ES_PASSWORD" | grep -q '"status":"green\|yellow"'; then
-    echo "✅ Elasticsearch connectivity OK"
-  else
-    echo "⚠️ Elasticsearch connectivity FAILED (optional)"
-  fi
-fi
-
-# Test shell pipeline
-echo "🏭 Testing shell pipeline..."
-if expanso job status shell-fan-out-pipeline | grep -q "Running"; then
-  echo "✅ Shell pipeline running OK"
-else
-  echo "❌ Shell pipeline not running"
-  exit 1
-fi
-
-echo ""
-echo "🎉 Setup verified successfully!"
-EOF
-
-chmod +x verify-setup.sh
-./verify-setup.sh
-```
-
-## Step 7: Create Example-Specific Topics
+## Step 3: Create Example-Specific Topics
 
 Create Kafka topics specific to this example (core topics already exist from local dev setup):
 

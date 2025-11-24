@@ -1,0 +1,78 @@
+---
+title: "Step 2: Preserve Analytics-Safe Data"
+sidebar_label: "Step 2: Preserve Analytics Data"
+sidebar_position: 4
+description: Enhance the remaining safe payment fields to add value for analytics.
+keywords: [analytics, pci-dss, data-enrichment]
+---
+
+# Step 2: Preserve and Enhance Analytics-Safe Data
+
+After deleting high-risk PII, you are left with several fields that are safe to use for business analytics, such as `last_four`, `brand`, and `amount`.
+
+In this step, you will enhance this remaining data by adding a simple derived field, demonstrating how to add analytics value without compromising compliance.
+
+## The Goal
+
+You will add a `transaction_analytics` object to your event, which will contain a simple `amount_tier` classification based on the transaction amount.
+
+**Input Message Snippet:**
+```json
+{
+  "amount": 89.99,
+  "payment_method": {
+    "last_four": "9010"
+  }
+}
+```
+
+**Desired Output Snippet:**
+```json
+{
+  "amount": 89.99,
+  "payment_method": {
+    "last_four": "9010"
+  },
+  "transaction_analytics": {
+    "amount_tier": "medium"
+  }
+}
+```
+
+## Implementation
+
+1.  **Start with the Previous Pipeline:** Copy the `delete-pii.yaml` file you created in Step 1 to a new file named `enhance-analytics.yaml`.
+    ```bash
+    cp delete-pii.yaml enhance-analytics.yaml
+    ```
+
+2.  **Add the Enrichment Logic:** Open `enhance-analytics.yaml` and add a new `mapping` processor to the `pipeline` section. This processor will create the new analytics field.
+
+    ```yaml title="Add this to the 'processors' array in enhance-analytics.yaml"
+    # This goes after the PII deletion processor
+    - mapping: |
+        root = this
+        root.transaction_analytics = {
+          "amount_tier": match this.amount {
+            _ < 50.0 => "small",
+            _ < 200.0 => "medium",
+            _ >= 200.0 => "large",
+            _ => "unknown"
+          }
+        }
+    ```
+
+3.  **Deploy and Test:**
+    ```bash
+    # Deploy the new pipeline
+    expanso job deploy enhance-analytics.yaml
+
+    # Send the sample payment data
+    curl -X POST http://localhost:8080/events/payment \
+      -H "Content-Type: application/json" \
+      -d @~/expanso-payment-pii/sample-payments.json
+    ```
+
+4.  **Verify:** Check your logs. You will now see the new `transaction_analytics` object in your output, with the `amount_tier` correctly classified based on the transaction's `amount`. The high-risk PII is still removed.
+
+You have successfully enhanced your data for analytics while maintaining PCI-DSS compliance. This same pattern can be used to add other derived insights from the remaining safe-to-use fields.

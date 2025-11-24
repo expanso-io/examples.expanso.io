@@ -1,0 +1,66 @@
+---
+title: "Advanced Encryption Patterns"
+sidebar_label: "Step 5 - Advanced Patterns"
+sidebar_position: 8
+description: Explore advanced encryption patterns like multi-key strategy and compliance monitoring.
+keywords: [encryption, advanced-patterns, multi-key, compliance, gdpr, hipaa]
+---
+
+# Advanced Encryption Patterns
+
+The patterns you've learned—encrypting payment, personal, and location data—form the foundation of a strong data protection strategy. This section briefly covers more advanced concepts for production environments.
+
+For a more detailed guide on these topics, please see the **[Advanced Encryption Patterns in the Encrypting Data tutorial](./../encrypt-data/step-4-advanced-patterns)**.
+
+## Pattern 1: Multi-Key Strategy
+
+Using a single encryption key for all data is risky. A better pattern is to use separate keys for different data types based on their risk level. This is known as **risk-based encryption**.
+
+- **`CARD_ENCRYPTION_KEY`**: For PCI-DSS data. Highest security, most frequent rotation.
+- **`PII_ENCRYPTION_KEY`**: For GDPR/CCPA/HIPAA data (SSN, email). High security.
+- **`ADDRESS_ENCRYPTION_KEY`**: For location data.
+- **`TEMPORAL_ENCRYPTION_KEY`**: For sensitive dates.
+
+This strategy limits the "blast radius" if a single key is ever compromised. You implement this by simply calling the `encrypt_aes` function with the appropriate key environment variable for each field, as demonstrated in the previous steps.
+
+## Pattern 2: Compliance Audit Logging
+
+For regulations like HIPAA and GDPR, you must maintain an audit trail of how and why data was encrypted. This can be done by adding a final processor to your pipeline that sends an audit log to a secure endpoint.
+
+```yaml title="Add an Audit Log Processor"
+- mapping: |
+    root = this
+
+    # Create an audit log entry
+    let audit_log = {
+      "event_id": uuid_v4(),
+      "action": "ENCRYPT_PII",
+      "timestamp": now(),
+      "fields_encrypted": [
+        "payment.card_number", "customer.ssn", "customer.email" // etc.
+      ],
+      "compliance_standards": ["PCI-DSS", "GDPR", "HIPAA"],
+      "pipeline_id": "encrypt-production-v3"
+    }
+
+    # Send the audit log to a secure endpoint (fire-and-forget)
+    _ = http_client(
+      env("AUDIT_ENDPOINT_URL"),
+      {"verb": "POST", "timeout": "2s"},
+      audit_log
+    )
+```
+
+## Pattern 3: Key Versioning & Decryption
+
+To handle key rotation, the version of the key used for encryption should be stored alongside the encrypted data.
+
+```yaml title="Storing the Key Version"
+- mapping: |
+    root.payment.card_number_encrypted = "%s:%s".format(
+      env("KEY_VERSION"), // e.g., "v2"
+      this.payment.card_number.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY_V2"))
+    )
+```
+
+A corresponding decryption service would then parse the version, retrieve the correct key (`CARD_ENCRYPTION_KEY_V2`), and perform the decryption. This ensures you can always decrypt historical data even after keys have been rotated.

@@ -1,0 +1,72 @@
+---
+title: Redis Setup
+sidebar_label: Redis
+sidebar_position: 3
+description: Set up a local Redis environment with Docker Compose.
+keywords: [local-development, docker, redis, setup]
+---
+
+# Local Redis Setup
+
+This guide provides the configuration to run a local Redis instance using Docker for Expanso examples.
+
+## 1. Docker Compose Configuration
+
+Save the following content as `redis.yml`:
+
+```yaml title="redis.yml"
+services:
+  # Redis - In-memory cache and message broker
+  redis:
+    image: redis:7-alpine
+    container_name: expanso-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  redis-data:
+```
+
+## 2. Start the Service
+
+Run the following command in the same directory where you saved `redis.yml`:
+
+```bash
+docker compose -f redis.yml up -d
+```
+
+## 3. Verify Connectivity
+
+To ensure Redis is running correctly, you can use `redis-cli`.
+
+First, set the required environment variable:
+```bash
+export REDIS_URL="redis://localhost:6379"
+```
+
+Now, ping the server:
+```bash
+redis-cli ping
+```
+
+You should see `PONG` in the output.
+
+## 4. Manage the Service
+
+```bash
+# View logs
+docker compose -f redis.yml logs -f
+
+# Stop the service
+docker compose -f redis.yml down
+
+# Stop and remove the data volume
+docker compose -f redis.yml down -v
+```

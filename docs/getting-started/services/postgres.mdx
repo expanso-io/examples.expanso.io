@@ -1,0 +1,76 @@
+---
+title: PostgreSQL Setup
+sidebar_label: PostgreSQL
+sidebar_position: 2
+description: Set up a local PostgreSQL environment with Docker Compose.
+keywords: [local-development, docker, postgres, setup]
+---
+
+# Local PostgreSQL Setup
+
+This guide provides the configuration to run a local PostgreSQL instance using Docker for Expanso examples.
+
+## 1. Docker Compose Configuration
+
+Save the following content as `postgres.yml`:
+
+```yaml title="postgres.yml"
+services:
+  # PostgreSQL - Relational database
+  postgres:
+    image: postgres:16-alpine
+    container_name: expanso-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: expanso
+      POSTGRES_PASSWORD: expanso
+      POSTGRES_DB: expanso_dev
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U expanso"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
+```
+
+## 2. Start the Service
+
+Run the following command in the same directory where you saved `postgres.yml`:
+
+```bash
+docker compose -f postgres.yml up -d
+```
+
+## 3. Verify Connectivity
+
+To ensure PostgreSQL is running correctly, you can connect to it using `psql`.
+
+First, set the required environment variable:
+```bash
+export DB_CONNECTION_STRING="postgresql://expanso:expanso@localhost:5432/expanso_dev"
+```
+
+Now, connect to the database:
+```bash
+psql $DB_CONNECTION_STRING -c "SELECT version();"
+```
+
+You should see the PostgreSQL version information in the output.
+
+## 4. Manage the Service
+
+```bash
+# View logs
+docker compose -f postgres.yml logs -f
+
+# Stop the service
+docker compose -f postgres.yml down
+
+# Stop and remove the data volume
+docker compose -f postgres.yml down -v
+```
