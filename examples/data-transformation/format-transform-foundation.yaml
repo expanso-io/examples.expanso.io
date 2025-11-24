@@ -1,0 +1,24 @@
+name: format-transform-foundation
+description: A foundation pipeline that passes through raw JSON events.
+type: pipeline
+
+config:
+  input:
+    generate:
+      interval: 1s
+      mapping: |
+        root = {
+          "sensor_id": "sensor-" + (random_int() % 10).string(),
+          "temperature": ((random_int() % 10) + 20.0),
+          "timestamp": now().ts_format_iso8601()
+        }
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+          root.processed_at = now()
+
+  output:
+    stdout:
+      codec: lines

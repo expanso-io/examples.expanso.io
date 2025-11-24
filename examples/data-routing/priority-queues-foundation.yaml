@@ -1,0 +1,22 @@
+name: priority-queues-foundation
+description: A foundation pipeline that sends all log messages to a single Kafka topic.
+type: pipeline
+namespace: production
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /logs
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+          root.processed_at = now()
+
+  output:
+    kafka:
+      addresses: ["${KAFKA_BROKERS}"]
+      topic: logs-normal
+      key: ${!this.service.or("unknown")}

@@ -2,19 +2,21 @@
 title: Setup Environment for PII Removal
 sidebar_label: Setup
 sidebar_position: 3
-description: Configure environment variables, sample data, and deploy a shell pipeline
+description: Configure environment variables and sample data for PII removal.
 keywords: [setup, environment, configuration, expanso, deployment]
 ---
 
 # Setup Environment for PII Removal
 
-Before building the PII removal pipeline, you'll set up environment variables for cryptographic salts, download sample data for testing, and deploy a minimal "shell" pipeline to verify everything works.
+Before building the PII removal pipeline, you'll set up environment variables for cryptographic salts and download sample data for testing.
 
 ## Prerequisites
 
-- **Kafka:** Set up [Kafka](/getting-started/local-development#kafka) for anonymized data delivery
-- **Expanso:** Installed and running ([Installation Guide](https://docs.expanso.io/installation))
-- **Environment Variables:** See the [local development guide](/getting-started/local-development#environment-variables)
+This example requires the following services to be running:
+
+*   **[Kafka](/getting-started/services/kafka)**
+
+Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
 
 ## Step 1: Generate Cryptographic Salts
 
@@ -86,142 +88,6 @@ curl -o sample-data.json \
 
 # Verify the download
 cat sample-data.json | jq .
-```
-
-**Expected output:**
-```json
-{
-  "event_id": "evt_20240115_1030",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "event_type": "purchase",
-  "user_name": "Sarah Johnson",              // PII
-  "email": "sarah.johnson@example.com",      // PII
-  "ip_address": "192.168.1.100",             // PII
-  "payment_method": {
-    "full_number": "4532-1234-5678-9010",    // High-risk PII
-    "expiry": "12/25",
-    "last_four": "9010"
-  },
-  // ... more fields
-}
-```
-
-## Step 4: Deploy Shell Pipeline
-
-Before adding PII removal logic, deploy a minimal "shell" pipeline that just passes data through unchanged. This verifies your setup works.
-
-Create `shell-pipeline.yaml`:
-
-```yaml title="shell-pipeline.yaml"
-name: pii-shell-pipeline
-description: Shell pipeline for testing (no PII removal yet)
-type: pipeline
-namespace: default
-priority: 100
-
-config:
-  # Accept HTTP POST requests
-  input:
-    http_server:
-      address: "0.0.0.0:8080"
-      path: /events/ingest
-      allowed_verbs: [POST]
-
-  # No processors yet - just pass through
-  pipeline:
-    processors: []
-
-  # Send to analytics endpoint
-  output:
-    file:
-      path: /var/log/expanso/shell-output.jsonl
-      codec: lines
-
-logger:
-  level: INFO
-```
-
-Deploy the shell pipeline:
-
-```bash
-# Deploy to your edge nodes
-expanso job deploy shell-pipeline.yaml
-
-# Verify deployment
-expanso job status pii-shell-pipeline
-```
-
-**Expected output:**
-```
-Job: pii-shell-pipeline
-Status: running
-Type: pipeline
-Executions:
-  - Node: edge-node-001
-    State: running
-    Health: healthy
-```
-
-## Step 5: Test Shell Pipeline
-
-Send the sample data to verify the pipeline receives and processes events:
-
-```bash
-# Send sample event to the pipeline
-curl -X POST http://localhost:8080/events/ingest \
-  -H "Content-Type: application/json" \
-  -d @sample-data.json
-
-# Check the output file
-tail -1 /var/log/expanso/shell-output.jsonl | jq .
-```
-
-**Expected output:** You should see the same event you sent (with all PII intact - we haven't added removal logic yet).
-
-:::tip Success!
-If you see the event in the output file, your environment is correctly configured!
-
-**Next step:** Add the first PII removal processor (delete credit cards).
-:::
-
-## Step 6: Verify Environment Variables
-
-Before proceeding, verify all required environment variables are set:
-
-```bash
-# Run this verification script
-cat > verify-env.sh <<'EOF'
-#!/bin/bash
-errors=0
-
-check_var() {
-  if [ -z "${!1}" ]; then
-    echo "❌ $1 is not set"
-    ((errors++))
-  else
-    echo "✅ $1 is set (length: ${#1})"
-  fi
-}
-
-echo "Checking environment variables..."
-check_var IP_SALT
-check_var EMAIL_SALT
-check_var USER_SALT
-check_var ANALYTICS_ENDPOINT
-
-if [ $errors -eq 0 ]; then
-  echo ""
-  echo "✅ All environment variables configured!"
-  echo "Ready to proceed with PII removal steps."
-else
-  echo ""
-  echo "❌ $errors variable(s) missing. Review Step 1 and Step 2."
-  exit 1
-fi
-EOF
-
-chmod +x verify-env.sh
-./verify-env.sh
 ```
 
 ---

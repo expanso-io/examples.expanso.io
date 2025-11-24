@@ -12,6 +12,13 @@ on:
     paths:
       - 'docs/**/*-full.stages.ts'
       - 'scripts/validate-stages.ts'
+      - 'scripts/setup-binaries.ts'
+      - 'scripts/sync-stages.ts'
+      - 'scripts/run-with-expanso.ts'
+      - 'scripts/test-pipelines.ts'
+      - 'scripts/validate-yaml.ts'
+      - 'examples/**/*.yaml'
+      - 'docker-compose.yml'
       - '.github/workflows/validate-stages.yml'
 
 jobs:
@@ -36,8 +43,36 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run stage validation
+      - name: Install GitHub CLI (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y software-properties-common
+          sudo apt-add-repository -y "deb [arch=$(dpkg --print-architecture)] https://cli.github.com/packages stable main"
+          sudo apt-get update
+          sudo apt-get install -y gh
+
+      - name: Install GitHub CLI (macOS)
+        if: runner.os == 'macOS'
+        run: brew install gh
+
+      - name: Docker login (for pulling images, optional but recommended)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin || true
+
+      - name: Setup Expanso Binaries
+        run: npm run setup-binaries
+
+      - name: Sync Stage YAMLs
+        run: npm run sync-stages
+
+      - name: Run stage validation (TS files)
         run: npm run validate-stages
+
+      - name: Run YAML validation (Expanso CLI)
+        run: npm run validate-yaml
+
+      - name: Run Pipeline Integration Tests (Docker Compose)
+        run: npm run test-pipelines
 
       - name: Comment on PR (if validation fails)
         if: failure() && github.event_name == 'pull_request'
@@ -48,5 +83,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '❌ **Stage file validation failed**\n\nPlease run `npm run validate-stages` locally to see the errors and fix them before merging.'
+              body: '❌ **Stage file or pipeline validation failed**\n\nPlease run `npm run validate-stages`, `npm run sync-stages`, `npm run validate-yaml`, and `npm run test-pipelines` locally to see the errors and fix them before merging.'
             })

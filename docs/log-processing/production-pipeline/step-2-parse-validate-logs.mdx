@@ -1,929 +1,130 @@
 ---
-title: Parse and Validate Log Data
-sidebar_label: Step 2 - Parse & Validate
-sidebar_position: 4
-description: Implement JSON parsing, schema validation, and data quality checks to ensure log integrity and prevent pipeline corruption
-keywords: [parsing, validation, json, schema, quality, data-integrity, error-handling]
+title: Step 2 - Parse & Validate Logs
+sidebar_label: 2. Parse & Validate
+description: implement robust JSON parsing and schema validation to ensure data quality
+keywords: [parsing, json, validation, schema, data-quality]
 ---
 
-# Step 2: Parse and Validate Log Data
+import CodeBlock from '@theme/CodeBlock';
 
-In this step, you'll add comprehensive data parsing and validation to ensure only high-quality, properly formatted logs enter your processing pipeline. This prevents downstream failures and maintains data integrity.
+# Parse & Validate Logs
 
-## Why Data Validation Matters
+After securing the input, the next critical step is ensuring the data we receive is readable and meets our quality standards. In this step, we'll implement JSON parsing and field validation.
 
-Raw log data is often inconsistent, malformed, or missing critical fields. Without proper validation:
+## Goal
 
-- **Downstream systems fail** when receiving unexpected data formats
-- **Analytics become unreliable** due to inconsistent schemas
-- **Storage costs increase** from storing malformed or duplicate data
-- **Debugging becomes impossible** without required fields like timestamps
+Ensure all processed data:
+- Is **valid JSON** (handling parsing errors gracefully)
+- Contains **required fields** (timestamp, level, service, message)
+- Conforms to the expected **schema**
 
-## Learning Objectives
+## Configuration
 
-By the end of this step, you'll understand:
+We'll add processors to the pipeline to handle parsing and validation.
 
-✅ How to parse JSON logs with error handling
-✅ How to validate required fields and data types
-✅ How to implement schema enforcement
-✅ How to handle parsing errors gracefully
-✅ How to standardize timestamp formats across different sources
+### 1. Safe JSON Parsing
 
-## Current vs. Target Architecture
+We parse the incoming raw byte message into a JSON object. We verify it is an object and not an array or primitive.
 
-**Current (Basic JSON Parsing):**
 ```yaml
-processors:
-  - json_documents:
-      parts: []
+pipeline:
+  processors:
+    # Parse JSON
+    - mapping: |
+        root = this.parse_json()
+        if root.type() != "object" {
+           throw("input must be a JSON object")
+        }
+      
+    # Handle parsing failures (Optional: use a catch mechanism or let it fail to error output)
 ```
 
-**Target (Comprehensive Validation):**
+### 2. Field Validation
+
+We verify that critical fields exist. If they are missing, we can either drop the log or set default values. Here, we enforce their presence.
+
 ```yaml
-processors:
-  - json_documents:
-      parts: []
-  - schema_validation:
-      schema: log_schema.json
-  - field_validation:
-      required_fields: [timestamp, level, service, message]
-  - timestamp_normalization:
-      input_formats: [multiple formats]
-      output_format: RFC3339
-```
-
-## Step 2.1: Enhance JSON Parsing
-
-First, improve the basic JSON parsing with better error handling:
-
-```yaml title="parse-validate-pipeline.yaml"
-name: log-processing-parse-validate
-description: Log processing with comprehensive parsing and validation
-type: pipeline
-namespace: default
-
-selector:
-  match_labels:
-    role: log-collector
-
-config:
-  input:
-    http_server:
-      address: "0.0.0.0:8080"
-      path: /logs/ingest
-      allowed_verbs: [POST]
-      timeout: 10s
-      rate_limit: "1000/1s"
-      auth:
-        type: header
-        header: "X-API-Key"
-        required_value: "${LOG_API_KEY:secret-key}"
-
-  pipeline:
-    processors:
-      # Enhanced JSON parsing with error handling
-      - json_documents:
-          # Parse entire request body as JSON
-          parts: []
-          
-          # Handle parsing errors gracefully
-          on_error:
-            action: "continue"  # Don't drop message on parse error
-            
-          # Validate JSON structure
-          validate_structure: true
-          
-          # Maximum object depth to prevent complex nested attacks
-          max_depth: 10
-          
-          # Maximum array size to prevent memory exhaustion  
-          max_array_size: 1000
-
-      # Add parsing metadata and error tracking
-      - mapping: |
-          root = this
-          
-          # Track parsing success
-          root.parsing_metadata = {
-            "parsed_at": now(),
-            "parser_version": "2.0",
-            "original_content_type": meta("http_content_type").or("unknown"),
-            "original_size": meta("http_content_length").or(0)
-          }
-          
-          # Flag if parsing had issues (partial success)
-          root.parsing_metadata.has_warnings = false
-
-      # Validate JSON structure is an object (not array or primitive)
-      - mapping: |
-          root = if this.type() == "object" {
-            this
-          } else {
-            # Convert primitives/arrays to object format
-            {
-              "message": this.string(),
-              "level": "INFO",
-              "timestamp": now(),
-              "service": "unknown",
-              "parsing_metadata": {
-                "converted_from": this.type(),
-                "has_warnings": true,
-                "conversion_reason": "Non-object JSON converted to log format"
-              }
-            }
-          }
-
-  # Track both successful and failed parses
-  output:
-    broker:
-      pattern: fan_out
-      outputs:
-        # Successful parses go to main processing
-        - label: valid_logs
-          processors:
-            - mapping: |
-                root = if this.parsing_metadata.has_warnings != true { this } else { deleted() }
-          file:
-            path: "/var/log/expanso/valid-logs-${!timestamp_unix()}.jsonl"
-            codec: lines
-            
-        # Failed/converted parses go to error queue for investigation
-        - label: parsing_errors
-          processors:
-            - mapping: |
-                root = if this.parsing_metadata.has_warnings == true { this } else { deleted() }
-          file:
-            path: "/var/log/expanso/parsing-errors-${!timestamp_unix()}.jsonl"
-            codec: lines
-
-logger:
-  level: INFO
-metrics:
-  prometheus:
-    path: /metrics
-```
-
-Deploy and test JSON parsing:
-
-```bash
-# Deploy the parsing pipeline
-expanso job deploy parse-validate-pipeline.yaml
-
-# Test valid JSON
-curl -X POST http://localhost:8080/logs/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
-  -d '{
-    "timestamp": "2025-10-20T10:30:45.123Z",
-    "level": "INFO",
-    "service": "test-service", 
-    "message": "Valid log entry"
-  }'
-
-# Test invalid JSON
-curl -X POST http://localhost:8080/logs/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
-  -d 'invalid json content'
-
-# Test JSON array (should be converted)
-curl -X POST http://localhost:8080/logs/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
-  -d '[{"message": "array item 1"}, {"message": "array item 2"}]'
-
-# Test JSON primitive (should be converted)
-curl -X POST http://localhost:8080/logs/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
-  -d '"just a string"'
-```
-
-Check the outputs:
-
-```bash
-# Check valid logs
-cat /var/log/expanso/valid-logs-*.jsonl | jq .
-
-# Check parsing errors
-cat /var/log/expanso/parsing-errors-*.jsonl | jq .
-```
-
-## Step 2.2: Add Required Field Validation
-
-Now add validation for required fields that every log must have:
-
-```yaml title="Add field validation processor"
-# Add after JSON parsing
-- mapping: |
-    root = this
-    
-    # Define required fields for valid log entries
-    let required_fields = ["timestamp", "level", "service", "message"]
-    
-    # Check each required field
-    let missing_fields = required_fields.filter(field -> !this.get(field).exists())
-    
-    # Add validation metadata
-    root.validation_metadata = {
-      "validated_at": now(),
-      "required_fields_check": missing_fields.length() == 0,
-      "missing_fields": missing_fields,
-      "validation_version": "1.0"
-    }
-    
-    # If missing required fields, mark as validation error
-    root = if missing_fields.length() > 0 {
-      # Add default values for missing fields
-      root.timestamp = root.timestamp.or(now())
-      root.level = root.level.or("UNKNOWN") 
-      root.service = root.service.or("unknown-service")
-      root.message = root.message.or("Log entry missing required fields: " + missing_fields.join(", "))
-      
-      # Mark as validation error
-      root.validation_metadata.has_errors = true
-      root.validation_metadata.error_type = "missing_required_fields"
-      
-      root
-    } else {
-      root.validation_metadata.has_errors = false
-      root
-    }
-```
-
-## Step 2.3: Add Data Type Validation
-
-Validate that fields have the correct data types:
-
-```yaml title="Add data type validation processor"
-# Add after required field validation
-- mapping: |
-    root = this
-    
-    # Validate and normalize data types
-    let validation_errors = []
-    
-    # Validate timestamp field
-    root.timestamp = match {
-      # Already ISO format
-      this.timestamp.type() == "string" && this.timestamp.length() > 19 => this.timestamp,
-      
-      # Unix timestamp (seconds)
-      this.timestamp.type() == "number" && this.timestamp > 1000000000 => 
-        timestamp_unix(this.timestamp).format_timestamp("2006-01-02T15:04:05.000Z"),
-      
-      # Unix timestamp (milliseconds) 
-      this.timestamp.type() == "number" && this.timestamp > 1000000000000 =>
-        timestamp_unix(this.timestamp / 1000).format_timestamp("2006-01-02T15:04:05.000Z"),
+    # Validate required fields
+    - mapping: |
+        root = this
         
-      # Invalid timestamp - use current time and mark error
-      _ => {
-        validation_errors = validation_errors.append("invalid_timestamp_format")
-        now()
-      }
-    }
-    
-    # Validate level field (convert to uppercase, validate known levels)
-    let valid_levels = ["DEBUG", "INFO", "WARN", "ERROR", "FATAL", "TRACE"]
-    root.level = this.level.string().uppercase()
-    
-    root = if !valid_levels.contains(root.level) {
-      validation_errors = validation_errors.append("invalid_log_level")
-      root.level = "UNKNOWN"
-      root
-    } else {
-      root
-    }
-    
-    # Validate service field (must be non-empty string)
-    root.service = match {
-      this.service.type() == "string" && this.service.length() > 0 => this.service,
-      this.service.type() == "string" => {
-        validation_errors = validation_errors.append("empty_service_name")
-        "unknown-service"
-      },
-      _ => {
-        validation_errors = validation_errors.append("invalid_service_type")
-        this.service.string()
-      }
-    }
-    
-    # Validate message field (must be non-empty string)
-    root.message = match {
-      this.message.type() == "string" && this.message.length() > 0 => this.message,
-      this.message.type() == "string" => {
-        validation_errors = validation_errors.append("empty_message")
-        "Empty log message"
-      },
-      _ => {
-        validation_errors = validation_errors.append("invalid_message_type") 
-        this.message.string()
-      }
-    }
-    
-    # Update validation metadata
-    root.validation_metadata.data_type_errors = validation_errors
-    root.validation_metadata.has_data_type_errors = validation_errors.length() > 0
-    root.validation_metadata.total_errors = 
-      (root.validation_metadata.missing_fields.length() or 0) + validation_errors.length()
-```
-
-## Step 2.4: Add Advanced Timestamp Parsing
-
-Handle multiple timestamp formats that applications commonly use:
-
-```yaml title="Add advanced timestamp parsing"
-# Add timestamp normalization processor
-- mapping: |
-    root = this
-    
-    # Store original timestamp for debugging
-    root.timestamp_original = this.timestamp
-    
-    # Try multiple timestamp formats
-    root.timestamp = match {
-      # ISO 8601 with timezone (2025-10-20T10:30:45.123Z)
-      this.timestamp.parse_timestamp_strptime("%Y-%m-%dT%H:%M:%S%.fZ").catch(null) != null =>
-        this.timestamp.parse_timestamp_strptime("%Y-%m-%dT%H:%M:%S%.fZ").format_timestamp("2006-01-02T15:04:05.000Z"),
-      
-      # ISO 8601 without timezone (2025-10-20T10:30:45.123)  
-      this.timestamp.parse_timestamp_strptime("%Y-%m-%dT%H:%M:%S%.f").catch(null) != null =>
-        this.timestamp.parse_timestamp_strptime("%Y-%m-%dT%H:%M:%S%.f").format_timestamp("2006-01-02T15:04:05.000Z"),
+        # Check required fields
+        if !this.exists("timestamp") || !this.exists("level") || \
+           !this.exists("service") || !this.exists("message") {
+            throw("missing required fields: timestamp, level, service, message")
+        }
         
-      # ISO 8601 basic (2025-10-20T10:30:45)
-      this.timestamp.parse_timestamp_strptime("%Y-%m-%dT%H:%M:%S").catch(null) != null =>
-        this.timestamp.parse_timestamp_strptime("%Y-%m-%dT%H:%M:%S").format_timestamp("2006-01-02T15:04:05.000Z"),
-      
-      # RFC 3339 (2025-10-20 10:30:45.123 +0000 UTC)
-      this.timestamp.parse_timestamp_strptime("%Y-%m-%d %H:%M:%S%.f %z %Z").catch(null) != null =>
-        this.timestamp.parse_timestamp_strptime("%Y-%m-%d %H:%M:%S%.f %z %Z").format_timestamp("2006-01-02T15:04:05.000Z"),
-      
-      # Syslog format (Oct 20 10:30:45)
-      this.timestamp.parse_timestamp_strptime("%b %d %H:%M:%S").catch(null) != null => {
-        let parsed = this.timestamp.parse_timestamp_strptime("%b %d %H:%M:%S")
-        # Add current year since syslog doesn't include it
-        let current_year = now().format_timestamp("2006")
-        (current_year + "-" + parsed.format_timestamp("01-02T15:04:05.000Z"))
-      },
-      
-      # Apache/Nginx log format [20/Oct/2025:10:30:45 +0000]
-      this.timestamp.re_replace_all("\\[(\\d+)/(\\w+)/(\\d+):(\\d+:\\d+:\\d+)\\s+([+-]\\d+)\\]", "${3}-${2}-${1}T${4}${5}").
-        parse_timestamp_strptime("%Y-%b-%dT%H:%M:%S%z").catch(null) != null => 
-          this.timestamp.re_replace_all("\\[(\\d+)/(\\w+)/(\\d+):(\\d+:\\d+:\\d+)\\s+([+-]\\d+)\\]", "${3}-${2}-${1}T${4}${5}").
-          parse_timestamp_strptime("%Y-%b-%dT%H:%M:%S%z").format_timestamp("2006-01-02T15:04:05.000Z"),
-      
-      # Unix timestamp (seconds)
-      this.timestamp.type() == "number" && this.timestamp > 1000000000 && this.timestamp < 4000000000 =>
-        timestamp_unix(this.timestamp).format_timestamp("2006-01-02T15:04:05.000Z"),
-        
-      # Unix timestamp (milliseconds)
-      this.timestamp.type() == "number" && this.timestamp > 1000000000000 =>
-        timestamp_unix(this.timestamp / 1000).format_timestamp("2006-01-02T15:04:05.000Z"),
-      
-      # Fallback - use current time and flag error
-      _ => {
-        root.validation_metadata.timestamp_parse_error = "Unknown format: " + this.timestamp.string()
-        now().format_timestamp("2006-01-02T15:04:05.000Z")
-      }
-    }
-    
-    # Add timezone information
-    root.timestamp_metadata = {
-      "original_format": this.timestamp_original,
-      "normalized_format": root.timestamp,
-      "timezone": "UTC", 
-      "normalization_method": "auto-detect"
-    }
+        # Normalize Level
+        root.level = this.level.uppercase()
 ```
 
-## Step 2.5: Test Comprehensive Validation
+## Complete Step 2 Configuration
 
-Test the validation with various log formats:
+```yaml title="production-pipeline-step-2.yaml"
+input:
+  http_server:
+    address: "0.0.0.0:8080"
+    path: /logs/ingest
+    rate_limit: "1000/1s"
+    auth:
+      type: header
+      header: "X-API-Key"
+      required_value: "${LOG_API_KEY}"
 
-```bash
-# Test valid log with all required fields
-curl -X POST http://localhost:8080/logs/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
-  -d '{
-    "timestamp": "2025-10-20T10:30:45.123Z",
-    "level": "INFO",
-    "service": "payment-service",
-    "message": "Payment processed successfully"
-  }'
+pipeline:
+  processors:
+    # 1. Parse JSON
+    - mapping: |
+        root = this
+        try {
+          root = this.parse_json()
+        } catch {
+          # Keep original message if parsing fails, wrap it
+          root = {"message": content(), "level": "ERROR", "service": "parser", "timestamp": now()}
+          root.error = "failed to parse json"
+        }
 
-# Test log missing required fields
-curl -X POST http://localhost:8080/logs/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
-  -d '{
-    "level": "ERROR", 
-    "message": "Something went wrong"
-  }'
+    # 2. Validate
+    - mapping: |
+        root = this
+        if root.type() == "object" {
+           if !root.exists("timestamp") { root.timestamp = now() }
+           if !root.exists("level") { root.level = "INFO" }
+           if !root.exists("service") { root.service = "unknown" }
+           
+           root.level = root.level.uppercase()
+        }
 
-# Test different timestamp formats
-curl -X POST http://localhost:8080/logs/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
-  -d '{
-    "timestamp": 1729421445,
-    "level": "INFO",
-    "service": "unix-timestamp-service",
-    "message": "Unix timestamp test"
-  }'
-
-# Test syslog format timestamp
-curl -X POST http://localhost:8080/logs/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
-  -d '{
-    "timestamp": "Oct 20 10:30:45",
-    "level": "WARN", 
-    "service": "syslog-service",
-    "message": "Syslog format test"
-  }'
-
-# Test invalid log level
-curl -X POST http://localhost:8080/logs/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
-  -d '{
-    "timestamp": "2025-10-20T10:30:45.123Z",
-    "level": "INVALID_LEVEL",
-    "service": "test-service",
-    "message": "Invalid log level test"
-  }'
-
-# Test with extra fields (should be preserved)
-curl -X POST http://localhost:8080/logs/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
-  -d '{
-    "timestamp": "2025-10-20T10:30:45.123Z",
-    "level": "INFO",
-    "service": "enriched-service",
-    "message": "Log with extra fields",
-    "request_id": "req-12345",
-    "user_id": "user-67890",
-    "duration_ms": 150,
-    "status_code": 200
-  }'
-```
-
-## Step 2.6: Create Validation Reports
-
-Update the output to separate logs by validation status:
-
-```yaml title="Update output section for validation reporting"
 output:
-  broker:
-    pattern: fan_out
-    outputs:
-      # Fully valid logs (no errors or warnings)
-      - label: valid_logs
-        processors:
-          - mapping: |
-              root = if this.validation_metadata.total_errors == 0 && 
-                        !this.parsing_metadata.has_warnings { 
-                this 
-              } else { 
-                deleted() 
-              }
-        file:
-          path: "/var/log/expanso/valid-logs-${!timestamp_unix()}.jsonl"
-          codec: lines
-      
-      # Logs with validation warnings (fixed automatically)
-      - label: warning_logs  
-        processors:
-          - mapping: |
-              root = if this.validation_metadata.total_errors > 0 || 
-                        this.parsing_metadata.has_warnings {
-                this
-              } else {
-                deleted()
-              }
-        file:
-          path: "/var/log/expanso/warning-logs-${!timestamp_unix()}.jsonl"
-          codec: lines
-          
-      # Validation summary for monitoring
-      - label: validation_metrics
-        processors:
-          - mapping: |
-              root = {
-                "timestamp": now(),
-                "validation_summary": {
-                  "total_logs_processed": 1,
-                  "parsing_errors": if this.parsing_metadata.has_warnings { 1 } else { 0 },
-                  "validation_errors": this.validation_metadata.total_errors.or(0),
-                  "missing_fields": this.validation_metadata.missing_fields.length().or(0),
-                  "data_type_errors": this.validation_metadata.data_type_errors.length().or(0),
-                  "timestamp_parse_errors": if this.validation_metadata.timestamp_parse_error.exists() { 1 } else { 0 }
-                }
-              }
-        file:
-          path: "/var/log/expanso/validation-metrics-${!timestamp_unix()}.jsonl"
-          codec: lines
-          batching:
-            count: 100
-            period: 1m
+  stdout: {}
 ```
 
-## Step 2.7: Add Schema Validation (Advanced)
+## Deployment & Verification
 
-For strict schema enforcement, add JSON schema validation:
+1.  **Deploy:**
+    ```bash
+    expanso job deploy production-pipeline-step-2.yaml
+    ```
 
-```bash title="Create JSON schema file"
-cat > /tmp/log-schema.json << 'EOF'
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
-  "required": ["timestamp", "level", "service", "message"],
-  "properties": {
-    "timestamp": {
-      "type": "string",
-      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{3})?Z$"
-    },
-    "level": {
-      "type": "string", 
-      "enum": ["DEBUG", "INFO", "WARN", "ERROR", "FATAL", "TRACE"]
-    },
-    "service": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 100,
-      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9-_]*[a-zA-Z0-9]$"
-    },
-    "message": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 2000
-    },
-    "request_id": {
-      "type": "string",
-      "pattern": "^[a-zA-Z0-9-_]+$"
-    },
-    "user_id": {
-      "type": "string"
-    },
-    "duration_ms": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 300000
-    },
-    "status_code": {
-      "type": "integer",
-      "minimum": 100,
-      "maximum": 599
-    }
-  },
-  "additionalProperties": true
-}
-EOF
-```
+2.  **Test Valid Data:**
+    ```bash
+    curl -X POST http://localhost:8080/logs/ingest \
+      -H "X-API-Key: $LOG_API_KEY" \
+      -d '{"timestamp": "2023-01-01T12:00:00Z", "level": "info", "service": "auth", "message": "Login success"}'
+    ```
+    *Output should show normalized level: "INFO"*
 
-Add schema validation processor:
-
-```yaml title="Add schema validation processor"
-# Add after data type validation
-- schema_validation:
-    schema_path: "/tmp/log-schema.json"
-    on_validation_error: "continue"  # Don't drop invalid messages
-    add_validation_metadata: true
-    validation_metadata_field: "schema_validation"
-    
-# Add post-schema processing
-- mapping: |
-    root = this
-    
-    # Check schema validation results
-    root = if this.schema_validation.valid == false {
-      # Add schema error details
-      root.validation_metadata.schema_errors = this.schema_validation.errors
-      root.validation_metadata.has_schema_errors = true
-      root.validation_metadata.total_errors = 
-        (root.validation_metadata.total_errors.or(0)) + 1
-      
-      root
-    } else {
-      root.validation_metadata.has_schema_errors = false
-      root
-    }
-    
-    # Clean up temporary schema validation field
-    root = this.without("schema_validation")
-```
-
-## Common Validation Patterns
-
-### Pattern 1: Severity-Based Validation
-
-Apply different validation rules based on log severity:
-
-```yaml
-- mapping: |
-    root = this
-    
-    # Stricter validation for ERROR and FATAL logs
-    root = if ["ERROR", "FATAL"].contains(this.level) {
-      # Require additional fields for high-severity logs
-      let error_required = ["error_code", "stack_trace", "service"]
-      let missing_error_fields = error_required.filter(field -> !this.get(field).exists())
-      
-      root.validation_metadata.error_validation = {
-        "missing_critical_fields": missing_error_fields,
-        "has_critical_errors": missing_error_fields.length() > 0
-      }
-      
-      root
-    } else {
-      root
-    }
-```
-
-### Pattern 2: Service-Specific Validation
-
-Different services may have different required fields:
-
-```yaml
-- mapping: |
-    root = this
-    
-    # Service-specific validation rules
-    let service_rules = {
-      "payment-service": ["transaction_id", "amount", "currency"],
-      "auth-service": ["user_id", "session_id", "auth_method"],
-      "api-gateway": ["endpoint", "method", "response_code"]
-    }
-    
-    let required_for_service = service_rules.get(this.service).or([])
-    let missing_service_fields = required_for_service.filter(field -> !this.get(field).exists())
-    
-    root.validation_metadata.service_validation = {
-      "service": this.service,
-      "required_fields": required_for_service,
-      "missing_fields": missing_service_fields,
-      "has_service_errors": missing_service_fields.length() > 0
-    }
-```
-
-### Pattern 3: Time Window Validation
-
-Reject logs that are too old or too far in the future:
-
-```yaml
-- mapping: |
-    root = this
-    
-    # Check timestamp is within acceptable range
-    let log_time = this.timestamp.parse_timestamp("2006-01-02T15:04:05.000Z")
-    let current_time = now()
-    let age_seconds = current_time.timestamp() - log_time.timestamp()
-    
-    # Reject logs older than 7 days or more than 1 hour in the future
-    let max_age = 7 * 24 * 3600  # 7 days in seconds
-    let max_future = 3600        # 1 hour in seconds
-    
-    root = if age_seconds > max_age {
-      root.validation_metadata.time_validation = {
-        "error": "log_too_old",
-        "age_hours": age_seconds / 3600,
-        "max_age_hours": max_age / 3600
-      }
-      root.validation_metadata.total_errors = root.validation_metadata.total_errors + 1
-      root
-    } else if age_seconds < -max_future {
-      root.validation_metadata.time_validation = {
-        "error": "log_from_future", 
-        "future_hours": -age_seconds / 3600,
-        "max_future_hours": max_future / 3600
-      }
-      root.validation_metadata.total_errors = root.validation_metadata.total_errors + 1
-      root
-    } else {
-      root.validation_metadata.time_validation = {
-        "status": "valid",
-        "age_hours": age_seconds / 3600
-      }
-      root
-    }
-```
-
-## Performance Optimization
-
-### Optimize Validation for High Volume
-
-For high-throughput environments, optimize validation performance:
-
-```yaml
-# Use conditional validation to reduce processing
-- mapping: |
-    root = this
-    
-    # Quick validation path for known good sources
-    root = if meta("http_user_agent").contains("trusted-app/") {
-      # Minimal validation for trusted sources
-      root.validation_metadata = {
-        "validation_type": "trusted_source",
-        "total_errors": 0,
-        "validated_at": now()
-      }
-      root
-    } else {
-      # Full validation for unknown sources  
-      this
-    }
-```
-
-### Batch Validation Metrics
-
-Aggregate validation metrics to reduce overhead:
-
-```yaml
-# Use aggregation for validation metrics
-- aggregate:
-    window: "1m"
-    metrics:
-      - field: "validation_metadata.total_errors"
-        operation: "sum"
-        output_field: "total_validation_errors"
-      - field: "validation_metadata.missing_fields"
-        operation: "count"
-        output_field: "total_missing_field_errors"
-```
-
-## Troubleshooting
-
-### Issue: High Validation Error Rate
-
-**Symptom:** >10% of logs failing validation
-
-**Diagnosis:**
-```bash
-# Check validation error patterns
-grep "validation_metadata" /var/log/expanso/warning-logs-*.jsonl | \
-  jq -r '.validation_metadata | keys[]' | sort | uniq -c
-
-# Check common missing fields
-grep "missing_fields" /var/log/expanso/warning-logs-*.jsonl | \
-  jq -r '.validation_metadata.missing_fields[]' | sort | uniq -c
-```
-
-**Solutions:**
-1. **Relax validation rules:**
-```yaml
-# Make some fields optional
-let required_fields = ["timestamp", "message"]  # Reduce requirements
-```
-
-2. **Add default values:**
-```yaml
-# Provide better defaults
-root.level = root.level.or("INFO")
-root.service = root.service.or(meta("http_user_agent").split("/")[0])
-```
-
-### Issue: Timestamp Parsing Failures  
-
-**Symptom:** Many logs with `timestamp_parse_error`
-
-**Diagnosis:**
-```bash
-# Check timestamp formats causing issues
-grep "timestamp_parse_error" /var/log/expanso/warning-logs-*.jsonl | \
-  jq -r '.validation_metadata.timestamp_parse_error' | sort | uniq -c
-```
-
-**Solutions:**
-1. **Add more timestamp patterns:**
-```yaml
-# Add custom timestamp format
-this.timestamp.parse_timestamp_strptime("%d/%m/%Y %H:%M:%S").catch(null) != null =>
-  this.timestamp.parse_timestamp_strptime("%d/%m/%Y %H:%M:%S").format_timestamp("2006-01-02T15:04:05.000Z"),
-```
-
-2. **Use lenient parsing:**
-```yaml
-# More permissive timestamp handling
-root.timestamp = this.timestamp.string().parse_timestamp_strptime("%Y-%m-%d").or(now())
-```
-
-### Issue: Schema Validation Too Strict
-
-**Symptom:** Valid logs being rejected by schema
-
-**Diagnosis:**
-```bash
-# Check schema validation errors
-grep "schema_errors" /var/log/expanso/warning-logs-*.jsonl | \
-  jq '.validation_metadata.schema_errors'
-```
-
-**Solutions:**
-1. **Use warning-only schema validation:**
-```yaml
-schema_validation:
-  schema_path: "/tmp/log-schema.json"
-  on_validation_error: "continue"  # Continue processing
-  strict_mode: false               # Allow additional properties
-```
-
-2. **Create multiple schemas:**
-```yaml
-# Different schemas for different services
-- mapping: |
-    let schema_path = match this.service {
-      "payment-service" => "/tmp/payment-schema.json",
-      "auth-service" => "/tmp/auth-schema.json", 
-      _ => "/tmp/default-schema.json"
-    }
-```
-
-## Quality Metrics and Monitoring
-
-### Track Data Quality Over Time
-
-```yaml
-# Add data quality metrics
-- mapping: |
-    root = {
-      "timestamp": now(),
-      "quality_metrics": {
-        "source": this.service,
-        "validation_score": 100 - (this.validation_metadata.total_errors * 10),
-        "parsing_success": !this.parsing_metadata.has_warnings,
-        "schema_compliance": !this.validation_metadata.has_schema_errors,
-        "timestamp_accuracy": !this.validation_metadata.timestamp_parse_error.exists(),
-        "field_completeness": (4 - this.validation_metadata.missing_fields.length()) / 4 * 100
-      }
-    }
-```
-
-### Set Up Quality Alerting
-
-```bash
-# Monitor quality metrics
-curl http://localhost:8080/metrics | grep validation
-
-# Key metrics to alert on:
-# - validation_errors_total > 100/hour
-# - parsing_errors_total > 50/hour  
-# - timestamp_parse_errors > 20/hour
-# - schema_validation_failures > 10/hour
-```
-
-## What You've Accomplished
-
-✅ **Enhanced JSON parsing** with comprehensive error handling
-✅ **Added required field validation** with automatic defaults
-✅ **Implemented data type validation** with format normalization
-✅ **Created flexible timestamp parsing** supporting multiple formats
-✅ **Added schema validation** for strict data quality enforcement
-✅ **Built validation reporting** for monitoring and debugging
-✅ **Optimized for performance** while maintaining data quality
-
-## Key Takeaways
-
-1. **Validation Prevents Problems** - Catching issues early saves hours of debugging later
-2. **Multiple Formats Are Reality** - Applications use different timestamp and data formats
-3. **Graceful Degradation** - Fix what you can, flag what you can't, keep processing
-4. **Monitor Quality** - Track validation metrics to understand data quality trends
-5. **Performance Matters** - Balance thoroughness with processing speed
+3.  **Test Invalid Data (Plain Text):**
+    ```bash
+    curl -X POST http://localhost:8080/logs/ingest \
+      -H "X-API-Key: $LOG_API_KEY" \
+      -d 'Just a text log'
+    ```
+    *Output should show the wrapped error object.*
 
 ## Next Steps
 
-Your logs are now parsed, validated, and guaranteed to have consistent structure! Next, you'll enrich them with contextual metadata:
+Now that we have valid structured data, let's add context to it.
 
-**Next:** [Enrich with Metadata](./step-3-enrich-with-metadata) - Add operational context and processing lineage to your logs.
+👉 [**Step 3: Enrich with Metadata**](./step-3-enrich-with-metadata)
 
-## Validation Summary
-
-Here's the complete validation pipeline you've built:
-
-```yaml
-processors:
-  # JSON parsing with error handling
-  - json_documents:
-      parts: []
-      on_error: continue
-      validate_structure: true
-      max_depth: 10
-      
-  # Required field validation  
-  - field_validation:
-      required: [timestamp, level, service, message]
-      add_defaults: true
-      
-  # Data type validation
-  - data_type_validation:
-      timestamp_formats: [multiple ISO formats]
-      valid_levels: [DEBUG, INFO, WARN, ERROR, FATAL]
-      
-  # Schema validation (optional)
-  - schema_validation:
-      schema_path: log-schema.json
-      strict_mode: false
-```
-
-This validation ensures every log entering your pipeline has consistent structure, valid timestamps, and required fields - providing a solid foundation for downstream processing.

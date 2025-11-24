@@ -1,0 +1,93 @@
+---
+title: "Step 2: Route Validation Failures to a DLQ"
+sidebar_label: "Step 2: Route Failures to DLQ"
+sidebar_position: 4
+description: Route schema validation failures to a Dead Letter Queue (DLQ) for later analysis.
+keywords: [dead-letter-queue, dlq, error-handling, validation]
+---
+
+# Step 2: Route Validation Failures to a DLQ
+
+In the previous step, invalid messages were simply rejected. In a real-world system, you want to capture these malformed messages for debugging. This is called a **Dead Letter Queue (DLQ)**.
+
+This step teaches you how to catch validation failures and route them to a separate destination.
+
+## The Goal
+
+You will modify your pipeline to:
+1.  **Catch** validation errors instead of rejecting the message.
+2.  Add a `validation_status` field to each message.
+3.  Use a `switch` output to send `passed` messages to `stdout` and `failed` messages to a DLQ file.
+
+## Implementation
+
+1.  **Start with the Previous Pipeline:** Copy the `schema-validator.yaml` file from Step 1 to a new file named `dlq-router.yaml`.
+    ```bash
+    cp schema-validator.yaml dlq-router.yaml
+    ```
+
+2.  **Catch Validation Failures:** Open `dlq-router.yaml` and modify the `pipeline` section. You will wrap the `json_schema` processor in a `try/catch` block.
+
+    ```yaml title="Modify the 'pipeline' section in dlq-router.yaml"
+pipeline:
+  processors:
+    # Use a try/catch block to prevent the pipeline from failing
+    - try:
+        # This is the same processor from Step 1
+        - json_schema:
+            schema_path: "file://./sensor-schema.json"
+
+        # If it succeeds, we add a 'passed' status
+        - mapping: |
+            root = this
+            meta validation_status = "passed"
+
+      # If the json_schema processor fails, this block is executed
+      catch:
+        - mapping: |
+            root = this
+            meta validation_status = "failed"
+            # Add the error message for debugging
+            root.validation_error = error()
+    ```
+
+3.  **Add the Routing Output:** Now, replace the entire `output` section with the `switch` block below. This will route the message based on the `validation_status` set in the previous step.
+
+    ```yaml title="Replace the 'output' section in dlq-router.yaml"
+output:
+  switch:
+    cases:
+      # If validation passed, send to stdout
+      - check: 'meta("validation_status") == "passed"'
+        output:
+          stdout:
+            codec: lines
+
+      # Otherwise, send to a DLQ file
+      - output:
+          file:
+            path: ./validation_dlq.jsonl
+            codec: lines
+    ```
+
+4.  **Deploy and Test:**
+    ```bash
+    # Deploy the new pipeline
+    expanso job deploy dlq-router.yaml
+
+    # --- Test 1: Send VALID data ---
+    curl -X POST http://localhost:8080/sensor/readings \
+      -H "Content-Type: application/json" \
+      -d '{"sensor_id": "sensor-42", "timestamp": "2025-10-20T14:30:00Z", "reading": 23.5}'
+
+    # --- Test 2: Send INVALID data ---
+    curl -X POST http://localhost:8080/sensor/readings \
+      -H "Content-Type: application/json" \
+      -d '{"id": "sensor-42", "reading": "hot"}'
+    ```
+
+5.  **Verify:**
+    *   The **valid** message will be printed to your console (`stdout`).
+    *   The **invalid** message will *not* be rejected. Instead, it will be written to the `validation_dlq.jsonl` file, along with a `validation_error` field that explains why it failed.
+
+You have now built a resilient validation pipeline that separates good data from bad data without losing any messages.

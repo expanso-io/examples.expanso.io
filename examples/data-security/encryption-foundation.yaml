@@ -1,0 +1,19 @@
+name: encryption-foundation
+description: A foundation pipeline that passes through raw payment and customer data, including PII.
+type: pipeline
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events/payment
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+          root.processed_at = now()
+
+  output:
+    stdout:
+      codec: lines

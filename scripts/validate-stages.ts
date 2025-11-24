@@ -1,19 +1,3 @@
-#!/usr/bin/env ts-node
-
-/**
- * Validation script for stage files
- *
- * Checks that all *-full.stages.ts files:
- * - Export an array of Stage objects
- * - Have sequential stage IDs (1, 2, 3, ...)
- * - Have all required Stage properties
- * - Use new format (inputLines/outputLines arrays, not legacy input/output strings)
- * - Have valid JsonLine objects
- *
- * Usage:
- *   npm run validate-stages
- */
-
 import * as fs from 'fs';
 import * as path from 'path';
 import { glob } from 'glob';
@@ -51,11 +35,13 @@ function validateStageFile(filePath: string): ValidationResult {
     return {
       file: filePath,
       valid: false,
-      errors: [{
-        file: filePath,
-        message: 'File does not exist',
-        severity: 'error',
-      }],
+      errors: [
+        {
+          file: filePath,
+          message: 'File does not exist',
+          severity: 'error',
+        },
+      ],
     };
   }
 
@@ -72,7 +58,7 @@ function validateStageFile(filePath: string): ValidationResult {
   }
 
   // Check for export statement
-  const exportMatch = content.match(/export const (\w+): Stage\[\] = \[/);
+  const exportMatch = content.match(/export const (\w+): Stage\[\] = \[/");
   if (!exportMatch) {
     errors.push({
       file: filePath,
@@ -160,6 +146,22 @@ function validateStageFile(filePath: string): ValidationResult {
       message: 'No JsonLine objects found in inputLines/outputLines',
       severity: 'warning',
     });
+  }
+
+  // NEW CHECK: Verify yamlFilename references an existing file
+  const yamlFilenameMatches = [...content.matchAll(/yamlFilename:\s*['"]([^'"]+)['"]/g)];
+  for (const match of yamlFilenameMatches) {
+    const filename = match[1];
+    const relativePath = path.relative('docs', path.dirname(filePath));
+    const expectedYamlPath = path.join('examples', relativePath, filename);
+
+    if (!fs.existsSync(expectedYamlPath)) {
+      errors.push({
+        file: filePath,
+        message: `yamlFilename '${filename}' does not reference an existing file at '${expectedYamlPath}'`,
+        severity: 'error',
+      });
+    }
   }
 
   return {

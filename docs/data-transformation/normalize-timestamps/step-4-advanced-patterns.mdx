@@ -1,0 +1,75 @@
+---
+title: "Advanced Timestamp Patterns"
+sidebar_label: "Step 4 - Advanced Patterns"
+sidebar_position: 6
+description: Explore advanced timestamp patterns like custom format parsing and business logic.
+keywords: [timestamp, advanced-patterns, custom-formats, business-logic]
+---
+
+# Advanced Timestamp Patterns
+
+Once you have mastered the basic "detect, parse, convert, enrich" pattern, you can handle more complex timestamp scenarios.
+
+## Pattern 1: Handling Custom String Formats
+
+Not all systems use standard formats. You can use the `.parse_timestamp()` function with a layout string to handle any custom format. The layout string is based on Go's time formatting rules, using `2006` for the year, `01` for the month, `02` for the day, `15` for the hour, etc.
+
+**Input:**
+```json
+{"timestamp": "10-20-2025_18:23:45"}
+```
+
+**Processor:**
+```yaml
+- mapping: |
+    root.normalized_timestamp = this.timestamp.parse_timestamp("01-02-2006_15:04:05")
+```
+
+## Pattern 2: Business Logic (Holidays & Weekends)
+
+You can use the extracted time components to add valuable business-specific flags to your data.
+
+**Use Case:** Flagging events that occurred on a weekend or a US federal holiday.
+
+```yaml title="Add Business Logic Flags"
+- mapping: |
+    root = this
+    let ts = this.timestamp_utc.parse_timestamp()
+
+    let month = ts.ts_month()
+    let day = ts.ts_day()
+    let day_of_week = ts.ts_weekday() # Sunday = 0, Saturday = 6
+
+    # Weekend Detection
+    root.time_metadata.is_weekend = day_of_week == 0 || day_of_week == 6
+
+    # Holiday Detection (simplified example)
+    root.time_metadata.is_holiday = (month == 1 && day == 1) ||      # New Year's
+                                    (month == 12 && day == 25)        # Christmas
+
+    # Business Day Flag
+    root.time_metadata.is_business_day = !root.time_metadata.is_weekend && !root.time_metadata.is_holiday
+```
+
+## Pattern 3: Fiscal Calendars
+
+For financial data, you can add fiscal calendar information, such as the fiscal quarter.
+
+**Use Case:** A company whose fiscal year starts in October.
+
+```yaml title="Fiscal Quarter Calculation"
+- mapping: |
+    root = this
+    let month = this.time_metadata.month
+    let year = this.time_metadata.year
+
+    # Fiscal Year (October 1st - September 30th)
+    root.time_metadata.fiscal_year = if month >= 10 { year + 1 } else { year }
+
+    root.time_metadata.fiscal_quarter = if month >= 10 { "FQ1" }
+                                       else if month >= 7 { "FQ4" }
+                                       else if month >= 4 { "FQ3" }
+                                       else { "FQ2" }
+```
+
+These advanced patterns allow you to create highly valuable, analytics-ready time series data directly in your processing pipeline, saving significant time and cost in downstream systems.

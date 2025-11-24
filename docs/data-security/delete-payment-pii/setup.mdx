@@ -2,42 +2,23 @@
 title: Setup Environment for Payment PII Deletion
 sidebar_label: Setup
 sidebar_position: 2
-description: Configure environment, sample payment data, and deploy a shell payment pipeline
+description: Configure environment and sample payment data for PII deletion.
 keywords: [setup, environment, payment-data, pci-dss, configuration, deployment]
 ---
 
 # Setup Environment for Payment PII Deletion
 
-Before building the payment PII deletion pipeline, you'll set up sample payment data, configure your environment, and deploy a minimal "shell" pipeline that verifies your setup works.
+Before building the payment PII deletion pipeline, you'll set up sample payment data and configure your environment.
 
 ## Prerequisites
 
-- **Kafka:** Set up [Kafka](/getting-started/local-development#kafka) for secure payment data delivery
-- **Expanso:** Installed and running ([Installation Guide](https://docs.expanso.io/installation))
-- **Environment Variables:** See the [local development guide](/getting-started/local-development#environment-variables)
+This example requires the following services to be running:
 
-## Step 1: Verify Expanso CLI Installation
+*   **[Kafka](/getting-started/services/kafka)**
 
-Confirm your CLI is working and connected:
+Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
 
-```bash
-# Check CLI version
-expanso version
-
-# Verify connectivity
-expanso auth status
-```
-
-**Expected output:**
-```
-Expanso CLI v1.2.0
-✅ Authenticated as user@company.com
-✅ Connected to https://api.expanso.io
-```
-
-If you see authentication errors, run `expanso auth login` and follow the prompts.
-
-## Step 2: Create Sample Payment Data
+## Step 1: Create Sample Payment Data
 
 Create realistic sample payment events that contain the PII we need to remove:
 
@@ -128,87 +109,7 @@ This sample data contains:
 - ❌ **High-risk PII:** full_number, expiry, cvv (violate PCI-DSS)
 - 🟡 **Moderate PII:** customer email (not payment-specific)
 
-## Step 3: Deploy Shell Payment Pipeline
-
-Before adding PII removal logic, deploy a minimal "shell" pipeline that just passes data through. This verifies your setup works.
-
-Create `shell-payment-pipeline.yaml`:
-
-```yaml title="shell-payment-pipeline.yaml"
-# Shell Payment Pipeline - Pass-through for testing
-name: shell-payment-pipeline
-type: pipeline
-config:
-  # Accept payment events via HTTP
-  input:
-    http_server:
-      address: "0.0.0.0:8080"
-      path: /events/payment
-      
-  # No processing yet - just pass through
-  pipeline:
-    processors:
-      - mapping: |
-          # Pass everything through unchanged (for now)
-          root = this
-          
-          # Add processing timestamp for testing
-          root.processed_at = now().format("2006-01-02T15:04:05Z")
-
-  # Output to console for testing (will change to analytics later)
-  output:
-    stdout:
-      codec: lines
-```
-
-Deploy the shell pipeline:
-
-```bash
-# Deploy to Expanso
-expanso job deploy shell-payment-pipeline.yaml
-
-# Verify deployment
-expanso job list
-```
-
-**Expected output:**
-```
-NAME                     STATUS    CREATED
-shell-payment-pipeline   Running   2024-12-15T14:30:00Z
-```
-
-## Step 4: Test Shell Pipeline
-
-Send sample payment data through the pipeline to verify it's working:
-
-```bash
-# Get the pipeline endpoint
-PIPELINE_URL=$(expanso job describe shell-payment-pipeline | grep "endpoint" | cut -d'"' -f4)
-echo "Pipeline endpoint: $PIPELINE_URL"
-
-# Send first payment event
-curl -X POST $PIPELINE_URL/events/payment \
-  -H "Content-Type: application/json" \
-  -d @sample-payments.json
-
-# Check the output logs
-expanso job logs shell-payment-pipeline
-```
-
-**Expected output:**
-```
-{"event_type":"purchase","transaction_id":"txn_001","timestamp":"2024-12-15T14:30:00Z",...,"processed_at":"2024-12-15T14:31:22Z"}
-{"event_type":"purchase","transaction_id":"txn_002","timestamp":"2024-12-15T14:32:15Z",...,"processed_at":"2024-12-15T14:31:22Z"}
-{"event_type":"purchase","transaction_id":"txn_003","timestamp":"2024-12-15T14:35:42Z",...,"processed_at":"2024-12-15T14:31:22Z"}
-```
-
-:::tip Success!
-If you see payment events in the logs with `processed_at` timestamps, your environment is correctly configured!
-
-**Next step:** Start learning about payment PII identification and removal.
-:::
-
-## Step 5: Verify Payment Data Structure
+## Step 2: Verify Payment Data Structure
 
 Before proceeding, let's examine what PII fields are present in our sample data:
 
@@ -251,95 +152,6 @@ Perfect! This shows us exactly what we need to remove:
 - ❌ `cvv` - Sensitive authentication data, highest risk
 - ✅ `type`, `brand`, `last_four` - Safe for analytics
 
-## Step 6: Set Environment Variables
-
-Set up environment variables for the tutorial:
-
-```bash
-# Create environment configuration
-cat > .env << 'EOF'
-# Expanso Configuration
-EXPANSO_PROJECT_NAME=payment-pii-tutorial
-EXPANSO_PIPELINE_NAME=delete-payment-pii
-
-# Data Configuration  
-SAMPLE_DATA_FILE=sample-payments.json
-SHELL_PIPELINE_CONFIG=shell-payment-pipeline.yaml
-
-# Testing Configuration
-TEST_ENDPOINT_PATH=/events/payment
-EOF
-
-# Load environment variables
-source .env
-
-# Verify they're set
-echo "Project: $EXPANSO_PROJECT_NAME"
-echo "Pipeline: $EXPANSO_PIPELINE_NAME"
-```
-
-## Step 7: Create Testing Script
-
-Create a helper script to test your payment pipelines throughout the tutorial:
-
-```bash
-# Create testing script
-cat > test-payment-pipeline.sh << 'EOF'
-#!/bin/bash
-
-# Test Payment Pipeline Script
-set -e
-
-PIPELINE_NAME=${1:-"shell-payment-pipeline"}
-DATA_FILE=${2:-"sample-payments.json"}
-
-echo "🧪 Testing pipeline: $PIPELINE_NAME"
-echo "📁 Using data file: $DATA_FILE"
-
-# Get pipeline endpoint
-echo "📡 Getting pipeline endpoint..."
-ENDPOINT=$(expanso job describe $PIPELINE_NAME | grep "endpoint" | cut -d'"' -f4)
-
-if [ -z "$ENDPOINT" ]; then
-  echo "❌ Could not find endpoint for pipeline $PIPELINE_NAME"
-  echo "💡 Make sure the pipeline is deployed and running"
-  exit 1
-fi
-
-echo "🔗 Endpoint: $ENDPOINT/events/payment"
-
-# Send test data
-echo "📤 Sending test payment events..."
-curl -s -X POST $ENDPOINT/events/payment \
-  -H "Content-Type: application/json" \
-  -d @$DATA_FILE
-
-echo -e "\n✅ Events sent successfully!"
-
-# Show recent logs
-echo "📋 Recent pipeline logs:"
-expanso job logs $PIPELINE_NAME --tail 10
-EOF
-
-# Make it executable
-chmod +x test-payment-pipeline.sh
-
-# Test the script
-echo "🧪 Testing the shell pipeline..."
-./test-payment-pipeline.sh
-```
-
-## Environment Verification Checklist
-
-Before proceeding to the next step, verify:
-
-- [ ] ✅ Expanso CLI installed and authenticated
-- [ ] ✅ Sample payment data created (`sample-payments.json`)
-- [ ] ✅ Shell pipeline deployed and running
-- [ ] ✅ Test script working (`test-payment-pipeline.sh`)
-- [ ] ✅ Environment variables configured (`.env`)
-- [ ] ✅ Can send events and see logs
-
 ---
 
 ## Next Steps
@@ -354,13 +166,3 @@ Your environment is ready! Now you'll learn to identify which payment fields req
     Back to Introduction
   </a>
 </div>
-
-## What You've Accomplished
-
-✅ **Environment configured** with Expanso CLI and authentication  
-✅ **Sample payment data** created with realistic PII scenarios  
-✅ **Shell pipeline** deployed and tested successfully  
-✅ **Testing tools** created for iterative development  
-✅ **Ready to learn** payment PII identification and removal techniques
-
-**Next:** [Learn to identify high-risk payment fields](./step-1-identify-payment-pii) that require PCI-DSS controls.

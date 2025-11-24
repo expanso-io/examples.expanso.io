@@ -1,0 +1,94 @@
+---
+title: "Step 3: Parse Syslog Messages"
+sidebar_label: "Step 3: Parse Syslog"
+sidebar_position: 6
+description: Extract structured data from a syslog message and decompose the priority field.
+keywords: [syslog, rfc3164, grok, log-parsing]
+---
+
+# Step 3: Parse Syslog Messages
+
+Syslog is a standard format for system logs. Unlike a simple access log, it has a special `<priority>` field at the beginning that contains two pieces of information combined: the **facility** (what part of the system generated the message) and the **severity** (how important it is).
+
+## The Goal
+
+You will parse a raw syslog string and then decompose the `priority` number into its `facility` and `severity` components.
+
+**Input Message:**
+```json
+{
+  "raw_log": "<134>Oct 20 14:23:45 edge-node-01 app[12345]: Database connection established"
+}
+```
+
+**Desired Output:**
+```json
+{
+  "priority": "134",
+  "facility": 16,
+  "severity": 6,
+  "timestamp": "Oct 20 14:23:45",
+  "hostname": "edge-node-01",
+  "tag": "app",
+  "pid": "12345",
+  "message": "Database connection established"
+}
+```
+
+## The "Grok -> Decompose" Pattern
+
+1.  **Grok:** Use a `grok` processor with a standard syslog pattern to extract the raw fields, including the `priority` number.
+2.  **Decompose:** Use a `mapping` processor to perform the integer arithmetic to calculate `facility = priority / 8` and `severity = priority % 8`.
+
+## Implementation
+
+1.  **Create the Parsing Pipeline:** Copy the following configuration into a file named `syslog-parser.yaml`.
+
+    ```yaml title="syslog-parser.yaml"
+    name: syslog-parser
+    description: A pipeline that parses syslog messages.
+
+    config:
+      input:
+        generate:
+          interval: 1s
+          mapping: |
+            root.raw_log = '<134>Oct 20 14:23:45 edge-node-01 app[12345]: Database connection established'
+
+      pipeline:
+        processors:
+          # 1. GROK: Extract the raw fields from the syslog string
+          - grok:
+              target_field: root.raw_log
+              expressions:
+                - '<%{POSINT:priority}>%{SYSLOGTIMESTAMP:timestamp} %{SYSLOGHOST:hostname} %{DATA:tag}(?:\[%{POSINT:pid}\])?: %{GREEDYDATA:message}'
+              named_captures_only: true
+
+          # 2. DECOMPOSE: Calculate facility and severity from the priority
+          - mapping: |
+              root = this
+              let pri = this.priority.number()
+              root.facility = (pri / 8).floor()
+              root.severity = pri % 8
+
+      output:
+        stdout:
+          codec: lines
+    ```
+
+2.  **Deploy and Observe:**
+    ```bash
+    # Deploy the pipeline
+    expanso job deploy syslog-parser.yaml
+    ```
+    Watch the logs. The output will be the structured JSON, including the calculated `facility` and `severity` fields.
+
+## Verification
+
+The output will be a stream of structured JSON objects. `134` is correctly decomposed into facility `16` (local use 0) and severity `6` (informational).
+
+**Example Output:**
+```json
+{"facility":16,"hostname":"edge-node-01","message":"Database connection established","pid":"12345","priority":"134","severity":6,"tag":"app","timestamp":"Oct 20 14:23:45"}
+```
+You have now learned how to parse syslog messages and extract the important priority information, which can be used for routing and alerting in a more advanced pipeline.

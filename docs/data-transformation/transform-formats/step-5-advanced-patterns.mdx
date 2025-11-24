@@ -1,0 +1,68 @@
+---
+title: "Advanced Format Transformation Patterns"
+sidebar_label: "Step 5 - Advanced Patterns"
+sidebar_position: 7
+description: Explore advanced format transformation patterns like schema evolution and multi-format outputs.
+keywords: [format-transformation, advanced-patterns, schema-evolution, multi-format]
+---
+
+# Advanced Format Transformation Patterns
+
+Once you have mastered the basic conversions between formats, you can implement more sophisticated, production-grade patterns.
+
+## Pattern 1: Schema Evolution
+
+Your data schemas will change over time. Schema-based formats like Avro and Protobuf have built-in support for schema evolution, allowing you to add or remove fields without breaking downstream consumers, as long as you follow certain rules (e.g., new fields must have default values).
+
+**Example: Adding an optional `humidity` field to an Avro schema.**
+
+**v1 schema:**
+```json
+{"type": "record", "name": "Reading", "fields": [{"name": "temperature", "type": "double"}]}
+```
+
+**v2 schema (backward-compatible):**
+```json
+{
+  "type": "record",
+  "name": "Reading",
+  "fields": [
+    {"name": "temperature", "type": "double"},
+    // New fields must have a default value to be backward-compatible
+    {"name": "humidity", "type": ["null", "double"], "default": null}
+  ]
+}
+```
+A consumer with the v2 schema can still read old v1 data (the `humidity` field will be `null`). A consumer with the v1 schema can read new v2 data (it will simply ignore the extra `humidity` field).
+
+Managing this typically involves a **Schema Registry**, a central service that stores and versions your schemas. Processors like `to_avro` and `from_avro` can integrate with a schema registry to automatically handle these conversions.
+
+## Pattern 2: Multi-Format Output
+
+Sometimes you need to convert a single input into multiple different output formats simultaneously. This is a common pattern for data distribution.
+
+**Use Case:** An incoming JSON event needs to be sent to a Kafka topic as Avro (for streaming) and archived to S3 as Parquet (for analytics).
+
+```yaml title="Multi-Format Output"
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # --- Output 1: Convert to Avro and send to Kafka ---
+      - processors:
+          - to_avro:
+              schema_path: "file://./sensor.avsc"
+        kafka:
+          addresses: [ ${KAFKA_BROKERS} ]
+          topic: "sensor-readings-avro"
+
+      # --- Output 2: Convert to Parquet and send to S3 ---
+      - processors:
+          - to_parquet:
+              schema_path: "file://./sensor.avsc"
+              default_compression: snappy
+        aws_s3:
+          bucket: "my-analytics-bucket"
+          path: "readings/${!timestamp_unix_date()}/${!uuid_v4()}.parquet"
+```
+This pattern uses a `broker` output to fan the message out. Each branch of the fan-out has its own `processors` block to perform the format-specific conversion before sending the data to its final destination.

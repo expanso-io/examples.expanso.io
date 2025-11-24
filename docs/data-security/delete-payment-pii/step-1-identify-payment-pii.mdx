@@ -1,592 +1,86 @@
 ---
-title: "Step 1: Identify Payment PII Fields"
-sidebar_label: "Step 1: Identify Payment PII"
+title: "Step 1: Delete High-Risk Payment PII"
+sidebar_label: "Step 1: Delete Payment PII"
 sidebar_position: 3
-description: Learn to classify payment data fields by PCI-DSS risk levels and compliance requirements
-keywords: [pci-dss, payment-pii, cardholder-data, compliance-classification, risk-assessment]
+description: Identify and delete high-risk PCI-DSS data like credit card numbers.
+keywords: [pci-dss, pii-removal, delete, without, cardholder-data]
 ---
 
-# Step 1: Identify Payment PII Fields
+# Step 1: Delete High-Risk Payment PII
 
-**Learn to classify payment data fields by PCI-DSS risk levels.** Understanding which fields require protection is the foundation of PCI-DSS compliance. This step teaches you to identify high-risk cardholder data, moderate-risk fields, and analytics-safe data.
+The most critical step in achieving PCI-DSS compliance is to **stop storing data you don't need**. This step teaches you how to identify and completely remove the most sensitive payment card information from your data.
 
-## Learning Objectives
+## The Goal
 
-By the end of this step, you'll understand:
+According to the PCI-DSS standard, you should never store the full credit card number (PAN), the expiration date, or the CVV after a transaction is authorized. Your goal is to remove these three high-risk fields from the `payment_method` object.
 
-✅ **PCI-DSS data classification** - What constitutes cardholder data vs. sensitive authentication data  
-✅ **Risk levels** - Which fields require immediate deletion vs. which can be processed  
-✅ **Analytics impact** - How to preserve business value while achieving compliance  
-✅ **Compliance boundaries** - Where PCI-DSS scope begins and ends in your data pipeline
-
-## PCI-DSS Data Classification
-
-The Payment Card Industry Data Security Standard (PCI-DSS) defines specific categories of payment data, each with different protection requirements.
-
-### Category 1: Cardholder Data (CHD) - High Risk
-
-**Definition:** Data that identifies a cardholder or allows access to their account.
-
-**Fields in our sample data:**
+**Input Message Snippet:**
 ```json
 {
   "payment_method": {
-    "full_number": "4532-1234-5678-9010",  // ❌ Primary Account Number (PAN)
-    "expiry": "12/25"                      // ❌ Expiration date
+    "full_number": "4532-1234-5678-9010",
+    "expiry": "12/25",
+    "cvv": "123",
+    "last_four": "9010"
   }
 }
 ```
 
-**PCI-DSS Requirements:**
-- **Storage:** Prohibited unless encrypted with strong cryptography
-- **Transmission:** Must be encrypted end-to-end
-- **Processing:** Requires validated PCI-DSS environment
-- **Compliance Impact:** Brings entire system into PCI-DSS scope
-
-**Business Impact:**
-- Full PAN storage = PCI-DSS Level 1 compliance (most expensive)
-- Storage of even encrypted PAN = annual security assessments required
-- Breach of PAN data = massive fines ($5-100M+), reputation damage
-
-### Category 2: Sensitive Authentication Data (SAD) - Highest Risk
-
-**Definition:** Data used to authenticate cardholders during transactions.
-
-**Fields in our sample data:**
+**Desired Output Snippet:**
 ```json
 {
   "payment_method": {
-    "cvv": "123"                          // ❌ Card Verification Value
+    "last_four": "9010"
   }
 }
 ```
 
-**PCI-DSS Requirements:**
-- **Storage:** Explicitly prohibited - cannot be stored under any circumstances
-- **Processing:** Can only be processed during transaction authorization
-- **Retention:** Must be deleted immediately after authorization
-
-**Why it's highest risk:**
-- CVV enables card-not-present fraud
-- Storage is a direct PCI-DSS violation
-- No exceptions - must be deleted always
-
-### Category 3: Analytics-Safe Payment Data - Low Risk
-
-**Definition:** Payment-related data that doesn't identify specific cardholders.
-
-**Fields in our sample data:**
-```json
-{
-  "payment_method": {
-    "type": "credit_card",                // ✅ Payment method type
-    "brand": "visa",                      // ✅ Card brand/network  
-    "last_four": "9010"                   // ✅ Last 4 digits of PAN
-  },
-  "amount": 89.99,                        // ✅ Transaction amount
-  "currency": "USD",                      // ✅ Currency code
-  "merchant": {                           // ✅ Merchant information
-    "id": "merchant_123",
-    "name": "Coffee Shop Downtown", 
-    "category": "food_beverage"
-  }
-}
-```
-
-**PCI-DSS Requirements:**
-- **Storage:** Unrestricted - no special protection required
-- **Processing:** Can be processed in any environment
-- **Transmission:** No encryption requirements
-
-**Analytics Value:**
-- **Fraud detection:** Last 4 digits help identify card patterns
-- **Business intelligence:** Payment method trends, amounts, merchant categories
-- **Operational metrics:** Transaction volumes, success rates, geographic patterns
-
-## Detailed Field Analysis
-
-Let's examine each field in our sample payment data:
-
-### High-Risk Fields (Must Delete)
-
-#### 1. Primary Account Number (PAN)
-```json
-"full_number": "4532-1234-5678-9010"
-```
-
-**Risk Level:** 🔴 Highest  
-**PCI-DSS Category:** Cardholder Data  
-**Storage Requirement:** Prohibited without strong encryption + key management  
-**Why it's high-risk:** Complete card number enables immediate fraudulent transactions
-
-**Compliance Requirements:**
-- If stored encrypted: Requires validated Point-to-Point Encryption (P2PE) or validated applications
-- Encryption key management requires separate secure systems
-- Annual penetration testing and vulnerability scanning required
-- Quarterly network security scans required
-
-**Analytics Impact of Removal:**
-- ✅ **Preserved:** Transaction patterns, amounts, timing
-- ❌ **Lost:** Ability to identify specific cards across transactions
-- 🔄 **Alternative:** Use last 4 digits for limited card identification
-
-#### 2. Card Expiration Date
-```json
-"expiry": "12/25"
-```
-
-**Risk Level:** 🔴 High  
-**PCI-DSS Category:** Cardholder Data  
-**Storage Requirement:** Prohibited unless encrypted  
-**Why it's high-risk:** Combined with PAN, enables card-not-present fraud
-
-**Compliance Requirements:**
-- Same encryption requirements as PAN
-- Must be protected with same controls as full card number
-- Increases PCI-DSS scope significantly
-
-**Analytics Impact of Removal:**
-- ✅ **Preserved:** All transaction analytics remain intact
-- ❌ **Lost:** Card lifecycle analytics (renewal patterns, expiry tracking)
-- 🔄 **Alternative:** Derive expiry year only for lifecycle analysis
-
-#### 3. Card Verification Value (CVV)
-```json
-"cvv": "123"
-```
-
-**Risk Level:** 🔴 Extreme  
-**PCI-DSS Category:** Sensitive Authentication Data  
-**Storage Requirement:** Explicitly prohibited - no exceptions  
-**Why it's extreme risk:** Enables immediate card-not-present fraud
-
-**Compliance Requirements:**
-- MUST be deleted immediately after transaction authorization
-- Cannot be stored encrypted or unencrypted
-- Storing CVV is automatic PCI-DSS compliance failure
-
-**Analytics Impact of Removal:**
-- ✅ **Preserved:** All other transaction data unchanged
-- ❌ **Lost:** Nothing - CVV has no analytics value
-- 🔄 **Alternative:** None needed - CVV is purely for authentication
-
-### Low-Risk Fields (Safe to Keep)
-
-#### 1. Payment Method Type
-```json
-"type": "credit_card"
-```
-
-**Risk Level:** 🟢 Safe  
-**PCI-DSS Category:** Not regulated  
-**Analytics Value:** Payment method distribution analysis (credit vs debit vs digital wallets)
-
-#### 2. Card Brand/Network
-```json
-"brand": "visa"
-```
-
-**Risk Level:** 🟢 Safe  
-**PCI-DSS Category:** Not regulated  
-**Analytics Value:** Network-specific trends, interchange cost analysis
-
-#### 3. Last Four Digits
-```json
-"last_four": "9010"
-```
-
-**Risk Level:** 🟢 Safe  
-**PCI-DSS Category:** Not regulated (when only last 4 are visible)  
-**Analytics Value:** Fraud pattern detection, card usage patterns
-
-**Important Note:** Last 4 digits are only safe when the full PAN is not stored elsewhere. If you store both, they become part of cardholder data.
-
-#### 4. Transaction Data
-```json
-{
-  "amount": 89.99,
-  "currency": "USD", 
-  "timestamp": "2024-12-15T14:30:00Z",
-  "transaction_id": "txn_001"
-}
-```
-
-**Risk Level:** 🟢 Safe  
-**PCI-DSS Category:** Not regulated  
-**Analytics Value:** Core business metrics - revenue, patterns, performance
-
-## Practical Classification Exercise
-
-Let's classify all fields in our sample payment event:
-
-```json
-{
-  "event_type": "purchase",              // 🟢 Safe - Event classification
-  "transaction_id": "txn_001",           // 🟢 Safe - Transaction identifier
-  "timestamp": "2024-12-15T14:30:00Z",   // 🟢 Safe - Business data
-  "amount": 89.99,                       // 🟢 Safe - Business data  
-  "currency": "USD",                     // 🟢 Safe - Business data
-  "merchant": {                          // 🟢 Safe - Business data
-    "id": "merchant_123",
-    "name": "Coffee Shop Downtown",
-    "category": "food_beverage"
-  },
-  "payment_method": {
-    "full_number": "4532-1234-5678-9010", // 🔴 Delete - Cardholder data
-    "expiry": "12/25",                     // 🔴 Delete - Cardholder data
-    "cvv": "123",                          // 🔴 Delete - Sensitive auth data
-    "type": "credit_card",                 // 🟢 Safe - Payment analytics
-    "brand": "visa",                       // 🟢 Safe - Payment analytics
-    "last_four": "9010"                    // 🟢 Safe - Fraud detection
-  },
-  "customer": {                          // 🟡 Moderate - Not payment PII
-    "id": "cust_456",                     // 🟢 Safe - Customer analytics
-    "email": "sarah@example.com"          // 🟡 Moderate - Personal data (GDPR)
-  }
-}
-```
-
-**Summary:**
-- **🔴 Must delete:** 3 fields (full_number, expiry, cvv)
-- **🟢 Safe to keep:** 9 fields (business + analytics data)
-- **🟡 Moderate risk:** 1 field (email - GDPR concern, not PCI-DSS)
-
-## Risk Assessment Framework
-
-Use this framework to evaluate any payment data field:
-
-### Step 1: Is it Cardholder Data?
-**Ask:** Does this field contain the full PAN or enable account access?
-- **Yes:** High-risk, requires encryption or deletion
-- **No:** Continue to Step 2
-
-### Step 2: Is it Sensitive Authentication Data?
-**Ask:** Is this field used to authenticate the cardholder?
-- **Yes:** Extreme risk, must be deleted immediately
-- **No:** Continue to Step 3
-
-### Step 3: Does it have Analytics Value?
-**Ask:** Is this field needed for business intelligence or fraud detection?
-- **Yes:** Safe to keep if not restricted by Step 1-2
-- **No:** Consider deletion for data minimization
-
-### Step 4: What's the Business Cost of Deletion?
-**Ask:** What analytics capabilities are lost if we delete this field?
-- **High cost:** Look for alternatives (hashing, truncation, generalization)
-- **Low cost:** Delete for security/compliance
-
-## Real-World Classification Examples
-
-### E-commerce Payment Processing
-
-**Scenario:** Online store processing credit card payments
-
-```json
-{
-  "order_id": "ord_12345",               // 🟢 Safe - Business identifier
-  "payment": {
-    "pan": "4111111111111111",           // 🔴 Delete - Cardholder data
-    "exp_month": 12,                     // 🔴 Delete - Cardholder data
-    "exp_year": 2025,                    // 🔴 Delete - Cardholder data  
-    "cvc": "123",                        // 🔴 Delete - Sensitive auth data
-    "cardholder_name": "John Smith",     // 🔴 Delete - Cardholder data
-    "billing_address": {                 // 🟡 Moderate - May be cardholder data
-      "street": "123 Main St",           // 🟡 Depends on use case
-      "zip": "90210"                     // 🟢 Safe - Geographic analytics
-    }
-  },
-  "fraud_signals": {
-    "ip_address": "192.168.1.1",        // 🟡 Moderate - Privacy data
-    "user_agent": "Mozilla/5.0...",     // 🟢 Safe - Technical data
-    "device_fingerprint": "abc123"      // 🟢 Safe - Fraud detection
-  }
-}
-```
-
-### Mobile Payment App
-
-**Scenario:** Digital wallet processing in-app payments
-
-```json
-{
-  "wallet_transaction": {
-    "token": "dpan_1234567890123456",     // 🟢 Safe - Payment token (not real PAN)
-    "cryptogram": "ABC123DEF456",        // 🟢 Safe - Transaction cryptogram
-    "original_pan": "4111111111111111",  // 🔴 Delete - If stored, becomes cardholder data
-    "last_four": "1111"                  // 🟢 Safe - Display/analytics only
-  }
-}
-```
-
-**Key Insight:** Payment tokens (DPAN) are safe because they're not real PANs. However, if you store the original PAN alongside the token, it becomes cardholder data.
-
-### Subscription Billing
-
-**Scenario:** Recurring payments for SaaS platform
-
-```json
-{
-  "subscription": {
-    "card_fingerprint": "fp_abc123",     // 🟢 Safe - Uniqueness without PAN
-    "payment_method_id": "pm_xyz789",    // 🟢 Safe - Internal identifier
-    "last_four": "1234",                 // 🟢 Safe - Customer display
-    "brand": "visa",                     // 🟢 Safe - Analytics
-    "exp_month": 12,                     // 🔴 Delete - Cardholder data
-    "exp_year": 2025,                    // 🔴 Delete - Cardholder data
-    "funding": "credit"                  // 🟢 Safe - Payment method analytics
-  }
-}
-```
-
-## Compliance Boundary Analysis
-
-Understanding where PCI-DSS scope ends is crucial for system architecture.
-
-### Scope Reduction Through Field Deletion
-
-**Before Deletion (Full PCI-DSS Scope):**
-```
-┌─────────────────────────────────────────────┐
-│           PCI-DSS Environment               │
-│  ┌─────────────┐  ┌─────────────────────┐  │
-│  │   Payment   │  │    Data Storage     │  │
-│  │  Processing │──│  (Full PAN + Exp)   │  │
-│  │             │  │                     │  │
-│  └─────────────┘  └─────────────────────┘  │
-│                                             │
-│  ┌─────────────────────────────────────┐   │
-│  │         Analytics Systems           │   │
-│  │     (Must be PCI-DSS compliant)     │   │
-│  └─────────────────────────────────────┘   │
-└─────────────────────────────────────────────┘
-```
-
-**After Deletion (Minimal PCI-DSS Scope):**
-```
-┌─────────────────┐    ┌───────────────────────────────┐
-│ PCI-DSS Scope   │    │        Non-PCI Environment    │
-│ ┌─────────────┐ │    │  ┌─────────────────────────┐ │
-│ │   Payment   │ │    │  │    Data Storage         │ │
-│ │  Processing │─┼────┼─▶│  (Safe fields only)     │ │
-│ │  (Delete)   │ │    │  │                         │ │
-│ └─────────────┘ │    │  └─────────────────────────┘ │
-└─────────────────┘    │                               │
-                       │  ┌─────────────────────────┐ │
-                       │  │    Analytics Systems    │ │
-                       │  │   (No PCI-DSS needed)   │ │
-                       │  └─────────────────────────┘ │
-                       └───────────────────────────────┘
-```
-
-**Compliance Benefits:**
-- **Reduced audit scope:** Only payment processing requires PCI-DSS controls
-- **Lower costs:** Analytics and storage systems don't need expensive PCI compliance
-- **Faster development:** Most systems can develop without PCI-DSS constraints
-- **Reduced risk:** No cardholder data in analytics = no card data breach risk
-
-## Testing Your Understanding
-
-### Quiz: Field Classification
-
-Classify these payment-related fields:
-
-1. `card_network_token: "4895370012345678"`  
-2. `transaction_amount: 45.67`  
-3. `masked_pan: "****-****-****-1234"`  
-4. `authorization_code: "ABC123"`  
-5. `issuer_country: "US"`  
-6. `card_verification_code: "456"`  
-7. `payment_processor_id: "stripe_pi_123"`  
-
-**Answers:**
-1. 🟢 Safe - Network token, not real PAN
-2. 🟢 Safe - Transaction data, high analytics value
-3. 🟢 Safe - Masked PAN shows only last 4 digits
-4. 🟢 Safe - Authorization reference, not cardholder data  
-5. 🟢 Safe - Geographic analytics data
-6. 🔴 Delete - CVV/CVC, sensitive authentication data
-7. 🟢 Safe - Internal processor identifier
-
-### Exercise: Create Classification Rules
-
-Write rules for your own payment system:
-
-```yaml
-# Payment Field Classification Rules
-high_risk_fields:
-  - full_pan
-  - primary_account_number  
-  - card_number
-  - expiry_date
-  - expiration_date
-  - cvv
-  - cvc
-  - security_code
-  - cardholder_name  # If stored with PAN
-
-safe_fields:
-  - last_four_digits
-  - card_brand
-  - card_network
-  - payment_method_type
-  - transaction_amount
-  - transaction_currency
-  - merchant_id
-  - authorization_code
-  - payment_processor_id
-  - transaction_timestamp
-
-conditional_fields:
-  - billing_address  # Safe unless used with PAN for verification
-  - cardholder_name  # Safe unless stored with PAN
-  - network_token   # Safe as long as it's not a real PAN
-```
-
-## Implementation Planning
-
-Based on your field classification, plan your deletion strategy:
-
-### Step 1: Inventory Your Payment Fields
-
-Create a complete list of all payment-related fields in your system:
-
-```bash
-# Create field inventory
-cat > payment-field-inventory.json << 'EOF'
-{
-  "high_risk_delete_immediately": [
-    "payment_method.full_number",
-    "payment_method.pan", 
-    "payment_method.expiry",
-    "payment_method.exp_month",
-    "payment_method.exp_year",
-    "payment_method.cvv",
-    "payment_method.cvc",
-    "payment_method.cardholder_name"
-  ],
-  "safe_to_keep": [
-    "payment_method.last_four",
-    "payment_method.type",
-    "payment_method.brand",
-    "payment_method.network",
-    "transaction_amount",
-    "transaction_currency", 
-    "merchant_id",
-    "authorization_code"
-  ],
-  "requires_analysis": [
-    "billing_address",
-    "payment_processor_token",
-    "device_fingerprint"
-  ]
-}
-EOF
-```
-
-### Step 2: Measure Analytics Impact
-
-Before deletion, measure what analytics capabilities you'll lose:
-
-```sql
--- Example: Analyze current usage of high-risk fields
-SELECT 
-  'full_card_number' as field_name,
-  COUNT(*) as usage_count,
-  COUNT(DISTINCT full_card_number) as unique_values,
-  'fraud_detection_queries' as primary_use_case
-FROM payment_events 
-WHERE full_card_number IS NOT NULL
-
-UNION ALL
-
-SELECT 
-  'expiry_date',
-  COUNT(*),
-  COUNT(DISTINCT expiry_date),
-  'card_lifecycle_analysis'
-FROM payment_events 
-WHERE expiry_date IS NOT NULL;
-```
-
-### Step 3: Design Alternative Analytics
-
-For lost capabilities, design alternatives using safe fields:
-
-```yaml
-# Analytics Alternatives
-lost_capability: "Track specific cards across transactions"
-safe_alternative: "Use last_four + card_brand + customer_id"
-accuracy_impact: "95% accuracy vs 100% with full PAN"
-
-lost_capability: "Card expiry lifecycle analysis"  
-safe_alternative: "Use expiry_year only (delete exp_month)"
-accuracy_impact: "Monthly precision lost, yearly trends preserved"
-
-lost_capability: "Cardholder name analysis"
-safe_alternative: "Use customer_id for same insights"  
-accuracy_impact: "No impact - customer_id provides same tracking"
-```
-
-## Common Classification Mistakes
-
-### Mistake 1: Keeping Encrypted PAN
-**Wrong thinking:** "It's encrypted, so it's safe"  
-**Reality:** Encrypted PAN is still cardholder data, requires full PCI-DSS compliance  
-**Correct approach:** Delete PAN entirely, use last_four for identification
-
-### Mistake 2: Storing CVV "Just in Case"
-**Wrong thinking:** "We might need it for future transactions"  
-**Reality:** CVV storage is explicitly prohibited - immediate compliance violation  
-**Correct approach:** Use CVV only during authorization, delete immediately
-
-### Mistake 3: Treating Tokens as Safe
-**Wrong thinking:** "Payment tokens aren't real card numbers"  
-**Reality:** If you can decrypt token to get PAN, it's cardholder data  
-**Correct approach:** Only use tokens you cannot decrypt (network tokens)
-
-### Mistake 4: Ignoring Derived Data
-**Wrong thinking:** "We deleted the PAN, we're safe"  
-**Reality:** Hashed PAN might still be cardholder data if reversible  
-**Correct approach:** Use cryptographically secure hashes with secret salts
-
-## Next Steps Preview
-
-Now that you understand which payment fields require deletion, the next step teaches you how to implement the actual deletion using Expanso's `.without()` function.
-
-You'll learn:
-- How to target specific fields for removal
-- How to preserve the remaining data structure
-- How to verify complete deletion  
-- How to test the deletion process
-
-## Summary
-
-You now understand how to classify payment data by PCI-DSS risk levels:
-
-✅ **High-risk fields identified:** full_number, expiry, cvv - must be deleted  
-✅ **Safe fields identified:** last_four, type, brand, amounts - keep for analytics  
-✅ **Compliance boundaries understood:** PCI-DSS scope limited to processing layer  
-✅ **Analytics impact assessed:** Minimal loss, significant compliance gain
-
-**Key Insights:**
-- Only 3 fields in typical payment data require deletion for PCI-DSS compliance
-- Deleting these fields reduces PCI-DSS scope by 80-90%
-- Safe fields preserve 95%+ of analytics value
-- Clear classification prevents both over-protection and under-protection
-
----
-
-## What's Next
-
-Ready to learn how to actually delete the high-risk payment fields you've identified?
-
-<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
-  <a href="./step-2-delete-card-numbers" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Step 2: Delete Card Numbers
-  </a>
-  <a href="./setup" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Back to Setup
-  </a>
-</div>
-
-**Next:** [Learn to delete card numbers and CVV](./step-2-delete-card-numbers) using Expanso's field removal operations.
+## Implementation
+
+1.  **Deploy the Leaky Pipeline:** The `payment-pii-foundation.yaml` file represents a pipeline that currently leaks PII. Deploy it and send a test event to see the problem.
+
+    ```bash
+    # Deploy the foundation pipeline
+    expanso job deploy examples/data-security/payment-pii-foundation.yaml
+
+    # Send the sample payment data from the setup step
+    # (The data is in ~/expanso-payment-pii/sample-payments.json)
+    curl -X POST http://localhost:8080/events/payment \
+      -H "Content-Type: application/json" \
+      -d @~/expanso-payment-pii/sample-payments.json
+    ```
+    Check your logs. You will see the `full_number`, `expiry`, and `cvv` fields being printed in clear text.
+
+2.  **Create the Secure Pipeline:** Copy the foundation to a new file.
+    ```bash
+    cp examples/data-security/payment-pii-foundation.yaml delete-pii.yaml
+    ```
+
+3.  **Add the Deletion Logic:** Open `delete-pii.yaml` and add a `mapping` processor to the `pipeline` section. This processor uses the `.without()` function to remove the sensitive fields.
+
+    ```yaml title="Add this to the 'processors' array in delete-pii.yaml"
+    # This goes after the existing 'mapping' processor
+    - mapping: |
+        root = this
+        # The .without() function removes fields from an object.
+        root.payment_method = this.payment_method.without(
+          "full_number",
+          "expiry",
+          "cvv"
+        )
+    ```
+
+4.  **Deploy and Test Again:**
+    ```bash
+    # Deploy the new, secure pipeline
+    expanso job deploy delete-pii.yaml
+
+    # Send the same test data
+    curl -X POST http://localhost:8080/events/payment \
+      -H "Content-Type: application/json" \
+      -d @~/expanso-payment-pii/sample-payments.json
+    ```
+
+5.  **Verify:** Check your logs again. The output will now show the `payment_method` object with only the `last_four` field remaining. The high-risk PII has been successfully removed.
+
+You have now taken the single most important step towards PCI-DSS compliance.

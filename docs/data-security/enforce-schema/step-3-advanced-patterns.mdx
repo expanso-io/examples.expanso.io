@@ -1,0 +1,89 @@
+---
+title: "Advanced Schema Patterns"
+sidebar_label: "Step 3 - Advanced Patterns"
+sidebar_position: 5
+description: Explore advanced schema validation patterns like conditional validation and security hardening.
+keywords: [json-schema, advanced-patterns, security, conditional-validation]
+---
+
+# Advanced Schema Validation Patterns
+
+Once you have mastered the basic "validate and route" pattern, you can enhance your schema and pipeline for more complex and secure scenarios.
+
+## Pattern 1: Security Hardening
+
+For production, your schema should be as strict as possible to prevent injection attacks or unexpected data. The `additionalProperties: false` keyword is critical for this. It ensures that if a message contains any property *not* explicitly defined in your schema, it will fail validation.
+
+```json title="secure-sensor-schema.json"
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Secure Sensor Reading",
+  "type": "object",
+  "required": [ "sensor_id", "timestamp", "reading" ],
+  "properties": {
+    "sensor_id": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "reading": { "type": "number" }
+  },
+  "additionalProperties": false
+}
+```
+With this schema, a message like `{"sensor_id": "s-1", "timestamp": "...", "reading": 23.5, "extra_field": "injected"}` would be rejected, protecting your downstream systems.
+
+## Pattern 2: Conditional Validation
+
+JSON Schema allows you to apply different rules based on the content of the data itself, using `if`/`then`/`else`.
+
+**Use Case:** An outdoor sensor must have a `temperature` reading between -50 and 50, but an indoor sensor must have a reading between 0 and 40.
+
+```json title="conditional-schema.json"
+{
+  "type": "object",
+  "properties": {
+    "sensor_type": { "enum": ["indoor", "outdoor"] },
+    "temperature": { "type": "number" }
+  },
+  "if": {
+    "properties": { "sensor_type": { "const": "outdoor" } }
+  },
+  "then": {
+    "properties": { "temperature": { "minimum": -50, "maximum": 50 } }
+  },
+  "else": {
+    "properties": { "temperature": { "minimum": 0, "maximum": 40 } }
+  }
+}
+```
+
+## Pattern 3: Monitoring Data Quality
+
+Instead of just routing to a DLQ, you can also send metadata about every validation success and failure to a monitoring system. This allows you to build dashboards tracking the overall health of your data.
+
+```yaml title="Add a Monitoring Output"
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Output 1: The main switch for valid/DLQ routing
+      - switch:
+          cases:
+            - check: 'meta("validation_status") == "passed"'
+              output:
+                stdout: {} # Your "good" data destination
+            - output:
+                file:
+                  path: ./dlq.jsonl # Your DLQ destination
+
+      # Output 2: Send metadata about EVERY message to a monitoring endpoint
+      - processors:
+        - mapping: |
+            root = {
+              "status": meta("validation_status"),
+              "sensor_id": this.sensor_id,
+              "timestamp": now()
+            }
+        http_client:
+          url: "http://my-monitoring-service.com/validation-metrics"
+          verb: "POST"
+```
+This pattern uses a `broker` with `fan_out` to send the message down two paths simultaneously: the primary data path (which splits good from bad) and a secondary monitoring path that observes the outcome.

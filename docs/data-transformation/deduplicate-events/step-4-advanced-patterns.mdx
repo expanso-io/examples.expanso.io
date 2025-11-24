@@ -1,0 +1,72 @@
+---
+title: "Advanced Deduplication Patterns"
+sidebar_label: "Step 4 - Advanced Patterns"
+sidebar_position: 7
+description: "Explore advanced deduplication patterns like distributed caching and dynamic field selection."
+keywords: [deduplication, advanced-patterns, distributed-cache, dynamic-fields]
+---
+
+# Advanced Deduplication Patterns
+
+Once you have mastered the three basic deduplication techniques, you can combine them and add more sophisticated logic for production environments.
+
+## Pattern 1: Distributed Caching with Redis
+
+The in-memory cache used in the examples works for a single pipeline instance. In a distributed environment with multiple nodes, you need a shared, external cache like Redis to ensure that a duplicate seen by one node is recognized by all others.
+
+```yaml title="Using a Redis Cache for Deduplication"
+config:
+  # 1. Define a Redis cache resource instead of a memory one.
+  cache_resources:
+    - label: distributed_dedup_cache
+      redis:
+        url: "${REDIS_URL}" # e.g., redis://localhost:6379
+        default_ttl: 60s
+
+  pipeline:
+    processors:
+      - mapping: `root.dedup_key = this.event_id`
+      # 2. Use the Redis cache resource in your processor.
+      - cache:
+          resource: distributed_dedup_cache # Use the Redis cache
+          operator: get
+          key: ${! this.dedup_key }
+      # ... rest of the deduplication logic
+```
+This simple change makes your deduplication strategy scalable and resilient across a fleet of processing nodes.
+
+## Pattern 2: Dynamic Fingerprint Field Selection
+
+In a complex system, the fields that define a unique business event can change depending on the `event_type`. You can implement a `switch` processor to build the fingerprint dynamically.
+
+```yaml title="Dynamic Fingerprint Creation"
+- switch:
+    - check: this.event_type == "user_signup"
+      processors:
+        - mapping: |
+            let fingerprint = {"email": this.user.email}
+            root.dedup_hash = fingerprint.json_format().hash("sha256")
+
+    - check: this.event_type == "purchase"
+      processors:
+        - mapping: |
+            let fingerprint = {
+              "user_id": this.user.id,
+              "product_id": this.product.id,
+              "amount": this.purchase.amount
+            }
+            root.dedup_hash = fingerprint.json_format().hash("sha256")
+
+# The rest of the pipeline (cache, check, drop) uses the
+# commonly-named 'dedup_hash' field.
+```
+
+## Pattern 3: Multi-Layered Deduplication
+
+For maximum accuracy, you can combine all three techniques in order, from fastest to slowest.
+
+1.  **ID-Based:** First, check for an exact `event_id` match. This is the fastest and will catch most simple retries.
+2.  **Fingerprint-Based:** If the ID is new, then calculate and check the business fingerprint. This will catch more complex semantic duplicates.
+3.  **Hash-Based:** If the fingerprint is also new, as a final catch-all, check the full content hash.
+
+This layered approach provides the performance of ID-based checking for the common case, while still providing the deep inspection of fingerprinting and hashing for more complex duplicate scenarios. Implementing this requires a more complex pipeline with multiple `cache` lookups and conditional logic.

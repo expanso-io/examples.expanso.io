@@ -1,0 +1,70 @@
+---
+title: "Advanced Parsing Patterns"
+sidebar_label: "Step 5 - Advanced Patterns"
+sidebar_position: 8
+description: Explore advanced log parsing patterns like error handling and data enrichment.
+keywords: [log-parsing, advanced-patterns, error-handling, enrichment]
+---
+
+# Advanced Log Parsing Patterns
+
+Once you have mastered the basic parsing techniques for different formats, you can add more sophisticated logic for error handling and data enrichment.
+
+## Pattern 1: Graceful Error Handling
+
+When a processor like `parse_json` or `grok` fails, it stops the processing of that message. For a robust pipeline, you should wrap parsing attempts in a `try/catch` block. This allows you to catch the error, route the malformed message to a Dead Letter Queue (DLQ), and continue processing other messages.
+
+```yaml title="Add Error Handling to a Parser"
+- try:
+    # Attempt to parse the log
+    - grok:
+        expressions: [ '%{COMMONAPACHELOG}' ]
+        named_captures_only: true
+
+    # If it succeeds, add a success status
+    - mapping: |
+        root = this
+        meta parse_status = "success"
+
+  # If the grok processor fails, this block is executed
+  catch:
+    - mapping: |
+        root = this
+        meta parse_status = "failed"
+        root.parse_error = error() # Store the error message
+
+# Now you can use a 'switch' in your output to route based on meta("parse_status")
+```
+
+## Pattern 2: Data Enrichment
+
+Parsing is often just the first step. After you have structured data, you typically want to enrich it with more context.
+
+**Use Case:** After parsing an access log, you want to perform a GeoIP lookup on the `client_ip` and parse the `user_agent` string to identify the browser and OS.
+
+```yaml title="Enriching Parsed Log Data"
+pipeline:
+  processors:
+    # 1. PARSE: Start with the grok processor from Step 3
+    - grok:
+        expressions: [ '%{COMBINEDAPACHELOG}' ]
+        named_captures_only: true
+
+    # 2. ENRICH: Add processors to enrich the parsed data
+    
+    # Enrich with GeoIP data
+    - geoip:
+        field: root.client_ip
+        target_field: root.client_geo
+
+    # Enrich with User Agent data
+    - user_agent:
+        field: root.user_agent
+        target_field: root.client_ua
+
+    # Enrich with custom business logic
+    - mapping: |
+        root = this
+        root.request_type = if this.request.starts_with("/api/") { "api" } else { "web" }
+```
+This multi-stage process of parsing and then enriching is a very common and powerful pattern in data processing pipelines.

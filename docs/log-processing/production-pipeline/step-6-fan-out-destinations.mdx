@@ -1,986 +1,111 @@
 ---
-title: Fan-Out to Multiple Destinations
-sidebar_label: Step 6 - Fan-Out Destinations
-sidebar_position: 8
-description: Implement multi-destination routing to send processed logs to Elasticsearch, S3, and backup systems with different batching and compression strategies
-keywords: [fan-out, routing, elasticsearch, s3, backup, destinations, multi-output]
+title: Step 6 - Fan-Out Destinations
+sidebar_label: 6. Fan-Out Pattern
+description: Route logs to multiple destinations (Elasticsearch, S3, Backup) in parallel
+keywords: [routing, fan-out, elasticsearch, s3, backup, multi-destination]
 ---
 
-# Step 6: Fan-Out to Multiple Destinations
+import CodeBlock from '@theme/CodeBlock';
 
-In this final step, you'll implement the fan-out pattern to route your processed logs to multiple destinations simultaneously. This enables real-time search, long-term archival, and disaster recovery while optimizing each destination for its specific use case.
+# Fan-Out Destinations
 
-## Why Fan-Out Matters
+A single destination is rarely enough. You need real-time search for debugging (Elasticsearch), cheap long-term storage for compliance (S3), and perhaps a local backup. The Fan-Out pattern sends data to all of them in parallel.
 
-Different systems need logs in different formats and timeframes:
+## Goal
 
-- **Elasticsearch** - Real-time search and dashboards (immediate delivery)
-- **S3** - Long-term archival and compliance (batched, compressed)
-- **Local backup** - Disaster recovery and debugging (immediate, simple format)
-- **Analytics systems** - Business intelligence (transformed format)
-- **Alerting systems** - Critical event notifications (filtered, immediate)
+- **Elasticsearch:** Hot storage for recent logs (searchable)
+- **S3:** Cold storage for all logs (cheap, compressed)
+- **Local File:** Backup in case of network issues
 
-## Learning Objectives
+## Configuration
 
-By the end of this step, you'll understand:
+We use the `broker` output pattern with `fan_out`.
 
-✅ How to configure parallel output destinations with different requirements
-✅ How to implement per-destination filtering and transformation
-✅ How to optimize batching and compression for each target system
-✅ How to handle errors and implement fallback strategies
-✅ How to monitor delivery success rates and performance
+### 1. The Broker Output
 
-## Current vs. Target Architecture
-
-**Current (Single Output):**
-```yaml
-output:
-  file:
-    path: "/var/log/expanso/logs.jsonl"
-```
-
-**Target (Fan-Out to Multiple Destinations):**
 ```yaml
 output:
   broker:
     pattern: fan_out
     outputs:
-      - elasticsearch: {real-time search}
-      - aws_s3: {long-term archive}
-      - file: {local backup}
-      - http: {alerting webhook}
-```
-
-## Step 6.1: Configure Elasticsearch Output
-
-Start by configuring Elasticsearch for real-time log search and dashboarding:
-
-```yaml title="fan-out-destinations-pipeline.yaml"
-name: log-processing-fan-out-destinations
-description: Production log processing with multi-destination fan-out routing
-type: pipeline
-namespace: default
-
-selector:
-  match_labels:
-    role: log-collector
-
-config:
-  input:
-    http_server:
-      address: "0.0.0.0:8080"
-      path: /logs/ingest
-      allowed_verbs: [POST]
-      timeout: 10s
-      rate_limit: "1000/1s"
-      auth:
-        type: header
-        header: "X-API-Key"
-        required_value: "${LOG_API_KEY:secret-key}"
-
-  pipeline:
-    processors:
-      # All previous processing (simplified for this step)
-      - json_documents:
-          parts: []
-      - mapping: |
-          # Basic enrichment and processing
-          root = this
-          root.timestamp = this.timestamp.or(now())
-          root.level = this.level.or("INFO")
-          root.service = this.service.or("unknown")
-          root.message = this.message.or("No message")
+      # Destination 1: Elasticsearch
+      - elasticsearch:
+          urls: ["${ELASTICSEARCH_URL}"]
+          index: "logs-${!timestamp_unix_date()}"
           
-          # Add processing metadata
-          root.processing = {
-            "processed_at": now(),
-            "node_id": env("NODE_ID").or("unknown"),
-            "pipeline_version": "1.6.0"
-          }
-          
-          # Simple severity scoring  
-          root.severity_score = match this.level {
-            "DEBUG" => 1,
-            "INFO" => 2,
-            "WARN" => 3, 
-            "ERROR" => 4,
-            "FATAL" => 5,
-            _ => 2
-          }
-
-  # Fan-out configuration
-  output:
-    broker:
-      pattern: fan_out
-      outputs:
-        # Destination 1: Elasticsearch for real-time search
-        - label: elasticsearch_search
-          processors:
-            # Elasticsearch-specific processing
-            - mapping: |
-                root = this
-                
-                # Add Elasticsearch-specific metadata
-                root.elasticsearch_metadata = {
-                  "index_template": "logs-${!timestamp_unix()}",
-                  "document_type": "_doc",
-                  "routing_key": this.service,
-                  "pipeline_name": "log-enrichment"
-                }
-                
-                # Optimize for search
-                root.searchable_message = this.message.lowercase()
-                root.tags = [this.service, this.level]
-                
-                # Add time-based fields for time series analysis
-                root.timestamp_unix = this.timestamp.parse_timestamp("2006-01-02T15:04:05.000Z").timestamp()
-                root.hour = this.timestamp.parse_timestamp("2006-01-02T15:04:05.000Z").format_timestamp("15").number()
-                root.day_of_week = this.timestamp.parse_timestamp("2006-01-02T15:04:05.000Z").format_timestamp("Monday")
-
-            # Filter out debug logs for Elasticsearch (save storage)
-            - mapping: |
-                root = if this.severity_score >= 2 { this } else { deleted() }
-
-          elasticsearch:
-            # Elasticsearch cluster configuration
-            urls:
-              - "${ELASTICSEARCH_URL:http://localhost:9200}"
-            
-            # Dynamic index naming (daily rotation)
-            index: "logs-${!timestamp().format_timestamp(\"2006.01.02\")}"
-            
-            # Document ID (for deduplication)
-            id: "${!json(\"processing.node_id\")}-${!timestamp_unix()}-${!count(\"elasticsearch\")}"
-            
-            # Connection settings
-            timeout: 30s
-            max_retries: 3
-            retry_as_batch: true
-            
-            # Authentication (if needed)
-            basic_auth:
-              enabled: false
-              username: "${ELASTICSEARCH_USERNAME:}"
-              password: "${ELASTICSEARCH_PASSWORD:}"
-            
-            # TLS settings (for production)
-            tls:
-              enabled: false
-              skip_cert_verify: false
-              ca_file: "${ELASTICSEARCH_CA_FILE:}"
-            
-            # Batching for performance
-            batching:
-              count: 100        # 100 documents per batch
-              period: 5s        # or every 5 seconds
-              byte_size: 5242880 # or 5MB
-            
-            # Error handling
-            max_in_flight: 64
-            backoff:
-              initial_interval: 1s
-              max_interval: 30s
-              max_elapsed_time: 300s
-
-logger:
-  level: INFO
+      # Destination 2: S3
+      - aws_s3:
+          bucket: "${S3_BUCKET}"
+          path: "logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz"
+          batching:
+             count: 1000
+             period: 30s
+             processors: [ { compress: { algorithm: gzip } } ]
 ```
 
-Deploy and test Elasticsearch output:
+### 2. Handling Failures
 
-```bash
-# Set Elasticsearch configuration
-export ELASTICSEARCH_URL="http://localhost:9200"  # Adjust for your setup
+In a fan-out, if one output fails, we don't want to block the others. The `fan_out` pattern handles this, but individual outputs can also have their own fallback (e.g., write to disk if S3 is down).
 
-# Deploy the fan-out pipeline
-expanso job deploy fan-out-destinations-pipeline.yaml
+## Complete Step 6 Configuration
 
-# Send test logs
-curl -X POST http://localhost:8080/logs/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
-  -d '{
-    "timestamp": "2025-10-20T10:30:45.123Z",
-    "level": "ERROR",
-    "service": "payment-service",
-    "message": "Payment processing failed", 
-    "user_id": "user123",
-    "transaction_id": "txn456"
-  }'
+```yaml title="production-pipeline-step-6.yaml"
+input:
+  http_server:
+    address: "0.0.0.0:8080"
+    path: /logs/ingest
+    rate_limit: "1000/1s"
+    auth:
+      type: header
+      header: "X-API-Key"
+      required_value: "${LOG_API_KEY}"
 
-# Check if data reached Elasticsearch  
-curl "${ELASTICSEARCH_URL}/_cat/indices/logs-*?v"
+pipeline:
+  processors:
+    - mapping: 'root = this.parse_json().catch({"message": content()})'
 
-# Search for the log
-curl "${ELASTICSEARCH_URL}/logs-*/_search?pretty" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": {
-      "match": {
-        "service": "payment-service"
-      }
-    }
-  }'
-```
-
-## Step 6.2: Add S3 Archive Output
-
-Add S3 configuration for long-term log archival with compression:
-
-```yaml title="Add S3 archive output to the fan-out configuration"
-        # Destination 2: S3 for long-term archival
-        - label: s3_archive
-          processors:
-            # S3-specific processing
-            - mapping: |
-                root = this
-                
-                # Add S3-specific metadata
-                root.s3_metadata = {
-                  "archive_tier": "STANDARD_IA",
-                  "retention_years": 7,
-                  "compliance_tags": ["SOX", "GDPR"],
-                  "encryption": "AES256",
-                  "archived_at": now()
-                }
-                
-                # Compress data by removing elasticsearch-specific fields
-                root = this.without(
-                  "elasticsearch_metadata", 
-                  "searchable_message", 
-                  "timestamp_unix",
-                  "tags"
-                )
-                
-                # Add S3 lineage
-                root.lineage = {
-                  "source": "log-processing-pipeline",
-                  "destination": "s3-archive",
-                  "path": "elasticsearch -> s3",
-                  "retention_policy": "7_years"
-                }
-
-          aws_s3:
-            # S3 bucket configuration
-            bucket: "${S3_BUCKET:my-company-logs}"
-            
-            # Hierarchical path structure for organization
-            path: "logs/year=${!timestamp().format_timestamp(\"2006\")}/month=${!timestamp().format_timestamp(\"01\")}/day=${!timestamp().format_timestamp(\"02\")}/hour=${!timestamp().format_timestamp(\"15\")}/logs-${!timestamp_unix_nano()}.jsonl"
-            
-            # Storage optimization
-            storage_class: STANDARD_IA  # Infrequent Access for cost savings
-            content_type: "application/x-ndjson"
-            compression: gzip           # Compress for storage efficiency
-            
-            # Large batching for S3 efficiency
-            batching:
-              count: 1000          # 1000 logs per file
-              period: 5m           # or every 5 minutes
-              byte_size: 10485760  # or 10MB
-            
-            # AWS credentials
-            credentials:
-              profile: "${AWS_PROFILE:default}"
-              region: "${AWS_REGION:us-west-2}"
-              role_arn: "${AWS_ROLE_ARN:}"
-            
-            # Error handling and retries
-            max_retries: 5
-            retry_as_batch: true
-            backoff:
-              initial_interval: 2s
-              max_interval: 60s
-              max_elapsed_time: 600s
-            
-            # Metadata and tags
-            metadata:
-              pipeline: "log-processing"
-              environment: "${ENVIRONMENT:production}"
-              compliance: "sox-gdpr-ready"
-            
-            tags:
-              Environment: "${ENVIRONMENT:production}"
-              Service: "log-processing" 
-              Compliance: "required"
-              RetentionYears: "7"
-```
-
-## Step 6.3: Add Local Backup Output
-
-Configure local file backup for disaster recovery:
-
-```yaml title="Add local backup output"
-        # Destination 3: Local backup for disaster recovery
-        - label: local_backup
-          processors:
-            # Local backup processing
-            - mapping: |
-                root = this
-                
-                # Add backup metadata
-                root.backup_metadata = {
-                  "backup_type": "disaster_recovery",
-                  "backup_at": now(),
-                  "backup_node": env("NODE_ID").or("unknown"),
-                  "backup_path": "/var/log/expanso/backup",
-                  "retention_days": 30
-                }
-                
-                # Keep essential fields only for local backup
-                root = {
-                  "timestamp": this.timestamp,
-                  "level": this.level,
-                  "service": this.service,
-                  "message": this.message,
-                  "severity_score": this.severity_score,
-                  "processing": this.processing,
-                  "backup_metadata": this.backup_metadata
-                }
-
-          file:
-            # Backup file configuration
-            path: "/var/log/expanso/backup/logs-${!timestamp().format_timestamp(\"2006-01-02\")}-${!hostname()}.jsonl"
-            
-            # File handling
-            codec: lines
-            sync: true  # Force sync for reliability
-            
-            # Moderate batching (balance between performance and data loss risk)
-            batching:
-              count: 50      # Smaller batches for faster writes
-              period: 10s    # More frequent writes
-            
-            # File rotation
-            rotation:
-              size: 104857600  # 100MB files
-              max_files: 10    # Keep 10 files (roughly 1GB)
-              compress: true   # Compress old files
-            
-            # Permissions
-            file_mode: 0644
-            dir_mode: 0755
-```
-
-## Step 6.4: Add Critical Alert Output
-
-Add webhook output for critical event notifications:
-
-```yaml title="Add critical alert webhook output"
-        # Destination 4: Critical alerts webhook
-        - label: critical_alerts
-          processors:
-            # Critical alerts filtering and formatting
-            - mapping: |
-                # Only send critical/high severity logs
-                root = if this.severity_score >= 4 {
-                  this
-                } else {
-                  deleted()
-                }
-
-            # Format alert payload
-            - mapping: |
-                root = {
-                  "alert_type": "log_event",
-                  "severity": this.level,
-                  "priority": match this.severity_score {
-                    5 => "critical",
-                    4 => "high",
-                    _ => "medium"
-                  },
-                  "timestamp": this.timestamp,
-                  "source": {
-                    "service": this.service,
-                    "node": this.processing.node_id,
-                    "environment": env("ENVIRONMENT").or("production")
-                  },
-                  "event": {
-                    "message": this.message,
-                    "details": this.without("timestamp", "level", "service", "message", "processing"),
-                    "correlation_id": uuid_v4()
-                  },
-                  "metadata": {
-                    "pipeline": "log-processing-fan-out",
-                    "alert_generated_at": now(),
-                    "requires_action": this.severity_score == 5
-                  }
-                }
-
-          http:
-            # Webhook configuration
-            url: "${ALERT_WEBHOOK_URL:https://hooks.slack.com/services/your/slack/webhook}"
-            verb: POST
-            
-            # Headers
-            headers:
-              "Content-Type": "application/json"
-              "Authorization": "Bearer ${ALERT_TOKEN:}"
-              "X-Alert-Source": "log-processing-pipeline"
-            
-            # Fast delivery for alerts
-            timeout: 10s
-            rate_limit: "100/1s"
-            
-            # Minimal batching (near real-time)
-            batching:
-              count: 1      # Send immediately
-              period: 1s    # Maximum 1 second delay
-            
-            # Aggressive retries for critical alerts
-            max_retries: 5
-            retry_as_batch: false
-            backoff:
-              initial_interval: 500ms
-              max_interval: 5s
-              max_elapsed_time: 30s
-```
-
-## Step 6.5: Add Metrics Collection Output
-
-Add metrics collection for monitoring and observability:
-
-```yaml title="Add metrics collection output"
-        # Destination 5: Metrics collection
-        - label: metrics_collection
-          processors:
-            # Generate metrics from log events
-            - mapping: |
-                root = {
-                  "metric_type": "log_event",
-                  "timestamp": this.timestamp,
-                  "dimensions": {
-                    "service": this.service,
-                    "level": this.level,
-                    "node_id": this.processing.node_id,
-                    "environment": env("ENVIRONMENT").or("production")
-                  },
-                  "metrics": {
-                    "log_count": 1,
-                    "severity_score": this.severity_score,
-                    "processing_latency_ms": (now().timestamp() - this.timestamp.parse_timestamp("2006-01-02T15:04:05.000Z").timestamp()) * 1000,
-                    "error_count": if this.level == "ERROR" { 1 } else { 0 },
-                    "warning_count": if this.level == "WARN" { 1 } else { 0 }
-                  }
-                }
-
-          # Send to metrics aggregation service
-          http:
-            url: "${METRICS_URL:http://localhost:8086/write?db=logs}"
-            verb: POST
-            headers:
-              "Content-Type": "application/x-ndjson"
-              "Authorization": "Token ${METRICS_TOKEN:}"
-            
-            # Batch metrics for efficiency
-            batching:
-              count: 500
-              period: 30s
-            
-            timeout: 5s
-            max_retries: 3
-```
-
-## Step 6.6: Test Complete Fan-Out System
-
-Test the complete multi-destination fan-out:
-
-```bash
-# Set all required environment variables
-export ELASTICSEARCH_URL="http://localhost:9200"
-export S3_BUCKET="my-company-logs-$(date +%s)"
-export AWS_PROFILE="default"
-export AWS_REGION="us-west-2"
-export ALERT_WEBHOOK_URL="https://webhook.site/your-unique-id"  # Use webhook.site for testing
-export METRICS_URL="http://localhost:8086/write?db=logs"
-export ENVIRONMENT="production"
-
-# Create S3 bucket if using AWS
-if [ ! -z "$AWS_PROFILE" ]; then
-  aws s3 mb s3://$S3_BUCKET --region $AWS_REGION 2>/dev/null || echo "Bucket exists or AWS not configured"
-fi
-
-# Deploy the complete fan-out pipeline
-expanso job deploy fan-out-destinations-pipeline.yaml
-
-# Send test logs of different severities
-curl -X POST http://localhost:8080/logs/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
-  -d '{
-    "timestamp": "2025-10-20T10:30:45.123Z",
-    "level": "INFO",
-    "service": "user-service",
-    "message": "User login successful"
-  }'
-
-curl -X POST http://localhost:8080/logs/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
-  -d '{
-    "timestamp": "2025-10-20T10:30:45.123Z",
-    "level": "ERROR", 
-    "service": "payment-service",
-    "message": "Critical payment gateway failure",
-    "error_code": "GATEWAY_DOWN"
-  }'
-
-curl -X POST http://localhost:8080/logs/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ${LOG_API_KEY:-secret-key}" \
-  -d '{
-    "timestamp": "2025-10-20T10:30:45.123Z",
-    "level": "FATAL",
-    "service": "database-service", 
-    "message": "Database connection pool exhausted",
-    "active_connections": 100,
-    "max_connections": 100
-  }'
-
-# Wait a moment for processing
-sleep 15
-
-# Check Elasticsearch
-if [ ! -z "$ELASTICSEARCH_URL" ]; then
-  echo "Checking Elasticsearch..."
-  curl "$ELASTICSEARCH_URL/_cat/indices/logs-*?v"
-  curl "$ELASTICSEARCH_URL/logs-*/_search?size=5&pretty"
-fi
-
-# Check S3 (if configured)
-if [ ! -z "$S3_BUCKET" ] && [ ! -z "$AWS_PROFILE" ]; then
-  echo "Checking S3..."
-  aws s3 ls s3://$S3_BUCKET/logs/ --recursive
-fi
-
-# Check local backup
-echo "Checking local backup..."
-ls -la /var/log/expanso/backup/
-tail -5 /var/log/expanso/backup/logs-*.jsonl
-
-# Check if critical alerts were sent (check webhook.site if using)
-echo "Check your webhook.site URL for critical alerts"
-```
-
-## Advanced Fan-Out Patterns
-
-### Pattern 1: Conditional Routing Based on Content
-
-Route different log types to specialized destinations:
-
-```yaml
-# Content-based routing
 output:
   broker:
     pattern: fan_out
     outputs:
-      # Security logs to dedicated SIEM
-      - label: security_logs
-        processors:
-          - mapping: |
-              root = if this.service.contains("auth") || 
-                        this.service.contains("security") ||
-                        this.message.lowercase().contains("unauthorized") {
-                this
-              } else {
-                deleted()
-              }
-        http:
-          url: "${SIEM_URL}/api/events"
+      # 1. Console (Simulating real-time view)
+      - stdout:
+          codec: lines
+
+      # 2. Local File (Simulating S3/Archive)
+      - file:
+          path: "./output_logs/${!timestamp_unix_date()}_logs.jsonl"
+          codec: lines
           
-      # Performance logs to APM system  
-      - label: performance_logs
-        processors:
-          - mapping: |
-              root = if this.duration_ms.exists() || 
-                        this.response_time.exists() {
-                this
-              } else {
-                deleted()
-              }
-        http:
-          url: "${APM_URL}/api/traces"
+      # 3. Metrics (Simulating observability)
+      - http_client:
+          url: "http://localhost:8080/metrics_endpoint" # Mock endpoint
+          verb: POST
+          # Use 'drop_on_error' to prevent pipeline blocking
+          drop_on_error: true 
 ```
 
-### Pattern 2: Priority-Based Delivery
+## Deployment & Verification
 
-Different delivery guarantees based on log priority:
+1.  **Deploy:**
+    ```bash
+    expanso job deploy production-pipeline-step-6.yaml
+    ```
 
-```yaml
-# Priority-based delivery configuration
-output:
-  broker:
-    pattern: fan_out
-    outputs:
-      # Critical logs - multiple destinations with retries
-      - label: critical_multiple_delivery
-        processors:
-          - mapping: |
-              root = if this.severity_score >= 4 { this } else { deleted() }
-        broker:
-          pattern: fan_out
-          outputs:
-            - elasticsearch: {immediate delivery}
-            - file: {local backup}
-            - http: {alert webhook}
-            
-      # Normal logs - standard delivery
-      - label: normal_delivery
-        processors:
-          - mapping: |
-              root = if this.severity_score < 4 { this } else { deleted() }
-        broker:
-          pattern: round_robin
-          outputs:
-            - s3: {batched delivery}
-            - file: {backup}
-```
+2.  **Send Data:**
+    ```bash
+    curl -X POST http://localhost:8080/logs/ingest \
+      -H "X-API-Key: $LOG_API_KEY" \
+      -d '{"message": "multicast test"}'
+    ```
 
-### Pattern 3: Geographic Distribution
+3.  **Verify Outputs:**
+    - Check the terminal (stdout)
+    - Check the `output_logs/` directory for the file.
 
-Route logs based on geographic requirements:
+## Conclusion
 
-```yaml
-# Geographic routing
-output:
-  broker:
-    pattern: fan_out
-    outputs:
-      # EU data stays in EU (GDPR compliance)
-      - label: eu_compliance
-        processors:
-          - mapping: |
-              root = if env("NODE_REGION").starts_with("eu-") {
-                this
-              } else {
-                deleted()
-              }
-        s3:
-          bucket: "eu-compliance-logs"
-          region: "eu-west-1"
-          
-      # US data to US systems
-      - label: us_systems
-        processors:
-          - mapping: |
-              root = if env("NODE_REGION").starts_with("us-") {
-                this  
-              } else {
-                deleted()
-              }
-        s3:
-          bucket: "us-logs"
-          region: "us-west-2"
-```
+You have built a complete, production-grade log processing pipeline! You started with a basic HTTP server, added security, validated data, enriched it with context, filtered noise, redacted PII, and routed it to multiple destinations.
 
-## Error Handling and Fallback Strategies
+👉 [**View Complete Pipeline**](./complete-production-pipeline)
 
-### Output-Specific Error Handling
-
-```yaml
-# Configure different error handling per output
-outputs:
-  - label: elasticsearch_with_fallback
-    elasticsearch:
-      urls: ["${ELASTICSEARCH_URL}"]
-      # Elasticsearch configuration...
-    
-    # Fallback to file if Elasticsearch fails
-    fallback:
-      file:
-        path: "/var/log/expanso/elasticsearch-fallback-${!timestamp_unix()}.jsonl"
-        
-  - label: s3_with_local_fallback  
-    aws_s3:
-      bucket: "${S3_BUCKET}"
-      # S3 configuration...
-    
-    # Fallback to local storage if S3 fails
-    fallback:
-      file:
-        path: "/var/log/expanso/s3-fallback-${!timestamp_unix()}.jsonl"
-        compression: gzip
-```
-
-### Dead Letter Queue Pattern
-
-```yaml
-# Dead letter queue for failed deliveries
-outputs:
-  - label: main_processing
-    # Main outputs...
-    
-  - label: dead_letter_queue
-    processors:
-      # Capture failed deliveries
-      - mapping: |
-          root = {
-            "failed_delivery": {
-              "original_event": this,
-              "failure_timestamp": now(),
-              "failure_reason": meta("error_reason").or("unknown"),
-              "retry_count": meta("retry_count").or(0),
-              "destination": meta("failed_destination").or("unknown")
-            }
-          }
-    file:
-      path: "/var/log/expanso/dead-letter-queue-${!timestamp_unix()}.jsonl"
-```
-
-## Performance Optimization
-
-### Optimize Batching Per Destination
-
-Different destinations have different optimal batch sizes:
-
-```yaml
-outputs:
-  # Elasticsearch - moderate batches for balance
-  - elasticsearch:
-      batching:
-        count: 100
-        period: 5s
-        byte_size: 5MB
-        
-  # S3 - large batches for efficiency  
-  - aws_s3:
-      batching:
-        count: 1000
-        period: 5m
-        byte_size: 10MB
-        
-  # Alerts - immediate delivery
-  - http:  # alerts
-      batching:
-        count: 1
-        period: 1s
-        
-  # Metrics - medium batches
-  - http:  # metrics
-      batching:
-        count: 500
-        period: 30s
-```
-
-### Connection Pooling and Keep-Alive
-
-```yaml
-# Optimize HTTP connections
-http:
-  url: "https://api.example.com/logs"
-  
-  # Connection optimization
-  keep_alive: true
-  keep_alive_timeout: 90s
-  max_idle_connections: 100
-  max_connections_per_host: 10
-  
-  # Compression
-  compression: gzip
-  
-  # HTTP/2 if supported
-  force_http2: true
-```
-
-## Monitoring Fan-Out Performance
-
-### Track Delivery Success Rates
-
-```bash
-# Check pipeline metrics
-curl http://localhost:8080/metrics | grep output
-
-# Key metrics to monitor:
-# - output_success_total{destination="elasticsearch"}
-# - output_error_total{destination="s3"}  
-# - output_latency_seconds{destination="alerts"}
-# - batch_size_total{destination="backup"}
-```
-
-### Monitor Destination Health
-
-```yaml
-# Add health check outputs
-outputs:
-  - label: destination_health_check
-    processors:
-      - mapping: |
-          root = {
-            "health_check": {
-              "timestamp": now(),
-              "destinations": {
-                "elasticsearch": check_elasticsearch_health(),
-                "s3": check_s3_health(),
-                "alerts": check_webhook_health()
-              }
-            }
-          }
-    file:
-      path: "/var/log/expanso/destination-health-${!timestamp_unix()}.jsonl"
-      batching:
-        period: 60s
-```
-
-## Troubleshooting
-
-### Issue: Elasticsearch Ingestion Failing
-
-**Symptom:** Logs not appearing in Elasticsearch
-
-**Diagnosis:**
-```bash
-# Check Elasticsearch health
-curl "${ELASTICSEARCH_URL}/_cluster/health"
-
-# Check pipeline metrics
-curl http://localhost:8080/metrics | grep elasticsearch
-
-# Check pipeline logs
-expanso job logs log-processing-fan-out-destinations | grep elasticsearch
-```
-
-**Solutions:**
-1. **Check authentication:**
-```yaml
-basic_auth:
-  enabled: true
-  username: "${ELASTICSEARCH_USERNAME}"
-  password: "${ELASTICSEARCH_PASSWORD}"
-```
-
-2. **Adjust batch size:**
-```yaml
-batching:
-  count: 50      # Reduce batch size
-  period: 10s    # More frequent sends
-```
-
-### Issue: S3 Upload Failures
-
-**Symptom:** S3 metrics showing errors
-
-**Diagnosis:**
-```bash
-# Check AWS credentials
-aws sts get-caller-identity
-
-# Check S3 bucket permissions
-aws s3api get-bucket-acl --bucket $S3_BUCKET
-
-# Check pipeline logs
-expanso job logs log-processing-fan-out-destinations | grep s3
-```
-
-**Solutions:**
-1. **Fix IAM permissions:**
-```json
-{
-  "Version": "2012-10-17", 
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": ["s3:PutObject", "s3:PutObjectAcl"],
-      "Resource": "arn:aws:s3:::your-bucket/*"
-    }
-  ]
-}
-```
-
-2. **Use fallback storage:**
-```yaml
-fallback:
-  file:
-    path: "/var/log/expanso/s3-fallback.jsonl"
-```
-
-### Issue: Alert Webhook Timeouts
-
-**Symptom:** Critical alerts not being delivered
-
-**Diagnosis:**
-```bash
-# Test webhook manually
-curl -X POST "$ALERT_WEBHOOK_URL" \
-  -H "Content-Type: application/json" \
-  -d '{"test": "message"}'
-
-# Check timeout settings
-curl http://localhost:8080/metrics | grep alert
-```
-
-**Solutions:**
-1. **Reduce timeout:**
-```yaml
-timeout: 5s      # Reduce from 10s
-max_retries: 10  # Increase retries
-```
-
-2. **Add fallback notification:**
-```yaml
-fallback:
-  file:
-    path: "/var/log/expanso/failed-alerts.jsonl"
-```
-
-## What You've Accomplished
-
-✅ **Configured Elasticsearch output** with optimized indexing and search fields
-✅ **Set up S3 archival** with compression and hierarchical organization
-✅ **Implemented local backup** for disaster recovery and debugging
-✅ **Added critical alert routing** for immediate incident response
-✅ **Created metrics collection** for observability and monitoring
-✅ **Built error handling** with fallback strategies and dead letter queues
-
-## Key Takeaways
-
-1. **Different Destinations, Different Needs** - Optimize batching and format per destination
-2. **Reliability Through Redundancy** - Multiple destinations provide resilience
-3. **Performance vs. Latency Trade-offs** - Balance batch size with delivery speed
-4. **Error Handling is Critical** - Always have fallback strategies
-5. **Monitor Everything** - Track success rates and performance metrics
-
-## Next Steps
-
-Your production log processing pipeline is now complete! You have successfully:
-
-- **Configured secure HTTP input** with authentication and rate limiting
-- **Implemented data validation** and quality assurance
-- **Added rich metadata enrichment** for operational intelligence
-- **Applied intelligent filtering** to reduce noise and costs
-- **Protected sensitive data** with comprehensive redaction
-- **Routed logs to multiple destinations** with optimized delivery
-
-**Next:** [Complete Production Pipeline](./complete-production-pipeline) - See the final configuration and deploy the complete solution.
-
-## Fan-Out Configuration Summary
-
-Here's the complete multi-destination routing you've implemented:
-
-```yaml
-fan_out_destinations:
-  elasticsearch:
-    purpose: real_time_search_and_dashboards
-    optimization: fast_indexing + search_fields
-    batching: 100_docs / 5_seconds
-    
-  s3_archive:
-    purpose: long_term_compliance_storage
-    optimization: compression + hierarchical_paths
-    batching: 1000_docs / 5_minutes / 10MB
-    
-  local_backup:
-    purpose: disaster_recovery
-    optimization: immediate_sync + essential_fields
-    batching: 50_docs / 10_seconds
-    
-  critical_alerts:
-    purpose: incident_response
-    optimization: immediate_delivery + webhook_format
-    batching: 1_doc / 1_second_max
-    
-  metrics_collection:
-    purpose: observability_and_monitoring 
-    optimization: aggregated_metrics + time_series
-    batching: 500_metrics / 30_seconds
-```
-
-This comprehensive fan-out system ensures your logs reach all required destinations with appropriate optimizations for each use case while maintaining high reliability and performance.

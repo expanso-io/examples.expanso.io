@@ -2,21 +2,21 @@
 title: Setup Environment for Field Encryption
 sidebar_label: Setup
 sidebar_position: 3
-description: Configure encryption keys, environment variables, and deploy a shell pipeline for field-level encryption
+description: Configure encryption keys and environment variables for field-level encryption.
 keywords: [setup, encryption-keys, aes, environment, key-management]
 ---
 
 # Setup Environment for Field Encryption
 
-Before building the field encryption pipeline, you'll set up secure encryption keys, configure environment variables, and deploy a minimal test pipeline to verify everything works.
+Before building the field encryption pipeline, you'll set up secure encryption keys and configure environment variables.
 
 ## Prerequisites
 
-- **Kafka:** Set up [Kafka](/getting-started/local-development#kafka) for encrypted data delivery
-- **Expanso:** Installed and running ([Installation Guide](https://docs.expanso.io/installation))
-- **Environment Variables:** See the [local development guide](/getting-started/local-development#environment-variables)
-- **OpenSSL:** Installed for key generation
+This example requires the following services to be running:
 
+*   **[Kafka](/getting-started/services/kafka)**
+
+Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
 ## Step 1: Generate Encryption Keys
 
 Generate secure AES-256 encryption keys for different data types. Using separate keys allows granular access control and meets compliance requirements.
@@ -150,180 +150,7 @@ EOF
 echo "Sample data created at /tmp/encryption-test/sample-payment.json"
 ```
 
-## Step 4: Deploy Shell Pipeline
-
-Before building the complete encryption pipeline, deploy a minimal "shell" pipeline that validates your setup and performs basic field identification without encryption.
-
-Create `shell-encryption.yaml`:
-
-```yaml title="shell-encryption.yaml"
-apiVersion: expanso.io/v1
-kind: DataPipeline
-metadata:
-  name: shell-field-encryption
-  namespace: default
-spec:
-  processors:
-    - name: input-validation
-      type: mapping
-      config:
-        mapping: |
-          # Validate required fields
-          root = if this.transaction_id.type() != "string" {
-            throw("transaction_id must be a string")
-          } else if this.payment.card_number.type() != "string" {
-            throw("payment.card_number is required")
-          } else if this.customer.ssn.type() != "string" {
-            throw("customer.ssn is required")
-          } else {
-            this
-          }
-          
-          # Add field classification metadata
-          root.field_classification = {
-            "sensitive_fields": [
-              "payment.card_number",
-              "payment.cvv", 
-              "payment.cardholder_name",
-              "customer.ssn",
-              "customer.email",
-              "customer.phone",
-              "customer.date_of_birth",
-              "billing_address.street",
-              "billing_address.zip"
-            ],
-            "preserved_fields": [
-              "transaction_id",
-              "timestamp",
-              "merchant_id",
-              "amount",
-              "currency",
-              "payment.expiration",
-              "billing_address.city",
-              "billing_address.state",
-              "billing_address.country",
-              "metadata"
-            ]
-          }
-          
-    - name: shell-output
-      type: mapping
-      config:
-        mapping: |
-          root = this
-          root.pipeline_status = "shell_validation_complete"
-          root.next_step = "field_encryption"
-          
-  input:
-    http_server:
-      address: "0.0.0.0:8443"
-      path: /payments/validate
-      allowed_verbs: ["POST"]
-      timeout: "30s"
-      tls:
-        enabled: true
-        cert_file: "/etc/expanso/certs/server.crt"
-        key_file: "/etc/expanso/certs/server.key"
-        
-  output:
-    stdout: {}
-
-  environment:
-    NODE_ID: "${NODE_ID}"
-    PIPELINE_NAME: "shell-field-encryption"
-```
-
-Deploy the shell pipeline:
-
-```bash title="Deploy shell pipeline"
-# Deploy to edge nodes
-expanso job deploy shell-encryption.yaml
-
-# Wait for deployment
-sleep 10
-
-# Check status
-expanso job status shell-field-encryption
-```
-
-**Expected output:**
-```
-Job: shell-field-encryption
-Status: running
-Type: pipeline
-Executions:
-  - Node: edge-encryption-001
-    State: running
-    Since: 15 seconds ago
-    Health: healthy
-```
-
-## Step 5: Test Shell Pipeline
-
-Test that field validation and classification work correctly:
-
-```bash title="Test field validation"
-# Test with valid payment data
-curl -X POST https://localhost:8443/payments/validate \
-  --cacert /etc/expanso/certs/ca.crt \
-  --cert /etc/expanso/certs/client.crt \
-  --key /etc/expanso/certs/client.key \
-  -H "Content-Type: application/json" \
-  -d @/tmp/encryption-test/sample-payment.json
-
-# Test with invalid data (missing required field)
-curl -X POST https://localhost:8443/payments/validate \
-  --cacert /etc/expanso/certs/ca.crt \
-  --cert /etc/expanso/certs/client.crt \
-  --key /etc/expanso/certs/client.key \
-  -H "Content-Type: application/json" \
-  -d '{
-    "transaction_id": "test_001",
-    "amount": 100.00
-  }'
-```
-
-**Expected success output:**
-```json
-{
-  "transaction_id": "txn_20251020_001",
-  "payment": {
-    "card_number": "4532-1234-5678-9010",
-    "cvv": "123"
-  },
-  "field_classification": {
-    "sensitive_fields": [
-      "payment.card_number",
-      "payment.cvv",
-      "customer.ssn"
-    ],
-    "preserved_fields": [
-      "transaction_id", 
-      "amount",
-      "timestamp"
-    ]
-  },
-  "pipeline_status": "shell_validation_complete",
-  "next_step": "field_encryption"
-}
-```
-
-**Expected error output:**
-```json
-{
-  "error": "payment.card_number is required",
-  "pipeline": "shell-field-encryption",
-  "timestamp": "2025-10-20T14:30:01Z"
-}
-```
-
-:::tip Success!
-If you see field classification output, your environment is correctly configured!
-
-**Next step:** Remove the shell pipeline and build the full encryption pipeline
-:::
-
-## Step 6: Verify Encryption Dependencies
+## Step 4: Verify Encryption Dependencies
 
 Before proceeding to full encryption, verify all required components are available:
 
@@ -347,52 +174,6 @@ else
 fi
 ```
 
-## Step 7: Clean Up Shell Pipeline
-
-Remove the shell pipeline before building the full encryption pipeline:
-
-```bash title="Clean up shell pipeline"
-# Stop the shell pipeline
-expanso job delete shell-field-encryption
-
-# Wait for cleanup
-sleep 5
-
-# Verify removal
-expanso job list | grep shell-field-encryption || echo "Shell pipeline removed"
-```
-
-## Step 8: Prepare for Full Pipeline
-
-Set up additional environment variables needed for the complete encryption pipeline:
-
-```bash title="Configure full pipeline environment"
-# Set output endpoints
-export PAYMENT_PROCESSOR_ENDPOINT="https://payment-api.example.com:8443/transactions"
-export ANALYTICS_ENDPOINT="https://analytics-api.example.com:8080/payments" 
-export AUDIT_LOG_ENDPOINT="https://audit-api.example.com:9000/encryption-events"
-
-# Set encryption parameters
-export ENCRYPTION_ALGORITHM="AES-256-GCM"
-export ENCRYPTION_VERSION="1.0"
-
-# Set monitoring parameters  
-export ENABLE_ENCRYPTION_METRICS="true"
-export METRICS_ENDPOINT="https://metrics-api.example.com:9090/encryption-metrics"
-
-# Export all variables for pipeline deployment
-export PIPELINE_NAME="payment-field-encryption"
-
-# Verify complete environment
-echo "Complete environment configured:"
-echo "- Encryption keys: SET"
-echo "- Pipeline name: $PIPELINE_NAME"
-echo "- Algorithm: $ENCRYPTION_ALGORITHM"
-echo "- Version: $ENCRYPTION_VERSION"
-echo "- Node ID: $NODE_ID"
-echo "- Key version: $KEY_VERSION"
-```
-
 ---
 
 ## Next Steps
@@ -407,13 +188,3 @@ Your environment is now configured for field-level encryption. Choose your next 
     Skip to Complete Pipeline
   </a>
 </div>
-
-**Security Checklist:**
-- ✅ Encryption keys generated and stored securely
-- ✅ Environment variables configured
-- ✅ TLS certificates available
-- ✅ Shell pipeline tested successfully
-- ✅ Field validation working
-- ✅ All dependencies verified
-
-**Next:** [Encrypt credit card data](./step-1-encrypt-payment-data) with PCI-DSS compliant methods

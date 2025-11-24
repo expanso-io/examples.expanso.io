@@ -2,712 +2,79 @@
 title: "Step 1: Parse JSON Logs"
 sidebar_label: "Step 1: Parse JSON Logs"
 sidebar_position: 4
-description: Extract structured data from JSON application logs with timestamp normalization, field validation, and error handling
-keywords: [json parsing, application logs, timestamp normalization, field validation, structured logging]
+description: Extract structured data from a string containing a JSON log message.
+keywords: [json-parsing, application-logs, structured-logging]
 ---
 
 # Step 1: Parse JSON Logs
 
-**Transform JSON application logs into structured, queryable data**. This step teaches you to parse JSON logs from microservices, APIs, and applications using the `json_documents` processor with timestamp normalization and field validation.
+The most common log parsing task is to take a raw log line that is a **string of JSON** and turn it into a **structured JSON object** that can be easily queried and analyzed.
 
-## What You'll Build
+## The Goal
 
-A JSON log parser that processes application logs with these capabilities:
+You will transform a raw message like this, where the `message` field is just a string:
 
-✅ **Parse JSON structure** - Extract nested objects and arrays  
-✅ **Normalize timestamps** - Convert to Unix timestamps for analytics  
-✅ **Validate fields** - Ensure required fields are present  
-✅ **Enrich metadata** - Add parsing context and source information  
-✅ **Handle errors** - Gracefully process malformed JSON  
-✅ **Filter by level** - Route logs based on severity
-
-## JSON Log Examples
-
-Common JSON log formats from different systems:
-
-### Application Logs
 ```json
 {
-  "timestamp": "2025-10-20T14:23:45.123Z",
-  "level": "error", 
-  "service": "api",
-  "message": "Database connection failed",
-  "error": "connection timeout",
-  "duration_ms": 5000,
-  "request_id": "req_abc123",
-  "user_id": "user_789"
+  "message": "{\"timestamp\": \"2025-10-20T14:23:45Z\", \"level\": \"error\", \"service\": \"api\"}"
 }
 ```
 
-### API Gateway Logs  
+Into a structured object where you can access the nested fields:
+
 ```json
 {
-  "@timestamp": "2025-10-20T14:23:45.123Z",
-  "level": "INFO",
-  "logger": "gateway.access", 
-  "method": "POST",
-  "path": "/api/users",
-  "status_code": 201,
-  "response_time": 45.2,
-  "client_ip": "203.0.113.45",
-  "user_agent": "Mozilla/5.0..."
+  "timestamp": "2025-10-20T14:23:45Z",
+  "level": "error",
+  "service": "api"
 }
 ```
 
-### Container Logs (Docker/Kubernetes)
-```json
-{
-  "log": "Database connection established",
-  "stream": "stdout",
-  "time": "2025-10-20T14:23:45.123456789Z",
-  "kubernetes": {
-    "pod_name": "api-deployment-abc123",
-    "namespace": "production",
-    "container_name": "api"
-  }
-}
-```
+## The `.parse_json()` Function
+
+This entire transformation can be done with a single function: `.parse_json()`.
 
 ## Implementation
 
-### Basic JSON Parser
-
-Start with a simple JSON parser that extracts and validates core fields:
-
-```yaml title="json-log-parser.yaml"
-name: json-log-parser
-description: Parse JSON application logs with field validation
-type: pipeline
-namespace: default
-
-config:
-  input:
-    file:
-      paths:
-        - "~/expanso-logs/app/*.jsonl"
-        - "/var/log/apps/*.json"
-      codec: lines
-
-  pipeline:
-    processors:
-      # Parse JSON documents
-      - json_documents:
-          parts: []  # Process entire message as JSON
-
-      # Validate required fields and add defaults
-      - mapping: |
-          root = this
-          # Ensure timestamp exists (try multiple field names)
-          root.timestamp = this.timestamp.or(
-            this."@timestamp".or(
-              this.time.or(now().ts_format("2006-01-02T15:04:05.999Z07:00"))
-            )
-          )
-          # Normalize log level
-          root.level = this.level.or(this.severity.or("INFO")).uppercase()
-          # Ensure message field
-          root.message = this.message.or(this.msg.or(this.log.or("No message")))
-
-  output:
-    file:
-      path: ~/expanso-logs/output/parsed-json.jsonl
-      codec: lines
-```
-
-Deploy and test:
-
-```bash
-# Deploy the parser
-expanso job deploy json-log-parser.yaml
-
-# Check processing
-tail -f ~/expanso-logs/output/parsed-json.jsonl
-```
-
-### Enhanced JSON Parser with Timestamp Normalization
-
-Add timestamp parsing and normalization for analytics:
-
-```yaml title="enhanced-json-parser.yaml"
-name: enhanced-json-parser  
-description: Parse JSON logs with timestamp normalization and metadata
-type: pipeline
-namespace: default
-
-config:
-  input:
-    file:
-      paths:
-        - "~/expanso-logs/app/*.jsonl"
-      codec: lines
-
-  pipeline:
-    processors:
-      # Parse JSON documents
-      - json_documents:
-          parts: []
-
-      # Timestamp normalization and validation
-      - mapping: |
-          root = this
-          
-          # Try to parse timestamp from multiple possible fields and formats
-          let timestamp_raw = this.timestamp.or(this."@timestamp".or(this.time))
-          
-          root.timestamp_unix = timestamp_raw.parse_timestamp("2006-01-02T15:04:05.999Z07:00").catch(
-            timestamp_raw.parse_timestamp("2006-01-02T15:04:05Z").catch(
-              timestamp_raw.parse_timestamp("2006-01-02 15:04:05").catch(
-                now().ts_unix()
-              )
-            )
-          ).ts_unix()
-          
-          # Keep original timestamp for reference
-          root.timestamp_original = timestamp_raw
-          
-          # Standardize timestamp format
-          root.timestamp_iso = root.timestamp_unix.ts_format("2006-01-02T15:04:05Z")
-
-      # Field normalization and validation
-      - mapping: |
-          root = this
-          
-          # Normalize log level to standard values
-          let raw_level = this.level.or(this.severity.or("INFO")).uppercase()
-          root.level = if raw_level in ["TRACE", "DEBUG"] {
-            "DEBUG"
-          } else if raw_level in ["INFO", "INFORMATION"] {
-            "INFO" 
-          } else if raw_level in ["WARN", "WARNING"] {
-            "WARNING"
-          } else if raw_level in ["ERR", "ERROR", "FATAL", "CRITICAL"] {
-            "ERROR"
-          } else {
-            "INFO"
-          }
-          
-          # Extract service information
-          root.service = this.service.or(this.logger.or("unknown"))
-          
-          # Ensure message field exists
-          root.message = this.message.or(this.msg.or(this.log.or("No message")))
-          
-          # Extract request context if available
-          root.request_context = if this.exists("request_id") || this.exists("trace_id") {
-            {
-              "request_id": this.request_id.or(""),
-              "trace_id": this.trace_id.or(""),
-              "user_id": this.user_id.or(""),
-              "session_id": this.session_id.or("")
-            }
-          }
-
-      # Add parsing metadata
-      - mapping: |
-          root = this
-          root.metadata = {
-            "parsed_by": "json-parser",
-            "parsed_at": now().ts_unix(),
-            "source_node": env("HOSTNAME").or("unknown"),
-            "parser_version": "1.0",
-            "original_size_bytes": this.string().length()
-          }
-
-  output:
-    file:
-      path: ~/expanso-logs/output/enhanced-json.jsonl
-      codec: lines
-```
-
-### JSON Parser with Error Handling
-
-Add comprehensive error handling for malformed JSON:
-
-```yaml title="robust-json-parser.yaml"
-name: robust-json-parser
-description: Parse JSON logs with comprehensive error handling
-type: pipeline
-namespace: default
-
-config:
-  input:
-    file:
-      paths:
-        - "~/expanso-logs/app/*.jsonl"
-      codec: lines
-
-  pipeline:
-    processors:
-      # Try to parse as JSON, with fallback for malformed data
-      - mapping: |
-          root = this.string().parse_json().catch({
-            "raw_message": this.string(),
-            "parse_error": error(),
-            "level": "ERROR",
-            "message": "Failed to parse JSON log",
-            "timestamp_unix": now().ts_unix()
-          })
-
-      # Process successfully parsed JSON
-      - switch:
-          - check: this.exists("parse_error")
-            processors:
-              # Handle malformed JSON
-              - mapping: |
-                  root = this
-                  root.metadata = {
-                    "status": "parse_failed",
-                    "parsed_by": "json-parser",
-                    "parsed_at": now().ts_unix()
-                  }
-                  
-          - processors:
-              # Process valid JSON (same as enhanced parser above)
-              - mapping: |
-                  root = this
-                  
-                  # Timestamp handling with error recovery
-                  let timestamp_raw = this.timestamp.or(this."@timestamp".or(this.time))
-                  root.timestamp_unix = timestamp_raw.parse_timestamp("2006-01-02T15:04:05.999Z07:00").catch(
-                    now().ts_unix()
-                  ).ts_unix()
-                  root.timestamp_iso = root.timestamp_unix.ts_format("2006-01-02T15:04:05Z")
-                  
-                  # Field validation with defaults
-                  root.level = this.level.or("INFO").uppercase()
-                  root.service = this.service.or("unknown")
-                  root.message = this.message.or(this.msg.or("No message"))
-                  
-                  # Add success metadata
-                  root.metadata = {
-                    "status": "parsed_successfully",
-                    "parsed_by": "json-parser", 
-                    "parsed_at": now().ts_unix(),
-                    "fields_extracted": this.keys().length()
-                  }
-
-  output:
-    broker:
-      pattern: fan_out
-      outputs:
-        # Successfully parsed logs
-        - switch:
-            - check: this.metadata.status == "parsed_successfully"
-              output:
-                file:
-                  path: ~/expanso-logs/output/parsed-json-success.jsonl
-                  codec: lines
-            - output:
-                drop: {}
-
-        # Failed parsing (send to DLQ for investigation)  
-        - switch:
-            - check: this.metadata.status == "parse_failed"
-              output:
-                file:
-                  path: ~/expanso-logs/output/json-parse-failures.jsonl
-                  codec: lines
-            - output:
-                drop: {}
-```
-
-## Advanced Features
-
-### JSON Log Filtering and Sampling
-
-Filter logs by level and implement sampling for high-volume applications:
-
-```yaml title="json-filter-sampler.yaml"
-name: json-filter-sampler
-description: Filter and sample JSON logs based on level and content
-type: pipeline
-namespace: default
-
-config:
-  input:
-    file:
-      paths:
-        - "~/expanso-logs/app/*.jsonl"
-      codec: lines
-
-  pipeline:
-    processors:
-      # Parse JSON
-      - json_documents: {}
-
-      # Normalize fields
-      - mapping: |
-          root = this
-          root.level = this.level.or("INFO").uppercase()
-          root.timestamp_unix = this.timestamp.parse_timestamp("2006-01-02T15:04:05.999Z07:00").ts_unix()
-
-      # Filter by log level (skip DEBUG and TRACE in production)
-      - mapping: |
-          root = if this.level in ["DEBUG", "TRACE"] && env("ENVIRONMENT").or("dev") == "production" {
-            deleted()
-          } else {
-            this
-          }
-
-      # Sample INFO logs (keep only 10% to reduce volume)
-      - mapping: |
-          root = if this.level == "INFO" && random_int() % 10 != 0 {
-            deleted()
-          } else {
-            this
-          }
-
-      # Always keep ERROR and WARNING logs
-      # (No filtering for important logs)
-
-      # Extract error details for ERROR logs
-      - switch:
-          - check: this.level == "ERROR"
-            processors:
-              - mapping: |
-                  root = this
-                  # Extract stack trace and error details
-                  root.error_details = {
-                    "error_type": this.error.or("unknown_error"),
-                    "stack_trace": this.stack_trace.or(""),
-                    "error_code": this.error_code.or(""), 
-                    "duration_ms": this.duration_ms.or(0).number()
-                  }
-                  # Mark for alerting
-                  root.alert_required = true
-
-      # Add sampling metadata  
-      - mapping: |
-          root = this
-          root.sampling_info = {
-            "sampled": this.level == "INFO",
-            "sampling_rate": if this.level == "INFO" { 0.1 } else { 1.0 },
-            "original_volume_estimate": if this.level == "INFO" { 10 } else { 1 }
-          }
-
-  output:
-    broker:
-      pattern: fan_out
-      outputs:
-        # All logs to analytics (sampled)
-        - file:
-            path: ~/expanso-logs/output/json-analytics.jsonl
-            codec: lines
-
-        # ERROR logs to alerting
-        - switch:
-            - check: this.level == "ERROR"
-              output:
-                http_client:
-                  url: "${ALERT_ENDPOINT}/logs/errors"
-                  verb: POST
-                  batching:
-                    count: 10
-                    period: 30s
-            - output:
-                drop: {}
-```
-
-### JSON Enrichment with Lookup Data
-
-Enrich logs with additional context using lookup tables:
-
-```yaml title="json-enrichment-parser.yaml"
-name: json-enrichment-parser
-description: Parse and enrich JSON logs with service metadata
-type: pipeline
-namespace: default
-
-config:
-  input:
-    file:
-      paths:
-        - "~/expanso-logs/app/*.jsonl"
-      codec: lines
-
-  pipeline:
-    processors:
-      # Parse JSON
-      - json_documents: {}
-
-      # Basic field normalization
-      - mapping: |
-          root = this
-          root.service = this.service.or("unknown")
-          root.level = this.level.or("INFO").uppercase()
-
-      # Enrich with service metadata (lookup table)
-      - mapping: |
-          root = this
-          
-          # Service metadata lookup (could be from external source)
-          let service_metadata = if this.service == "api" {
-            {
-              "team": "platform",
-              "environment": "production", 
-              "criticality": "high",
-              "owner": "team-platform@company.com",
-              "on_call": "platform-oncall"
-            }
-          } else if this.service == "web" {
-            {
-              "team": "frontend",
-              "environment": "production",
-              "criticality": "medium", 
-              "owner": "team-frontend@company.com",
-              "on_call": "frontend-oncall"
-            }
-          } else if this.service == "auth" {
-            {
-              "team": "security",
-              "environment": "production",
-              "criticality": "critical",
-              "owner": "team-security@company.com", 
-              "on_call": "security-oncall"
-            }
-          } else {
-            {
-              "team": "unknown",
-              "environment": "unknown",
-              "criticality": "low",
-              "owner": "unassigned",
-              "on_call": "general-oncall"
-            }
-          }
-          
-          root.service_metadata = service_metadata
-
-      # Geographic enrichment for client IPs
-      - mapping: |
-          root = this
-          
-          # Extract and enrich client IP if present
-          root.client_info = if this.exists("client_ip") {
-            let ip = this.client_ip
-            {
-              "ip_hash": (ip + env("IP_SALT").or("salt")).hash("sha256").slice(0, 16),
-              "country": "Unknown",  # In production, use GeoIP lookup
-              "region": "Unknown",
-              "is_internal": ip.has_prefix("10.") || ip.has_prefix("192.168.") || ip.has_prefix("172.")
-            }
-          }
-
-      # Performance analysis for duration fields
-      - mapping: |
-          root = this
-          
-          # Analyze request duration if present
-          root.performance_metrics = if this.exists("duration_ms") {
-            let duration = this.duration_ms.number()
-            {
-              "duration_ms": duration,
-              "duration_category": if duration < 100 {
-                "fast"
-              } else if duration < 1000 {
-                "normal"
-              } else if duration < 5000 {
-                "slow" 
-              } else {
-                "critical"
-              },
-              "is_timeout": duration > 30000,
-              "percentile_estimate": if duration < 50 {
-                "p50"
-              } else if duration < 200 {
-                "p90"
-              } else {
-                "p99"
-              }
-            }
-          }
-
-  output:
-    file:
-      path: ~/expanso-logs/output/enriched-json.jsonl
-      codec: lines
-```
-
-## Testing and Validation
-
-### Create Test Data
-
-Generate diverse JSON log samples for testing:
-
-```bash
-# Create test logs with various edge cases
-cat > ~/expanso-logs/app/test-cases.jsonl << 'EOF'
-{"timestamp":"2025-10-20T14:23:45.123Z","level":"error","service":"api","message":"Normal error log"}
-{"@timestamp":"2025-10-20T14:23:45Z","severity":"INFO","logger":"gateway","message":"Alternative timestamp field"}
-{"time":"2025-10-20 14:23:45","level":"warn","msg":"Non-ISO timestamp format"}
-{"timestamp":"invalid-timestamp","level":"debug","message":"Invalid timestamp test"}
-{"level":"TRACE","message":"Log without timestamp"}
-{invalid json format test}
-{"nested":{"data":{"value":123}},"level":"info","message":"Nested object test"}
-{"array_field":[1,2,3],"level":"info","message":"Array field test"}
-{"unicode":"测试中文","emoji":"🚀","level":"info","message":"Unicode and emoji test"}
-{"very_long_message":"Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.","level":"info","message":"Long message test"}
-EOF
-```
-
-### Test Parsing Results
-
-Validate that different test cases are handled correctly:
-
-```bash
-# Deploy robust parser
-expanso job deploy robust-json-parser.yaml
-
-# Wait for processing
-sleep 10
-
-# Check successful parsing results
-echo "=== Successfully Parsed ==="
-head -3 ~/expanso-logs/output/parsed-json-success.jsonl | jq .
-
-# Check parsing failures
-echo "=== Parse Failures ==="
-cat ~/expanso-logs/output/json-parse-failures.jsonl | jq .
-
-# Verify timestamp normalization
-echo "=== Timestamp Normalization ==="
-jq -r '.timestamp_iso' ~/expanso-logs/output/parsed-json-success.jsonl | head -5
-
-# Check field extraction
-echo "=== Field Extraction Stats ==="
-jq -r '.metadata.fields_extracted' ~/expanso-logs/output/parsed-json-success.jsonl | sort | uniq -c
-```
-
-### Performance Testing
-
-Test parser performance with high volume:
-
-```bash
-# Generate large test file (10k JSON logs)
-for i in {1..10000}; do
-  echo "{\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)\",\"level\":\"info\",\"service\":\"test\",\"message\":\"Test message $i\",\"duration_ms\":$((RANDOM % 1000))}"
-done > ~/expanso-logs/app/performance-test.jsonl
-
-# Deploy and monitor performance
-expanso job deploy enhanced-json-parser.yaml
-
-# Monitor processing rate
-watch "expanso job stats enhanced-json-parser | grep -E 'Processed|Rate'"
-
-# Check memory usage
-expanso job metrics enhanced-json-parser --metric memory
-
-# Verify processing completed
-wc -l ~/expanso-logs/output/enhanced-json.jsonl
-```
-
-## Production Considerations
-
-### Error Handling Strategy
-
-Implement a comprehensive error handling strategy:
-
-```yaml
-# Add to pipeline processors
-- catch:
-    - mapping: |
-        root = this
-        root.error_context = {
-          "error": error(),
-          "failed_at": now().ts_unix(),
-          "processor": "json_documents",
-          "original_content": this.string().slice(0, 500)  # First 500 chars
-        }
-    - output:
-        file:
-          path: ~/expanso-logs/errors/json-parser-errors.jsonl
+1.  **Create the Parsing Pipeline:** Copy the following configuration into a file named `json-parser.yaml`.
+
+    ```yaml title="json-parser.yaml"
+    name: json-log-parser
+    description: A pipeline that parses a string field containing JSON.
+
+    config:
+      input:
+        generate:
+          interval: 1s
+          mapping: |
+            root.raw_log = '{"timestamp": "2025-10-20T14:23:45Z", "level": "error", "service": "api", "message": "DB connection failed"}'
+
+      pipeline:
+        processors:
+          # This single processor does all the work.
+          # It takes the 'raw_log' string, parses it as JSON,
+          # and makes the result the new root of the message.
+          - mapping: |
+              root = this.raw_log.parse_json()
+
+      output:
+        stdout:
           codec: lines
+    ```
+
+2.  **Deploy and Observe:**
+    ```bash
+    # Deploy the pipeline
+    expanso job deploy json-parser.yaml
+    ```
+    Watch the logs. The `generate` input creates messages with a single `raw_log` field. The output, however, will be the structured JSON that was parsed from inside that string.
+
+## Verification
+
+The output will be a stream of structured JSON objects.
+
+**Example Output:**
+```json
+{"level":"error","message":"DB connection failed","service":"api","timestamp":"2025-10-20T14:23:45Z"}
 ```
-
-### Monitoring and Alerting
-
-Key metrics to track:
-
-```promql
-# JSON parsing success rate
-rate(json_parser_success_total[5m]) / rate(json_parser_total[5m])
-
-# Processing latency
-histogram_quantile(0.95, rate(json_parser_duration_seconds_bucket[5m]))
-
-# Error rate by error type
-sum by (error_type) (rate(json_parser_errors_total[5m]))
-
-# Memory usage growth
-increase(json_parser_memory_bytes[1h])
-```
-
-### Field Optimization
-
-Optimize commonly extracted fields:
-
-```yaml
-# Add field optimization
-- mapping: |
-    root = this
-    # Remove unnecessary fields to reduce storage
-    root = this.without("debug_info", "raw_headers", "internal_metadata")
-    
-    # Truncate long messages
-    root.message = if this.message.length() > 1000 {
-      this.message.slice(0, 1000) + "... [truncated]"
-    } else {
-      this.message
-    }
-    
-    # Compress repeated field values
-    root.level_code = if this.level == "DEBUG" {
-      0
-    } else if this.level == "INFO" {
-      1
-    } else if this.level == "WARNING" {
-      2
-    } else if this.level == "ERROR" {
-      3
-    } else {
-      1
-    }
-```
-
----
-
-## Summary
-
-You've built a comprehensive JSON log parser that handles:
-
-✅ **Multiple timestamp formats** with fallback parsing  
-✅ **Field validation and normalization** for consistent output  
-✅ **Error handling** with dead letter queue for investigation  
-✅ **Performance optimization** through filtering and sampling  
-✅ **Data enrichment** with service metadata and analysis  
-✅ **Production monitoring** with comprehensive error tracking
-
-## Common Issues
-
-**Issue:** High memory usage with large JSON objects
-**Solution:** Use field filtering and message truncation
-
-**Issue:** Timestamp parsing failures  
-**Solution:** Add more timestamp format patterns and validate input data
-
-**Issue:** Poor performance with nested objects
-**Solution:** Extract only required fields using selective mapping
-
----
-
-## Next Steps
-
-<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
-  <a href="./step-2-parse-csv-data" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Step 2: Parse CSV Data
-  </a>
-  <a href="./troubleshooting" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Troubleshooting Guide
-  </a>
-</div>
-
-**Next:** Learn to parse CSV sensor data with column mapping and type validation.
+You have successfully parsed a JSON log. Notice how you can now query fields like `level` and `service`, which was impossible when it was just a raw string. This is the first and most important step in building a structured logging pipeline.

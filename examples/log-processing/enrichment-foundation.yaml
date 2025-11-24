@@ -1,0 +1,32 @@
+name: enrichment-foundation
+description: A foundation pipeline that generates realistic production-like log data.
+type: pipeline
+
+config:
+  input:
+    generate:
+      interval: 1s
+      mapping: |
+        root.id = uuid_v4()
+        root.timestamp = now()
+        root.request_id = uuid_v4()
+        let level_random = random_int() % 100
+        root.level = if $level_random < 60 { "INFO" }
+                     else if $level_random < 80 { "WARN" }
+                     else if $level_random < 95 { "ERROR" }
+                     else { "FATAL" }
+        let services = [ "auth-service", "payment-service", "user-service" ]
+        root.service = $services.index(random_int() % $services.length())
+        root.message = "Log message from " + this.service
+        root.user_id = "user_" + (random_int() % 100).string()
+        root.duration_ms = random_int() % 5000 + 50
+        root.environment = "production"
+        root.region = ["us-east-1", "us-west-2", "eu-west-1"].index(random_int() % 3)
+
+  pipeline:
+    processors:
+      - mapping: `root.processed_at = now()`
+
+  output:
+    stdout:
+      codec: lines

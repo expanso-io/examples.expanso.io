@@ -2,19 +2,21 @@
 title: Setup Environment for Log Severity Filtering
 sidebar_label: Setup
 sidebar_position: 2
-description: Configure sample logs, environment variables, and deploy a shell pipeline to verify setup
+description: Configure sample logs and environment variables for log filtering.
 keywords: [setup, environment, configuration, log-processing]
 ---
 
 # Setup Environment for Log Severity Filtering
 
-Before building the log filtering pipeline, you'll set up sample application logs, configure environment variables, and deploy a minimal pipeline to verify your setup works correctly.
+Before building the log filtering pipeline, you'll set up sample application logs and configure environment variables.
 
 ## Prerequisites
 
-- **Kafka:** Set up [Kafka](/getting-started/local-development#kafka) for filtered log delivery
-- **Expanso:** Installed and running ([Installation Guide](https://docs.expanso.io/installation))
-- **Environment Variables:** See the [local development guide](/getting-started/local-development#environment-variables)
+This example requires the following services to be running:
+
+*   **[Kafka](/getting-started/services/kafka)**
+
+Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
 
 ## Step 1: Create Sample Log Directory
 
@@ -28,12 +30,6 @@ sudo chown $USER:$USER /var/log/app /var/log/expanso
 
 # Verify directory creation
 ls -la /var/log/ | grep -E "(app|expanso)"
-```
-
-**Expected output:**
-```
-drwxr-xr-x  2 youruser youruser 4096 Jan 15 10:30 app
-drwxr-xr-x  2 youruser youruser 4096 Jan 15 10:30 expanso
 ```
 
 ## Step 2: Generate Sample Log Data
@@ -63,17 +59,6 @@ cat > /var/log/app/legacy.log << 'EOF'
 2024-01-15 10:30:05 [ERROR] Critical: Data corruption detected in table users
 2024-01-15 10:30:06 [WARN] SSL certificate expires in 7 days
 EOF
-
-# Verify log files were created
-ls -la /var/log/app/
-cat /var/log/app/application.log | wc -l
-```
-
-**Expected output:**
-```
--rw-r--r-- 1 youruser youruser 1458 Jan 15 10:30 application.log
--rw-r--r-- 1 youruser youruser  567 Jan 15 10:30 legacy.log
-8
 ```
 
 ## Step 3: Configure Environment Variables
@@ -83,201 +68,6 @@ Set up environment variables that will be used for processing metadata and node 
 ```bash
 # Set processing node identifier
 export NODE_ID="edge-001"
-
-# Verify environment variable
-echo "NODE_ID: $NODE_ID"
-
-# Make the environment variable persistent (optional)
-echo 'export NODE_ID="edge-001"' >> ~/.bashrc
-```
-
-For production deployments, you can configure environment variables through:
-- Docker environment variables: `-e NODE_ID=edge-001`
-- Kubernetes ConfigMaps or Secrets
-- System environment files (`/etc/environment`)
-
-## Step 4: Deploy Shell Pipeline
-
-Before adding severity filtering, deploy a minimal "shell" pipeline that just reads and outputs logs. This verifies your setup works correctly.
-
-Create `shell-filter-severity.yaml`:
-
-```yaml title="shell-filter-severity.yaml"
-# Shell pipeline to verify log file access and output functionality
-input:
-  file:
-    paths:
-      - /var/log/app/*.log
-    codec: lines
-
-pipeline:
-  processors:
-    # Add basic processing timestamp only
-    - mapping: |
-        root = this
-        root.processed_at = now()
-        root.node_id = env("NODE_ID").or("unknown")
-
-output:
-  stdout:
-    codec: lines
-```
-
-Deploy the shell pipeline:
-
-```bash
-# Deploy to Expanso edge platform
-expanso run shell-filter-severity.yaml
-
-# Verify deployment succeeded (check for running status)
-expanso status shell-filter-severity
-```
-
-**Expected output:**
-```
-Pipeline: shell-filter-severity
-Status: RUNNING
-Input: file (/var/log/app/*.log)
-Output: stdout
-```
-
-## Step 5: Test Shell Pipeline
-
-Generate some log activity to test the pipeline is reading and processing logs correctly:
-
-```bash
-# Add a new log entry to trigger processing
-echo '{"timestamp":"2024-01-15T10:35:00Z","level":"INFO","message":"Test log entry","service":"test"}' >> /var/log/app/application.log
-
-# Check the Expanso output logs for processed entries
-expanso logs shell-filter-severity --tail=5
-```
-
-**Expected output:** You should see the log entries with added `processed_at` and `node_id` fields:
-```json
-{"timestamp":"2024-01-15T10:35:00Z","level":"INFO","message":"Test log entry","service":"test","processed_at":"2024-01-15T10:35:01.123Z","node_id":"edge-001"}
-```
-
-## Step 6: Verify Log File Monitoring
-
-Test that the pipeline correctly monitors multiple log files and handles new entries:
-
-```bash
-# Write to both log files simultaneously
-echo '{"timestamp":"2024-01-15T10:36:00Z","level":"ERROR","message":"New error","service":"monitoring"}' >> /var/log/app/application.log
-echo "2024-01-15 10:36:00 [WARN] New warning message" >> /var/log/app/legacy.log
-
-# Watch the pipeline output for 10 seconds
-timeout 10s expanso logs shell-filter-severity --follow
-
-# Stop watching and check the last few entries
-expanso logs shell-filter-severity --tail=3
-```
-
-**Expected output:** You should see entries from both log files being processed with metadata added.
-
-:::tip Success!
-If you see log entries with `processed_at` and `node_id` fields being output from both log files, your environment is correctly configured!
-
-**Next step:** Clean up the shell pipeline and start building the actual filtering pipeline.
-:::
-
-## Step 7: Clean Up Shell Pipeline
-
-Stop the shell pipeline before proceeding to the actual implementation:
-
-```bash
-# Stop the shell pipeline
-expanso stop shell-filter-severity
-
-# Remove the configuration file
-rm shell-filter-severity.yaml
-
-# Verify pipeline is stopped
-expanso status | grep shell-filter-severity || echo "Shell pipeline cleaned up successfully"
-```
-
-## Step 8: Verify Prerequisites for Next Steps
-
-Before proceeding, verify all required resources are ready:
-
-```bash
-# Run this verification script
-cat > verify-setup.sh << 'EOF'
-#!/bin/bash
-
-echo "=== Log Processing Setup Verification ==="
-echo
-
-# Check directories
-echo "📁 Directory Setup:"
-[ -d /var/log/app ] && echo "✅ /var/log/app exists" || echo "❌ /var/log/app missing"
-[ -d /var/log/expanso ] && echo "✅ /var/log/expanso exists" || echo "❌ /var/log/expanso missing"
-echo
-
-# Check permissions
-echo "🔑 Permissions:"
-[ -w /var/log/app ] && echo "✅ Write access to /var/log/app" || echo "❌ No write access to /var/log/app"
-[ -w /var/log/expanso ] && echo "✅ Write access to /var/log/expanso" || echo "❌ No write access to /var/log/expanso"
-echo
-
-# Check log files
-echo "📄 Log Files:"
-[ -f /var/log/app/application.log ] && echo "✅ Sample JSON logs present ($(wc -l < /var/log/app/application.log) lines)" || echo "❌ No JSON logs"
-[ -f /var/log/app/legacy.log ] && echo "✅ Sample plain text logs present ($(wc -l < /var/log/app/legacy.log) lines)" || echo "❌ No plain text logs"
-echo
-
-# Check environment
-echo "🌍 Environment:"
-[ ! -z "$NODE_ID" ] && echo "✅ NODE_ID set to: $NODE_ID" || echo "❌ NODE_ID not set"
-echo
-
-# Check Expanso platform
-echo "🚀 Expanso Platform:"
-if command -v expanso > /dev/null; then
-  echo "✅ Expanso CLI available"
-  if expanso version > /dev/null 2>&1; then
-    echo "✅ Expanso platform responsive"
-  else
-    echo "❌ Expanso platform not responding"
-  fi
-else
-  echo "❌ Expanso CLI not found"
-fi
-echo
-
-echo "=== Setup Verification Complete ==="
-EOF
-
-chmod +x verify-setup.sh
-./verify-setup.sh
-rm verify-setup.sh
-```
-
-**Expected output:**
-```
-=== Log Processing Setup Verification ===
-
-📁 Directory Setup:
-✅ /var/log/app exists
-✅ /var/log/expanso exists
-
-🔑 Permissions:
-✅ Write access to /var/log/app
-✅ Write access to /var/log/expanso
-
-📄 Log Files:
-✅ Sample JSON logs present (9 lines)
-✅ Sample plain text logs present (7 lines)
-
-🌍 Environment:
-✅ NODE_ID set to: edge-001
-
-🚀 Expanso Platform:
-✅ Expanso CLI available
-✅ Expanso platform responsive
-
-=== Setup Verification Complete ===
 ```
 
 ---
@@ -287,5 +77,3 @@ rm verify-setup.sh
 Your environment is now configured and ready for building the log filtering pipeline.
 
 **Continue to:** [Step 1: Parse JSON & Add Metadata](./step-1-parse-json-add-metadata) to start building the filtering functionality.
-
-**Need help?** Check the [Troubleshooting Guide](./troubleshooting) for solutions to common issues.
