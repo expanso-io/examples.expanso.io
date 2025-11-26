@@ -1,7 +1,5 @@
 name: fan-out-foundation
-description: A foundation pipeline that sends events to a single file destination.
 type: pipeline
-namespace: production
 
 config:
   input:
@@ -9,13 +7,13 @@ config:
       address: 0.0.0.0:8080
       path: /events
 
-  pipeline:
-    processors:
-      - mapping: |
-          root = this
-          root.processed_at = now()
-
   output:
-    file:
-      path: /tmp/events.jsonl
-      codec: lines
+    broker:
+      pattern: fan_out
+      outputs:
+        - file:
+            path: /var/data/realtime.jsonl
+            batching: {count: 100, period: 5s}
+        - file:
+            path: /var/data/archive.jsonl
+            batching: {count: 1000, period: 30s}
