@@ -58,7 +58,7 @@ function validateStageFile(filePath: string): ValidationResult {
   }
 
   // Check for export statement
-  const exportMatch = content.match(/export const (\w+): Stage\[\] = \[/");
+  const exportMatch = content.match(/export const (\w+): Stage\[\] = \[/);
   if (!exportMatch) {
     errors.push({
       file: filePath,
