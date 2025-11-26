@@ -1,9 +1,9 @@
 export type JsonLine = {
   content: string;
   indent: number;
-  type?: 'removed' | 'highlighted' | 'normal';
+  type?: 'removed' | 'highlighted' | 'normal' | 'added';
   key?: string;
-  valueType?: 'string' | 'number' | 'boolean' | 'null';
+  valueType?: 'string' | 'number' | 'boolean' | 'null' | 'object' | 'array';
 };
 
 export type Stage = {
