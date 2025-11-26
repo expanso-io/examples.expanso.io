@@ -455,24 +455,24 @@ output:
               timeout: "2s"
 
       # Fallback outputs when primary fails or circuit breaker opens
-      fallback:
-        # Secondary: Backup analytics endpoint  
-        - http_client:
-            url: "${BACKUP_ANALYTICS_ENDPOINT:http://localhost:8082}/aggregations"
-            verb: POST
-            headers:
-              Content-Type: application/json
-              Authorization: "Bearer ${BACKUP_ANALYTICS_API_KEY:}"
-            timeout: "10s"
-            
-        # Tertiary: Local file buffer for later replay
-        - file:
-            path: "/var/expanso/buffer/aggregations-${!timestamp_unix()}.jsonl"
-            codec: lines
-            
-        # Last resort: Console logging for debugging  
-        - stdout:
-            codec: lines
+      - fallback:
+          # Secondary: Backup analytics endpoint  
+          - http_client:
+              url: "${BACKUP_ANALYTICS_ENDPOINT:http://localhost:8082}/aggregations"
+              verb: POST
+              headers:
+                Content-Type: application/json
+                Authorization: "Bearer ${BACKUP_ANALYTICS_API_KEY:}"
+              timeout: "10s"
+              
+          # Tertiary: Local file buffer for later replay
+          - file:
+              path: "/var/expanso/buffer/aggregations-${!timestamp_unix()}.jsonl"
+              codec: lines
+              
+          # Last resort: Console logging for debugging  
+          - stdout:
+              codec: lines
 
 # Comprehensive production metrics and monitoring
 metrics:
