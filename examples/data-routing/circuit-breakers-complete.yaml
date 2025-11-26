@@ -40,16 +40,16 @@ config:
       # === STEP 1: REQUEST VALIDATION AND INITIALIZATION ===
       - mapping: |
           root = this
-          
+
           # Validate required fields
           if !this.event_id.exists() {
             throw("missing required field: event_id")
           }
-          
+
           if !this.event_type.exists() {
             throw("missing required field: event_type")
           }
-          
+
           # Initialize circuit breaker tracking
           root.circuit_breaker = {
             "request_id": uuid_v4(),
@@ -58,7 +58,7 @@ config:
             "attempts": [],
             "fallback_level": 0
           }
-          
+
           # Classify event criticality for fallback strategy
           if ["payment", "security_alert", "critical_transaction"].contains(this.event_type) {
             root.criticality = "critical"
@@ -122,16 +122,16 @@ config:
                     - http:
                         url: ${PRIMARY_API_URL:-http://localhost:8081}/metadata/${!this.event_id}
                         verb: GET
-                        
+
                         # Circuit breaker settings
                         timeout: 5s
                         retries: 3
                         retry_period: 2s
                         max_retry_backoff: 30s
-                        
+
                         # Rate limiting to prevent overwhelming API
-                        rate_limit: "100/s"
-                        
+                        rate_limit: '100/s'
+
                         # Authentication and tracing headers
                         headers:
                           Authorization: Bearer ${!env("API_TOKEN") || "test-token"}
@@ -147,7 +147,7 @@ config:
                         root.api_cache_hit = false
                         root.api_success = true
                         root.api_duration = (now() - this.api_attempt_start).seconds()
-                        
+
                         # Update circuit breaker tracking
                         attempts = this.circuit_breaker.attempts
                         attempts[attempts.length() - 1].success = true
@@ -182,7 +182,7 @@ config:
                         root.api_success = false
                         root.api_metadata = null
                         root.api_error = error().string()
-                        
+
                         # Classify error type for metrics
                         error_msg = error().string()
                         if error_msg.contains("timeout") {
@@ -194,7 +194,7 @@ config:
                         } else {
                           root.api_error_type = "unknown"
                         }
-                        
+
                         # Update circuit breaker tracking
                         attempts = this.circuit_breaker.attempts
                         attempts[attempts.length() - 1].success = false
@@ -219,7 +219,7 @@ config:
                     # Log circuit breaker activation
                     - log:
                         level: WARN
-                        message: "API circuit breaker opened - Request: ${!this.circuit_breaker.request_id}, Error: ${!this.api_error_type}, Event: ${!this.event_id}"
+                        message: 'API circuit breaker opened - Request: ${!this.circuit_breaker.request_id}, Error: ${!this.api_error_type}, Event: ${!this.event_id}'
 
       # === STEP 4: DATABASE ENRICHMENT WITH DATABASE CIRCUIT BREAKER ===
       # Check user cache first
@@ -262,14 +262,14 @@ config:
                     - sql_select:
                         driver: postgres
                         data_source_name: ${PRIMARY_DB_CONNECTION:-postgres://test:test@localhost:5432/test?sslmode=disable}
-                        
+
                         # Database circuit breaker configuration
                         timeout: 3s
                         max_open_connections: 20
                         max_idle_connections: 10
                         connection_max_lifetime: 30m
                         connection_max_idle_time: 5m
-                        
+
                         query: |
                           SELECT user_name, user_tier, account_type, created_at, last_login_at
                           FROM users 
@@ -282,7 +282,7 @@ config:
                     # Process successful database response
                     - mapping: |
                         root = this
-                        
+
                         if this.user_name.exists() && this.user_name != "" {
                           root.user_profile = {
                             "name": this.user_name,
@@ -296,11 +296,11 @@ config:
                           root.user_profile = null
                           root.user_found = false
                         }
-                        
+
                         root.user_cache_hit = false
                         root.db_success = true
                         root.db_duration = (now() - this.db_attempt_start).seconds()
-                        
+
                         # Update circuit breaker tracking
                         attempts = this.circuit_breaker.attempts
                         attempts[attempts.length() - 1].success = true
@@ -340,7 +340,7 @@ config:
                         root.user_profile = null
                         root.user_found = null
                         root.db_error = error().string()
-                        
+
                         # Classify database error type
                         error_msg = error().string()
                         if error_msg.contains("timeout") {
@@ -352,7 +352,7 @@ config:
                         } else {
                           root.db_error_type = "unknown"
                         }
-                        
+
                         # Update circuit breaker tracking
                         attempts = this.circuit_breaker.attempts
                         attempts[attempts.length() - 1].success = false
@@ -377,18 +377,18 @@ config:
                     # Log database circuit breaker activation
                     - log:
                         level: WARN
-                        message: "Database circuit breaker opened - Request: ${!this.circuit_breaker.request_id}, Error: ${!this.db_error_type}, User: ${!this.user_id}"
+                        message: 'Database circuit breaker opened - Request: ${!this.circuit_breaker.request_id}, Error: ${!this.db_error_type}, User: ${!this.user_id}'
 
       # === STEP 5: PROCESSING SUMMARY AND FINAL METRICS ===
       - mapping: |
           root = this
           root.processing_end = now()
           root.total_processing_time = (this.processing_end - this.circuit_breaker.processing_start).seconds()
-          
+
           # Calculate overall success status
           api_ok = this.api_success == true || this.api_cache_hit == true
           db_ok = this.db_success == true || this.user_cache_hit == true
-          
+
           if api_ok && db_ok {
             root.processing_result = "fully_enriched"
             root.enrichment_level = "complete"
@@ -399,7 +399,7 @@ config:
             root.processing_result = "minimal_processing"
             root.enrichment_level = "none"
           }
-          
+
           # Add comprehensive processing summary
           root.circuit_breaker.summary = {
             "total_attempts": this.circuit_breaker.attempts.length(),
@@ -440,52 +440,52 @@ config:
               name: circuit_breaker_output_attempts_total
               labels:
                 destination: elasticsearch
-                level: "1"
+                level: '1'
 
-        # Primary Elasticsearch destination
-        try:
-          - http:
-              url: ${ELASTICSEARCH_URL:-http://localhost:9200}/events/_doc/${!this.event_id}
-              verb: POST
-              timeout: 8s
-              retries: 2
-              retry_period: 2s
-              
-              headers:
-                Content-Type: application/json
-                X-Request-ID: ${!this.circuit_breaker.request_id}
-                X-Fallback-Level: "1"
+          # Primary Elasticsearch destination
+          - try:
+              - http:
+                  url: ${ELASTICSEARCH_URL:-http://localhost:9200}/events/_doc/${!this.event_id}
+                  verb: POST
+                  timeout: 8s
+                  retries: 2
+                  retry_period: 2s
 
-          - mapping: |
-              root = this
-              root.final_destination = "elasticsearch"
-              root.circuit_breaker.fallback_success_level = 1
+                  headers:
+                    Content-Type: application/json
+                    X-Request-ID: ${!this.circuit_breaker.request_id}
+                    X-Fallback-Level: '1'
 
-          - metric:
-              type: counter
-              name: circuit_breaker_output_success_total
-              labels:
-                destination: elasticsearch
-                level: "1"
+              - mapping: |
+                  root = this
+                  root.final_destination = "elasticsearch"
+                  root.circuit_breaker.fallback_success_level = 1
 
-        catch:
-          - mapping: |
-              root = this
-              root.elasticsearch_error = error().string()
+              - metric:
+                  type: counter
+                  name: circuit_breaker_output_success_total
+                  labels:
+                    destination: elasticsearch
+                    level: '1'
 
-          - metric:
-              type: counter
-              name: circuit_breaker_output_failures_total
-              labels:
-                destination: elasticsearch
-                level: "1"
+            catch:
+              - mapping: |
+                  root = this
+                  root.elasticsearch_error = error().string()
 
-          - log:
-              level: WARN
-              message: "Elasticsearch fallback failed - Request: ${!this.circuit_breaker.request_id}, continuing to level 2"
+              - metric:
+                  type: counter
+                  name: circuit_breaker_output_failures_total
+                  labels:
+                    destination: elasticsearch
+                    level: '1'
 
-        # Continue to fallback if Elasticsearch fails
-        drop: {}
+              - log:
+                  level: WARN
+                  message: 'Elasticsearch fallback failed - Request: ${!this.circuit_breaker.request_id}, continuing to level 2'
+
+          # Continue to fallback if Elasticsearch fails
+          - drop: {}
 
       # === LEVEL 2: KAFKA (SECONDARY DESTINATION) ===
       - processors:
@@ -499,52 +499,52 @@ config:
               name: circuit_breaker_output_attempts_total
               labels:
                 destination: kafka
-                level: "2"
+                level: '2'
 
-        # Secondary Kafka destination
-        try:
-          - http:
-              url: ${KAFKA_REST_URL:-http://localhost:8082}/topics/circuit-breaker-events
-              verb: POST
-              timeout: 10s
-              retries: 3
-              retry_period: 3s
-              
-              headers:
-                Content-Type: application/vnd.kafka.json.v2+json
-                X-Request-ID: ${!this.circuit_breaker.request_id}
-                X-Fallback-Level: "2"
+          # Secondary Kafka destination
+          - try:
+              - http:
+                  url: ${KAFKA_REST_URL:-http://localhost:8082}/topics/circuit-breaker-events
+                  verb: POST
+                  timeout: 10s
+                  retries: 3
+                  retry_period: 3s
 
-          - mapping: |
-              root = this
-              root.final_destination = "kafka"
-              root.circuit_breaker.fallback_success_level = 2
+                  headers:
+                    Content-Type: application/vnd.kafka.json.v2+json
+                    X-Request-ID: ${!this.circuit_breaker.request_id}
+                    X-Fallback-Level: '2'
 
-          - metric:
-              type: counter
-              name: circuit_breaker_output_success_total
-              labels:
-                destination: kafka
-                level: "2"
+              - mapping: |
+                  root = this
+                  root.final_destination = "kafka"
+                  root.circuit_breaker.fallback_success_level = 2
 
-        catch:
-          - mapping: |
-              root = this
-              root.kafka_error = error().string()
+              - metric:
+                  type: counter
+                  name: circuit_breaker_output_success_total
+                  labels:
+                    destination: kafka
+                    level: '2'
 
-          - metric:
-              type: counter
-              name: circuit_breaker_output_failures_total
-              labels:
-                destination: kafka
-                level: "2"
+            catch:
+              - mapping: |
+                  root = this
+                  root.kafka_error = error().string()
 
-          - log:
-              level: WARN
-              message: "Kafka fallback failed - Request: ${!this.circuit_breaker.request_id}, continuing to level 3"
+              - metric:
+                  type: counter
+                  name: circuit_breaker_output_failures_total
+                  labels:
+                    destination: kafka
+                    level: '2'
 
-        # Continue to fallback if Kafka fails
-        drop: {}
+              - log:
+                  level: WARN
+                  message: 'Kafka fallback failed - Request: ${!this.circuit_breaker.request_id}, continuing to level 3'
+
+          # Continue to fallback if Kafka fails
+          - drop: {}
 
       # === LEVEL 3: S3 STORAGE (TERTIARY DESTINATION) ===
       - processors:
@@ -552,7 +552,7 @@ config:
               root = this
               root.circuit_breaker.fallback_level = 3
               root.destination_attempt = "s3_storage"
-              
+
               # Check criticality - only critical and important events use S3
               if this.criticality == "standard" && this.max_fallback_levels < 3 {
                 root.skip_s3 = true
@@ -565,60 +565,60 @@ config:
                   processors:
                     - log:
                         level: INFO
-                        message: "Skipping S3 fallback for standard criticality event: ${!this.event_id}"
-                    drop: {}
+                        message: 'Skipping S3 fallback for standard criticality event: ${!this.event_id}'
+                    - drop: {}
 
           - metric:
               type: counter
               name: circuit_breaker_output_attempts_total
               labels:
                 destination: s3
-                level: "3"
+                level: '3'
 
-        # S3 storage destination
-        try:
-          - http:
-              url: ${S3_ENDPOINT:-http://localhost:9000}/circuit-breaker-bucket/events/${!timestamp_unix_date("2006/01/02")}/${!this.event_id}.json
-              verb: PUT
-              timeout: 15s
-              retries: 4
-              retry_period: 5s
-              
-              headers:
-                Content-Type: application/json
-                X-Request-ID: ${!this.circuit_breaker.request_id}
-                X-Fallback-Level: "3"
+          # S3 storage destination
+          - try:
+              - http:
+                  url: ${S3_ENDPOINT:-http://localhost:9000}/circuit-breaker-bucket/events/${!timestamp_unix_date("2006/01/02")}/${!this.event_id}.json
+                  verb: PUT
+                  timeout: 15s
+                  retries: 4
+                  retry_period: 5s
 
-          - mapping: |
-              root = this
-              root.final_destination = "s3"
-              root.circuit_breaker.fallback_success_level = 3
+                  headers:
+                    Content-Type: application/json
+                    X-Request-ID: ${!this.circuit_breaker.request_id}
+                    X-Fallback-Level: '3'
 
-          - metric:
-              type: counter
-              name: circuit_breaker_output_success_total
-              labels:
-                destination: s3
-                level: "3"
+              - mapping: |
+                  root = this
+                  root.final_destination = "s3"
+                  root.circuit_breaker.fallback_success_level = 3
 
-        catch:
-          - mapping: |
-              root = this
-              root.s3_error = error().string()
+              - metric:
+                  type: counter
+                  name: circuit_breaker_output_success_total
+                  labels:
+                    destination: s3
+                    level: '3'
 
-          - metric:
-              type: counter
-              name: circuit_breaker_output_failures_total
-              labels:
-                destination: s3
-                level: "3"
+            catch:
+              - mapping: |
+                  root = this
+                  root.s3_error = error().string()
 
-          - log:
-              level: ERROR
-              message: "S3 fallback failed - Request: ${!this.circuit_breaker.request_id}, continuing to level 4"
+              - metric:
+                  type: counter
+                  name: circuit_breaker_output_failures_total
+                  labels:
+                    destination: s3
+                    level: '3'
 
-        # Continue to fallback if S3 fails
-        drop: {}
+              - log:
+                  level: ERROR
+                  message: 'S3 fallback failed - Request: ${!this.circuit_breaker.request_id}, continuing to level 4'
+
+          # Continue to fallback if S3 fails
+          - drop: {}
 
       # === LEVEL 4: LOCAL BUFFER (EMERGENCY STORAGE) ===
       - processors:
@@ -626,12 +626,12 @@ config:
               root = this
               root.circuit_breaker.fallback_level = 4
               root.destination_attempt = "local_buffer"
-              
+
               # Only critical events get local buffering
               if this.criticality != "critical" {
                 root.skip_local_buffer = true
               }
-              
+
               # Check available disk space (simulated)
               available_space_mb = 1000  # Would check actual disk space in production
               if available_space_mb < 100 {
@@ -646,38 +646,37 @@ config:
                   processors:
                     - log:
                         level: WARN
-                        message: "Skipping local buffer for non-critical event: ${!this.event_id}"
-                    drop: {}
+                        message: 'Skipping local buffer for non-critical event: ${!this.event_id}'
+                    - drop: {}
 
           - metric:
               type: counter
               name: circuit_breaker_output_attempts_total
               labels:
                 destination: local_buffer
-                level: "4"
+                level: '4'
 
-        # Local file buffer
-        file:
-          path: /tmp/circuit-breaker-buffers/${!timestamp_unix_date("2006-01-02")}/events-${!count("buffer_files")}.jsonl
-          codec: lines
+          # Local file buffer
+          - file:
+              path: /tmp/circuit-breaker-buffers/${!timestamp_unix_date("2006-01-02")}/events-${!count("buffer_files")}.jsonl
+              codec: lines
+            processors:
+              - mapping: |
+                  root = this
+                  root.final_destination = "local_buffer"
+                  root.circuit_breaker.fallback_success_level = 4
+                  root.requires_recovery = true
 
-        processors:
-          - mapping: |
-              root = this
-              root.final_destination = "local_buffer"
-              root.circuit_breaker.fallback_success_level = 4
-              root.requires_recovery = true
+              - metric:
+                  type: counter
+                  name: circuit_breaker_output_success_total
+                  labels:
+                    destination: local_buffer
+                    level: '4'
 
-          - metric:
-              type: counter
-              name: circuit_breaker_output_success_total
-              labels:
-                destination: local_buffer
-                level: "4"
-
-          - log:
-              level: ERROR
-              message: "Event buffered locally due to all remote destinations failing - Request: ${!this.circuit_breaker.request_id}, Event: ${!this.event_id}"
+              - log:
+                  level: ERROR
+                  message: 'Event buffered locally due to all remote destinations failing - Request: ${!this.circuit_breaker.request_id}, Event: ${!this.event_id}'
 
       # === LEVEL 5: DEAD LETTER QUEUE (LAST RESORT) ===
       - processors:
@@ -685,7 +684,7 @@ config:
               root = this
               root.circuit_breaker.fallback_level = 5
               root.destination_attempt = "dead_letter_queue"
-              
+
               # Add comprehensive failure analysis
               root.failure_analysis = {
                 "all_destinations_failed": true,
@@ -703,7 +702,7 @@ config:
               name: circuit_breaker_output_attempts_total
               labels:
                 destination: dead_letter_queue
-                level: "5"
+                level: '5'
 
           - metric:
               type: counter
@@ -715,33 +714,32 @@ config:
           # Critical alert for data reaching DLQ
           - log:
               level: FATAL
-              message: "CRITICAL: Event reached dead letter queue - Request: ${!this.circuit_breaker.request_id}, Event: ${!this.event_id}, Failures: ${!this.failure_analysis.format_json()}"
+              message: 'CRITICAL: Event reached dead letter queue - Request: ${!this.circuit_breaker.request_id}, Event: ${!this.event_id}, Failures: ${!this.failure_analysis.format_json()}'
 
-        # Dead letter queue storage
-        file:
-          path: /tmp/circuit-breaker-dlq/${!timestamp_unix_date("2006-01-02")}/dlq-${!count("dlq_files")}.jsonl
-          codec: lines
+          # Dead letter queue storage
+          - file:
+              path: /tmp/circuit-breaker-dlq/${!timestamp_unix_date("2006-01-02")}/dlq-${!count("dlq_files")}.jsonl
+              codec: lines
+            processors:
+              - mapping: |
+                  root = this
+                  root.final_destination = "dead_letter_queue"
+                  root.circuit_breaker.fallback_success_level = 5
+                  root.requires_manual_recovery = true
+                  root.data_loss_risk = true
 
-        processors:
-          - mapping: |
-              root = this
-              root.final_destination = "dead_letter_queue"
-              root.circuit_breaker.fallback_success_level = 5
-              root.requires_manual_recovery = true
-              root.data_loss_risk = true
-
-          - metric:
-              type: counter
-              name: circuit_breaker_output_success_total
-              labels:
-                destination: dead_letter_queue
-                level: "5"
+              - metric:
+                  type: counter
+                  name: circuit_breaker_output_success_total
+                  labels:
+                    destination: dead_letter_queue
+                    level: '5'
 
       # === LEVEL 6: ABSOLUTE LAST RESORT (DROP WITH ALERT) ===
       - processors:
           - log:
               level: FATAL
-              message: "ABSOLUTE CRITICAL FAILURE: Dropping event ${!this.event_id} - ALL FALLBACK MECHANISMS FAILED including DLQ"
+              message: 'ABSOLUTE CRITICAL FAILURE: Dropping event ${!this.event_id} - ALL FALLBACK MECHANISMS FAILED including DLQ'
 
           - metric:
               type: counter
