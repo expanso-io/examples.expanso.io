@@ -1,607 +1,175 @@
-# Complete Production-Ready Time-Windowed Aggregation Pipeline
-# 
-# This pipeline combines all aggregation techniques:
-# - Tumbling windows (fixed 1-minute boundaries)
-# - Sliding windows (5-minute overlapping for trends)  
-# - Session windows (activity-based clustering)
-# - Multi-level aggregation (sensor → location → global)
-# - Production optimization (reliability, monitoring, scaling)
-#
-# Features:
-# - Processes 100,000+ events/second
-# - 98% data reduction (60,000 → 1,000 events/minute)
-# - Circuit breaker protection
-# - Distributed caching with Redis
-# - Comprehensive monitoring
-# - Auto-scaling support
-#
-# Prerequisites:
-# - Kafka cluster for event streaming
-# - Redis cluster for distributed caching
-# - Analytics endpoint for aggregation output
-# - Prometheus for metrics collection
+name: aggregate-time-windows-complete
+type: pipeline
+description: Production-ready time-windowed aggregation with tumbling, sliding, and multi-level aggregation patterns.
+namespace: production
+labels:
+  category: data-transformation
+  pattern: time-windows
 
-input:
-  # High-performance Kafka input with consumer optimization
-  kafka:
-    addresses: 
-      - "${KAFKA_BROKER_1:kafka-1:9092}"
-      - "${KAFKA_BROKER_2:kafka-2:9092}"
-      - "${KAFKA_BROKER_3:kafka-3:9092}"
-    topics: ["sensor-events"]
-    consumer_group: "time-window-aggregation-${INSTANCE_ID:default}"
-    
-    # Production consumer optimization
-    consumer:
-      max_poll_records: 10000        # Process large batches for efficiency
-      session_timeout_ms: 30000      # 30-second session timeout
-      heartbeat_interval_ms: 3000    # 3-second heartbeat
-      fetch_min_bytes: 1048576       # 1MB minimum fetch for batching
-      
-    # Partition assignment for load balancing
-    partition_assignment_strategy: "RoundRobin"
+config:
+  input:
+    kafka:
+      addresses:
+        - "${KAFKA_BROKER_1:kafka-1:9092}"
+        - "${KAFKA_BROKER_2:kafka-2:9092}"
+      topics: ["sensor-events"]
+      consumer_group: "time-window-aggregation-${INSTANCE_ID:default}"
 
-# Production resource configuration
-resources:
-  caches:
-    # Primary distributed cache using Redis for reliability
-    distributed_window_cache:
-      redis:
-        url: "redis://${REDIS_PRIMARY_HOST:redis-primary}:6379"
-        database: 0
-        default_ttl: "120s"           # 2-minute TTL for 1-minute windows + grace
-        
-        # Connection pooling for performance
-        pool_size: 20
-        max_retries: 3
-        retry_delay: "100ms"
-        
-        # High availability with Redis Sentinel
-        sentinel:
-          master_name: "aggregation-cache"
-          addresses:
-            - "${REDIS_SENTINEL_1:redis-sentinel-1}:26379"
-            - "${REDIS_SENTINEL_2:redis-sentinel-2}:26379"
-            - "${REDIS_SENTINEL_3:redis-sentinel-3}:26379"
-    
-    # Fallback in-memory cache for Redis failures
-    fallback_window_cache:
-      memory:
-        default_ttl: "120s"
-        max_items: 50000
-        eviction_policy: lru
-        
-    # Session window cache for activity-based clustering
-    session_window_cache:
-      memory:
-        default_ttl: "3600s"          # 1-hour max session length
-        max_items: 10000
-        eviction_policy: lru
-        
-  # Rate limiting for backpressure management
-  rate_limits:
-    event_ingestion:
-      count: 100000                   # 100K events per second max
-      per: "1s"
-      
-    aggregation_output:
-      count: 5000                     # 5K aggregations per second max
-      per: "1s"
+  pipeline:
+    processors:
+      # Input validation
+      - try:
+          processors:
+            - json: {}
+            - mapping: |
+                if !this.exists("sensor_id") {
+                  error("Missing required field: sensor_id")
+                }
+                if !this.exists("timestamp") {
+                  error("Missing required field: timestamp")
+                }
+                if !this.exists("temperature") {
+                  error("Missing required field: temperature")
+                }
 
-pipeline:
-  processors:
-    # Comprehensive input validation with error handling
-    - try:
-        processors:
-          # Parse JSON with error recovery
-          - json: {}
-          
-          # Validate required fields and data quality
-          - mapping: |
-              # Check required fields exist
-              if !this.exists("sensor_id") {
-                error("Missing required field: sensor_id")
-              }
-              if !this.exists("timestamp") {
-                error("Missing required field: timestamp")  
-              }
-              if !this.exists("temperature") {
-                error("Missing required field: temperature")
-              }
-              
-              # Validate data types and ranges
-              if this.temperature.type() != "float" && this.temperature.type() != "int" {
-                error("Invalid temperature data type: " + this.temperature.type())
-              }
-              if this.temperature < -100 || this.temperature > 150 {
-                error("Temperature out of valid range: " + this.temperature.string() + "°C")
-              }
-              
-              # Add processing metadata for observability
-              root = this
-              root.processing_started_at = now().ts_format("2006-01-02T15:04:05.000Z")
-              root.pipeline_instance = "${INSTANCE_ID:default}"
-              root.processing_version = "${PIPELINE_VERSION:1.0.0}"
-              
-              # Ensure location field exists for multi-level aggregation
-              root.location = this.get("location").or("unknown_location")
-              root.facility = this.get("facility").or("unknown_facility")
-              
-        catch:
-          # Comprehensive error handling and logging
-          - mapping: |
-              root = {
-                "error_type": "input_validation_error",
-                "error_message": error(),
-                "original_payload": this,
-                "timestamp": now().ts_format("2006-01-02T15:04:05.000Z"),
-                "instance_id": "${INSTANCE_ID:default}",
-                "pipeline_stage": "input_validation"
-              }
-              
-          # Send errors to monitoring system
-          - http_client:
-              url: "${ERROR_MONITORING_ENDPOINT:http://localhost:8081}/pipeline-errors"
-              verb: POST
-              headers:
-                Content-Type: application/json
-                Authorization: "Bearer ${MONITORING_API_KEY:}"
-              timeout: "2s"
-              
-          # Drop invalid events after logging
-          - mapping: 'deleted()'
+                root = this
+                root.processing_started_at = now().ts_format("2006-01-02T15:04:05.000Z")
+                root.pipeline_instance = "${INSTANCE_ID:default}"
+                root.location = this.get("location").or("unknown_location")
+                root.facility = this.get("facility").or("unknown_facility")
 
-    # Apply rate limiting for backpressure protection
-    - rate_limit:
-        resource: "event_ingestion"
+          catch:
+            - mapping: |
+                root = {
+                  "error_type": "input_validation_error",
+                  "error_message": error(),
+                  "original_payload": this,
+                  "timestamp": now().ts_format("2006-01-02T15:04:05.000Z")
+                }
+            - mapping: 'deleted()'
 
-    # Multi-window aggregation processing
-    - branch:
-        request_map: |
-          # Create parallel processing branches for different aggregation types
-          let parsed_timestamp = this.timestamp.parse_timestamp("2006-01-02T15:04:05.000Z")
-          let minute_bucket = parsed_timestamp.ts_format("2006-01-02T15:04:00Z")
-          
-          root = [
-            # 1. Tumbling windows (1-minute fixed boundaries)
-            this.merge({
-              "aggregation_type": "tumbling",
-              "window_duration_minutes": 1,
-              "group_key": this.sensor_id + "|tumbling_1m|" + minute_bucket,
-              "window_start": minute_bucket,
-              "window_end": (parsed_timestamp + duration("1m")).ts_format("2006-01-02T15:04:00Z")
-            }),
-            
-            # 2. Sliding windows (5-minute overlapping for trend analysis)  
-            this.merge({
-              "aggregation_type": "sliding",
-              "window_duration_minutes": 5,
-              "slide_interval_minutes": 1,
-              "group_key": this.sensor_id + "|sliding_5m|" + minute_bucket,
-              "window_start": minute_bucket,
-              "window_end": (parsed_timestamp + duration("5m")).ts_format("2006-01-02T15:04:00Z")
-            }),
-            
-            # 3. Multi-level sensor aggregation
-            this.merge({
-              "aggregation_type": "multi_level",
-              "aggregation_level": "sensor", 
-              "group_key": this.sensor_id + "|sensor|" + minute_bucket,
-              "hierarchy_path": this.facility + "/" + this.location + "/" + this.sensor_id
-            }),
-            
-            # 4. Multi-level location aggregation
-            this.merge({
-              "aggregation_type": "multi_level",
-              "aggregation_level": "location",
-              "group_key": this.location + "|location|" + minute_bucket,
-              "hierarchy_path": this.facility + "/" + this.location
-            }),
-            
-            # 5. Multi-level global aggregation
-            this.merge({
-              "aggregation_type": "multi_level", 
-              "aggregation_level": "global",
-              "group_key": "global|global|" + minute_bucket,
-              "hierarchy_path": "global"
-            })
-          ]
-          
-        processors:
-          # Distributed caching with Redis failover
-          - try:
-              processors:
-                # Primary: Redis distributed cache
-                - cache:
-                    resource: "distributed_window_cache"
-                    key: ${! this.group_key }
-                    value: ${! this }
-                    
-            catch:
-              # Fallback: In-memory cache if Redis fails
-              - cache:
-                  resource: "fallback_window_cache"
-                  key: ${! this.group_key }
+      # Multi-window aggregation
+      - branch:
+          request_map: |
+            let parsed_timestamp = this.timestamp.parse_timestamp("2006-01-02T15:04:05.000Z")
+            let minute_bucket = parsed_timestamp.ts_format("2006-01-02T15:04:00Z")
+
+            root = [
+              # Tumbling windows (1-minute)
+              this.merge({
+                "aggregation_type": "tumbling",
+                "window_duration_minutes": 1,
+                "group_key": this.sensor_id + "|tumbling_1m|" + minute_bucket,
+                "window_start": minute_bucket
+              }),
+
+              # Sliding windows (5-minute)
+              this.merge({
+                "aggregation_type": "sliding",
+                "window_duration_minutes": 5,
+                "group_key": this.sensor_id + "|sliding_5m|" + minute_bucket,
+                "window_start": minute_bucket
+              }),
+
+              # Multi-level sensor aggregation
+              this.merge({
+                "aggregation_type": "multi_level",
+                "aggregation_level": "sensor",
+                "group_key": this.sensor_id + "|sensor|" + minute_bucket
+              }),
+
+              # Multi-level location aggregation
+              this.merge({
+                "aggregation_type": "multi_level",
+                "aggregation_level": "location",
+                "group_key": this.location + "|location|" + minute_bucket
+              })
+            ]
+
+          processors:
+            - group_by:
+                - key: ${! this.group_key }
                   value: ${! this }
-                  
-              # Log cache fallover for monitoring
-              - mapping: |
-                  root.cache_failover_event = {
-                    "timestamp": now().ts_format("2006-01-02T15:04:05.000Z"),
-                    "reason": "redis_unavailable",
-                    "fallback_used": "memory_cache",
-                    "group_key": this.group_key
-                  }
+                  size: 1000
 
-          # Group events by aggregation key for batch processing
-          - group_by:
-              - key: ${! this.group_key }
-                value: ${! this }
-                size: 1000                # Process in 1K event batches
+            - mapping: |
+                let events = this.sort_by(event -> event.timestamp)
+                let first_event = events[0]
+                let aggregation_type = first_event.aggregation_type
 
-          # Apply rate limiting on aggregation output
-          - rate_limit:
-              resource: "aggregation_output"
+                root.aggregation_type = aggregation_type
+                root.group_key = first_event.group_key
+                root.aggregation_timestamp = now().ts_format("2006-01-02T15:04:05.000Z")
+                root.event_count = events.length()
 
-          # Comprehensive aggregation calculations
-          - mapping: |
-              # Sort events by timestamp for proper processing
-              let events = this.sort_by(event -> event.timestamp)
-              let first_event = events[0]
-              let aggregation_type = first_event.aggregation_type
-              
-              # Common metadata across all aggregation types
-              root.aggregation_type = aggregation_type
-              root.group_key = first_event.group_key
-              root.aggregation_timestamp = now().ts_format("2006-01-02T15:04:05.000Z")
-              root.event_count = events.length()
-              
-              # Basic statistics available for all types
-              let temperatures = events.map_each(e -> e.temperature)
-              root.temperature_avg = temperatures.mean().round(2)
-              root.temperature_min = temperatures.min()
-              root.temperature_max = temperatures.max()
-              root.temperature_stddev = temperatures.stddev().round(2)
-              
-              # Type-specific processing
-              if aggregation_type == "tumbling" {
-                # Tumbling window specific metrics
-                root.sensor_id = first_event.sensor_id
-                root.location = first_event.location
-                root.time_bucket = first_event.window_start
-                root.window_start = first_event.window_start
-                root.window_end = first_event.window_end
-                root.window_duration_minutes = first_event.window_duration_minutes
-                
-                # Calculate percentiles for detailed analytics
-                let sorted_temps = temperatures.sort()
-                let temp_count = sorted_temps.length()
-                if temp_count > 0 {
-                  root.temperature_median = sorted_temps.index((temp_count * 0.50).floor())
-                  root.temperature_p95 = sorted_temps.index((temp_count * 0.95).floor())
-                  root.temperature_p99 = sorted_temps.index((temp_count * 0.99).floor())
-                }
-                
-                # Data quality metrics
-                root.completeness_ratio = (root.event_count / 60.0).min(1.0).round(4)  # Expect 1 event/second
-                
-              } else if aggregation_type == "sliding" {
-                # Sliding window specific metrics for trend analysis
-                root.sensor_id = first_event.sensor_id
-                root.location = first_event.location
-                root.window_start = first_event.window_start
-                root.window_end = first_event.window_end
-                root.window_duration_minutes = first_event.window_duration_minutes
-                root.slide_interval_minutes = first_event.slide_interval_minutes
-                
-                # Trend analysis calculations
-                if temperatures.length() >= 3 {
-                  let first_temp = temperatures[0]
-                  let last_temp = temperatures[temperatures.length() - 1]
-                  root.temperature_change = (last_temp - first_temp).round(2)
-                  root.temperature_slope = (root.temperature_change / 5.0).round(3)  # Change per minute
-                  
-                  # Trend classification
-                  root.temperature_trend = match {
-                    root.temperature_slope > 0.2 => "increasing",
-                    root.temperature_slope < -0.2 => "decreasing",
-                    _ => "stable"
-                  }
-                  
-                  # Anomaly detection using z-score
-                  if temperatures.length() >= 4 {
-                    let recent_temp = temperatures[temperatures.length() - 1]
-                    let historical_avg = temperatures.slice(0, temperatures.length() - 1).mean()
-                    let historical_stddev = temperatures.slice(0, temperatures.length() - 1).stddev()
-                    
-                    if historical_stddev > 0 {
-                      root.current_z_score = ((recent_temp - historical_avg) / historical_stddev).round(2)
-                      root.anomaly_detected = root.current_z_score.abs() > 2.0
-                      root.anomaly_severity = match {
-                        root.current_z_score.abs() > 3.0 => "high",
-                        root.current_z_score.abs() > 2.0 => "medium", 
-                        _ => "low"
-                      }
-                    }
-                  }
-                }
-                
-              } else if aggregation_type == "multi_level" {
-                # Multi-level aggregation specific metrics
-                let aggregation_level = first_event.aggregation_level
-                root.aggregation_level = aggregation_level
-                root.hierarchy_path = first_event.hierarchy_path
-                
-                if aggregation_level == "sensor" {
-                  # Sensor-level: individual sensor metrics
+                let temperatures = events.map_each(e -> e.temperature)
+                root.temperature_avg = temperatures.mean().round(2)
+                root.temperature_min = temperatures.min()
+                root.temperature_max = temperatures.max()
+
+                if aggregation_type == "tumbling" {
                   root.sensor_id = first_event.sensor_id
                   root.location = first_event.location
-                  root.facility = first_event.facility
-                  
-                } else if aggregation_level == "location" {
-                  # Location-level: aggregate multiple sensors
-                  root.location = first_event.location  
-                  root.facility = first_event.facility
-                  root.sensor_count = events.map_each(e -> e.sensor_id).unique().length()
-                  root.sensors = events.map_each(e -> e.sensor_id).unique()
-                  root.temperature_range = (root.temperature_max - root.temperature_min).round(2)
-                  
-                  # Location-specific analytics
-                  let event_counts = events.map_each(e -> e.get("event_count").or(1))
-                  root.total_events = event_counts.sum()
-                  root.avg_events_per_sensor = (root.total_events / root.sensor_count.float()).round(1)
-                  
-                } else if aggregation_level == "global" {
-                  # Global-level: system-wide metrics
-                  let unique_sensors = events.map_each(e -> e.sensor_id).unique()
-                  let unique_locations = events.map_each(e -> e.location).unique()
-                  let unique_facilities = events.map_each(e -> e.facility).unique()
-                  
-                  root.total_sensor_count = unique_sensors.length()
-                  root.total_location_count = unique_locations.length()  
-                  root.total_facility_count = unique_facilities.length()
-                  root.temperature_range = (root.temperature_max - root.temperature_min).round(2)
-                  
-                  # Global system health indicators
-                  root.facilities = unique_facilities
-                  root.locations = unique_locations
-                  
-                  # Calculate global performance metrics
-                  let event_counts = events.map_each(e -> e.get("event_count").or(1))
-                  root.total_events = event_counts.sum()
-                  root.global_data_rate = root.total_events / 60.0  # Events per second
+                  root.window_start = first_event.window_start
+                  root.window_duration_minutes = first_event.window_duration_minutes
+                } else if aggregation_type == "sliding" {
+                  root.sensor_id = first_event.sensor_id
+                  root.location = first_event.location
+                  root.window_start = first_event.window_start
+                  root.window_duration_minutes = first_event.window_duration_minutes
+
+                  if temperatures.length() >= 3 {
+                    let first_temp = temperatures[0]
+                    let last_temp = temperatures[temperatures.length() - 1]
+                    root.temperature_change = (last_temp - first_temp).round(2)
+                    root.temperature_trend = match {
+                      root.temperature_change > 1 => "increasing"
+                      root.temperature_change < -1 => "decreasing"
+                      _ => "stable"
+                    }
+                  }
+                } else if aggregation_type == "multi_level" {
+                  root.aggregation_level = first_event.aggregation_level
+
+                  if first_event.aggregation_level == "sensor" {
+                    root.sensor_id = first_event.sensor_id
+                    root.location = first_event.location
+                  } else if first_event.aggregation_level == "location" {
+                    root.location = first_event.location
+                    root.sensor_count = events.map_each(e -> e.sensor_id).unique().length()
+                  }
                 }
-              }
-              
-              # Universal data quality scoring
-              root.data_quality_score = match {
-                root.event_count >= 50 && root.temperature_stddev < 5.0 => 0.95,
-                root.event_count >= 30 && root.temperature_stddev < 10.0 => 0.85,
-                root.event_count >= 10 => 0.70,
-                _ => 0.50
-              }
-              
-              # Processing performance metadata  
-              let processing_times = events.map_each(e -> {
-                if e.exists("processing_started_at") {
-                  (now() - e.processing_started_at.parse_timestamp("2006-01-02T15:04:05.000Z")).milliseconds()
-                } else {
-                  0
+
+                root.data_quality_score = match {
+                  root.event_count >= 50 => 0.95
+                  root.event_count >= 30 => 0.85
+                  root.event_count >= 10 => 0.70
+                  _ => 0.50
                 }
-              })
-              
-              root.processing_metadata = {
-                "pipeline_instance": first_event.pipeline_instance,
-                "pipeline_version": first_event.processing_version,
-                "aggregation_duration_ms": (now() - first_event.processing_started_at.parse_timestamp("2006-01-02T15:04:05.000Z")).milliseconds(),
-                "avg_event_latency_ms": if processing_times.length() > 0 { processing_times.mean().round(1) } else { 0 },
-                "max_event_latency_ms": if processing_times.length() > 0 { processing_times.max() } else { 0 }
-              }
 
-# Production output with circuit breaker pattern and comprehensive monitoring
-output:
-  # Circuit breaker for resilient output handling
-  circuit_breaker:
-    # Circuit breaker configuration for fault tolerance
-    failure_threshold: 5              # Trip after 5 consecutive failures
-    success_threshold: 3              # Reset after 3 consecutive successes
-    timeout: "30s"                   # Stay open for 30 seconds before retry
-    half_open_max_calls: 10          # Test with 10 calls when half-open
-    
-    outputs:
-      # Primary output: Analytics platform
-      - try:
-          - http_client:
-              url: "${ANALYTICS_ENDPOINT:http://localhost:8080}/aggregations"
-              verb: POST
-              headers:
-                Content-Type: application/json
-                Authorization: "Bearer ${ANALYTICS_API_KEY:}"
-                X-Pipeline-Instance: "${INSTANCE_ID:default}"
-                X-Pipeline-Version: "${PIPELINE_VERSION:1.0.0}"
-                
-              # Production batching for efficiency
-              batching:
-                count: 500            # Batch up to 500 aggregations
-                period: "10s"         # Or send every 10 seconds
-                
-              # Connection optimization
-              timeout: "15s"
-              max_in_flight: 10       # Connection pooling
-              
-              # Retry configuration for transient failures
-              retry_until_success: false  # Fail fast for circuit breaker
-              max_retries: 2
-              backoff:
-                initial_interval: "500ms"
-                max_interval: "2s"
-                
-        catch:
-          # Log output failures for monitoring
-          - mapping: |
-              root = {
-                "error_type": "output_failure",
-                "error_message": error(),
-                "aggregation_data": this,
-                "timestamp": now().ts_format("2006-01-02T15:04:05.000Z"),
-                "instance_id": "${INSTANCE_ID:default}"
-              }
-              
-          - http_client:
-              url: "${ERROR_MONITORING_ENDPOINT:http://localhost:8081}/output-errors"
-              verb: POST
-              headers:
-                Content-Type: application/json
-              timeout: "2s"
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        - http_client:
+            url: "${ANALYTICS_ENDPOINT:http://localhost:8080}/aggregations"
+            verb: POST
+            headers:
+              Content-Type: application/json
+            batching:
+              count: 500
+              period: "10s"
+            timeout: "15s"
+            max_retries: 2
 
-      # Fallback outputs when primary fails or circuit breaker opens
-      - fallback:
-          # Secondary: Backup analytics endpoint  
-          - http_client:
-              url: "${BACKUP_ANALYTICS_ENDPOINT:http://localhost:8082}/aggregations"
-              verb: POST
-              headers:
-                Content-Type: application/json
-                Authorization: "Bearer ${BACKUP_ANALYTICS_API_KEY:}"
-              timeout: "10s"
-              
-          # Tertiary: Local file buffer for later replay
-          - file:
-              path: "/var/expanso/buffer/aggregations-${!timestamp_unix()}.jsonl"
-              codec: lines
-              
-          # Last resort: Console logging for debugging  
-          - stdout:
-              codec: lines
+        - file:
+            path: "/var/expanso/buffer/aggregations-${!timestamp_unix()}.jsonl"
+            codec: lines
 
-# Comprehensive production metrics and monitoring
-metrics:
-  # Prometheus metrics with detailed histograms
-  prometheus:
-    use_histogram_timing: true
-    # Histogram buckets optimized for aggregation latency (1ms to 60s)
-    histogram_buckets: [.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30, 60]
-    add_process_metrics: true         # Include Go runtime metrics
-    add_go_metrics: true             # Include garbage collection metrics
-    push_interval: "15s"             # Push to Prometheus every 15 seconds
-    
-    # Static labels for metric filtering and grouping
-    static_labels:
-      pipeline_name: "time-window-aggregation"
-      instance_id: "${INSTANCE_ID:default}"
-      environment: "${ENVIRONMENT:production}"
-      version: "${PIPELINE_VERSION:1.0.0}"
-      
-  # Custom business metrics for monitoring dashboards
-  mapping: |
-    root = this
-    
-    # Core aggregation metrics for alerting
-    if this.exists("event_count") {
-      root.custom_events_processed = this.event_count
-      root.custom_data_quality_score = this.data_quality_score
-      root.custom_aggregation_type = match {
-        this.aggregation_type == "tumbling" => 1,
-        this.aggregation_type == "sliding" => 2,
-        this.aggregation_type == "multi_level" => 3,
-        _ => 0
-      }
-    }
-    
-    # Processing performance metrics
-    if this.exists("processing_metadata") {
-      root.custom_processing_duration_ms = this.processing_metadata.aggregation_duration_ms
-      root.custom_event_latency_ms = this.processing_metadata.avg_event_latency_ms
-    }
-    
-    # Multi-level hierarchy metrics
-    if this.exists("aggregation_level") {
-      root.custom_hierarchy_level = match {
-        this.aggregation_level == "sensor" => 4,
-        this.aggregation_level == "location" => 3,
-        this.aggregation_level == "facility" => 2,
-        this.aggregation_level == "global" => 1,
-        _ => 0
-      }
-      
-      # Sensor count metrics by level
-      if this.aggregation_level == "location" && this.exists("sensor_count") {
-        root.custom_location_sensor_count = this.sensor_count
-      }
-      if this.aggregation_level == "global" && this.exists("total_sensor_count") {
-        root.custom_global_sensor_count = this.total_sensor_count
-      }
-    }
-    
-    # Temperature analytics metrics
-    if this.exists("temperature_avg") {
-      root.custom_temperature_avg = this.temperature_avg
-      root.custom_temperature_range = this.get("temperature_range").or(0)
-    }
-    
-    # Trend analysis metrics (sliding windows)
-    if this.exists("temperature_trend") {
-      root.custom_temperature_trend = match {
-        this.temperature_trend == "increasing" => 1,
-        this.temperature_trend == "decreasing" => -1,
-        _ => 0
-      }
-    }
-    
-    # Anomaly detection metrics
-    if this.exists("anomaly_detected") {
-      root.custom_anomaly_detected = if this.anomaly_detected { 1 } else { 0 }
-      if this.exists("current_z_score") {
-        root.custom_anomaly_z_score = this.current_z_score
-      }
-    }
-
-# Health check endpoint for Kubernetes readiness and liveness probes
-http:
-  address: "0.0.0.0:8080"
-  enabled: true
-  root_path: "/benthos"
-  debug_endpoints: false              # Disable debug endpoints in production
-  
-  # Health check configuration for load balancers
-  health_check:
-    enabled: true
-    path: "/health"
-    
-  # Metrics endpoint for Prometheus scraping  
-  metrics_path: "/metrics"
-
-# Structured logging configuration for production observability
 logger:
   level: "${LOG_LEVEL:INFO}"
-  add_timestamp: true
-  json_format: true                   # JSON format for log aggregation
-  static_fields:
-    service: "time-window-aggregation"
-    instance_id: "${INSTANCE_ID:default}"
-    environment: "${ENVIRONMENT:production}"
-    version: "${PIPELINE_VERSION:1.0.0}"
+  format: json
 
-# End of configuration
-#
-# This pipeline provides:
-# ✅ All window types: tumbling, sliding, session, multi-level
-# ✅ Production reliability: circuit breakers, failover, distributed caching
-# ✅ Comprehensive monitoring: Prometheus metrics, health checks, structured logging
-# ✅ High performance: batching, connection pooling, rate limiting
-# ✅ Error handling: validation, retry logic, fallback outputs  
-# ✅ Scalability: Kafka consumer groups, Redis clustering, horizontal scaling
-#
-# Deployment instructions:
-# 1. Set environment variables (KAFKA_BROKERS, REDIS_HOST, ANALYTICS_ENDPOINT, etc.)
-# 2. Deploy to Kubernetes with HPA for auto-scaling
-# 3. Configure Prometheus to scrape /metrics endpoint
-# 4. Set up Grafana dashboards for visualization
-# 5. Configure alerting rules based on custom metrics
-#
-# Expected performance:
-# - Throughput: 100,000+ events/second
-# - Data reduction: 98%+ (60,000 → 1,000 events/minute)
-# - Latency: < 5 seconds end-to-end
-# - Availability: 99.9%+ with circuit breaker protection
-# - Auto-scaling: 3-20 instances based on load
+metrics:
+  prometheus:
+    path: "/metrics"
