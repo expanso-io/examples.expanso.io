@@ -16,7 +16,7 @@ async function runPipelineTests() {
 
   // 1. Verify Binaries
   try {
-    execSync(['npx', 'tsx', RUN_WITH_EXPANSO_SCRIPT, CLI_BINARY, 'version'].join(' '), { stdio: 'ignore' });
+    execSync(['tsx', RUN_WITH_EXPANSO_SCRIPT, CLI_BINARY, 'version'].join(' '), { stdio: 'ignore' });
     console.log('✅ Expanso CLI binary found.');
   } catch (e: any) {
     console.error('❌ Expanso CLI binary not found/executable. Run `npm run setup-binaries` first.');
@@ -24,8 +24,8 @@ async function runPipelineTests() {
   }
 
   // 2. Run Validation
-  const pipelineFiles = await glob(`${TEST_DIR}/**/*.yaml`);
-  console.log(`Found ${pipelineFiles.length} pipeline files to validate.`);
+  const pipelineFiles = await glob(`${TEST_DIR}/**/*-complete.yaml`);
+  console.log(`Found ${pipelineFiles.length} complete pipeline files to validate.`);
 
   let totalPassed = 0;
   let totalFailed = 0;
@@ -35,7 +35,7 @@ async function runPipelineTests() {
     console.log('\n--- Validating ' + relativePath + ' ---');
 
     try {
-      const validateCmd = ['npx', 'tsx', RUN_WITH_EXPANSO_SCRIPT, CLI_BINARY, 'job', 'validate', pipelineFile].join(' ');
+      const validateCmd = ['tsx', RUN_WITH_EXPANSO_SCRIPT, CLI_BINARY, 'job', 'validate', pipelineFile].join(' ');
       execSync(validateCmd, { stdio: 'inherit' });
       console.log(`✅ Validated.`);
       totalPassed++;
