@@ -32,7 +32,7 @@ export const piiSampleInput = {
 export const piiRemovalStages: PipelineStage[] = [
   {
     id: 1,
-    title: "1. Original Input",
+    title: "Step 1: Original Input",
     description: "Raw user activity event with PII fields exposed",
     yaml: `# Accept incoming events via HTTP
 config:
@@ -48,7 +48,7 @@ config:
 
   {
     id: 2,
-    title: "2. Delete Payment Data",
+    title: "Step 2: Delete Payment Data",
     description: "Remove high-risk PII: credit card numbers (PCI-DSS compliance)",
     yaml: `# Add processor to remove credit card data
 pipeline:
@@ -87,7 +87,7 @@ pipeline:
 
   {
     id: 3,
-    title: "3. Hash IP Address",
+    title: "Step 3: Hash IP Address",
     description: "Replace IP address with SHA-256 hash (preserve uniqueness, prevent identification)",
     yaml: `# Add processor to hash IP addresses
 pipeline:
@@ -130,7 +130,7 @@ pipeline:
 
   {
     id: 4,
-    title: "4. Hash Email",
+    title: "Step 4: Hash Email",
     description: "Hash email address and extract domain for analytics",
     yaml: `# Add processor to hash emails
 pipeline:
@@ -179,7 +179,7 @@ pipeline:
 
   {
     id: 5,
-    title: "5. Pseudonymize User",
+    title: "Step 5: Pseudonymize User",
     description: "Replace username with consistent user ID",
     yaml: `# Add processor to pseudonymize usernames
 pipeline:
@@ -224,7 +224,7 @@ pipeline:
 
   {
     id: 6,
-    title: "6. Generalize Location",
+    title: "Step 6: Generalize Location",
     description: "Remove precise coordinates, keep city/country for regional analytics",
     yaml: `# Add processor to generalize location
 pipeline:
