@@ -18,57 +18,15 @@ This example requires the following services to be running:
 
 Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
 
-## Step 1: Verify Edge Node Configuration
+## Step 1: Create Schema Directory
 
-Confirm your edge nodes are properly configured for schema validation:
-
-```bash
-# Check edge node status
-expanso node list
-
-# Verify node labels for schema validation
-expanso node describe <NODE_ID> | grep -A 5 "labels"
-```
-
-**Expected output:**
-```
-NODE_ID                           STATUS    ROLE              LABELS
-edge-sensor-001                   ready     sensor-collector  validation=required
-edge-sensor-002                   ready     sensor-collector  validation=required
-```
-
-If your nodes don't have the required labels, add them:
+Create a local directory for schema files:
 
 ```bash
-# Add required labels to edge nodes
-expanso node label edge-sensor-001 role=sensor-collector validation=required
-expanso node label edge-sensor-002 role=sensor-collector validation=required
-
-# Verify labels were added
-expanso node describe edge-sensor-001 | grep validation
+mkdir -p /tmp/expanso/schemas
 ```
 
-## Step 2: Create Schema Directory on Edge Nodes
-
-Schema files need to be accessible to validation processors on each edge node:
-
-```bash
-# Connect to each edge node and create schema directory
-for node in edge-sensor-001 edge-sensor-002; do
-  echo "Setting up schema directory on $node..."
-  
-  # Create directory for schema files
-  expanso node exec $node -- mkdir -p /etc/expanso/schemas
-  
-  # Set proper permissions
-  expanso node exec $node -- chmod 755 /etc/expanso/schemas
-  
-  # Verify directory exists
-  expanso node exec $node -- ls -ld /etc/expanso/schemas
-done
-```
-
-## Step 3: Prepare Sample Sensor Data
+## Step 2: Prepare Sample Sensor Data
 
 Create test data to verify schema validation works correctly:
 
@@ -156,7 +114,7 @@ echo "Valid reading sample:"
 jq . /tmp/sensor-test-data/valid-reading.json
 ```
 
-## Step 4: Set Environment Variables
+## Step 3: Set Environment Variables
 
 Configure endpoints for analytics and metrics collection:
 
@@ -172,7 +130,7 @@ echo "Metrics endpoint: $METRICS_ENDPOINT"
 echo "Node ID: $NODE_ID"
 ```
 
-## Step 5: Set Up Mock Analytics Endpoint
+## Step 4: Set Up Mock Analytics Endpoint
 
 Create a simple HTTP server to capture messages for testing:
 

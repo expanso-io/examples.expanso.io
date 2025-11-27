@@ -14,6 +14,17 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         'getting-started/local-development',
+        {
+          type: 'category',
+          label: 'Services',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'getting-started/services/kafka',
+            'getting-started/services/postgres',
+            'getting-started/services/redis',
+          ],
+        },
       ],
     },
     {

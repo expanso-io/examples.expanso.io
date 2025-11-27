@@ -35,6 +35,48 @@ npm run typecheck
 npm run clear
 ```
 
+## Expanso CLI Tools
+
+**CRITICAL:** All CLI commands in documentation MUST be real, validated commands. Never hallucinate CLI verbs or flags.
+
+### Real Binaries (stored in `.bin/`, gitignored)
+- `expanso-cli` - Control plane interaction (deploy jobs, manage nodes)
+- `expanso-edge` - Edge agent that runs pipelines locally
+
+### Valid Commands Reference
+
+**expanso-cli** (from `expanso-cli --help`):
+- `profile save|list|select|current|show|delete` - Manage connection profiles
+- `job deploy|list|describe|delete|stop|validate|diff|rerun|versions|history|evaluations|executions` - Manage jobs
+- `node list|describe|delete|executions|stats` - Manage edge nodes
+- `execution list|describe|history` - View job executions
+- `evaluation describe|list` - View scheduler evaluations
+- `config|health|status|version` - Utility commands
+
+**expanso-edge** (from `expanso-edge --help`):
+- `bootstrap --token <TOKEN>` - One-time node registration
+- `run [--local] [--config <file>] [--no-watch]` - Run edge agent
+- `version` - Show version
+
+### Validating CLI Commands
+
+```bash
+# Download/update binaries
+npm run setup-binaries
+
+# Validate ALL CLI commands in docs against real binaries
+npm run validate-cli
+
+# Show full command tree
+npm run validate-cli -- --dump-commands
+```
+
+The validator:
+1. Runs `--help` on each binary to discover real commands
+2. Scans all `.mdx` files for `expanso-cli` and `expanso-edge` usage
+3. Reports any hallucinated/invalid commands
+4. Saves command reference to `.bin/command-reference.json`
+
 ## Content Structure
 
 The site follows a strict pairing pattern:

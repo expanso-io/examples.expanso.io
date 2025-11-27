@@ -11,7 +11,9 @@ on:
       - main
     paths:
       - 'docs/**/*-full.stages.ts'
+      - 'docs/**/*.mdx'
       - 'scripts/validate-stages.ts'
+      - 'scripts/validate-cli-commands.ts'
       - 'scripts/setup-binaries.ts'
       - 'scripts/sync-stages.ts'
       - 'scripts/run-with-expanso.ts'
@@ -51,6 +53,9 @@ jobs:
       - name: Setup Expanso Binaries
         run: npm run setup-binaries
 
+      - name: Validate CLI Commands in Docs
+        run: npm run validate-cli
+
       - name: Sync Stage YAMLs
         run: npm run sync-stages
 
@@ -72,5 +77,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '❌ **Stage file or pipeline validation failed**\n\nPlease run `npm run validate-stages`, `npm run sync-stages`, `npm run validate-yaml`, and `npm run test-pipelines` locally to see the errors and fix them before merging.'
+              body: '❌ **Validation failed**\n\nPlease run these commands locally to see errors:\n- `npm run setup-binaries` - Download CLI binaries\n- `npm run validate-cli` - Validate CLI commands in docs\n- `npm run validate-stages` - Validate stage files\n- `npm run sync-stages` - Sync stage YAMLs\n- `npm run validate-yaml` - Validate YAML files\n- `npm run test-pipelines` - Test pipelines'
             })

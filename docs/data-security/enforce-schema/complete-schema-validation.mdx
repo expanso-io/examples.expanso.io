@@ -1,564 +1,68 @@
 ---
 title: Complete Schema Validation Pipeline
-sidebar_label: Complete Solution
+sidebar_label: Complete Pipeline
 sidebar_position: 7
-description: Deploy the complete production-ready schema validation system with all components integrated
-keywords: [complete solution, production deployment, schema validation, end-to-end]
+description: The complete schema validation pipeline with DLQ routing
+keywords: [complete, schema, validation, dlq]
 ---
 
 import CodeBlock from '@theme/CodeBlock';
-import completeYaml from '!!raw-loader!../../../examples/data-security/enforce-schema-complete.yaml';
+import pipelineYaml from '!!raw-loader!../../../examples/data-security/enforce-schema-complete.yaml';
 
-# Complete Schema Validation Pipeline
+# Complete Pipeline
 
-Deploy the complete, production-ready schema validation system that integrates JSON Schema validation, dead letter queue routing, comprehensive monitoring, and operational tools. This solution handles high-throughput data processing with enterprise-grade reliability and observability.
+This pipeline combines all schema validation techniques from this tutorial:
 
-## Complete System Architecture
+- **JSON Schema validation** - Validate incoming data against defined schema
+- **Smart routing** - Valid data → analytics, invalid data → DLQ
+- **Error enrichment** - Add validation error details to failed messages
+- **Quality metrics** - Track validation pass/fail rates
 
+## Full Configuration
+
+<CodeBlock language="yaml" title="enforce-schema.yaml">{pipelineYaml}</CodeBlock>
+
+## Quick Test
+
+```bash
+# Send valid sensor data
+curl -X POST http://localhost:8080/sensors \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sensor_id": "temp-001",
+    "temperature": 72.5,
+    "humidity": 45.0,
+    "timestamp": "2024-01-15T10:30:00Z"
+  }'
+# Result: Routed to analytics
+
+# Send invalid data (missing required field)
+curl -X POST http://localhost:8080/sensors \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sensor_id": "temp-001",
+    "temperature": "not-a-number"
+  }'
+# Result: Routed to DLQ with validation error details
 ```
-IoT Devices → Edge Validation → Router → Analytics + DLQ + Monitoring
-     ↓              ↓             ↓          ↓       ↓       ↓
-  Sensor Data   Schema Check   Smart Route  Valid  Failed  Metrics
-                                            Data   Data    & Alerts
+
+## Deploy
+
+```bash
+# Deploy to Expanso orchestrator
+expanso-cli job deploy enforce-schema.yaml
+
+# Or run locally with expanso-edge
+expanso-edge run --config enforce-schema.yaml
 ```
 
-**System components:**
-1. **Edge Validation** - JSON Schema validation at point of ingestion
-2. **Intelligent Routing** - Multi-destination routing based on validation status
-3. **Dead Letter Queue** - Structured failure handling with priority classification
-4. **Monitoring & Alerting** - Real-time data quality metrics and proactive alerts
-5. **Operational Tools** - Management scripts, dashboards, and investigation tools
+## Download
 
-## Quick Deployment
-
-Download and deploy the complete solution:
-
-<CodeBlock language="yaml" title="enforce-schema-complete.yaml" showLineNumbers>
-  {completeYaml}
-</CodeBlock>
-
-<a
-  href="/files/data-security/enforce-schema-complete.yaml"
-  download
-  className="button button--primary button--lg margin-top--md"
->
-  📥 Download Complete Pipeline
+<a href="/examples/data-security/enforce-schema-complete.yaml" download className="button button--primary">
+  Download enforce-schema.yaml
 </a>
 
----
+## What's Next?
 
-## Step-by-Step Deployment
-
-### 1. Prepare Production Environment
-
-```bash
-# Create production directories
-sudo mkdir -p /var/log/expanso/{dlq/{urgent,high,normal},audit}
-sudo mkdir -p /etc/expanso/schemas
-sudo chown -R expanso:expanso /var/log/expanso /etc/expanso
-
-# Set up environment variables
-cat >> /etc/environment << 'EOF'
-ANALYTICS_ENDPOINT=http://analytics-api:8080
-ANALYTICS_FALLBACK_ENDPOINT=http://analytics-fallback:8080
-METRICS_ENDPOINT=http://prometheus-pushgateway:9091
-ALERT_ENDPOINT=http://alertmanager:9093
-NODE_ID=$(hostname)
-EOF
-
-source /etc/environment
-```
-
-### 2. Deploy Schema Definition
-
-```bash
-# Create production schema (sensor-schema-v1.0.0.json)
-cat > /etc/expanso/schemas/sensor-schema-v1.0.0.json << 'EOF'
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://example.com/schemas/sensor-reading-v1.0.0.json",
-  "title": "Production Sensor Reading Schema",
-  "description": "Secure schema for IoT sensor temperature and humidity readings",
-  "type": "object",
-
-  "required": [
-    "sensor_id",
-    "timestamp",
-    "location",
-    "readings",
-    "metadata"
-  ],
-
-  "properties": {
-    "sensor_id": {
-      "type": "string",
-      "description": "Unique sensor identifier",
-      "pattern": "^sensor-[0-9]+$",
-      "minLength": 8,
-      "maxLength": 20
-    },
-
-    "timestamp": {
-      "type": "string",
-      "description": "ISO 8601 timestamp when reading was taken",
-      "format": "date-time"
-    },
-
-    "location": {
-      "type": "object",
-      "description": "Physical location of the sensor",
-      "required": ["building", "floor", "zone"],
-      "properties": {
-        "building": {
-          "type": "string",
-          "description": "Building identifier",
-          "pattern": "^warehouse-[0-9]+$"
-        },
-        "floor": {
-          "type": "integer",
-          "description": "Floor number",
-          "minimum": 1,
-          "maximum": 10
-        },
-        "zone": {
-          "type": "string",
-          "description": "Zone within the floor",
-          "pattern": "^[A-Z]$"
-        }
-      },
-      "additionalProperties": false
-    },
-
-    "readings": {
-      "type": "object",
-      "description": "Sensor measurements",
-      "required": ["temperature_celsius", "humidity_percent"],
-      "properties": {
-        "temperature_celsius": {
-          "type": "number",
-          "description": "Temperature reading in Celsius",
-          "minimum": -50,
-          "maximum": 100,
-          "multipleOf": 0.1
-        },
-        "humidity_percent": {
-          "type": "number",
-          "description": "Relative humidity percentage",
-          "minimum": 0,
-          "maximum": 100,
-          "multipleOf": 0.1
-        }
-      },
-      "additionalProperties": false
-    },
-
-    "metadata": {
-      "type": "object",
-      "description": "Device metadata",
-      "required": ["firmware_version", "battery_percent"],
-      "properties": {
-        "firmware_version": {
-          "type": "string",
-          "description": "Firmware version of the sensor",
-          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
-        },
-        "battery_percent": {
-          "type": "integer",
-          "description": "Battery level percentage",
-          "minimum": 0,
-          "maximum": 100
-        }
-      },
-      "additionalProperties": false
-    }
-  },
-
-  "additionalProperties": false
-}
-EOF
-
-# Verify schema file
-jq empty /etc/expanso/schemas/sensor-schema-v1.0.0.json && echo "✅ Schema valid"
-```
-
-### 3. Deploy Complete Pipeline
-
-```bash
-# Deploy the complete schema validation pipeline
-expanso job deploy enforce-schema-complete.yaml
-
-# Verify deployment
-expanso job status complete-schema-validation
-
-# Check pipeline health
-curl -s http://localhost:8080/ping
-```
-
-### 4. Verify System Integration
-
-```bash
-# Test complete system with valid data
-curl -X POST http://localhost:8080/sensor/readings \
-  -H "Content-Type: application/json" \
-  -d '{
-    "sensor_id": "sensor-prod-001",
-    "timestamp": "2025-10-20T14:30:00Z",
-    "location": {"building": "warehouse-3", "floor": 2, "zone": "A"},
-    "readings": {"temperature_celsius": 23.5, "humidity_percent": 45.2},
-    "metadata": {"firmware_version": "2.1.0", "battery_percent": 87}
-  }'
-
-echo "✅ Valid message sent (should route to analytics)"
-echo ""
-
-# Test with invalid data (security violation)
-curl -X POST http://localhost:8080/sensor/readings \
-  -H "Content-Type: application/json" \
-  -d '{
-    "sensor_id": "sensor-prod-002",
-    "timestamp": "2025-10-20T14:30:00Z",
-    "location": {"building": "warehouse-3", "floor": 2, "zone": "A"},
-    "readings": {"temperature_celsius": 23.5, "humidity_percent": 45.2},
-    "metadata": {"firmware_version": "2.1.0", "battery_percent": 87},
-    "admin_override": {"command": "shutdown"}
-  }'
-
-echo "🔴 Security violation sent (should trigger alert)"
-echo ""
-
-# Verify system routing
-sleep 10
-
-echo "=== System Verification ==="
-echo "DLQ entries:"
-find /var/log/expanso/dlq -name "*.jsonl" -type f | wc -l
-
-echo "Audit entries:"
-find /var/log/expanso/audit -name "*.jsonl" -type f | wc -l
-
-echo "Prometheus metrics:"
-curl -s http://localhost:8080/metrics | grep -E "validation|quality" | wc -l
-```
-
-## Production Features
-
-### 1. High-Performance Processing
-
-**Throughput optimization:**
-- Rate limiting: 1000 requests/second
-- Batch processing: 100 messages per batch
-- Connection pooling for analytics endpoints
-- Efficient JSON parsing with error recovery
-
-**Performance characteristics:**
-- **Latency:** P95 < 10ms per message
-- **Throughput:** 1000+ messages/second
-- **Memory efficiency:** Bounded memory usage
-- **CPU optimization:** Schema caching and batch processing
-
-### 2. Enterprise Reliability
-
-**Deployment strategy:**
-- Rolling updates with auto-rollback
-- Health checks every 30 seconds
-- Graceful shutdown handling
-- Zero-downtime deployments
-
-**Error handling:**
-- Comprehensive try/catch blocks
-- Graceful degradation on failures
-- Retry logic with exponential backoff
-- Circuit breaker patterns
-
-### 3. Intelligent DLQ Management
-
-**Priority classification:**
-- **Urgent:** Security violations (immediate alert)
-- **High:** Missing required fields (fast processing)
-- **Normal:** Format violations (batch processing)
-
-**Retention policies:**
-- Urgent: 90 days retention
-- High: 30 days retention  
-- Normal: 7 days retention
-
-**DLQ features:**
-- Date-partitioned storage
-- Automatic file rotation
-- Investigation tools
-- Retry mechanisms
-
-### 4. Comprehensive Monitoring
-
-**Real-time metrics:**
-- Data quality score (0-100%)
-- Validation success rate
-- Processing latency (P50, P95, P99)
-- Error categorization
-- System resource usage
-
-**Alerting rules:**
-- Data quality SLA breaches
-- Security violation detection
-- Performance degradation
-- High error rates
-- Resource exhaustion
-
-### 5. Security and Compliance
-
-**Security features:**
-- Schema-based security boundary
-- Additional property blocking
-- Malicious payload detection
-- Audit logging
-- Correlation tracking
-
-**Compliance support:**
-- Complete audit trail
-- Data lineage tracking
-- Error investigation logs
-- Performance metrics
-- Security incident logging
-
-## Operational Procedures
-
-### Daily Operations
-
-```bash
-# Daily health check
-curl -s http://localhost:8080/metrics | grep -E "(up|health)" 
-
-# Check data quality
-expanso job logs complete-schema-validation --tail 100 | grep quality_score
-
-# Review DLQ status  
-find /var/log/expanso/dlq -name "*.jsonl" -mtime -1 | wc -l
-```
-
-### Weekly Maintenance
-
-```bash
-# DLQ cleanup (automated via cron)
-/opt/expanso/scripts/dlq-cleanup.sh
-
-# Performance review
-curl -s http://localhost:9090/api/v1/query?query=avg_over_time(validation_success_rate[7d])
-
-# Capacity planning
-curl -s http://localhost:9090/api/v1/query?query=rate(pipeline_input_received[7d])
-```
-
-### Monthly Reporting
-
-```bash
-# Generate monthly data quality report
-/opt/expanso/scripts/monthly-quality-report.sh $(date -d "last month" +%Y-%m)
-
-# Schema evolution planning
-/opt/expanso/scripts/schema-analysis.sh --time-range 30d
-
-# Capacity utilization review
-/opt/expanso/scripts/capacity-report.sh --time-range 30d
-```
-
-## Scaling Guidelines
-
-### Horizontal Scaling
-
-**Add more edge nodes:**
-```bash
-# Deploy to additional nodes with matching labels
-expanso node label new-edge-node role=sensor-collector validation=required
-
-# Pipeline automatically deploys to new nodes via selector
-expanso job status complete-schema-validation
-```
-
-**Scale analytics endpoints:**
-```yaml
-# Update environment variables
-ANALYTICS_ENDPOINT=http://analytics-cluster:8080
-ANALYTICS_FALLBACK_ENDPOINT=http://analytics-fallback-cluster:8080
-```
-
-### Vertical Scaling
-
-**Increase processing capacity:**
-```yaml
-# Update pipeline configuration
-config:
-  input:
-    http_server:
-      rate_limit: "2000/1s"  # Increase rate limit
-      
-  pipeline:
-    processors:
-      # Add parallel processing
-      - parallel:
-          cap: 10  # Process 10 messages in parallel
-          processors:
-            - json_schema:
-                schema_path: "file:///etc/expanso/schemas/sensor-schema-v1.0.0.json"
-```
-
-### Performance Optimization
-
-**Schema optimization:**
-```json
-{
-  "description": "Optimized schema for high-throughput",
-  "type": "object",
-  "required": ["sensor_id", "readings"],
-  "properties": {
-    "sensor_id": {"type": "string"},
-    "readings": {
-      "type": "object", 
-      "additionalProperties": false
-    }
-  },
-  "additionalProperties": false
-}
-```
-
-**Batch size tuning:**
-```yaml
-output:
-  http_client:
-    batching:
-      count: 500      # Larger batches for higher throughput
-      period: 2s      # Faster flush for lower latency
-      byte_size: 50MB # Size-based batching
-```
-
-## Troubleshooting Guide
-
-### Issue: Low Data Quality Score
-
-**Symptoms:**
-- Data quality score below 95%
-- Increased DLQ entries
-- Analytics alerts
-
-**Investigation:**
-```bash
-# Check error patterns
-find /var/log/expanso/dlq -name "*.jsonl" -mtime -1 -exec cat {} \; | \
-  jq -r '.dlq_metadata.error_category' | sort | uniq -c | sort -rn
-
-# Identify problematic sensors
-find /var/log/expanso/dlq -name "*.jsonl" -mtime -1 -exec cat {} \; | \
-  jq -r '.sensor_id' | sort | uniq -c | sort -rn | head -10
-```
-
-**Resolution:**
-1. Review top error categories
-2. Check sensor firmware versions
-3. Update schema if needed
-4. Quarantine problematic sensors
-
-### Issue: High Processing Latency
-
-**Symptoms:**
-- P95 latency > 100ms
-- Throughput degradation
-- Memory usage increasing
-
-**Investigation:**
-```bash
-# Check processing time distribution
-curl -s http://localhost:9090/api/v1/query?query=histogram_quantile(0.95,rate(total_processing_time_ms_bucket[5m]))
-
-# Monitor memory usage
-curl -s http://localhost:9090/api/v1/query?query=process_resident_memory_bytes
-```
-
-**Resolution:**
-1. Enable parallel processing
-2. Optimize schema complexity
-3. Increase batch sizes
-4. Scale horizontally
-
-### Issue: Security Violations
-
-**Symptoms:**
-- Urgent DLQ entries
-- Security alerts firing
-- Additional properties detected
-
-**Investigation:**
-```bash
-# Analyze security violations
-find /var/log/expanso/dlq/urgent -name "*.jsonl" -exec cat {} \; | \
-  jq -r '.sensor_id' | sort | uniq -c
-```
-
-**Resolution:**
-1. Block malicious sources
-2. Review network security
-3. Update sensor configurations
-4. Escalate to security team
-
-## Related Documentation
-
-- [**JSON Schema Setup**](./step-1-define-json-schema) - Create comprehensive schema definitions
-- [**DLQ Management**](./step-3-route-failures-dlq) - Configure dead letter queue routing
-- [**Monitoring Setup**](./step-4-monitor-quality-metrics) - Implement comprehensive monitoring
-- [**Troubleshooting Guide**](./troubleshooting) - Common issues and solutions
-
-## Support and Maintenance
-
-### Getting Help
-
-1. **Check pipeline logs:**
-   ```bash
-   expanso job logs complete-schema-validation --tail 100
-   ```
-
-2. **Review monitoring dashboards:**
-   - Data Quality Overview: http://grafana:3000/d/data-quality
-   - Performance Monitoring: http://grafana:3000/d/performance
-
-3. **Run health checks:**
-   ```bash
-   /opt/expanso/scripts/health-check.sh
-   ```
-
-4. **Contact support:**
-   - Internal: #data-engineering Slack channel
-   - External: support@expanso.io
-
-### Maintenance Windows
-
-- **Daily:** Automated DLQ cleanup (2 AM UTC)
-- **Weekly:** Performance review (Sundays 6 AM UTC)
-- **Monthly:** Schema evolution planning (First Monday 10 AM UTC)
-- **Quarterly:** Capacity planning review
-
-### Emergency Procedures
-
-**Pipeline failure:**
-1. Check system health: `expanso cluster status`
-2. Review error logs: `expanso job logs complete-schema-validation`
-3. Restart if needed: `expanso job restart complete-schema-validation`
-4. Escalate if unresolved within 15 minutes
-
-**Security incident:**
-1. Immediate: Block suspicious sources
-2. Alert: Page security team
-3. Investigate: Review audit logs
-4. Document: Create incident report
-
----
-
-## Summary
-
-The complete schema validation pipeline provides enterprise-grade data quality assurance with:
-
-✅ **Production reliability** - 99.9% uptime with auto-rollback and health checks
-✅ **High performance** - 1000+ messages/second with sub-10ms latency
-✅ **Intelligent routing** - Multi-destination processing with priority classification
-✅ **Comprehensive monitoring** - Real-time quality metrics and proactive alerting
-✅ **Security boundaries** - Schema-based protection against malicious payloads
-✅ **Operational tools** - Management scripts, dashboards, and investigation capabilities
-
-Deploy this solution to ensure data quality, prevent downstream failures, and maintain comprehensive visibility into your data processing pipeline.
+- [Troubleshooting](./troubleshooting) - Common issues and solutions
+- [Remove PII](../remove-pii/) - Delete personal information
