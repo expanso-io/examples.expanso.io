@@ -1,680 +1,87 @@
 ---
-title: "Troubleshooting Guide"
-sidebar_label: "Troubleshooting"
+title: Troubleshooting
+sidebar_label: Troubleshooting
 sidebar_position: 10
-description: Common issues and solutions for PII removal pipeline
-keywords: [troubleshooting, debugging, errors, common-issues, solutions]
+description: Common PII removal issues and solutions
+keywords: [troubleshooting, debug, pii, gdpr, privacy]
 ---
 
-# Troubleshooting PII Removal Pipeline
+# Troubleshooting
 
-**Common issues and solutions** for the PII removal pipeline. Use this guide to debug problems quickly.
-
-## Quick Diagnostic Commands
+## Quick Diagnosis
 
 ```bash
-# Check pipeline status
-expanso job status pii-complete-removal
+# Check container status
+docker ps | grep remove-pii
 
-# View recent logs
-expanso job logs pii-complete-removal --tail 100
+# Check recent logs
+docker logs remove-pii --tail 50 2>&1 | grep -i error
 
-# Check for errors
-expanso job logs pii-complete-removal --tail 500 | grep -i error
-
-# View metrics
-expanso job metrics pii-complete-removal
-
-# Inspect configuration
-expanso job inspect pii-complete-removal
-```
-
-## Issue Categories
-
-1. [Deployment Issues](#deployment-issues)
-2. [Data Transformation Issues](#data-transformation-issues)
-3. [Performance Issues](#performance-issues)
-4. [Output Issues](#output-issues)
-5. [Security Issues](#security-issues)
-
----
-
-## Deployment Issues
-
-### Issue: Pipeline won't deploy
-
-**Symptom:**
-```bash
-$ expanso job deploy remove-pii-complete.yaml
-Error: failed to validate pipeline configuration
-```
-
-**Common causes:**
-
-**1. YAML syntax error**
-```bash
-# Validate YAML syntax
-yamllint remove-pii-complete.yaml
-
-# Or use Python
-python3 -c "import yaml; yaml.safe_load(open('remove-pii-complete.yaml'))"
-```
-
-**2. Invalid Bloblang mapping**
-```bash
-# Test mapping separately
-echo '{"test": "value"}' | expanso bloblang test 'root = this'
-```
-
-**3. Missing required fields**
-```yaml
-# Ensure these are present:
-name: pii-complete-removal    # Required
-type: pipeline                # Required
-config:                       # Required
-  input: {}                   # Required
-  pipeline: {}                # Required
-  output: {}                  # Required
-```
-
-### Issue: Pipeline deploys but won't start
-
-**Symptom:**
-```bash
-$ expanso job status pii-complete-removal
-Status: failed
-Error: cannot bind to address 0.0.0.0:8080
-```
-
-**Solution: Port already in use**
-```bash
-# Check what's using port 8080
-lsof -i :8080
-
-# Option 1: Kill the process
-kill -9 <PID>
-
-# Option 2: Use different port
-# Edit YAML:
-input:
-  http_server:
-    address: "0.0.0.0:8081"  # Changed port
-```
-
-### Issue: No edge nodes available
-
-**Symptom:**
-```
-Error: no eligible nodes found for deployment
-```
-
-**Solution:**
-```bash
-# Check node status
-expanso node list
-
-# If no nodes, start edge node
-expanso node start --name edge-node-001
-
-# Check node labels match selector
-expanso job inspect pii-complete-removal | grep selector
-expanso node list | grep labels
-```
-
----
-
-## Data Transformation Issues
-
-### Issue: PII still present in output
-
-**Symptom:** Original fields like `user_name`, `email`, `ip_address` still in output
-
-**Diagnosis:**
-```bash
-# Check output
-tail -1 /var/log/expanso/pii-removed.jsonl | jq .
-
-# If user_name still present:
-tail -1 /var/log/expanso/pii-removed.jsonl | jq 'has("user_name")'
-# Should print: false
-```
-
-**Common causes:**
-
-**1. Processor not applied**
-```bash
-# Check processor count
-expanso job inspect pii-complete-removal | grep -c "mapping:"
-# Should print: 5 (for 5-step pipeline)
-```
-
-**2. Wrong order - root assigned after deletion**
-```yaml
-# ❌ WRONG - this resets all changes
-- mapping: |
-    root.user_id = "user_" + this.user_name.hash("sha256", env("USER_SALT").or("")).slice(0, 12)
-    root = this  # ❌ This undoes the user_id assignment!
-
-# ✅ CORRECT - assign root first
-- mapping: |
-    root = this
-    root.user_id = "user_" + this.user_name.hash("sha256", env("USER_SALT").or("")).slice(0, 12)
-    root = this.without("user_name")
-```
-
-**3. Using `.without()` incorrectly**
-```yaml
-# ❌ WRONG - doesn't work for nested fields
-root = this.without("payment_method.full_number")
-
-# ✅ CORRECT - operate on nested object
-root.payment_method = this.payment_method.without("full_number")
-```
-
-### Issue: Hashes are all identical
-
-**Symptom:** All `ip_hash` values are the same despite different IPs
-
-**Diagnosis:**
-```bash
-# Send two different events
-curl -X POST http://localhost:8080/events/ingest \
-  -d '{"ip_address": "1.2.3.4", "event_type": "test"}'
-
-curl -X POST http://localhost:8080/events/ingest \
-  -d '{"ip_address": "5.6.7.8", "event_type": "test"}'
-
-# Compare hashes
-tail -2 /var/log/expanso/pii-removed.jsonl | jq .ip_hash
-# Should be DIFFERENT
-```
-
-**Cause:** Hashing a constant instead of field value
-
-**Fix:**
-```yaml
-# ❌ WRONG - hardcoded value
-root.ip_hash = "192.168.1.100".hash("sha256", env("IP_SALT").or(""))
-
-# ✅ CORRECT - uses field value
-root.ip_hash = this.ip_address.hash("sha256", env("IP_SALT").or(""))
-```
-
-### Issue: Different hashes for same value
-
-**Symptom:** Same user/email/IP produces different hashes
-
-**Diagnosis:**
-```bash
-# Send same event twice
-for i in {1..2}; do
-  curl -X POST http://localhost:8080/events/ingest -d @sample-data.json
-done
-
-# Compare hashes
-tail -2 /var/log/expanso/pii-removed.jsonl | jq .user_id
-# Should be IDENTICAL
-```
-
-**Common causes:**
-
-**1. Salt changed between requests**
-```bash
-# Check salt consistency
-echo $USER_SALT
-
-# Ensure salt is set before starting pipeline
-export USER_SALT=$(openssl rand -hex 32)
-expanso job restart pii-complete-removal
-```
-
-**2. Value not normalized (case differences)**
-```yaml
-# ❌ WRONG - case sensitive
-root.email_hash = this.email.hash("sha256", env("EMAIL_SALT").or(""))
-# "Sarah@Example.com" ≠ "sarah@example.com"
-
-# ✅ CORRECT - normalize first
-let normalized = this.email.lowercase()
-root.email_hash = $normalized.hash("sha256", env("EMAIL_SALT").or(""))
-```
-
-### Issue: Environment variables not found
-
-**Symptom:**
-```
-ERROR: env variable "IP_SALT" not found
-```
-
-**Solution:**
-```bash
-# Check if environment variables are set
-echo $IP_SALT
-echo $EMAIL_SALT
-echo $USER_SALT
-
-# If empty, generate and export
-export IP_SALT=$(openssl rand -hex 32)
-export EMAIL_SALT=$(openssl rand -hex 32)
-export USER_SALT=$(openssl rand -hex 32)
-
-# For production, use secret management
-expanso config set IP_SALT "$(openssl rand -hex 32)" --secret
-```
-
-### Issue: email_domain is empty or wrong
-
-**Symptom:** `email_domain: null` or `email_domain: "sarah.johnson@example.com"`
-
-**Diagnosis:**
-```bash
-# Check email field format
-tail -1 /var/log/expanso/pii-removed.jsonl | jq .email_domain
-```
-
-**Cause 1: Email missing @ symbol**
-```yaml
-# Add validation
-- mapping: |
-    root = this
-
-    let has_at = this.email.contains("@")
-
-    root.email_hash = if $has_at {
-      this.email.hash("sha256", env("EMAIL_SALT").or(""))
-    } else {
-      "invalid_email"
-    }
-
-    root.email_domain = if $has_at {
-      this.email.split("@").index(1)
-    } else {
-      "unknown"
-    }
-
-    root = this.without("email")
-```
-
-**Cause 2: Wrong field assignment**
-```yaml
-# ❌ WRONG - assigns full email
-root.email_domain = this.email
-
-# ✅ CORRECT - extracts domain only
-root.email_domain = this.email.split("@").index(1)
-```
-
----
-
-## Performance Issues
-
-### Issue: Pipeline is slow / high latency
-
-**Symptom:** Processing 100 events/sec, need 10,000/sec
-
-**Diagnosis:**
-```bash
-# Check metrics
-expanso job metrics pii-complete-removal
-
-# Look for:
-# - Input rate vs output rate
-# - Processing time per event
-# - CPU/memory usage
-```
-
-**Solutions:**
-
-**1. Combine processors (reduce overhead)**
-```yaml
-# Instead of 5 separate processors, use 1:
-pipeline:
-  processors:
-    - mapping: |
-        root = this
-
-        # All transformations in one go
-        root.payment_method = this.payment_method.without("full_number", "expiry")
-        root.ip_hash = this.ip_address.hash("sha256", env("IP_SALT").or(""))
-        root = this.without("ip_address")
-        # ... etc
-```
-
-**2. Enable batching**
-```yaml
-input:
-  http_server:
-    address: "0.0.0.0:8080"
-    batch:
-      count: 100      # Process 100 at once
-      period: 100ms   # Or every 100ms
-```
-
-**3. Scale horizontally**
-```bash
-# Deploy to more nodes
-expanso job scale pii-complete-removal --replicas 10
-```
-
-**4. Use faster hash (if security allows)**
-```yaml
-# SHA-256 is secure but slower
-root.ip_hash = this.ip_address.hash("sha256", env("IP_SALT").or(""))
-
-# xxHash64 is faster (but not cryptographically secure)
-root.ip_hash = this.ip_address.hash("xxhash64", env("IP_SALT").or(""))
-# ⚠️  Only use for non-sensitive hashing!
-```
-
-### Issue: High memory usage
-
-**Symptom:** Edge node OOM (out of memory)
-
-**Diagnosis:**
-```bash
-# Check memory usage
-expanso node list | grep memory
-
-# Check event size
-tail -1 /var/log/expanso/pii-removed.jsonl | jq . | wc -c
-```
-
-**Solutions:**
-
-**1. Reduce batch size**
-```yaml
-input:
-  http_server:
-    batch:
-      count: 10  # Smaller batches
-```
-
-**2. Remove unnecessary fields**
-```yaml
-- mapping: |
-    root = this
-
-    # Keep only essential fields
-    root = {
-      "event_id": this.event_id,
-      "user_id": "user_" + this.user_name.hash("sha256", env("USER_SALT").or("")).slice(0, 12),
-      "timestamp": this.timestamp
-    }
-```
-
-**3. Increase node resources**
-```bash
-# Allocate more memory to edge node
-expanso node update edge-node-001 --memory 4GB
-```
-
----
-
-## Output Issues
-
-### Issue: No output / events not reaching destination
-
-**Symptom:** Pipeline running, but no events in output
-
-**Diagnosis:**
-```bash
-# Check output configuration
-expanso job inspect pii-complete-removal | grep -A 10 "output:"
-
-# Check logs for output errors
-expanso job logs pii-complete-removal | grep -i "output"
-```
-
-**Solutions:**
-
-**1. File output - check path and permissions**
-```bash
-# Verify directory exists
-ls -la /var/log/expanso/
-
-# Check permissions
-touch /var/log/expanso/test.txt
-
-# If permission denied:
-sudo chown $USER /var/log/expanso/
-# OR
-sudo chmod 777 /var/log/expanso/  # Less secure
-```
-
-**2. HTTP output - check endpoint**
-```bash
-# Test endpoint manually
-curl -X POST https://your-analytics-service.com/events \
+# Test PII removal
+curl -X POST http://localhost:8080/events \
   -H "Content-Type: application/json" \
-  -d '{"test": "event"}'
-
-# Check for SSL errors
-curl -v https://your-analytics-service.com/events
-
-# If SSL fails, add:
-output:
-  http_client:
-    url: https://your-analytics-service.com/events
-    tls:
-      skip_cert_verify: true  # ⚠️  Only for testing!
+  -d '{"user_name": "John Doe", "email": "john@example.com", "ip": "192.168.1.1"}'
 ```
 
-**3. Kafka output - check connectivity**
+## Common Issues
+
+### PII still in output (compliance failure)
+
+**Cause:** Field names don't match or nested fields missed
+
 ```bash
-# Test Kafka connectivity
-kafka-console-producer --broker-list kafka-broker:9092 --topic test
-
-# Check authentication
-output:
-  kafka:
-    addresses: ["kafka-broker:9092"]
-    topic: pii-removed-events
-    sasl:
-      mechanism: PLAIN
-      user: ${KAFKA_USER}
-      password: ${KAFKA_PASSWORD}
+# Check for PII patterns in output
+docker logs remove-pii --tail 50 2>&1 | grep -E "@|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"
 ```
 
-### Issue: Output format is wrong
-
-**Symptom:** Expecting JSON lines, getting JSON array
-
-**Solution:**
+**Fix:** Add recursive PII detection:
 ```yaml
-# JSON lines (one object per line)
-output:
-  file:
-    path: /var/log/expanso/output.jsonl
-    codec: lines  # ✅ One JSON object per line
-
-# JSON array (all objects in array)
-output:
-  file:
-    path: /var/log/expanso/output.json
-    codec: array  # [ {...}, {...}, {...} ]
+- mapping: |
+    root = this.map_each(item -> item.re_replace_all("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}", "REDACTED"))
 ```
 
 ---
 
-## Security Issues
+### Hash values inconsistent
 
-### Issue: Salt leaked / compromised
+**Cause:** Salt not set or varying between instances
 
-**Symptom:** Salt value found in logs or version control
-
-**Immediate actions:**
-1. **Rotate salts immediately**
-```bash
-# Generate new salts
-export IP_SALT_NEW=$(openssl rand -hex 32)
-export EMAIL_SALT_NEW=$(openssl rand -hex 32)
-export USER_SALT_NEW=$(openssl rand -hex 32)
-
-# Deploy dual-hashing pipeline (see Complete Pipeline docs)
+**Fix:** Use consistent salt from environment:
+```yaml
+root.email_hash = this.email.hash("sha256", env("HASH_SALT"))
 ```
 
-2. **Audit who had access**
-```bash
-# Check git history for salt exposure
-git log -S "IP_SALT" --all
+---
 
-# Revoke access for compromised accounts
+### Domain/analytics data lost
+
+**Cause:** Deleting entire field instead of extracting useful parts first
+
+**Fix:** Extract analytics-safe data before removing:
+```yaml
+root.email_domain = this.email.split("@").index(1)
+root.email_hash = this.email.hash("sha256")
+root.email = deleted()
 ```
 
-3. **Notify security team**
-4. **Update incident response procedures**
+---
 
-### Issue: Hashed data can be reverse-engineered
+### Location generalization too aggressive
 
-**Symptom:** Attacker obtained hash table
+**Cause:** Removing city/state when only GPS should be removed
 
-**Prevention:**
-- ✅ **Use strong salts** (32+ bytes)
-- ✅ **Rotate salts** every 90 days
-- ✅ **Store salts in secret management** (Vault, AWS Secrets Manager)
-- ✅ **Never log salt values**
-- ✅ **Use different salts per environment**
-
-### Issue: Combined data reveals identity
-
-**Symptom:** Even after PII removal, individual can be identified
-
-**Example:**
-```json
-{
-  "user_id": "user_abc123",
-  "email_domain": "stanford.edu",
-  "location_city": "Palo Alto",
-  "purchase_item": "Physics PhD textbook",
-  "age": 28
+**Fix:** Keep geographic region, remove precise location:
+```yaml
+root.location = {
+  "city": this.location.city,
+  "state": this.location.state,
+  "country": this.location.country
+  # latitude, longitude, street deleted
 }
 ```
 
-**Solution: Apply k-anonymity**
-```yaml
-- mapping: |
-    root = this
+## Still stuck?
 
-    # Generalize rare combinations
-    # Keep city only if population > 100,000
-    root.location_city = if this.location_population < 100000 {
-      null  # Remove city for small towns
-    } else {
-      this.location_city
-    }
-
-    # Generalize age to buckets
-    root.age_bucket = if this.age < 25 {
-      "18-24"
-    } else if this.age < 35 {
-      "25-34"
-    } else if this.age < 50 {
-      "35-49"
-    } else {
-      "50+"
-    }
-
-    root = this.without("age")
-```
-
----
-
-## Edge Cases
-
-### Issue: Null or missing fields
-
-**Symptom:**
-```
-ERROR: field 'email' does not exist
-```
-
-**Solution: Add existence checks**
-```yaml
-- mapping: |
-    root = this
-
-    # Check field exists before accessing
-    root.email_hash = if this.email.exists() {
-      this.email.hash("sha256", env("EMAIL_SALT").or(""))
-    } else {
-      "unknown_user"
-    }
-
-    root.email_domain = if this.email.exists() && this.email.contains("@") {
-      this.email.split("@").index(1)
-    } else {
-      "unknown_domain"
-    }
-
-    root = this.without("email")
-```
-
-### Issue: Unicode/emoji in data
-
-**Symptom:** `user_name: "Müller 👨‍💻"` causes encoding errors
-
-**Solution:**
-```yaml
-# Hashing handles Unicode correctly
-root.user_id = "user_" + this.user_name.hash("sha256", env("USER_SALT").or("")).slice(0, 12)
-# Works fine with any Unicode string
-```
-
-### Issue: Very long strings
-
-**Symptom:** Email or name is 10,000+ characters
-
-**Solution: Truncate before hashing**
-```yaml
-- mapping: |
-    root = this
-
-    # Limit length before processing
-    let safe_email = if this.email.length() > 1000 {
-      this.email.slice(0, 1000)
-    } else {
-      this.email
-    }
-
-    root.email_hash = $safe_email.hash("sha256", env("EMAIL_SALT").or(""))
-```
-
----
-
-## Getting Help
-
-If you're still stuck after trying these solutions:
-
-1. **Check Expanso documentation**
-   - [Bloblang mapping guide](https://docs.expanso.io/components/processors/mapping)
-   - [Pipeline configuration reference](https://docs.expanso.io/configuration)
-
-2. **Enable debug logging**
-```yaml
-logger:
-  level: DEBUG  # Very verbose
-```
-
-3. **Simplify the problem**
-   - Test each processor individually
-   - Use minimal test data
-   - Remove non-essential fields
-
-4. **Community support**
-   - Expanso Discord: [discord.gg/expanso](https://discord.gg/expanso)
-   - GitHub Issues: [github.com/expanso/expanso](https://github.com/expanso/expanso)
-
-5. **Provide these details when asking for help:**
-   - Pipeline YAML configuration
-   - Sample input/output data (redacted)
-   - Error logs (last 50 lines)
-   - Expanso version (`expanso --version`)
-   - Operating system and hardware
-
----
-
-## Related Resources
-
-- [**Complete Pipeline**](./complete-pipeline) - Full configuration reference
-- [**Interactive Explorer**](./explorer) - Visual debugging tool
-- [**Step-by-Step Tutorials**](./setup) - Learn each transformation in depth
+1. Add debug logging: `logger: {level: DEBUG}`
+2. Check the [Complete Pipeline](./complete-pipeline) for reference config
+3. Review [Encrypt Data](../encrypt-data/) for encryption instead of deletion
