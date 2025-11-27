@@ -184,20 +184,6 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'category',
-          label: 'Delete Payment PII',
-          collapsible: true,
-          collapsed: true,
-          items: [
-            'data-security/delete-payment-pii/index',
-            'data-security/delete-payment-pii/setup',
-            'data-security/delete-payment-pii/step-1-identify-payment-pii',
-            'data-security/delete-payment-pii/step-2-preserve-analytics-data',
-            'data-security/delete-payment-pii/complete-payment-pipeline',
-            'data-security/delete-payment-pii/troubleshooting',
-          ],
-        },
-        {
-          type: 'category',
           label: 'Enforce Schema Validation',
           collapsible: true,
           collapsed: true,
