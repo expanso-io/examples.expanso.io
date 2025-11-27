@@ -17,7 +17,7 @@ export const removePiiFullStages: Stage[] = [
   // ============================================================================
   {
     id: 1,
-    title: '1. Original Input',
+    title: 'Step 1: Original Input',
     description: 'Raw purchase event containing all PII fields: credit card, email, IP address, user name, and precise location coordinates. This is the baseline we will transform in the following stages.',
     yamlFilename: 'input.json',
     yamlCode: `# No processing yet - this is the raw input
@@ -80,7 +80,7 @@ export const removePiiFullStages: Stage[] = [
   // ============================================================================
   {
     id: 2,
-    title: '2. Delete Payment Data',
+    title: 'Step 2: Delete Payment Data',
     description: 'Remove full credit card number and expiry date using .without(). This is the highest-risk PII and violates PCI-DSS Level 1 compliance if stored.',
     yamlFilename: 'step-1-delete-payment.yaml',
     yamlCode: `pipeline:
@@ -147,7 +147,7 @@ export const removePiiFullStages: Stage[] = [
   // ============================================================================
   {
     id: 3,
-    title: '3. Hash IP Address',
+    title: 'Step 3: Hash IP Address',
     description: 'Convert IP address to SHA-256 hash with salt. Preserves uniqueness for abuse detection while making it irreversible. GDPR considers IP addresses as PII.',
     yamlFilename: 'step-2-hash-ip.yaml',
     yamlCode: `pipeline:
@@ -223,7 +223,7 @@ export const removePiiFullStages: Stage[] = [
   // ============================================================================
   {
     id: 4,
-    title: '4. Hash Email',
+    title: 'Step 4: Hash Email',
     description: 'Convert email to hash while extracting domain separately. Allows organizational analytics (e.g., "10% of users are @gmail.com") without storing personal emails.',
     yamlFilename: 'step-3-hash-email.yaml',
     yamlCode: `pipeline:
@@ -298,7 +298,7 @@ export const removePiiFullStages: Stage[] = [
   // ============================================================================
   {
     id: 5,
-    title: '5. Pseudonymize User',
+    title: 'Step 5: Pseudonymize User',
     description: 'Replace user name with consistent pseudonym (hashed user_id). Same user always gets same ID, enabling user journey tracking without storing real names.',
     yamlFilename: 'step-4-pseudonymize-user.yaml',
     yamlCode: `pipeline:
@@ -373,7 +373,7 @@ export const removePiiFullStages: Stage[] = [
   // ============================================================================
   {
     id: 6,
-    title: '6. Generalize Location',
+    title: 'Step 6: Generalize Location',
     description: 'Final step: Remove precise GPS coordinates, keeping only city and country. Enables regional analytics without tracking exact user locations. GDPR compliant!',
     yamlFilename: 'step-5-generalize-location.yaml',
     yamlCode: `pipeline:
