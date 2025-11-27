@@ -4,8 +4,8 @@
 
 ## Overview
 
-- **Total Examples:** 18
-- **Complete Examples:** 18 (100%)
+- **Total Examples:** 17
+- **Complete Examples:** 17 (100%)
 - **Partial Examples:** 0 (0%)
 - **Minimal Examples:** 0 (0%)
 - **Average Completion:** 100%
@@ -36,8 +36,8 @@ Circuit breakers, content routing, fan-out patterns, priority queues
 
 PII removal, encryption patterns, schema enforcement, data sanitization
 
-- **Examples:** 5
-- **Complete:** 5/5 (100%)
+- **Examples:** 4
+- **Complete:** 4/4 (100%)
 - **Average Completion:** 100%
 
 | Example | Stage File | Explorer | Index | Setup | Completion |
@@ -46,7 +46,6 @@ PII removal, encryption patterns, schema enforcement, data sanitization
 | enforce-schema | ✅ | ✅ | ✅ | ✅ | ✅ 100% |
 | encryption-patterns | ✅ | ✅ | ✅ | ✅ | ✅ 100% |
 | encrypt-data | ✅ | ✅ | ✅ | ✅ | ✅ 100% |
-| delete-payment-pii | ✅ | ✅ | ✅ | ✅ | ✅ 100% |
 
 ### data-transformation
 
