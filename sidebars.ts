@@ -189,6 +189,7 @@ const sidebars: SidebarsConfig = {
           collapsed: true,
           items: [
             'data-security/enforce-schema/index',
+            'data-security/enforce-schema/explorer',
             'data-security/enforce-schema/setup',
             'data-security/enforce-schema/step-1-define-json-schema',
             'data-security/enforce-schema/step-2-route-failures-dlq',
@@ -246,6 +247,7 @@ const sidebars: SidebarsConfig = {
           collapsed: true,
           items: [
             'data-transformation/normalize-timestamps/index',
+            'data-transformation/normalize-timestamps/explorer',
             'data-transformation/normalize-timestamps/setup',
             'data-transformation/normalize-timestamps/step-1-parse-formats',
             'data-transformation/normalize-timestamps/step-2-convert-timezones',
@@ -280,6 +282,7 @@ const sidebars: SidebarsConfig = {
           collapsed: true,
           items: [
             'data-transformation/transform-formats/index',
+            'data-transformation/transform-formats/explorer',
             'data-transformation/transform-formats/setup',
             'data-transformation/transform-formats/step-1-convert-json-avro',
             'data-transformation/transform-formats/step-2-convert-avro-parquet',

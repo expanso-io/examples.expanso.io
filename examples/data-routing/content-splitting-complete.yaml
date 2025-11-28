@@ -1,586 +1,86 @@
-# Content Splitting Complete Pipeline
-# Production-ready content splitting with comprehensive error handling,
-# memory management, security, and monitoring features
-#
-# This pipeline supports multiple data formats:
-# - sensor_array: IoT sensor readings in JSON arrays
-# - csv_batch: Transaction or log files in CSV format  
-# - order_items: E-commerce orders with line items
-# - log_events: Application log events with various severity levels
-#
-# Key Features:
-# - Memory safety with configurable limits
-# - Comprehensive error handling and recovery
-# - Multi-format input validation
-# - Context preservation during splitting
-# - Priority-based routing and batching
-# - Security with API token authentication
-# - Compliance metadata for GDPR/PCI-DSS
-# - Health monitoring and metrics
+# Complete Content Splitting Pipeline
+# Splits batch payloads (arrays, CSVs) into individual records for processing
 
-name: content-splitting-complete
-description: |
-  Production-ready content splitting pipeline supporting multiple data formats
-  with comprehensive error handling, monitoring, and compliance features
-type: pipeline
-namespace: production
-version: 1.0.0
+input:
+  http_server:
+    address: "0.0.0.0:8080"
+    path: /batch
+    allowed_verbs: ["POST"]
 
-config:
-  # Production HTTP input with security and rate limiting
-  input:
-    http_server:
-      address: 0.0.0.0:8080
-      path: /api/v1/content/split
-      timeout: 30s
-      allowed_verbs: [POST]
-      cors:
-        enabled: true
-        allowed_origins: 
-          - "https://*.company.com"
-          - "https://trusted-partner.com"
-      rate_limit:
-        enabled: true
-        requests_per_minute: 2000
-        burst_size: 100
-      tls:
-        enabled: ${TLS_ENABLED:false}
-        cert_file: ${TLS_CERT_PATH:/etc/ssl/certs/server.crt}
-        key_file: ${TLS_KEY_PATH:/etc/ssl/private/server.key}
+pipeline:
+  processors:
+    # Step 1: Detect content type and validate
+    - mapping: |
+        root = this
+        root.batch_id = uuid_v4()
+        root.received_at = now()
 
-  pipeline:
-    processors:
-      # === SECURITY AND AUTHENTICATION ===
-      - mapping: |
-          # Validate API authentication
-          let auth_header = meta("http_headers").authorization.or("")
-          if !$auth_header.has_prefix("Bearer ") {
-            throw("Authorization header required: Bearer <token>")
-          }
-          
-          let api_token = $auth_header.slice(7, -1)
-          let valid_tokens = env("VALID_API_TOKENS").or("").split(",")
-          if !$valid_tokens.contains($api_token) {
-            throw("Invalid API token")
-          }
-          
-          # Security context
-          root = this
-          root.security_context = {
-            "token_hash": $api_token.hash("sha256").string(),
-            "client_ip": meta("http_remote_ip"),
-            "user_agent": meta("http_headers").user_agent.or("unknown"),
-            "request_id": uuid_v4(),
-            "authenticated_at": now()
-          }
+        # Determine data type
+        root.data_type = if this.items.exists() && this.items.type() == "array" {
+          "json_array"
+        } else if this.records.exists() {
+          "records"
+        } else if this.type() == "array" {
+          "raw_array"
+        } else {
+          "single"
+        }
 
-      # === INPUT VALIDATION AND STRUCTURE ANALYSIS ===
-      - mapping: |
-          # Request structure validation
-          if !this.exists() || this.type() != "object" {
-            throw("Request body must be a valid JSON object")
-          }
-          
-          # Required fields
-          if !this.data_type.exists() {
-            throw("'data_type' field is required (sensor_array, csv_batch, order_items, log_events)")
-          }
-          
-          if !this.source_identifier.exists() {
-            throw("'source_identifier' field is required for tracking")
-          }
-          
-          # Validate data_type and corresponding data field
-          let supported_types = ["sensor_array", "csv_batch", "order_items", "log_events"]
-          if !$supported_types.contains(this.data_type.string()) {
-            throw("Unsupported data_type: " + this.data_type.string() + 
-                  ". Supported: " + $supported_types.join(", "))
-          }
-          
-          # Determine array field based on data type
-          let array_field = match {
-            this.data_type == "sensor_array" => "readings"
-            this.data_type == "csv_batch" => "records"
-            this.data_type == "order_items" => "items"
-            this.data_type == "log_events" => "events"
-            _ => throw("No array field mapping for data_type: " + this.data_type.string())
-          }
-          
-          # Validate array field exists
-          let array_data = this.get($array_field)
-          if !$array_data.exists() {
-            throw("Required array field '" + $array_field + "' missing for data_type '" + this.data_type.string() + "'")
-          }
-          
-          if $array_data.type() != "array" {
-            throw("Field '" + $array_field + "' must be an array, got: " + $array_data.type())
-          }
-          
-          root = this
-          root.array_field = $array_field
-          root.array_data = $array_data
+        meta data_type = root.data_type
+        meta batch_id = root.batch_id
 
-      # === MEMORY AND RESOURCE VALIDATION ===
-      - mapping: |
-          # Calculate resource requirements
-          let message_json = this.encode("json")
-          let message_size_bytes = $message_json.bytes().length()
-          let message_size_mb = $message_size_bytes / 1024 / 1024
-          let array_length = this.array_data.length()
-          
-          # Resource limits (configurable by environment)
-          let max_message_mb = env("MAX_MESSAGE_MB").or("100").number()
-          let max_array_length = env("MAX_ARRAY_LENGTH").or("10000").number()
-          let edge_mode = env("EDGE_MODE").or("false").bool()
-          
-          # Apply stricter limits in edge mode
-          if $edge_mode {
-            $max_message_mb = 25
-            $max_array_length = 2000
-          }
-          
-          # Memory validation
-          if $message_size_mb > $max_message_mb {
-            throw("Message too large: " + $message_size_mb.string() + 
-                  "MB (max: " + $max_message_mb.string() + "MB)")
-          }
-          
-          if $array_length == 0 {
-            throw("Array cannot be empty")
-          }
-          
-          if $array_length > $max_array_length {
-            throw("Array too large: " + $array_length.string() + 
-                  " items (max: " + $max_array_length.string() + ")")
-          }
-          
-          # Estimate processing resources
-          let estimated_peak_memory_mb = $message_size_mb * 3.5  # Split operation overhead
-          let estimated_processing_ms = $array_length * 0.8      # 0.8ms per item baseline
-          
-          root.resource_profile = {
-            "message_size_mb": $message_size_mb,
-            "array_length": $array_length,
-            "estimated_peak_memory_mb": $estimated_peak_memory_mb,
-            "estimated_processing_ms": $estimated_processing_ms,
-            "edge_mode": $edge_mode,
-            "resource_classification": match {
-              $message_size_mb < 1 && $array_length < 100 => "lightweight"
-              $message_size_mb < 10 && $array_length < 1000 => "medium"
-              $message_size_mb < 50 && $array_length < 5000 => "heavy"
-              _ => "very_heavy"
-            }
-          }
-          
-          root = this
+    # Step 2: Extract items to split
+    - mapping: |
+        root = match meta("data_type") {
+          "json_array" => this.items,
+          "records" => this.records,
+          "raw_array" => this,
+          _ => [this]
+        }
 
-      # === ATOMIC PROCESSING WITH ERROR RECOVERY ===
-      - try:
-          # Store original for recovery
-          - mapping: |
-              meta original_message = this.encode("json")
-              meta processing_start = now()
-              meta request_id = this.security_context.request_id
-              meta source_id = this.source_identifier
-              meta data_type = this.data_type
-              meta array_field = this.array_field
-              root = this
+        # Preserve batch context
+        meta item_count = root.length()
 
-          # === DATA-TYPE SPECIFIC PROCESSING ===
-          - switch:
-              cases:
-                # === SENSOR ARRAY PROCESSING ===
-                - check: this.data_type == "sensor_array"
-                  processors:
-                    # Store sensor context
-                    - mapping: |
-                        meta device_id = this.device_id.or("unknown")
-                        meta location = this.location.or("unknown")
-                        meta timestamp = this.timestamp.or(now())
-                        meta device_type = this.device_type.or("generic")
-                        meta firmware_version = this.firmware_version.or("unknown")
-                        meta batch_id = uuid_v4()
-                        root = this
+    # Step 3: Split array into individual messages
+    - unarchive:
+        format: json_array
 
-                    # Split readings array
-                    - unarchive:
-                        format: json_array
-                        field: readings
+    # Step 4: Enrich each item with batch context
+    - mapping: |
+        root = this
+        root.batch_context = {
+          "batch_id": meta("batch_id"),
+          "item_index": count("items"),
+          "total_items": meta("item_count"),
+          "split_at": now()
+        }
 
-                    # Restore context and add sensor-specific fields
-                    - mapping: |
-                        root = this
-                        root.device_id = meta("device_id")
-                        root.location = meta("location")
-                        root.timestamp = meta("timestamp")
-                        root.device_type = meta("device_type")
-                        root.firmware_version = meta("firmware_version")
-                        root.batch_id = meta("batch_id")
-                        
-                        # Sensor-specific enrichment
-                        root.reading_classification = match {
-                          this.sensor_type == "temperature" && this.value.number() >= 80 => "critical_temp"
-                          this.sensor_type == "pressure" && this.value.number() >= 100 => "critical_pressure"
-                          this.sensor_type == "humidity" && this.value.number() >= 90 => "high_humidity"
-                          this.status != "normal" => "abnormal_status"
-                          _ => "normal"
-                        }
+    # Step 5: Validate individual items
+    - mapping: |
+        root = if this.type() == "object" && this.keys().length() > 0 {
+          this
+        } else {
+          root.invalid = true
+          root.original = this
+          this
+        }
 
-                # === CSV BATCH PROCESSING ===  
-                - check: this.data_type == "csv_batch"
-                  processors:
-                    # Store CSV batch context
-                    - mapping: |
-                        meta batch_filename = this.filename.or("unknown.csv")
-                        meta batch_date = this.batch_date.or(now())
-                        meta data_source = this.data_source.or("unknown")
-                        meta record_format = this.record_format.or("generic")
-                        meta batch_id = uuid_v4()
-                        root = this
+        meta is_valid = !this.invalid.or(false)
 
-                    # Split records array
-                    - unarchive:
-                        format: json_array
-                        field: records
+output:
+  switch:
+    # Valid items → processing queue
+    - check: 'meta("is_valid") == true'
+      output:
+        kafka:
+          addresses: ["${KAFKA_BROKERS:localhost:9092}"]
+          topic: processed-items
+          batching:
+            count: 100
+            period: 5s
 
-                    # Restore context and add CSV-specific fields
-                    - mapping: |
-                        root = this
-                        root.batch_filename = meta("batch_filename")
-                        root.batch_date = meta("batch_date") 
-                        root.data_source = meta("data_source")
-                        root.record_format = meta("record_format")
-                        root.batch_id = meta("batch_id")
-                        
-                        # CSV record enrichment
-                        root.record_classification = match {
-                          this.record_type == "transaction" && this.amount.number() >= 10000 => "large_transaction"
-                          this.record_type == "transaction" && this.country != "US" => "international"
-                          this.record_type == "user_activity" && this.event == "login_failed" => "security_event"
-                          _ => "standard_record"
-                        }
-
-                # === ORDER ITEMS PROCESSING ===
-                - check: this.data_type == "order_items"
-                  processors:
-                    # Store order context
-                    - mapping: |
-                        meta order_id = this.order_id.or(uuid_v4())
-                        meta customer_id = this.customer_id.or("guest")
-                        meta order_date = this.order_date.or(now())
-                        meta currency = this.currency.or("USD")
-                        meta customer_tier = this.customer_tier.or("standard")
-                        meta batch_id = uuid_v4()
-                        
-                        # Calculate order totals
-                        let order_total = 0
-                        range this.items | {
-                          $order_total = $order_total + (this.quantity.number() * this.price.number())
-                        }
-                        meta order_total = $order_total
-                        
-                        root = this
-
-                    # Split items array
-                    - unarchive:
-                        format: json_array
-                        field: items
-
-                    # Restore context and add e-commerce specific fields
-                    - mapping: |
-                        root = this
-                        root.order_id = meta("order_id")
-                        root.customer_id = meta("customer_id")
-                        root.order_date = meta("order_date")
-                        root.currency = meta("currency")
-                        root.customer_tier = meta("customer_tier")
-                        root.order_total = meta("order_total")
-                        root.batch_id = meta("batch_id")
-                        
-                        # E-commerce item enrichment
-                        root.line_total = this.quantity.number() * this.price.number()
-                        root.item_priority = match {
-                          meta("customer_tier") == "premium" => "high"
-                          root.line_total >= 100 => "high"
-                          this.category == "electronics" => "medium"
-                          _ => "standard"
-                        }
-
-                # === LOG EVENTS PROCESSING ===
-                - check: this.data_type == "log_events"
-                  processors:
-                    # Store log batch context
-                    - mapping: |
-                        meta node_id = this.node_id.or("unknown")
-                        meta environment = this.environment.or("development")
-                        meta application = this.application.or("unknown")
-                        meta log_level_filter = this.log_level_filter.or("INFO")
-                        meta collected_at = this.collected_at.or(now())
-                        meta batch_id = uuid_v4()
-                        root = this
-
-                    # Split events array
-                    - unarchive:
-                        format: json_array
-                        field: events
-
-                    # Restore context and add logging-specific fields
-                    - mapping: |
-                        root = this
-                        root.node_id = meta("node_id")
-                        root.environment = meta("environment")
-                        root.application = meta("application")
-                        root.collected_at = meta("collected_at")
-                        root.batch_id = meta("batch_id")
-                        
-                        # Log event enrichment
-                        root.severity_score = match {
-                          this.level == "CRITICAL" => 100
-                          this.level == "ERROR" => 80
-                          this.level == "WARNING" => 60
-                          this.level == "INFO" => 40
-                          this.level == "DEBUG" => 20
-                          _ => 10
-                        }
-                        
-                        root.requires_investigation = this.level == "CRITICAL" || this.level == "ERROR"
-
-          # === COMMON POST-PROCESSING ===
-          - mapping: |
-              # Add universal processing metadata
-              root.processing_metadata = {
-                "processed_at": now(),
-                "processing_duration_ms": (now() - meta("processing_start")).milliseconds(),
-                "processing_node": hostname(),
-                "request_id": meta("request_id"),
-                "pipeline_version": "1.0.0",
-                "split_sequence_number": count("split_seq_" + meta("source_id"))
-              }
-              
-              # Add compliance metadata for all messages
-              root.compliance_metadata = {
-                "data_lineage_id": uuid_v4(),
-                "processing_purpose": "content_splitting_and_routing",
-                "retention_policy_days": 2555,  # 7 years
-                "gdpr_lawful_basis": "legitimate_interest",
-                "data_controller": env("COMPANY_NAME").or("Unknown Corp"),
-                "processing_location": env("PROCESSING_REGION").or("US")
-              }
-
-      # === ERROR RECOVERY ===
-      - catch:
-          - mapping: |
-              root = {
-                "error_type": "content_splitting_failure", 
-                "error_message": error(),
-                "error_timestamp": now(),
-                "error_code": "CS_" + error().hash("xxhash64").string().slice(0, 6).uppercase(),
-                "request_id": meta("request_id").or(uuid_v4()),
-                "source_identifier": meta("source_id").or("unknown"),
-                "data_type": meta("data_type").or("unknown"),
-                "client_ip": this.security_context.client_ip.or("unknown"),
-                "processing_node": hostname(),
-                "recovery_action": "dead_letter_queue",
-                "support_escalation_required": true,
-                "error_context": {
-                  "array_field": meta("array_field").or("unknown"),
-                  "message_size_mb": meta("original_message").decode("json").encode("json").bytes().length() / 1024 / 1024,
-                  "memory_related": error().contains("memory") || error().contains("size"),
-                  "authentication_related": error().contains("token") || error().contains("auth"),
-                  "validation_related": error().contains("required") || error().contains("invalid")
-                }
-              }
-
-  # === PRODUCTION OUTPUT ROUTING ===
-  output:
-    switch:
-      cases:
-        # === ERROR HANDLING ===
-        - check: this.error_type.exists()
-          output:
-            broker:
-              pattern: fan_out
-              outputs:
-                # Error logging for debugging
-                - file:
-                    path: /var/log/expanso/content-splitting-errors-${!timestamp_date()}.jsonl
-                    codec: lines
-
-                # Error monitoring and alerting
-                - kafka:
-                    addresses: ["${KAFKA_BROKERS}"]
-                    topic: pipeline-errors
-                    key: content-splitting
-                    headers:
-                      error_type: ${!json("error_type")}
-                      error_code: ${!json("error_code")}
-                      escalation_required: ${!json("support_escalation_required")}
-
-                # Dead letter queue for manual recovery
-                - kafka:
-                    addresses: ["${KAFKA_BROKERS}"]
-                    topic: content-splitting-dlq
-                    key: ${!json("source_identifier")}
-                    headers:
-                      original_data_type: ${!json("data_type")}
-                      error_recoverable: ${!json("error_context.validation_related").not()}
-
-        # === SENSOR DATA ROUTING ===
-        - check: this.data_type == "sensor_array"
-          output:
-            switch:
-              cases:
-                # Critical sensor readings: Immediate alerting
-                - check: this.reading_classification == "critical_temp" || 
-                        this.reading_classification == "critical_pressure"
-                  output:
-                    broker:
-                      pattern: fan_out
-                      outputs:
-                        # Immediate HTTP alert
-                        - http_client:
-                            url: ${SENSOR_ALERT_WEBHOOK}
-                            verb: POST
-                            headers:
-                              X-Alert-Level: CRITICAL
-                              X-Device-ID: ${!json("device_id")}
-                            timeout: 5s
-
-                        # Critical sensor data stream
-                        - kafka:
-                            addresses: ["${KAFKA_BROKERS}"]
-                            topic: sensors-critical
-                            key: ${!json("device_id")}
-                            batching:
-                              count: 1
-                              period: 1s
-
-                # Standard sensor readings: Batched processing
-                - output:
-                    kafka:
-                      addresses: ["${KAFKA_BROKERS}"]
-                      topic: sensors-standard
-                      key: ${!json("device_id")}
-                      headers:
-                        device_type: ${!json("device_type")}
-                        location: ${!json("location")}
-                      batching:
-                        count: 500
-                        period: 60s
-                        compression: snappy
-
-        # === CSV/TRANSACTION ROUTING ===
-        - check: this.data_type == "csv_batch"
-          output:
-            switch:
-              cases:
-                # Large transactions: Fraud detection
-                - check: this.record_classification == "large_transaction"
-                  output:
-                    kafka:
-                      addresses: ["${KAFKA_BROKERS}"]
-                      topic: transactions-large-value
-                      key: ${!json("batch_id")}
-                      headers:
-                        requires_fraud_check: "true"
-                        amount_usd: ${!json("amount")}
-                      batching:
-                        count: 10
-                        period: 5s
-
-                # International transactions: Compliance processing
-                - check: this.record_classification == "international"
-                  output:
-                    kafka:
-                      addresses: ["${KAFKA_BROKERS}"]
-                      topic: transactions-international
-                      key: ${!json("country")}
-                      headers:
-                        compliance_required: "true"
-                        source_country: ${!json("country")}
-                      batching:
-                        count: 100
-                        period: 30s
-
-                # Standard records: Efficient batching
-                - output:
-                    s3:
-                      bucket: ${DATA_PROCESSING_BUCKET}
-                      path: csv-records/${!json("data_source")}/${!timestamp_date()}/
-                      batching:
-                        count: 5000
-                        period: 300s
-                      compression: gzip
-
-        # === E-COMMERCE ORDER ROUTING ===
-        - check: this.data_type == "order_items"
-          output:
-            switch:
-              cases:
-                # High priority items: Premium customer or high value
-                - check: this.item_priority == "high"
-                  output:
-                    kafka:
-                      addresses: ["${KAFKA_BROKERS}"]
-                      topic: fulfillment-priority
-                      key: ${!json("order_id")}
-                      headers:
-                        customer_tier: ${!json("customer_tier")}
-                        line_total: ${!json("line_total")}
-                      batching:
-                        count: 25
-                        period: 10s
-
-                # Standard items: Normal fulfillment processing
-                - output:
-                    kafka:
-                      addresses: ["${KAFKA_BROKERS}"]
-                      topic: fulfillment-standard
-                      key: ${!json("warehouse").or("default")}
-                      batching:
-                        count: 200
-                        period: 60s
-
-        # === LOG EVENTS ROUTING ===
-        - check: this.data_type == "log_events"
-          output:
-            switch:
-              cases:
-                # Critical logs: Immediate investigation
-                - check: this.requires_investigation == true
-                  output:
-                    broker:
-                      pattern: fan_out
-                      outputs:
-                        # Alerting system
-                        - http_client:
-                            url: ${LOG_ALERT_WEBHOOK}
-                            verb: POST
-                            headers:
-                              X-Severity: ${!json("level")}
-                              X-Application: ${!json("application")}
-
-                        # Investigation queue
-                        - kafka:
-                            addresses: ["${KAFKA_BROKERS}"]
-                            topic: logs-investigation
-                            key: ${!json("application")}
-                            batching:
-                              count: 1
-                              period: 1s
-
-                # Standard logs: Analytics and storage
-                - output:
-                    s3:
-                      bucket: ${LOG_ANALYTICS_BUCKET}
-                      path: logs/${!json("environment")}/${!json("application")}/${!timestamp_date()}/
-                      batching:
-                        count: 10000
-                        period: 300s
-                      compression: gzip
-
-        # === FALLBACK FOR UNKNOWN DATA TYPES ===
-        - output:
-            file:
-              path: /var/log/expanso/unknown-content-${!timestamp_date()}.jsonl
-              codec: lines
+    # Invalid items → DLQ
+    - output:
+        file:
+          path: "/var/expanso/dlq/${!timestamp_unix_date('2006-01-02')}/invalid-items.jsonl"
+          codec: lines

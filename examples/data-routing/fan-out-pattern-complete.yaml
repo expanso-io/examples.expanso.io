@@ -1,413 +1,73 @@
-name: production-fan-out-pipeline
-description: Complete multi-destination fan-out pipeline for IoT sensor data
+# Complete Fan-Out Pipeline
+# Sends sensor data to multiple destinations simultaneously
+
+name: fan-out-pattern-complete
+description: Complete fan-out pipeline with all destinations and fallbacks
 type: pipeline
-namespace: production
+namespace: default
 labels:
-  environment: production
-  data-type: sensor-telemetry
-  pattern: fan-out-complete
-  version: v5.0
+  pattern: fan-out
+  version: "1.0"
 
 config:
-  # High-performance input for edge environments
   input:
     http_server:
       address: 0.0.0.0:8080
       path: /events
-      timeout: 5s
-      rate_limit: "50000/s"
-      burst_limit: 1000
-      cors:
-        enabled: false
       allowed_verbs: ["POST"]
 
-  # Comprehensive data processing pipeline
   pipeline:
     processors:
-      # Edge context enrichment
+      # Add processing metadata
       - mapping: |
           root = this
-          
-          # Essential edge metadata
-          root.edge_node_id = env("NODE_ID").or("unknown")
-          root.edge_location = env("NODE_LOCATION").or("unknown")
-          root.edge_cluster = env("EDGE_CLUSTER_ID").or("default")
-          root.processing_timestamp = now()
-          root.pipeline_version = "production-v5.0"
-          
-          # Network and resource monitoring
-          root.edge_status = {
-            "network_quality": env("NETWORK_QUALITY").or("good"),
-            "bandwidth_mbps": env("BANDWIDTH_MBPS").number().or(100),
-            "disk_usage_percent": env("DISK_USAGE_PERCENT").number().or(30),
-            "memory_usage_percent": env("MEMORY_USAGE_PERCENT").number().or(40),
-            "cpu_usage_percent": env("CPU_USAGE_PERCENT").number().or(25)
-          }
+          root.processed_at = now()
+          root.node_id = env("NODE_ID").or("edge-001")
 
-      # Multi-destination metadata preparation
-      - mapping: |
-          root = this
-          
-          # Kafka streaming metadata
-          root.kafka_metadata = {
-            "partition_key": this.sensor_id,
-            "topic": "sensor-events",
-            "delivery_mode": "at_least_once",
-            "compression": "snappy",
-            "priority": if this.device_type == "critical_sensor" { "high" } else { "normal" }
-          }
-          
-          # S3 archive metadata
-          root.s3_metadata = {
-            "partition_date": this.timestamp.parse_timestamp().ts_format("2006-01-02"),
-            "partition_hour": this.timestamp.parse_timestamp().ts_hour(),
-            "storage_tier": "intelligent_tiering",
-            "retention_policy": "7_years",
-            "compression": "gzip_level_9"
-          }
-          
-          # Elasticsearch search metadata
-          root.search_metadata = {
-            "index_name": "sensor-events-" + this.timestamp.parse_timestamp().ts_format("2006-01-02"),
-            "document_type": "sensor_event",
-            "routing_key": this.edge_node_id,
-            "search_tags": [this.device_type, this.edge_location, "telemetry"],
-            "pipeline": "sensor-events-ingest-pipeline"
-          }
-
-      # Analytics and monitoring preparation
-      - mapping: |
-          root = this
-          
-          # Time-based analytics fields
-          root.analytics = {
-            "event_hour": this.timestamp.parse_timestamp().ts_hour(),
-            "event_day_of_week": this.timestamp.parse_timestamp().ts_weekday(),
-            "event_month": this.timestamp.parse_timestamp().ts_month(),
-            "is_business_hour": this.timestamp.parse_timestamp().ts_hour() >= 8 && this.timestamp.parse_timestamp().ts_hour() <= 17,
-            "is_weekend": this.timestamp.parse_timestamp().ts_weekday() > 5
-          }
-          
-          # Numeric metrics for aggregations
-          root.metrics = {
-            "temperature_celsius": this.temperature.number(),
-            "humidity_percent": this.humidity.number(),
-            "battery_level_percent": this.metadata.battery_level.number().or(100),
-            "processing_latency_ms": (now() - this.timestamp.parse_timestamp()) * 1000,
-            "event_age_seconds": now() - this.timestamp.parse_timestamp(),
-            "data_size_bytes": this.string().length()
-          }
-
-      # Alert and monitoring conditions
-      - mapping: |
-          root = this
-          
-          # Environmental alerts
-          root.alerts = {
-            "temperature_status": if this.metrics.temperature_celsius > 40 { "critical" }
-                                 else if this.metrics.temperature_celsius > 35 { "high" }
-                                 else if this.metrics.temperature_celsius < 0 { "low" }
-                                 else { "normal" },
-            "humidity_status": if this.metrics.humidity_percent > 90 { "critical" }
-                              else if this.metrics.humidity_percent > 80 { "high" }
-                              else if this.metrics.humidity_percent < 10 { "low" }
-                              else { "normal" },
-            "battery_status": if this.metrics.battery_level_percent < 10 { "critical" }
-                             else if this.metrics.battery_level_percent < 25 { "low" }
-                             else if this.metrics.battery_level_percent < 50 { "medium" }
-                             else { "normal" },
-            "data_quality": if this.exists("temperature") && this.exists("humidity") && this.exists("sensor_id") { "complete" }
-                           else if this.exists("sensor_id") { "partial" }
-                           else { "incomplete" },
-            "processing_status": if this.metrics.processing_latency_ms > 10000 { "delayed" }
-                                else if this.metrics.processing_latency_ms > 5000 { "slow" }
-                                else { "normal" }
-          }
-
-      # Data validation and quality assurance
-      - mapping: |
-          # Comprehensive validation for production
-          if !this.exists("event_id") {
-            throw("missing required field: event_id")
-          }
-          if !this.exists("sensor_id") {
-            throw("missing required field: sensor_id")
-          }
-          if !this.exists("timestamp") {
-            throw("missing required field: timestamp")
-          }
-          if !this.exists("device_type") {
-            throw("missing required field: device_type")
-          }
-          
-          # Validate data types
-          if this.sensor_id.type() != "string" {
-            throw("sensor_id must be string")
-          }
-          if !this.timestamp.parse_timestamp().type() == "number" {
-            throw("invalid timestamp format: " + this.timestamp)
-          }
-          
-          # Validate data freshness (reject events older than 1 hour)
-          event_age = now() - this.timestamp.parse_timestamp()
-          if event_age > 3600 {
-            throw("event too old for processing: " + this.timestamp + " (age: " + event_age.string() + "s)")
-          }
-          
-          # Validate numeric ranges
-          if this.exists("temperature") && (this.temperature.number() < -50 || this.temperature.number() > 80) {
-            throw("temperature out of valid range: " + this.temperature.string())
-          }
-          if this.exists("humidity") && (this.humidity.number() < 0 || this.humidity.number() > 100) {
-            throw("humidity out of valid range: " + this.humidity.string())
-          }
-          
-          root = this
-
-  # Multi-destination output with comprehensive fallbacks
   output:
     broker:
       pattern: fan_out
-      
-      # Global broker configuration
-      batching:
-        count: 2000
-        period: 60s
-        
       outputs:
-        # === KAFKA REAL-TIME STREAMING ===
+        # Local file for debugging
+        - file:
+            path: /tmp/events.jsonl
+            codec: lines
+
+        # Kafka for real-time streaming (with fallback)
         - fallback:
-            # Primary: Production Kafka cluster
             - kafka:
-                # Multi-broker high availability
-                addresses:
-                  - ${KAFKA_BROKER_1}
-                  - ${KAFKA_BROKER_2}
-                  - ${KAFKA_BROKER_3}
-                
-                # Topic and partitioning
+                addresses: ["${KAFKA_BROKERS}"]
                 topic: sensor-events
-                key: ${!json("sensor_id")}
-                
-                # Real-time optimized batching
+                key: "${!this.sensor_id}"
                 batching:
                   count: 100
-                  period: 2s
-                  byte_size: 2MB
-                
-                # Performance and reliability
-                compression: snappy
-                idempotent_write: true
-                ack_replicas: true
-                max_in_flight: 1
-                
-                # Production timeouts
-                timeout: 15s
-                max_retries: 3
-                backoff:
-                  initial_interval: 200ms
-                  max_interval: 5s
-                  multiplier: 2.0
-                
-                # Security configuration
-                sasl:
-                  mechanism: SCRAM-SHA-512
-                  user: ${KAFKA_USERNAME}
-                  password: ${KAFKA_PASSWORD}
-                tls:
-                  enabled: true
-                  skip_cert_verify: false
-                
-                # Monitoring and metadata
-                client_id: "expanso-${!env(\"NODE_ID\")}-kafka"
-
-            # Fallback Level 1: High-priority Kafka buffer
+                  period: 5s
             - file:
-                path: /var/expanso/kafka-buffer/priority-${!json("kafka_metadata.priority")}-${!timestamp_unix_date("2006-01-02")}-${!timestamp_unix_hour()}.jsonl
+                path: /tmp/kafka-fallback.jsonl
                 codec: lines
-                batching:
-                  count: 200
-                  period: 2m
-                  byte_size: 5MB
-                processors:
-                  - mapping: |
-                      root = this
-                      root.kafka_fallback_metadata = {
-                        "reason": "kafka_primary_unavailable",
-                        "buffered_at": now(),
-                        "intended_topic": "sensor-events",
-                        "intended_key": this.sensor_id,
-                        "replay_priority": this.kafka_metadata.priority,
-                        "buffer_level": "level_1_priority"
-                      }
 
-            # Fallback Level 2: Compressed Kafka buffer
-            - file:
-                path: /var/expanso/kafka-buffer/compressed-${!timestamp_unix_date("2006-01-02")}-${!count("kafka_compressed")}.jsonl.gz
-                codec: lines
-                batching:
-                  count: 1000
-                  period: 10m
-                  byte_size: 20MB
-                processors:
-                  - compress:
-                      algorithm: gzip
-                      level: 6
-                  - mapping: |
-                      root = this
-                      root.kafka_fallback_metadata = {
-                        "reason": "kafka_all_buffers_full",
-                        "buffered_at": now(),
-                        "compression": "gzip_level_6",
-                        "buffer_level": "level_2_compressed"
-                      }
-
-        # === S3 LONG-TERM ARCHIVE ===
+        # S3 for long-term archival (with fallback)
         - fallback:
-            # Primary: Production S3 storage
             - aws_s3:
-                # S3 configuration
-                bucket: ${S3_BUCKET}
-                region: ${AWS_REGION}
-                
-                # Advanced partitioning for analytics
-                path: sensor-data/year=${!timestamp_unix_date("2006")}/month=${!timestamp_unix_date("01")}/day=${!timestamp_unix_date("02")}/hour=${!timestamp_unix_hour()}/edge=${!env("NODE_ID")}/device=${!json("device_type")}/events-${!count("s3_files")}.jsonl.gz
-                
-                # Archive-optimized batching
+                bucket: "${S3_BUCKET}"
+                region: "${AWS_REGION}"
+                path: "events/${!timestamp_unix()}/${!uuid_v4()}.json"
                 batching:
-                  count: 10000
-                  period: 30m
-                  byte_size: 100MB
-                
-                # Storage optimization
-                content_type: application/x-ndjson
-                content_encoding: gzip
-                storage_class: INTELLIGENT_TIERING
-                server_side_encryption: AES256
-                
-                # Object tagging for lifecycle management
-                tags:
-                  Environment: ${ENVIRONMENT}
-                  DataType: SensorTelemetry
-                  EdgeCluster: ${EDGE_CLUSTER_ID}
-                  RetentionPeriod: 7Years
-                  Compliance: GDPR-Ready
-                  CostCenter: IoT-Operations
-                
-                # Rich metadata for discoverability
-                metadata:
-                  static:
-                    schema_version: sensor-event-v5
-                    pipeline_version: production-v5.0
-                    compression_algorithm: gzip_level_9
-                    created_by: expanso-edge-pipeline
-                  from_message:
-                    edge_node: ${!json("edge_node_id")}
-                    edge_cluster: ${!json("edge_cluster")}
-                    data_quality: ${!json("alerts.data_quality")}
-                
-                # Production credentials
-                credentials:
-                  id: ${AWS_ACCESS_KEY_ID}
-                  secret: ${AWS_SECRET_ACCESS_KEY}
-                  token: ${AWS_SESSION_TOKEN}
-                
-                # Reliable upload settings
-                timeout: 600s
-                max_retries: 8
-                backoff:
-                  initial_interval: 5s
-                  max_interval: 10m
-                  multiplier: 2.0
-                  jitter: 0.2
-
-            # Fallback Level 1: Local S3 structure mirror
+                  count: 100
+                  period: 30s
             - file:
-                path: /var/expanso/s3-buffer/mirror/year=${!timestamp_unix_date("2006")}/month=${!timestamp_unix_date("01")}/day=${!timestamp_unix_date("02")}/hour=${!timestamp_unix_hour()}/events-${!count("s3_mirror")}.jsonl.gz
+                path: /tmp/s3-fallback.jsonl
                 codec: lines
-                batching:
-                  count: 10000
-                  period: 45m
-                  byte_size: 150MB
-                processors:
-                  - compress:
-                      algorithm: gzip
-                      level: 9
-                  - mapping: |
-                      root = this
-                      root.s3_fallback_metadata = {
-                        "reason": "s3_primary_unavailable",
-                        "buffered_at": now(),
-                        "intended_bucket": env("S3_BUCKET"),
-                        "intended_path": "sensor-data/year=" + this.timestamp.parse_timestamp().ts_year().string(),
-                        "mirror_structure": true,
-                        "sync_priority": "high"
-                      }
 
-        # === ELASTICSEARCH SEARCH & ANALYTICS ===
+        # Elasticsearch for search (with fallback)
         - fallback:
-            # Primary: Production Elasticsearch cluster
             - elasticsearch:
-                # Cluster endpoints
-                urls:
-                  - ${ES_ENDPOINT_1}
-                  - ${ES_ENDPOINT_2}
-                  - ${ES_ENDPOINT_3}
-                
-                # Index strategy
-                index: sensor-events-${!timestamp_unix_date("2006-01-02")}
-                id: ${!json("event_id")}
-                routing: ${!json("edge_node_id")}
-                
-                # Analytics-optimized batching
+                urls: ["${ES_ENDPOINT}"]
+                index: "sensor-events-${!timestamp_unix()}"
+                id: "${!this.event_id.or(uuid_v4())}"
                 batching:
-                  count: 500
+                  count: 50
                   period: 10s
-                  byte_size: 10MB
-                  flush_period: 30s
-                
-                # Performance settings
-                sniff: false
-                gzip_compression: true
-                timeout: 60s
-                max_retries: 5
-                backoff:
-                  initial_interval: 2s
-                  max_interval: 120s
-                  multiplier: 2.0
-                  jitter: 0.1
-                
-                # Security
-                basic_auth:
-                  enabled: true
-                  username: ${ES_USERNAME}
-                  password: ${ES_PASSWORD}
-                tls:
-                  enabled: true
-                  skip_cert_verify: false
-                
-                # Index processing
-                pipeline: sensor-events-ingest-pipeline
-                
-                # Custom headers for monitoring
-                headers:
-                  X-Pipeline-Version: production-v5.0
-                  X-Data-Source: expanso-edge
-                  X-Environment: ${ENVIRONMENT}
-
-            # Fallback Level 1: Search-optimized file buffer
             - file:
-                path: /var/expanso/search-buffer/searchable-${!timestamp_unix_date("2006-01-02")}-${!timestamp_unix_hour()}.jsonl
+                path: /tmp/es-fallback.jsonl
                 codec: lines
-                batching:
-                  count: 2000
-                  period: 15m
-                processors:
-                  - mapping: |
-                      root = this
-                      root.search_fallback_metadata = {
-                        "reason": "elasticsearch_unavailable",
-                        "buffered_at": now(),
-                        "search_fields_preserved": true,
-                        "indexing_priority": "high"
-                      }
