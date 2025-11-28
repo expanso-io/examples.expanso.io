@@ -1,734 +1,111 @@
-name: log-processing-production-complete
-description: Complete production log processing pipeline with HTTP input, validation, enrichment, filtering, redaction, and multi-destination fan-out
-type: pipeline
-namespace: default
-labels:
-  environment: production
-  purpose: log-aggregation
-  data-flow: edge-to-cloud
-  version: "1.6.0"
-priority: 100
+# Complete Production Log Pipeline
+# HTTP input → validation → enrichment → filtering → PII redaction → multi-destination output
 
-# Where to deploy this pipeline
-selector:
-  match_labels:
-    role: log-collector
+input:
+  http_server:
+    address: "0.0.0.0:8080"
+    path: /logs/ingest
+    allowed_verbs: ["POST"]
+    rate_limit: "1000/1s"
 
-# Production deployment strategy
-deployment:
-  strategy: rolling
-  max_parallel: 3
-  health_check:
-    type: http
-    endpoint: /health
-    interval: 30s
-    timeout: 5s
-    deadline: 1m
-  auto_rollback: true
-  max_surge: 1
-  max_unavailable: 0
+pipeline:
+  processors:
+    # Step 1: Parse and validate JSON
+    - json_documents:
+        parts: []
 
-# Complete pipeline configuration
-config:
-  # Step 1: Secure HTTP input with authentication and rate limiting
-  input:
-    http_server:
-      # Bind to all interfaces for external access
-      address: "0.0.0.0:8080"
-      
-      # Standard log ingestion endpoint
-      path: /logs/ingest
-      
-      # Only allow POST requests
-      allowed_verbs:
-        - POST
-      
-      # Request timeout (prevents hanging connections)
-      timeout: 10s
-      
-      # Rate limiting (1000 requests per second per node)
-      rate_limit: "1000/1s"
-      
-      # API key authentication
-      auth:
-        type: header
-        header: "X-API-Key"
-        required_value: "${LOG_API_KEY}"
-        error_response: |
-          {
-            "error": "unauthorized",
-            "message": "Valid X-API-Key header required",
-            "code": 401
-          }
-      
-      # CORS configuration for web applications
-      cors:
-        enabled: true
-        allowed_origins: ["*"]  # Restrict in production
-        allowed_methods: ["POST"]
-        allowed_headers: ["Content-Type", "X-API-Key", "X-Request-ID"]
-        max_age: 3600
-      
-      # Health check endpoint
-      health_check:
-        enabled: true
-        path: /health
-        response_body: '{"status":"healthy","pipeline":"log-processing-production"}'
-      
-      # Metrics endpoint
-      metrics:
-        enabled: true
-        path: /metrics
-        
-      # Request size limits
-      max_request_size: 1048576  # 1MB maximum request
-      max_header_size: 8192      # 8KB maximum headers
-      
-      # Connection settings
-      read_timeout: 10s
-      write_timeout: 10s
-      idle_timeout: 120s
-      max_connections: 1000
+    - mapping: |
+        root = this
+        root.timestamp = this.timestamp.or(now())
+        root.level = this.level.uppercase().or("INFO")
+        root.service = this.service.or("unknown")
+        root.message = this.message.or("")
 
-  # Step 2: Comprehensive processing pipeline
-  pipeline:
-    processors:
-      # Parse and validate JSON
-      - json_documents:
-          parts: []
-          on_error: continue
-          validate_structure: true
-          max_depth: 10
+    # Step 2: Enrich with metadata
+    - mapping: |
+        root = this
+        root.metadata = {
+          "node_id": env("NODE_ID").or("unknown"),
+          "region": env("REGION").or("unknown"),
+          "received_at": now(),
+          "request_id": uuid_v4()
+        }
 
-      # Validate required fields and add defaults
-      - mapping: |
-          # Ensure required fields exist with defaults
-          root = this
-          root.timestamp = this.timestamp.or(now())
-          root.level = this.level.uppercase().or("INFO")
-          root.service = this.service.or("unknown")
-          root.message = this.message.or("No message")
-          
-          # Normalize timestamp to RFC3339 with fallback handling
-          root.timestamp = match {
-            # ISO 8601 with timezone
-            this.timestamp.parse_timestamp_strptime("%Y-%m-%dT%H:%M:%S%.fZ").catch(null) != null =>
-              this.timestamp.parse_timestamp_strptime("%Y-%m-%dT%H:%M:%S%.fZ").format_timestamp("2006-01-02T15:04:05.000Z"),
-            # Unix timestamp (seconds)
-            this.timestamp.type() == "number" && this.timestamp > 1000000000 && this.timestamp < 4000000000 =>
-              timestamp_unix(this.timestamp).format_timestamp("2006-01-02T15:04:05.000Z"),
-            # Fallback to current time
-            _ => now().format_timestamp("2006-01-02T15:04:05.000Z")
-          }
-          
-          # Add basic validation metadata
-          root.validation = {
-            "validated_at": now(),
-            "validator_version": "1.0",
-            "has_required_fields": true
-          }
+    # Step 3: Calculate severity score for routing
+    - mapping: |
+        root = this
+        root.severity_score = match this.level {
+          "FATAL" | "CRITICAL" => 5,
+          "ERROR" => 4,
+          "WARN" => 3,
+          "INFO" => 2,
+          _ => 1
+        }
 
-      # Add comprehensive metadata enrichment
-      - mapping: |
-          root = this
-          
-          # Node and infrastructure metadata
-          root.metadata = {
-            "node": {
-              "id": env("NODE_ID").or(hostname()),
-              "region": env("NODE_REGION").or("unknown-region"),
-              "zone": env("NODE_ZONE").or("unknown-zone"),
-              "environment": env("ENVIRONMENT").or("production")
-            },
-            
-            "pipeline": {
-              "name": "log-processing-production-complete",
-              "version": env("PIPELINE_VERSION").or("1.6.0"),
-              "stage": "complete",
-              "deployed_at": env("PIPELINE_DEPLOYED_AT").or("unknown")
-            },
-            
-            "processing": {
-              "received_at": now(),
-              "node_id": env("NODE_ID").or(hostname()),
-              "step": "enrichment"
-            },
-            
-            "http": {
-              "user_agent": meta("http_user_agent").or("unknown"),
-              "content_length": meta("http_content_length").or(0).number(),
-              "remote_addr": meta("http_remote_addr").or("unknown"),
-              "request_id": meta("http_x_request_id").or(uuid_v4())
-            }
-          }
-          
-          # Business context based on service
-          root.business_context = match this.service {
-            "payment-service" => {
-              "domain": "finance",
-              "criticality": "high",
-              "compliance": ["PCI-DSS", "SOX"],
-              "sla_tier": "tier-1"
-            },
-            "auth-service" => {
-              "domain": "security", 
-              "criticality": "high",
-              "compliance": ["SOC2", "GDPR"],
-              "sla_tier": "tier-1"
-            },
-            _ => {
-              "domain": "general",
-              "criticality": "medium",
-              "compliance": ["GDPR"],
-              "sla_tier": "tier-2"
-            }
-          }
+        root.priority = if this.severity_score >= 4 { "high" }
+                       else if this.severity_score >= 3 { "medium" }
+                       else { "low" }
 
-      # Calculate severity scores and prioritization
-      - mapping: |
-          root = this
-          
-          # Base severity scores by log level
-          let base_severity = match this.level {
-            "TRACE" => 0,
-            "DEBUG" => 1,
-            "INFO" => 2,
-            "WARN" => 3,
-            "ERROR" => 4,
-            "FATAL" => 5,
-            _ => 2
-          }
-          
-          # Service criticality multiplier
-          let service_multiplier = match this.service {
-            "payment-service" => 1.5,
-            "auth-service" => 1.4,
-            "api-gateway" => 1.3,
-            "user-service" => 1.2,
-            _ => 1.0
-          }
-          
-          # Content-based severity adjustment
-          let message = this.message.lowercase()
-          let content_boost = match {
-            message.contains("outage") => 3,
-            message.contains("security") => 2,
-            message.contains("timeout") => 1,
-            message.contains("cache hit") => -2,
-            _ => 0
-          }
-          
-          # Calculate final scores
-          let weighted_severity = base_severity * service_multiplier + content_boost
-          
-          root.severity = {
-            "base_score": base_severity,
-            "service_multiplier": service_multiplier,
-            "content_boost": content_boost,
-            "weighted_score": weighted_severity,
-            "priority_tier": match {
-              weighted_severity >= 7 => "critical",
-              weighted_severity >= 4 => "high",
-              weighted_severity >= 2 => "medium",
-              _ => "low"
-            }
-          }
-          root.severity_score = weighted_severity
+        meta priority = root.priority
 
-      # Intelligent filtering and noise reduction
-      - mapping: |
-          root = this
-          
-          # Filtering configuration
-          let min_priority = env("MIN_PRIORITY_SCORE").or("3").number()
-          let debug_enabled = env("DEBUG_LOGGING_ENABLED").or("false") == "true"
-          let filter_health = env("FILTER_HEALTH_CHECKS").or("true") == "true"
-          
-          # Determine if log should be filtered
-          let should_filter = match {
-            # Never filter critical/high priority
-            root.severity.priority_tier == "critical" => false,
-            root.severity.priority_tier == "high" => false,
-            
-            # Filter debug logs unless enabled
-            this.level == "DEBUG" && !debug_enabled => true,
-            
-            # Filter low priority
-            root.severity_score < min_priority => true,
-            
-            # Filter health check spam
-            this.message.lowercase().contains("health check") && filter_health => true,
-            this.message.lowercase().contains("heartbeat") && filter_health => true,
-            
-            # Default: don't filter
-            _ => false
-          }
-          
-          root.filtering = {
-            "should_filter": should_filter,
-            "filter_reason": match {
-              should_filter && this.level == "DEBUG" => "debug_filtered",
-              should_filter && root.severity_score < min_priority => "low_priority",
-              should_filter && this.message.lowercase().contains("health") => "health_check_filtered",
-              !should_filter => "passed_filter",
-              _ => "unknown"
-            }
-          }
-          
-          # Mark for processing
-          root.should_process = !should_filter
+    # Step 4: Filter noise (health checks, debug in prod)
+    - mapping: |
+        let msg = this.message.lowercase()
+        root = if msg.contains("health check") || msg.contains("heartbeat") {
+          deleted()
+        } else if this.level == "DEBUG" && env("DEBUG_ENABLED").or("false") != "true" {
+          deleted()
+        } else {
+          this
+        }
 
-      # Comprehensive PII detection and redaction
-      - mapping: |
-          root = this
-          
-          # Initialize redaction metadata
-          root.redaction = {
-            "detected_pii": {},
-            "redacted_fields": [],
-            "redaction_policy": "strict",
-            "compliance_standards": ["GDPR", "CCPA", "HIPAA", "PCI-DSS"],
-            "redacted_at": now()
-          }
-          
-          # PII detection and redaction function
-          let redact_field = |key, value| {
-            if value.type() != "string" { {key: value} }
-            else {
-              # Email detection
-              let email_pattern = "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
-              let is_email = value.re_match(email_pattern) || key.lowercase().contains("email")
-              
-              # Phone detection
-              let phone_pattern = "\\+?1?[\\s.-]?\\(?\\d{3}\\)?[\\s.-]?\\d{3}[\\s.-]?\\d{4}"
-              let is_phone = value.re_match(phone_pattern) || key.lowercase().contains("phone")
-              
-              # Credit card detection
-              let cc_pattern = "4\\d{3}[\\s-]?\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}"
-              let is_cc = value.re_match(cc_pattern) || key.lowercase().contains("card")
-              
-              # SSN detection
-              let ssn_pattern = "\\d{3}-\\d{2}-\\d{4}"
-              let is_ssn = value.re_match(ssn_pattern) || key.lowercase().contains("ssn")
-              
-              # IP address detection
-              let ip_pattern = "\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b"
-              let is_ip = value.re_match(ip_pattern) || key.lowercase().contains("ip")
-              
-              # Secret detection
-              let is_secret = ["password", "token", "key", "secret", "auth"].any(s -> key.lowercase().contains(s))
-              
-              # Apply redaction
-              match {
-                is_email => {
-                  root.redaction.detected_pii = root.redaction.detected_pii.set(key, {"type": "email", "domain": value.split("@")[1]})
-                  root.redaction.redacted_fields = root.redaction.redacted_fields.append(key)
-                  {key: "***REDACTED_EMAIL***", (key + "_hash"): value.hash("sha256").slice(0, 16)}
-                },
-                is_phone => {
-                  root.redaction.detected_pii = root.redaction.detected_pii.set(key, {"type": "phone", "last_four": value.slice(-4)})
-                  root.redaction.redacted_fields = root.redaction.redacted_fields.append(key)
-                  {key: "***REDACTED_PHONE***"}
-                },
-                is_cc => {
-                  root.redaction.detected_pii = root.redaction.detected_pii.set(key, {"type": "credit_card", "last_four": value.slice(-4)})
-                  root.redaction.redacted_fields = root.redaction.redacted_fields.append(key)
-                  {key: "***REDACTED_PAYMENT***"}
-                },
-                is_ssn => {
-                  root.redaction.detected_pii = root.redaction.detected_pii.set(key, {"type": "ssn"})
-                  root.redaction.redacted_fields = root.redaction.redacted_fields.append(key)
-                  {key: "***REDACTED_SSN***"}
-                },
-                is_ip => {
-                  root.redaction.detected_pii = root.redaction.detected_pii.set(key, {"type": "ip_address"})
-                  root.redaction.redacted_fields = root.redaction.redacted_fields.append(key)
-                  {key: "***REDACTED_IP***", (key + "_hash"): value.hash("sha256").slice(0, 12)}
-                },
-                is_secret => {
-                  root.redaction.detected_pii = root.redaction.detected_pii.set(key, {"type": "secret"})
-                  root.redaction.redacted_fields = root.redaction.redacted_fields.append(key)
-                  {key: "***REDACTED_SECRET***"}
-                },
-                _ => {key: value}
-              }
-            }
-          }
-          
-          # Apply redaction to all fields
-          root = this.map_each_key(redact_field).fold({}, (acc, item) -> acc.merge(item))
-          
-          # Redact PII in message content
-          root.message = if this.message.type() == "string" {
-            this.message.
-              re_replace_all("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}", "[EMAIL_REDACTED]").
-              re_replace_all("\\d{3}-\\d{2}-\\d{4}", "[SSN_REDACTED]").
-              re_replace_all("4\\d{3}[\\s-]?\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}", "[CARD_REDACTED]")
-          } else {
-            this.message
-          }
+    # Step 5: Redact PII
+    - mapping: |
+        root = this
+        # Redact common PII patterns
+        root.message = this.message.
+          re_replace_all("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}", "[EMAIL]").
+          re_replace_all("\\d{3}-\\d{2}-\\d{4}", "[SSN]").
+          re_replace_all("4\\d{3}[\\s-]?\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}", "[CARD]")
 
-      # Add final processing metadata
-      - mapping: |
-          root = this
-          
-          # Update processing metadata
-          root.metadata.processing.completed_at = now()
-          root.metadata.processing.total_duration_ms = (now().timestamp() - root.metadata.processing.received_at.timestamp()) * 1000
-          root.metadata.processing.status = "completed"
-          
-          # Add compliance assessment
-          root.compliance = {
-            "gdpr_compliant": root.redaction.redacted_fields.length() > 0,
-            "pci_dss_compliant": root.redaction.detected_pii.values().any(pii -> pii.type == "credit_card"),
-            "hipaa_compliant": root.redaction.detected_pii.values().any(pii -> pii.type == "ssn"),
-            "data_classification": match {
-              root.redaction.detected_pii.values().length() > 0 => "confidential",
-              _ => "internal"
-            }
-          }
+        # Hash IPs if present
+        root.source_ip = if this.source_ip.exists() {
+          this.source_ip.hash("sha256").slice(0, 12)
+        } else { deleted() }
 
-  # Step 3: Multi-destination fan-out routing
-  output:
-    broker:
-      pattern: fan_out
-      outputs:
-        # Destination 1: Elasticsearch for real-time search
-        - label: elasticsearch_search
-          processors:
-            # Only send non-filtered logs
-            - mapping: |
-                root = if this.should_process { this } else { deleted() }
-                
-            # Only send INFO and above to Elasticsearch (save storage)
-            - mapping: |
-                root = if this.severity_score >= 2 { this } else { deleted() }
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Elasticsearch for search
+      - switch:
+          - check: 'this.severity_score >= 2'
+            output:
+              http_client:
+                url: "${ELASTICSEARCH:http://es:9200}/logs-${!timestamp_unix_date('2006.01.02')}/_doc"
+                verb: POST
+                headers:
+                  Content-Type: application/json
+                batching:
+                  count: 100
+                  period: 5s
 
-            # Add Elasticsearch-specific fields
-            - mapping: |
-                root = this
-                
-                # Add search-optimized fields
-                root.searchable_message = this.message.lowercase()
-                root.tags = [this.service, this.level, this.severity.priority_tier]
-                
-                # Add time-based fields for analytics
-                root.hour = this.timestamp.parse_timestamp("2006-01-02T15:04:05.000Z").format_timestamp("15").number()
-                root.day_of_week = this.timestamp.parse_timestamp("2006-01-02T15:04:05.000Z").format_timestamp("Monday")
+      # S3 for archival
+      - aws_s3:
+          bucket: "${S3_BUCKET:logs-archive}"
+          path: "logs/${!timestamp_unix_date('2006/01/02')}/${!uuid_v4()}.jsonl"
+          batching:
+            count: 500
+            period: 60s
+          compression: gzip
 
-          elasticsearch:
-            urls:
-              - "${ELASTICSEARCH_URL:http://localhost:9200}"
-            
-            # Dynamic daily index rotation
-            index: "logs-${!timestamp().format_timestamp(\"2006.01.02\")}"
-            
-            # Document ID for deduplication
-            id: "${!json(\"metadata.http.request_id\")}-${!timestamp_unix()}"
-            
-            # Authentication (if needed)
-            basic_auth:
-              enabled: false
-              username: "${ELASTICSEARCH_USERNAME:}"
-              password: "${ELASTICSEARCH_PASSWORD:}"
-            
-            # Performance settings
-            timeout: 30s
-            max_retries: 3
-            retry_as_batch: true
-            
-            # Optimized batching for real-time search
-            batching:
-              count: 100
-              period: 5s
-              byte_size: 5242880  # 5MB
-            
-            # Error handling
-            max_in_flight: 64
-            backoff:
-              initial_interval: 1s
-              max_interval: 30s
-
-        # Destination 2: S3 for long-term archival
-        - label: s3_archive
-          processors:
-            # Only send non-filtered logs  
-            - mapping: |
-                root = if this.should_process { this } else { deleted() }
-
-            # Add S3-specific metadata and compress data
-            - mapping: |
-                root = this
-                
-                # Add archive metadata
-                root.s3_metadata = {
-                  "archived_at": now(),
-                  "retention_years": 7,
-                  "compliance_tags": ["SOX", "GDPR", "HIPAA"],
-                  "storage_class": "STANDARD_IA"
-                }
-                
-                # Remove elasticsearch-specific fields to save space
-                root = this.without("searchable_message", "tags", "hour", "day_of_week")
-
-          aws_s3:
-            bucket: "${S3_BUCKET:my-company-logs}"
-            
-            # Hierarchical path structure for organization and partitioning
-            path: "logs/year=${!timestamp().format_timestamp(\"2006\")}/month=${!timestamp().format_timestamp(\"01\")}/day=${!timestamp().format_timestamp(\"02\")}/hour=${!timestamp().format_timestamp(\"15\")}/logs-${!timestamp_unix_nano()}.jsonl"
-            
-            # Storage optimization
-            storage_class: STANDARD_IA
-            content_type: "application/x-ndjson"
-            compression: gzip
-            
-            # Large batching for S3 efficiency and cost optimization
-            batching:
-              count: 1000
-              period: 5m
-              byte_size: 10485760  # 10MB
-            
-            # AWS configuration
-            credentials:
-              profile: "${AWS_PROFILE:default}"
-              region: "${AWS_REGION:us-west-2}"
-              role_arn: "${AWS_ROLE_ARN:}"
-            
-            # Robust error handling
-            max_retries: 5
-            retry_as_batch: true
-            backoff:
-              initial_interval: 2s
-              max_interval: 60s
-            
-            # Metadata and tags for governance
-            metadata:
-              pipeline: "log-processing-production"
-              environment: "${ENVIRONMENT:production}"
-              compliance: "sox-gdpr-hipaa"
-            
-            tags:
-              Environment: "${ENVIRONMENT:production}"
-              Service: "log-processing"
-              Compliance: "required"
-              RetentionYears: "7"
-
-        # Destination 3: Local backup for disaster recovery
-        - label: local_backup
-          processors:
-            # Include all logs for disaster recovery (even filtered ones)
-            - mapping: |
-                root = this
-                
-                # Add backup metadata
-                root.backup_metadata = {
-                  "backup_type": "disaster_recovery",
-                  "backup_at": now(),
-                  "backup_node": env("NODE_ID").or("unknown"),
-                  "retention_days": 30
-                }
-                
-                # Keep essential fields only for local backup
-                root = {
-                  "timestamp": this.timestamp,
-                  "level": this.level,
-                  "service": this.service,
-                  "message": this.message,
-                  "severity_score": this.severity_score,
-                  "should_process": this.should_process,
-                  "backup_metadata": this.backup_metadata
-                }
-
-          file:
-            # Daily file rotation with hostname for multi-node environments
-            path: "/var/log/expanso/backup/logs-${!timestamp().format_timestamp(\"2006-01-02\")}-${!hostname()}.jsonl"
-            
-            codec: lines
-            sync: true  # Force sync for reliability
-            
-            # Moderate batching (balance performance vs data loss risk)
-            batching:
-              count: 50
-              period: 10s
-            
-            # File rotation and compression
-            rotation:
-              size: 104857600  # 100MB files
-              max_files: 10    # Keep 10 files
-              compress: true
-            
-            file_mode: 0644
-
-        # Destination 4: Critical alerts for immediate incident response
-        - label: critical_alerts
-          processors:
-            # Only send critical and high severity logs
-            - mapping: |
-                root = if ["critical", "high"].contains(this.severity.priority_tier) {
-                  this
-                } else {
-                  deleted()
-                }
-
-            # Format as alert payload
-            - mapping: |
-                root = {
-                  "alert_type": "log_event",
-                  "severity": this.level,
-                  "priority": this.severity.priority_tier,
-                  "timestamp": this.timestamp,
-                  "source": {
-                    "service": this.service,
-                    "node": this.metadata.node.id,
-                    "environment": this.metadata.node.environment
-                  },
-                  "event": {
-                    "message": this.message,
-                    "severity_score": this.severity_score,
-                    "correlation_id": this.metadata.http.request_id
-                  },
-                  "metadata": {
-                    "pipeline": "log-processing-production",
-                    "alert_generated_at": now(),
-                    "requires_action": this.severity.priority_tier == "critical"
-                  }
-                }
-
-          http:
-            url: "${ALERT_WEBHOOK_URL:https://hooks.slack.com/services/your/webhook}"
-            verb: POST
-            
-            headers:
-              "Content-Type": "application/json"
-              "Authorization": "Bearer ${ALERT_TOKEN:}"
-              "X-Alert-Source": "log-processing-pipeline"
-            
-            # Immediate delivery for alerts
-            timeout: 10s
-            rate_limit: "100/1s"
-            
-            # Minimal batching for near real-time alerts
-            batching:
-              count: 1
-              period: 1s
-            
-            # Aggressive retries for critical alerts
-            max_retries: 5
-            retry_as_batch: false
-            backoff:
-              initial_interval: 500ms
-              max_interval: 5s
-
-        # Destination 5: Metrics collection for observability
-        - label: metrics_collection
-          processors:
-            # Generate metrics from all log events
-            - mapping: |
-                root = {
-                  "metric_type": "log_event", 
-                  "timestamp": this.timestamp,
-                  "dimensions": {
-                    "service": this.service,
-                    "level": this.level,
-                    "priority": this.severity.priority_tier,
-                    "node_id": this.metadata.node.id,
-                    "environment": this.metadata.node.environment,
-                    "filtered": if this.should_process { "false" } else { "true" }
-                  },
-                  "metrics": {
-                    "log_count": 1,
-                    "severity_score": this.severity_score,
-                    "processing_latency_ms": this.metadata.processing.total_duration_ms.or(0),
-                    "error_count": if this.level == "ERROR" { 1 } else { 0 },
-                    "warning_count": if this.level == "WARN" { 1 } else { 0 },
-                    "pii_detected": this.redaction.detected_pii.values().length(),
-                    "fields_redacted": this.redaction.redacted_fields.length()
-                  }
-                }
-
-          http:
-            url: "${METRICS_URL:http://localhost:8086/write?db=logs}"
-            verb: POST
-            headers:
-              "Content-Type": "application/x-ndjson"
-              "Authorization": "Token ${METRICS_TOKEN:}"
-            
-            # Batch metrics for efficiency
-            batching:
-              count: 500
-              period: 30s
-            
-            timeout: 5s
-            max_retries: 3
-            retry_as_batch: true
-
-        # Destination 6: Filtered logs for analysis and tuning
-        - label: filtered_analysis
-          processors:
-            # Only include filtered logs with minimal data
-            - mapping: |
-                root = if !this.should_process {
-                  {
-                    "timestamp": this.timestamp,
-                    "level": this.level,
-                    "service": this.service,
-                    "message": this.message.slice(0, 100),  # Truncate message
-                    "severity_score": this.severity_score,
-                    "filter_reason": this.filtering.filter_reason,
-                    "filtered_at": now()
-                  }
-                } else {
-                  deleted()
-                }
-
-          file:
-            path: "/var/log/expanso/filtered/filtered-logs-${!timestamp().format_timestamp(\"2006-01-02\")}.jsonl"
-            codec: lines
-            batching:
-              count: 1000
-              period: 300s  # 5 minutes
-
-# Logging configuration for the pipeline itself
-logger:
-  level: INFO
-  format: json
-  add_timestamp: true
-  static_fields:
-    pipeline: "log-processing-production"
-    version: "1.6.0"
-
-# Comprehensive metrics collection
-metrics:
-  prometheus:
-    path: /metrics
-    namespace: "log_processing"
-  mapping: |
-    root = this
-    meta pipeline = "log-processing-production"
-    meta version = "1.6.0"
-    meta environment = env("ENVIRONMENT").or("production")
-
-# Resource management
-resources:
-  cpu_limit: "1000m"    # 1 CPU core
-  memory_limit: "2Gi"   # 2GB memory
-  cpu_request: "500m"   # 0.5 CPU core
-  memory_request: "1Gi" # 1GB memory
-
-# Health checks and monitoring
-health:
-  startup_probe:
-    initial_delay: 30s
-    period: 10s
-    timeout: 5s
-    failure_threshold: 5
-  
-  liveness_probe:
-    period: 30s
-    timeout: 5s
-    failure_threshold: 3
-  
-  readiness_probe:
-    period: 10s
-    timeout: 3s
-    failure_threshold: 3
+      # Alerts for critical logs
+      - switch:
+          - check: 'meta("priority") == "high"'
+            output:
+              http_client:
+                url: "${ALERT_WEBHOOK:http://alerts:8080/webhook}"
+                verb: POST
+                batching:
+                  count: 1
+                  period: 1s

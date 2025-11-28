@@ -23,24 +23,24 @@ config:
 
         # Kafka for real-time streaming
         - kafka:
-            addresses: [ ${KAFKA_BROKERS} ]
-            topic: "sensor-events"
-            key: ${!this.sensor_id}
+            addresses: ["${KAFKA_BROKERS}"]
+            topic: sensor-events
+            key: "${!this.sensor_id}"
 
         # S3 for long-term archival
         - aws_s3:
-            bucket: ${S3_BUCKET}
-            region: ${AWS_REGION}
-            path: "events/${!timestamp_unix_date()}/${!uuid_v4()}.json"
+            bucket: "${S3_BUCKET}"
+            region: "${AWS_REGION}"
+            path: "events/${!timestamp_unix()}/${!uuid_v4()}.json"
             batching:
               count: 10
               period: 10s
 
         # Elasticsearch for search and analytics
         - elasticsearch:
-            urls: [ ${ES_ENDPOINT} ]
-            index: "sensor-events-${!timestamp_unix_date('2006-01-02')}"
-            id: ${!this.event_id.or(uuid_v4())}
+            urls: ["${ES_ENDPOINT}"]
+            index: "sensor-events-${!timestamp_unix()}"
+            id: "${!this.event_id.or(uuid_v4())}"
             batching:
               count: 10
               period: 10s

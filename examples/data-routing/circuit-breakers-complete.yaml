@@ -1,759 +1,86 @@
 # Complete Circuit Breaker Pipeline
-# This production-ready pipeline demonstrates comprehensive circuit breaker patterns
-# including HTTP API protection, database circuit breakers, multi-level fallback,
-# and comprehensive monitoring for high-availability edge computing systems.
+# Demonstrates fallback chain: Primary API → Secondary API → Local storage → DLQ
 
-name: circuit-breakers-complete
-description: Production-ready circuit breaker system with comprehensive fallback and monitoring
-type: pipeline
-namespace: production
+input:
+  http_server:
+    address: "0.0.0.0:8080"
+    path: /events
+    allowed_verbs: ["POST"]
 
-config:
-  # Cache resources for circuit breaker state and performance optimization
-  cache_resources:
-    # API response cache to reduce load and improve resilience
-    - label: api_cache
-      memory:
-        cap: 5000
-        default_ttl: 2m
+pipeline:
+  processors:
+    # Initialize request tracking
+    - mapping: |
+        root = this
+        root.request_id = uuid_v4()
+        root.received_at = now()
 
-    # Database query cache for user lookups
-    - label: user_cache
-      memory:
-        cap: 10000
-        default_ttl: 5m
+    # Enrich from API with circuit breaker protection
+    - try:
+        - http:
+            url: "${PRIMARY_API:http://api:8080}/enrich/${!this.event_id}"
+            verb: GET
+            timeout: 3s
+            retries: 2
+            retry_period: 1s
+        - mapping: |
+            root = this
+            root.enrichment = content().parse_json()
+            root.enrichment_source = "primary_api"
+      catch:
+        # Primary failed, try secondary
+        - try:
+            - http:
+                url: "${SECONDARY_API:http://backup-api:8080}/enrich/${!this.event_id}"
+                verb: GET
+                timeout: 5s
+                retries: 1
+            - mapping: |
+                root = this
+                root.enrichment = content().parse_json()
+                root.enrichment_source = "secondary_api"
+          catch:
+            # Both APIs failed, continue without enrichment
+            - mapping: |
+                root = this
+                root.enrichment = null
+                root.enrichment_source = "none"
+                root.enrichment_failed = true
 
-    # Circuit breaker state cache for coordination across instances
-    - label: circuit_state
-      memory:
-        cap: 100
-        default_ttl: 10m
+    # Add processing metadata
+    - mapping: |
+        root = this
+        root.processed_at = now()
 
-  input:
-    http_server:
-      address: 0.0.0.0:8080
-      path: /events
-      timeout: 30s
+output:
+  # Multi-level fallback for output
+  fallback:
+    # Level 1: Primary destination (Elasticsearch)
+    - http_client:
+        url: "${ELASTICSEARCH:http://es:9200}/events/_doc"
+        verb: POST
+        timeout: 5s
+        max_retries: 2
+        headers:
+          Content-Type: application/json
 
-  pipeline:
-    processors:
-      # === STEP 1: REQUEST VALIDATION AND INITIALIZATION ===
-      - mapping: |
-          root = this
+    # Level 2: Secondary destination (Kafka)
+    - kafka:
+        addresses: ["${KAFKA_BROKERS:localhost:9092}"]
+        topic: events-fallback
+        max_retries: 3
 
-          # Validate required fields
-          if !this.event_id.exists() {
-            throw("missing required field: event_id")
-          }
+    # Level 3: Local buffer (filesystem)
+    - file:
+        path: "/var/expanso/buffer/${!timestamp_unix_date('2006-01-02')}/events.jsonl"
+        codec: lines
 
-          if !this.event_type.exists() {
-            throw("missing required field: event_type")
-          }
-
-          # Initialize circuit breaker tracking
-          root.circuit_breaker = {
-            "request_id": uuid_v4(),
-            "processing_start": now(),
-            "pipeline_instance": env("HOSTNAME") || "unknown",
-            "attempts": [],
-            "fallback_level": 0
-          }
-
-          # Classify event criticality for fallback strategy
-          if ["payment", "security_alert", "critical_transaction"].contains(this.event_type) {
-            root.criticality = "critical"
-            root.max_fallback_levels = 5
-          } else if ["user_action", "analytics", "tracking"].contains(this.event_type) {
-            root.criticality = "important"
-            root.max_fallback_levels = 3
-          } else {
-            root.criticality = "standard"
-            root.max_fallback_levels = 2
-          }
-
-      # === STEP 2: METRICS AND MONITORING INITIALIZATION ===
-      - metric:
-          type: counter
-          name: circuit_breaker_requests_total
-          labels:
-            pipeline: circuit-breakers-complete
-            event_type: ${!this.event_type}
-            criticality: ${!this.criticality}
-            instance: ${!env("HOSTNAME") || "unknown"}
-
-      # === STEP 3: API ENRICHMENT WITH HTTP CIRCUIT BREAKER ===
-      # Check API cache first to reduce load
-      - cache:
-          resource: api_cache
-          operator: get
-          key: api_metadata_${!this.event_id}_${!this.event_type}
-
-      - switch:
-          cases:
-            # Cache hit - use cached data
-            - check: this.cached_metadata.exists()
-              processors:
-                - mapping: |
-                    root = this
-                    root.api_metadata = this.cached_metadata.parse_json()
-                    root.api_cache_hit = true
-                    root.circuit_breaker.attempts = this.circuit_breaker.attempts.append({
-                      "type": "api_enrichment",
-                      "method": "cache_hit",
-                      "timestamp": now(),
-                      "success": true
-                    })
-
-            # Cache miss - call API with circuit breaker protection
-            - processors:
-                - try:
-                    # Record API attempt
-                    - mapping: |
-                        root = this
-                        root.api_attempt_start = now()
-                        root.circuit_breaker.attempts = this.circuit_breaker.attempts.append({
-                          "type": "api_enrichment",
-                          "method": "http_call",
-                          "timestamp": now(),
-                          "attempt_number": this.circuit_breaker.attempts.length() + 1
-                        })
-
-                    # HTTP call with circuit breaker configuration
-                    - http:
-                        url: ${PRIMARY_API_URL:-http://localhost:8081}/metadata/${!this.event_id}
-                        verb: GET
-
-                        # Circuit breaker settings
-                        timeout: 5s
-                        retries: 3
-                        retry_period: 2s
-                        max_retry_backoff: 30s
-
-                        # Rate limiting to prevent overwhelming API
-                        rate_limit: '100/s'
-
-                        # Authentication and tracing headers
-                        headers:
-                          Authorization: Bearer ${!env("API_TOKEN") || "test-token"}
-                          X-Request-ID: ${!this.circuit_breaker.request_id}
-                          X-Source: expanso-circuit-breaker
-                          X-Event-Type: ${!this.event_type}
-
-                    # Process successful API response
-                    - mapping: |
-                        root = this
-                        api_response = content().parse_json()
-                        root.api_metadata = api_response.metadata || {}
-                        root.api_cache_hit = false
-                        root.api_success = true
-                        root.api_duration = (now() - this.api_attempt_start).seconds()
-
-                        # Update circuit breaker tracking
-                        attempts = this.circuit_breaker.attempts
-                        attempts[attempts.length() - 1].success = true
-                        attempts[attempts.length() - 1].duration = this.api_duration
-                        root.circuit_breaker.attempts = attempts
-
-                    # Cache successful result for future requests
-                    - cache:
-                        resource: api_cache
-                        operator: set
-                        key: api_metadata_${!this.event_id}_${!this.event_type}
-                        value: ${!this.api_metadata.format_json()}
-
-                    # Record success metrics
-                    - metric:
-                        type: counter
-                        name: circuit_breaker_api_success_total
-                        labels:
-                          service: primary_api
-
-                    - metric:
-                        type: histogram
-                        name: circuit_breaker_api_duration_seconds
-                        value: ${!this.api_duration}
-                        labels:
-                          service: primary_api
-
-                  # Handle API failure (circuit breaker activation)
-                  catch:
-                    - mapping: |
-                        root = this
-                        root.api_success = false
-                        root.api_metadata = null
-                        root.api_error = error().string()
-
-                        # Classify error type for metrics
-                        error_msg = error().string()
-                        if error_msg.contains("timeout") {
-                          root.api_error_type = "timeout"
-                        } else if error_msg.contains("connection") {
-                          root.api_error_type = "connection"
-                        } else if error_msg.contains("5") {
-                          root.api_error_type = "server_error"
-                        } else {
-                          root.api_error_type = "unknown"
-                        }
-
-                        # Update circuit breaker tracking
-                        attempts = this.circuit_breaker.attempts
-                        attempts[attempts.length() - 1].success = false
-                        attempts[attempts.length() - 1].error = this.api_error_type
-                        root.circuit_breaker.attempts = attempts
-
-                    # Record failure metrics
-                    - metric:
-                        type: counter
-                        name: circuit_breaker_api_failures_total
-                        labels:
-                          service: primary_api
-                          error_type: ${!this.api_error_type}
-
-                    - metric:
-                        type: counter
-                        name: circuit_breaker_opened_total
-                        labels:
-                          service: primary_api
-                          trigger: ${!this.api_error_type}
-
-                    # Log circuit breaker activation
-                    - log:
-                        level: WARN
-                        message: 'API circuit breaker opened - Request: ${!this.circuit_breaker.request_id}, Error: ${!this.api_error_type}, Event: ${!this.event_id}'
-
-      # === STEP 4: DATABASE ENRICHMENT WITH DATABASE CIRCUIT BREAKER ===
-      # Check user cache first
-      - cache:
-          resource: user_cache
-          operator: get
-          key: user_${!this.user_id || "anonymous"}
-
-      - switch:
-          cases:
-            # User cache hit
-            - check: this.cached_user.exists()
-              processors:
-                - mapping: |
-                    root = this
-                    root.user_profile = this.cached_user.parse_json()
-                    root.user_cache_hit = true
-                    root.circuit_breaker.attempts = this.circuit_breaker.attempts.append({
-                      "type": "user_enrichment",
-                      "method": "cache_hit",
-                      "timestamp": now(),
-                      "success": true
-                    })
-
-            # User cache miss - query database with circuit breaker
-            - processors:
-                - try:
-                    # Record database attempt
-                    - mapping: |
-                        root = this
-                        root.db_attempt_start = now()
-                        root.circuit_breaker.attempts = this.circuit_breaker.attempts.append({
-                          "type": "user_enrichment",
-                          "method": "database_query",
-                          "timestamp": now(),
-                          "attempt_number": this.circuit_breaker.attempts.length() + 1
-                        })
-
-                    # Database query with circuit breaker protection
-                    - sql_select:
-                        driver: postgres
-                        data_source_name: ${PRIMARY_DB_CONNECTION:-postgres://test:test@localhost:5432/test?sslmode=disable}
-
-                        # Database circuit breaker configuration
-                        timeout: 3s
-                        max_open_connections: 20
-                        max_idle_connections: 10
-                        connection_max_lifetime: 30m
-                        connection_max_idle_time: 5m
-
-                        query: |
-                          SELECT user_name, user_tier, account_type, created_at, last_login_at
-                          FROM users 
-                          WHERE user_id = $1
-                          LIMIT 1
-
-                        args_mapping: |
-                          root = [this.user_id || "anonymous"]
-
-                    # Process successful database response
-                    - mapping: |
-                        root = this
-
-                        if this.user_name.exists() && this.user_name != "" {
-                          root.user_profile = {
-                            "name": this.user_name,
-                            "tier": this.user_tier,
-                            "account_type": this.account_type,
-                            "created_at": this.created_at,
-                            "last_login_at": this.last_login_at
-                          }
-                          root.user_found = true
-                        } else {
-                          root.user_profile = null
-                          root.user_found = false
-                        }
-
-                        root.user_cache_hit = false
-                        root.db_success = true
-                        root.db_duration = (now() - this.db_attempt_start).seconds()
-
-                        # Update circuit breaker tracking
-                        attempts = this.circuit_breaker.attempts
-                        attempts[attempts.length() - 1].success = true
-                        attempts[attempts.length() - 1].duration = this.db_duration
-                        root.circuit_breaker.attempts = attempts
-
-                    # Cache successful database result
-                    - switch:
-                        cases:
-                          - check: this.user_found == true
-                            processors:
-                              - cache:
-                                  resource: user_cache
-                                  operator: set
-                                  key: user_${!this.user_id}
-                                  value: ${!this.user_profile.format_json()}
-
-                    # Record database success metrics
-                    - metric:
-                        type: counter
-                        name: circuit_breaker_db_success_total
-                        labels:
-                          service: primary_database
-
-                    - metric:
-                        type: histogram
-                        name: circuit_breaker_db_duration_seconds
-                        value: ${!this.db_duration}
-                        labels:
-                          service: primary_database
-
-                  # Handle database failure (circuit breaker activation)
-                  catch:
-                    - mapping: |
-                        root = this
-                        root.db_success = false
-                        root.user_profile = null
-                        root.user_found = null
-                        root.db_error = error().string()
-
-                        # Classify database error type
-                        error_msg = error().string()
-                        if error_msg.contains("timeout") {
-                          root.db_error_type = "timeout"
-                        } else if error_msg.contains("connection") {
-                          root.db_error_type = "connection"
-                        } else if error_msg.contains("pool") {
-                          root.db_error_type = "pool_exhaustion"
-                        } else {
-                          root.db_error_type = "unknown"
-                        }
-
-                        # Update circuit breaker tracking
-                        attempts = this.circuit_breaker.attempts
-                        attempts[attempts.length() - 1].success = false
-                        attempts[attempts.length() - 1].error = this.db_error_type
-                        root.circuit_breaker.attempts = attempts
-
-                    # Record database failure metrics
-                    - metric:
-                        type: counter
-                        name: circuit_breaker_db_failures_total
-                        labels:
-                          service: primary_database
-                          error_type: ${!this.db_error_type}
-
-                    - metric:
-                        type: counter
-                        name: circuit_breaker_db_opened_total
-                        labels:
-                          service: primary_database
-                          trigger: ${!this.db_error_type}
-
-                    # Log database circuit breaker activation
-                    - log:
-                        level: WARN
-                        message: 'Database circuit breaker opened - Request: ${!this.circuit_breaker.request_id}, Error: ${!this.db_error_type}, User: ${!this.user_id}'
-
-      # === STEP 5: PROCESSING SUMMARY AND FINAL METRICS ===
-      - mapping: |
-          root = this
-          root.processing_end = now()
-          root.total_processing_time = (this.processing_end - this.circuit_breaker.processing_start).seconds()
-
-          # Calculate overall success status
-          api_ok = this.api_success == true || this.api_cache_hit == true
-          db_ok = this.db_success == true || this.user_cache_hit == true
-
-          if api_ok && db_ok {
-            root.processing_result = "fully_enriched"
-            root.enrichment_level = "complete"
-          } else if api_ok || db_ok {
-            root.processing_result = "partially_enriched"
-            root.enrichment_level = "partial"
-          } else {
-            root.processing_result = "minimal_processing"
-            root.enrichment_level = "none"
-          }
-
-          # Add comprehensive processing summary
-          root.circuit_breaker.summary = {
-            "total_attempts": this.circuit_breaker.attempts.length(),
-            "successful_attempts": this.circuit_breaker.attempts.filter(attempt -> attempt.success == true).length(),
-            "failed_attempts": this.circuit_breaker.attempts.filter(attempt -> attempt.success == false).length(),
-            "processing_duration": this.total_processing_time,
-            "enrichment_level": this.enrichment_level,
-            "fallback_activated": this.circuit_breaker.attempts.any(attempt -> attempt.success == false)
-          }
-
-      # Record final processing metrics
-      - metric:
-          type: counter
-          name: circuit_breaker_processing_complete_total
-          labels:
-            result: ${!this.processing_result}
-            enrichment: ${!this.enrichment_level}
-
-      - metric:
-          type: histogram
-          name: circuit_breaker_total_processing_duration_seconds
-          value: ${!this.total_processing_time}
-          labels:
-            enrichment: ${!this.enrichment_level}
-
-  # === MULTI-LEVEL FALLBACK OUTPUT CONFIGURATION ===
-  output:
-    fallback:
-      # === LEVEL 1: ELASTICSEARCH (PRIMARY DESTINATION) ===
-      - processors:
+    # Level 4: Dead letter queue (last resort)
+    - file:
+        path: "/var/expanso/dlq/${!timestamp_unix_date('2006-01-02')}/failed.jsonl"
+        codec: lines
+        processors:
           - mapping: |
               root = this
-              root.circuit_breaker.fallback_level = 1
-              root.destination_attempt = "elasticsearch_primary"
-
-          - metric:
-              type: counter
-              name: circuit_breaker_output_attempts_total
-              labels:
-                destination: elasticsearch
-                level: '1'
-
-          # Primary Elasticsearch destination
-          - try:
-              - http:
-                  url: ${ELASTICSEARCH_URL:-http://localhost:9200}/events/_doc/${!this.event_id}
-                  verb: POST
-                  timeout: 8s
-                  retries: 2
-                  retry_period: 2s
-
-                  headers:
-                    Content-Type: application/json
-                    X-Request-ID: ${!this.circuit_breaker.request_id}
-                    X-Fallback-Level: '1'
-
-              - mapping: |
-                  root = this
-                  root.final_destination = "elasticsearch"
-                  root.circuit_breaker.fallback_success_level = 1
-
-              - metric:
-                  type: counter
-                  name: circuit_breaker_output_success_total
-                  labels:
-                    destination: elasticsearch
-                    level: '1'
-
-            catch:
-              - mapping: |
-                  root = this
-                  root.elasticsearch_error = error().string()
-
-              - metric:
-                  type: counter
-                  name: circuit_breaker_output_failures_total
-                  labels:
-                    destination: elasticsearch
-                    level: '1'
-
-              - log:
-                  level: WARN
-                  message: 'Elasticsearch fallback failed - Request: ${!this.circuit_breaker.request_id}, continuing to level 2'
-
-          # Continue to fallback if Elasticsearch fails
-          - drop: {}
-
-      # === LEVEL 2: KAFKA (SECONDARY DESTINATION) ===
-      - processors:
-          - mapping: |
-              root = this
-              root.circuit_breaker.fallback_level = 2
-              root.destination_attempt = "kafka_secondary"
-
-          - metric:
-              type: counter
-              name: circuit_breaker_output_attempts_total
-              labels:
-                destination: kafka
-                level: '2'
-
-          # Secondary Kafka destination
-          - try:
-              - http:
-                  url: ${KAFKA_REST_URL:-http://localhost:8082}/topics/circuit-breaker-events
-                  verb: POST
-                  timeout: 10s
-                  retries: 3
-                  retry_period: 3s
-
-                  headers:
-                    Content-Type: application/vnd.kafka.json.v2+json
-                    X-Request-ID: ${!this.circuit_breaker.request_id}
-                    X-Fallback-Level: '2'
-
-              - mapping: |
-                  root = this
-                  root.final_destination = "kafka"
-                  root.circuit_breaker.fallback_success_level = 2
-
-              - metric:
-                  type: counter
-                  name: circuit_breaker_output_success_total
-                  labels:
-                    destination: kafka
-                    level: '2'
-
-            catch:
-              - mapping: |
-                  root = this
-                  root.kafka_error = error().string()
-
-              - metric:
-                  type: counter
-                  name: circuit_breaker_output_failures_total
-                  labels:
-                    destination: kafka
-                    level: '2'
-
-              - log:
-                  level: WARN
-                  message: 'Kafka fallback failed - Request: ${!this.circuit_breaker.request_id}, continuing to level 3'
-
-          # Continue to fallback if Kafka fails
-          - drop: {}
-
-      # === LEVEL 3: S3 STORAGE (TERTIARY DESTINATION) ===
-      - processors:
-          - mapping: |
-              root = this
-              root.circuit_breaker.fallback_level = 3
-              root.destination_attempt = "s3_storage"
-
-              # Check criticality - only critical and important events use S3
-              if this.criticality == "standard" && this.max_fallback_levels < 3 {
-                root.skip_s3 = true
-              }
-
-          # Skip S3 for low-criticality events if configured
-          - switch:
-              cases:
-                - check: this.skip_s3 == true
-                  processors:
-                    - log:
-                        level: INFO
-                        message: 'Skipping S3 fallback for standard criticality event: ${!this.event_id}'
-                    - drop: {}
-
-          - metric:
-              type: counter
-              name: circuit_breaker_output_attempts_total
-              labels:
-                destination: s3
-                level: '3'
-
-          # S3 storage destination
-          - try:
-              - http:
-                  url: ${S3_ENDPOINT:-http://localhost:9000}/circuit-breaker-bucket/events/${!timestamp_unix_date("2006/01/02")}/${!this.event_id}.json
-                  verb: PUT
-                  timeout: 15s
-                  retries: 4
-                  retry_period: 5s
-
-                  headers:
-                    Content-Type: application/json
-                    X-Request-ID: ${!this.circuit_breaker.request_id}
-                    X-Fallback-Level: '3'
-
-              - mapping: |
-                  root = this
-                  root.final_destination = "s3"
-                  root.circuit_breaker.fallback_success_level = 3
-
-              - metric:
-                  type: counter
-                  name: circuit_breaker_output_success_total
-                  labels:
-                    destination: s3
-                    level: '3'
-
-            catch:
-              - mapping: |
-                  root = this
-                  root.s3_error = error().string()
-
-              - metric:
-                  type: counter
-                  name: circuit_breaker_output_failures_total
-                  labels:
-                    destination: s3
-                    level: '3'
-
-              - log:
-                  level: ERROR
-                  message: 'S3 fallback failed - Request: ${!this.circuit_breaker.request_id}, continuing to level 4'
-
-          # Continue to fallback if S3 fails
-          - drop: {}
-
-      # === LEVEL 4: LOCAL BUFFER (EMERGENCY STORAGE) ===
-      - processors:
-          - mapping: |
-              root = this
-              root.circuit_breaker.fallback_level = 4
-              root.destination_attempt = "local_buffer"
-
-              # Only critical events get local buffering
-              if this.criticality != "critical" {
-                root.skip_local_buffer = true
-              }
-
-              # Check available disk space (simulated)
-              available_space_mb = 1000  # Would check actual disk space in production
-              if available_space_mb < 100 {
-                root.insufficient_disk_space = true
-                throw("insufficient disk space for local buffering")
-              }
-
-          # Skip local buffer for non-critical events
-          - switch:
-              cases:
-                - check: this.skip_local_buffer == true
-                  processors:
-                    - log:
-                        level: WARN
-                        message: 'Skipping local buffer for non-critical event: ${!this.event_id}'
-                    - drop: {}
-
-          - metric:
-              type: counter
-              name: circuit_breaker_output_attempts_total
-              labels:
-                destination: local_buffer
-                level: '4'
-
-          # Local file buffer
-          - file:
-              path: /tmp/circuit-breaker-buffers/${!timestamp_unix_date("2006-01-02")}/events-${!count("buffer_files")}.jsonl
-              codec: lines
-            processors:
-              - mapping: |
-                  root = this
-                  root.final_destination = "local_buffer"
-                  root.circuit_breaker.fallback_success_level = 4
-                  root.requires_recovery = true
-
-              - metric:
-                  type: counter
-                  name: circuit_breaker_output_success_total
-                  labels:
-                    destination: local_buffer
-                    level: '4'
-
-              - log:
-                  level: ERROR
-                  message: 'Event buffered locally due to all remote destinations failing - Request: ${!this.circuit_breaker.request_id}, Event: ${!this.event_id}'
-
-      # === LEVEL 5: DEAD LETTER QUEUE (LAST RESORT) ===
-      - processors:
-          - mapping: |
-              root = this
-              root.circuit_breaker.fallback_level = 5
-              root.destination_attempt = "dead_letter_queue"
-
-              # Add comprehensive failure analysis
-              root.failure_analysis = {
-                "all_destinations_failed": true,
-                "elasticsearch_error": this.elasticsearch_error || null,
-                "kafka_error": this.kafka_error || null,
-                "s3_error": this.s3_error || null,
-                "processing_duration": this.total_processing_time,
-                "attempt_summary": this.circuit_breaker.summary,
-                "criticality": this.criticality,
-                "requires_manual_investigation": true
-              }
-
-          - metric:
-              type: counter
-              name: circuit_breaker_output_attempts_total
-              labels:
-                destination: dead_letter_queue
-                level: '5'
-
-          - metric:
-              type: counter
-              name: circuit_breaker_data_loss_events_total
-              labels:
-                event_type: ${!this.event_type}
-                criticality: ${!this.criticality}
-
-          # Critical alert for data reaching DLQ
-          - log:
-              level: FATAL
-              message: 'CRITICAL: Event reached dead letter queue - Request: ${!this.circuit_breaker.request_id}, Event: ${!this.event_id}, Failures: ${!this.failure_analysis.format_json()}'
-
-          # Dead letter queue storage
-          - file:
-              path: /tmp/circuit-breaker-dlq/${!timestamp_unix_date("2006-01-02")}/dlq-${!count("dlq_files")}.jsonl
-              codec: lines
-            processors:
-              - mapping: |
-                  root = this
-                  root.final_destination = "dead_letter_queue"
-                  root.circuit_breaker.fallback_success_level = 5
-                  root.requires_manual_recovery = true
-                  root.data_loss_risk = true
-
-              - metric:
-                  type: counter
-                  name: circuit_breaker_output_success_total
-                  labels:
-                    destination: dead_letter_queue
-                    level: '5'
-
-      # === LEVEL 6: ABSOLUTE LAST RESORT (DROP WITH ALERT) ===
-      - processors:
-          - log:
-              level: FATAL
-              message: 'ABSOLUTE CRITICAL FAILURE: Dropping event ${!this.event_id} - ALL FALLBACK MECHANISMS FAILED including DLQ'
-
-          - metric:
-              type: counter
-              name: circuit_breaker_dropped_events_total
-              labels:
-                event_type: ${!this.event_type}
-                criticality: ${!this.criticality}
-
-          - mapping: |
-              root = this
-              root.event_dropped = true
-              root.drop_reason = "all_fallback_mechanisms_failed"
-              root.manual_intervention_required = true
-              root.incident_severity = "critical"
-
-        # Final drop (should never happen in well-designed system)
-        drop: {}
+              root.dlq_reason = "all_destinations_failed"
+              root.dlq_time = now()

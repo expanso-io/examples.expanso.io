@@ -1,461 +1,122 @@
-name: complete-priority-pipeline
-description: Production priority queue system with severity routing, customer tiers, multi-criteria scoring, and anti-starvation protection
-type: pipeline
-namespace: production
-metadata:
-  version: "2.0"
-  maintainer: "platform-team@yourcompany.com"
-  documentation: "https://docs.yourcompany.com/priority-queues"
-  examples_source: "https://github.com/expanso-io/examples.expanso.io"
+# Complete Priority Queue Pipeline
+# Routes events to different queues based on severity, customer tier, and event type
 
-config:
-  input:
-    http_server:
-      address: 0.0.0.0:8080
-      path: /events
-      timeout: 30s
-      rate_limit: "50000/s"
-      
-      # CORS and security headers
-      cors:
-        enabled: true
-        allowed_origins: ["https://app.yourcompany.com"]
-        allowed_headers: ["Content-Type", "Authorization"]
-      
-      # Request size limits
-      max_request_size: 10485760  # 10MB
+input:
+  http_server:
+    address: "0.0.0.0:8080"
+    path: /events
+    allowed_verbs: ["POST"]
 
-  pipeline:
-    processors:
-      # Step 1: Input validation and parsing
-      - json_documents:
-          parts: []
-      
-      # Step 2: Request validation and sanitization
-      - mapping: |
-          # Input validation
-          if !this.event_type.exists() {
-            throw("Missing required field: event_type")
-          }
-          
-          if this.event_type.string().length() > 100 {
-            throw("event_type too long (max 100 chars)")
-          }
-          
-          # Security: Remove potentially sensitive fields
-          root = this.without("password", "api_key", "token", "secret")
-          
-          # Standardize timestamp handling
-          root.received_at = now()
-          root.event_id = uuid_v4()
+pipeline:
+  processors:
+    # Step 1: Parse and validate
+    - json_documents:
+        parts: []
 
-      # Step 3: Complete priority classification system
-      - mapping: |
-          root = this
+    - mapping: |
+        root = this
+        root.event_id = this.event_id.or(uuid_v4())
+        root.received_at = now()
 
-          # === FIELD NORMALIZATION ===
-          root.severity = this.severity.or("INFO").string().uppercase()
-          root.customer_tier = match {
-            this.user.subscription_plan.exists() => this.user.subscription_plan.lowercase()
-            this.customer_tier.exists() => this.customer_tier.lowercase()
-            this.subscription.tier.exists() => this.subscription.tier.lowercase()
-            this.headers."x-customer-tier".exists() => this.headers."x-customer-tier".lowercase()
-            _ => "free"
-          }
-          root.event_type = this.event_type.lowercase()
-          root.urgency = this.urgency.or("normal").lowercase()
-          root.service = this.service.or(this.source_service.or("unknown")).lowercase()
-          root.region = this.region.or(this.user.region.or("us-east-1")).lowercase()
+    # Step 2: Normalize priority factors
+    - mapping: |
+        root = this
 
-          # === TIMESTAMP AND AGE CALCULATION ===
-          root.created_at = match {
-            this.timestamp.exists() => this.timestamp
-            this.created_at.exists() => this.created_at  
-            this.event_time.exists() => this.event_time
-            _ => root.received_at
-          }
+        # Normalize severity (0-100)
+        root.severity_score = match this.severity.or("INFO").uppercase() {
+          "CRITICAL" | "FATAL" => 100,
+          "ERROR" => 80,
+          "WARN" | "WARNING" => 50,
+          "INFO" => 30,
+          "DEBUG" => 10,
+          _ => 30
+        }
 
-          # Parse and validate timestamp
-          let parsed_timestamp = try {
-            root.created_at.parse_timestamp_rfc3339()
-          } catch {
-            now()  # Use current time if parsing fails
-          }
-          
-          # Calculate age with sanity checks
-          root.age_seconds = match {
-            (now().unix() - parsed_timestamp.unix()) < 0 => 0           # Future timestamp
-            (now().unix() - parsed_timestamp.unix()) > 2592000 => 0     # > 30 days old
-            _ => (now().unix() - parsed_timestamp.unix()).round()
-          }
+        # Customer tier multiplier
+        root.tier_multiplier = match this.customer_tier.or("free").lowercase() {
+          "enterprise" => 2.0,
+          "premium" => 1.5,
+          "pro" => 1.2,
+          _ => 1.0
+        }
 
-          # === BASE PRIORITY SCORING ===
-          let severity_score = match root.severity {
-            "CRITICAL" => 85, "FATAL" => 85, "ERROR" => 60,
-            "WARNING" => 35, "WARN" => 35, "INFO" => 15,
-            "DEBUG" => 8, "TRACE" => 5, _ => 20
-          }
+        # Event type boost
+        root.type_boost = match this.event_type.or("").lowercase() {
+          x if x.contains("payment") => 20,
+          x if x.contains("security") => 15,
+          x if x.contains("auth") => 10,
+          _ => 0
+        }
 
-          let tier_multiplier = match root.customer_tier {
-            "enterprise" => 4.0, "premium" => 3.0, "pro" => 2.5,
-            "standard" => 2.0, "basic" => 1.5, "free" => 1.0,
-            "trial" => 0.8, "suspended" => 0.5, _ => 1.0
-          }
+    # Step 3: Calculate final priority score
+    - mapping: |
+        root = this
+        root.priority_score = (this.severity_score * this.tier_multiplier + this.type_boost).round()
 
-          let event_type_score = match {
-            root.event_type.has_prefix("security.") => 50
-            root.event_type.has_prefix("auth.") => 45
-            root.event_type.has_prefix("fraud.") => 45
-            root.event_type.has_prefix("payment.failed") => 40
-            root.event_type.has_prefix("payment.") => 25
-            root.event_type.has_prefix("billing.") => 30
-            root.event_type.has_prefix("api.error") => 30
-            root.event_type.has_prefix("system.") => 25
-            root.event_type.has_prefix("database.") => 30
-            root.event_type.has_prefix("user.") => 15
-            root.event_type.has_prefix("analytics.") => 5
-            _ => 10
-          }
+        root.priority_queue = if this.priority_score >= 150 {
+          "critical"
+        } else if this.priority_score >= 100 {
+          "high"
+        } else if this.priority_score >= 50 {
+          "normal"
+        } else {
+          "low"
+        }
 
-          let urgency_score = match root.urgency {
-            "critical" => 20, "high" => 15, "normal" => 5,
-            "low" => 0, "deferred" => -5, _ => 5
-          }
+        meta priority_queue = root.priority_queue
 
-          let service_criticality_score = match root.service {
-            "auth-service" => 30, "payment-service" => 30,
-            "billing-service" => 25, "user-service" => 25,
-            "api-gateway" => 25, "notification-service" => 20,
-            "search-service" => 15, "analytics-service" => 5,
-            _ => 12
-          }
+    # Step 4: Apply anti-starvation (age boost)
+    - mapping: |
+        root = this
 
-          # === TEMPORAL CONTEXT ===
-          let current_hour = now().hour()
-          let current_day = now().day()
-          let business_hours = current_hour >= 9 && current_hour < 17 && current_day >= 1 && current_day <= 5
-          
-          let temporal_score = match {
-            business_hours => 15
-            current_day == 0 || current_day == 6 => -5  # Weekend
-            current_hour >= 22 || current_hour <= 6 => -3  # Night
-            _ => 0
-          }
+        # Boost priority for older events to prevent starvation
+        let age_seconds = if this.timestamp.exists() {
+          (now().ts_unix() - this.timestamp.parse_timestamp().ts_unix()).or(0)
+        } else { 0 }
 
-          # === AGE-BASED ESCALATION ===
-          let age_boost = match {
-            root.age_seconds > 86400 => 100    # > 24 hours: emergency
-            root.age_seconds > 14400 => 60     # > 4 hours: strong escalation
-            root.age_seconds > 3600 => 35      # > 1 hour: moderate escalation  
-            root.age_seconds > 1800 => 15      # > 30 min: gentle escalation
-            root.age_seconds > 300 => 5        # > 5 min: minimal escalation
-            _ => 0
-          }
+        # Add 1 priority point per minute of age (max 30)
+        let age_boost = (age_seconds / 60).floor().min(30)
+        root.final_score = this.priority_score + age_boost
+        root.age_boost_applied = age_boost
 
-          # === FINAL SCORING ===
-          let base_score = severity_score * tier_multiplier
-          let bonus_score = event_type_score + urgency_score + service_criticality_score + temporal_score
-          
-          root.original_priority_score = base_score
-          root.priority_score = base_score + bonus_score + age_boost
+output:
+  switch:
+    # Critical → immediate processing
+    - check: 'meta("priority_queue") == "critical"'
+      output:
+        kafka:
+          addresses: ["${KAFKA_BROKERS:localhost:9092}"]
+          topic: events-critical
+          ack_replicas: true
+          batching:
+            count: 1
+            period: 0s
 
-          # === PRIORITY ASSIGNMENT ===
-          root.original_priority = match {
-            root.original_priority_score >= 200 => "critical"
-            root.original_priority_score >= 120 => "high"
-            root.original_priority_score >= 60 => "normal"
-            root.original_priority_score >= 20 => "low"
-            _ => "bulk"
-          }
+    # High priority → fast processing
+    - check: 'meta("priority_queue") == "high"'
+      output:
+        kafka:
+          addresses: ["${KAFKA_BROKERS:localhost:9092}"]
+          topic: events-high
+          batching:
+            count: 10
+            period: 2s
 
-          # Final priority with age escalation and fairness guarantees
-          root.priority = match {
-            # Emergency escalation for ancient messages
-            root.age_seconds > 86400 => "critical"
-            
-            # Age-based minimum guarantees
-            root.age_seconds > 14400 && root.priority_score < 120 => "high"
-            root.age_seconds > 7200 && root.priority_score < 60 => "normal"
-            
-            # Standard score-based routing
-            root.priority_score >= 200 => "critical"
-            root.priority_score >= 120 => "high"
-            root.priority_score >= 60 => "normal"
-            root.priority_score >= 20 => "low"
-            _ => "bulk"
-          }
+    # Normal priority → standard processing
+    - check: 'meta("priority_queue") == "normal"'
+      output:
+        kafka:
+          addresses: ["${KAFKA_BROKERS:localhost:9092}"]
+          topic: events-normal
+          batching:
+            count: 50
+            period: 10s
 
-          # === SLA AND PROCESSING METADATA ===
-          root.sla_target_ms = match root.priority {
-            "critical" => 100, "high" => 500, "normal" => 2000,
-            "low" => 10000, "bulk" => 60000, _ => 5000
-          }
-
-          let was_escalated = root.priority != root.original_priority
-
-          # === COMPREHENSIVE AUDIT TRAIL ===
-          root.processing_metadata = {
-            "pipeline_version": "complete-v2.0",
-            "processed_at": root.received_at,
-            "edge_node_id": env("NODE_ID").or("unknown"),
-            "region": env("AWS_REGION").or("unknown"),
-            "environment": env("ENVIRONMENT").or("production")
-          }
-
-          root.routing_decision = {
-            "final_priority": root.priority,
-            "priority_score": root.priority_score,
-            "sla_target_ms": root.sla_target_ms,
-            "was_escalated": was_escalated,
-            "escalation_reason": if was_escalated {
-              match {
-                root.age_seconds > 86400 => "ancient_message_emergency"
-                root.age_seconds > 14400 => "very_old_fairness_guarantee" 
-                age_boost > 0 => "age_based_boost"
-                _ => "score_based_escalation"
-              }
-            } else { "none" }
-          }
-
-          root.scoring_breakdown = {
-            "base_calculation": {
-              "severity": {"value": root.severity, "score": severity_score},
-              "customer_tier": {"value": root.customer_tier, "multiplier": tier_multiplier},
-              "weighted_base": base_score
-            },
-            "bonus_factors": {
-              "event_type": {"value": root.event_type, "score": event_type_score},
-              "urgency": {"value": root.urgency, "score": urgency_score},
-              "service": {"value": root.service, "score": service_criticality_score},
-              "temporal": {"business_hours": business_hours, "score": temporal_score}
-            },
-            "age_analysis": {
-              "age_seconds": root.age_seconds,
-              "age_boost": age_boost,
-              "escalated": was_escalated
-            },
-            "final_scores": {
-              "original_score": root.original_priority_score,
-              "final_score": root.priority_score,
-              "assigned_priority": root.priority
-            }
-          }
-
-          # === COMPLIANCE AND SECURITY ===
-          root.compliance_metadata = {
-            "data_classification": match {
-              root.event_type.has_prefix("payment.") => "pci_dss"
-              root.event_type.has_prefix("user.") => "pii_protected"
-              root.event_type.has_prefix("security.") => "security_sensitive"
-              _ => "operational"
-            },
-            "retention_period": match root.priority {
-              "critical" => "7y", "high" => "2y", "normal" => "1y",
-              "low" => "90d", "bulk" => "30d", _ => "1y"
-            },
-            "processing_justification": "operational_priority_optimization",
-            "gdpr_lawful_basis": "legitimate_interest"
-          }
-
-  output:
-    switch:
-      cases:
-        # === CRITICAL PRIORITY (Score >= 200 or Emergency Escalation) ===
-        - check: this.priority == "critical"
-          output:
-            label: critical_priority_queue
-            broker:
-              pattern: fan_out
-              outputs:
-                # Primary: Immediate Kafka delivery
-                - kafka:
-                    addresses: ["${KAFKA_BROKERS}"]
-                    topic: >
-                      ${! 
-                        if this.customer_tier == "enterprise" { 
-                          "enterprise-critical-events" 
-                        } else { 
-                          "critical-priority-events" 
-                        }
-                      }
-                    
-                    # No batching for immediate delivery
-                    batching:
-                      count: 1
-                      period: 0s
-                    
-                    # Maximum reliability configuration
-                    max_in_flight: 1
-                    ack_replicas: true
-                    idempotent_write: true
-                    max_retries: 15
-                    
-                    backoff:
-                      initial_interval: 50ms
-                      max_interval: 1s
-                      jitter: 0.1
-                    
-                    compression: none  # No compression for latency
-
-                # Secondary: Real-time monitoring and alerting
-                - switch:
-                    cases:
-                      # Alert on age escalations
-                      - check: this.routing_decision.was_escalated == true
-                        output:
-                          http_client:
-                            url: ${MONITORING_WEBHOOK_URL}/priority-escalation
-                            verb: POST
-                            headers:
-                              Content-Type: application/json
-                              Authorization: "Bearer ${MONITORING_API_TOKEN}"
-                            timeout: 2s
-                            max_retries: 3
-                      
-                      # Alert on enterprise critical events
-                      - check: this.customer_tier == "enterprise"
-                        output:
-                          http_client:
-                            url: ${ENTERPRISE_WEBHOOK_URL}/critical-event
-                            verb: POST
-                            headers:
-                              Content-Type: application/json
-                              X-Customer-Tier: enterprise
-                            timeout: 1s
-
-        # === HIGH PRIORITY (Score 120-199) ===
-        - check: this.priority == "high"
-          output:
-            label: high_priority_queue
-            kafka:
-              addresses: ["${KAFKA_BROKERS}"]
-              topic: high-priority-events
-              
-              # Small batches for fast delivery
-              batching:
-                count: 15
-                period: 2s
-              
-              max_in_flight: 5
-              ack_replicas: true
-              max_retries: 8
-              
-              backoff:
-                initial_interval: 200ms
-                max_interval: 3s
-                jitter: 0.2
-              
-              compression: snappy
-
-        # === NORMAL PRIORITY (Score 60-119) ===
-        - check: this.priority == "normal"
-          output:
-            label: normal_priority_queue
-            kafka:
-              addresses: ["${KAFKA_BROKERS}"]
-              topic: normal-priority-events
-              
-              # Balanced batching for efficiency
-              batching:
-                count: 75
-                period: 8s
-              
-              max_in_flight: 10
-              max_retries: 5
-              
-              backoff:
-                initial_interval: 1s
-                max_interval: 8s
-                jitter: 0.3
-              
-              compression: snappy
-
-        # === LOW PRIORITY (Score 20-59) ===
-        - check: this.priority == "low"
-          output:
-            label: low_priority_queue
-            broker:
-              pattern: fan_out
-              outputs:
-                # Primary: Standard Kafka processing
-                - kafka:
-                    addresses: ["${KAFKA_BROKERS}"]
-                    topic: low-priority-events
-                    
-                    batching:
-                      count: 500
-                      period: 30s
-                    
-                    max_in_flight: 15
-                    max_retries: 3
-                    compression: snappy
-
-                # Secondary: Starvation monitoring
-                - switch:
-                    cases:
-                      - check: this.age_seconds > 3600
-                        output:
-                          file:
-                            path: /var/expanso/monitoring/starvation-watch.jsonl
-                            codec: lines
-                            batching:
-                              count: 100
-                              period: 5m
-
-        # === BULK PRIORITY (Score < 20) ===
-        - check: this.priority == "bulk"
-          output:
-            label: bulk_priority_queue
-            broker:
-              pattern: fan_out
-              outputs:
-                # Free tier: Local buffering for cost optimization
-                - switch:
-                    cases:
-                      - check: this.customer_tier == "free" || this.customer_tier == "trial"
-                        output:
-                          file:
-                            path: /var/expanso/data/bulk-${!timestamp_unix_date("2006-01-02")}.jsonl.gz
-                            codec: lines
-                            gzip_compression: true
-                            batching:
-                              count: 10000
-                              period: 1h
-                
-                # All bulk: Kafka with aggressive batching
-                - kafka:
-                    addresses: ["${KAFKA_BROKERS}"]
-                    topic: bulk-priority-events
-                    
-                    batching:
-                      count: 2000
-                      period: 5m
-                    
-                    max_in_flight: 25
-                    max_retries: 1
-                    compression: gzip
-
-        # === DEFAULT: Normal processing ===
-        - output:
-            kafka:
-              addresses: ["${KAFKA_BROKERS}"]
-              topic: normal-priority-events
-              batching:
-                count: 75
-                period: 8s
-
-# Enable comprehensive metrics and monitoring
-metrics:
-  prometheus:
-    enabled: true
-    push_gateway_url: ${PROMETHEUS_PUSHGATEWAY_URL}
-    push_interval: 30s
-    job_name: priority-queue-pipeline
-    
-logging:
-  level: INFO
-  format: json
-  add_timestamp: true
-  static_fields:
-    service: priority-queue-pipeline
-    version: "2.0"
+    # Low priority → batch processing
+    - output:
+        kafka:
+          addresses: ["${KAFKA_BROKERS:localhost:9092}"]
+          topic: events-low
+          batching:
+            count: 200
+            period: 60s
