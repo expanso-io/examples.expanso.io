@@ -1,11 +1,14 @@
 pipeline:
   processors:
     - mapping: |
-        root.payment.card_number_encrypted = crypto.encrypt_aes256_gcm(this.payment.card_number, env("CARD_ENCRYPTION_KEY"))
-        root.payment.cvv_encrypted = crypto.encrypt_aes256_gcm(this.payment.cvv, env("CARD_ENCRYPTION_KEY"))
-        root.payment.cardholder_name_encrypted = crypto.encrypt_aes256_gcm(this.payment.cardholder_name, env("CARD_ENCRYPTION_KEY"))
+        root = this
+        root.payment.card_number_encrypted = this.payment.card_number.encrypt_aes_gcm(env("CARD_KEY"))
+        root.payment.cvv_encrypted = this.payment.cvv.encrypt_aes_gcm(env("CARD_KEY"))
+        root.payment.cardholder_name_encrypted = this.payment.cardholder_name.encrypt_aes_gcm(env("CARD_KEY"))
         root.payment.card_last_four = this.payment.card_number.re_replace_all("[^0-9]", "").slice(-4)
-        root.payment.card_brand = if this.payment.card_number.has_prefix("4") { "visa" }
-                                  else if this.payment.card_number.has_prefix("5") { "mastercard" }
-                                  else { "unknown" }
-        root.payment.expiration = this.payment.expiration
+        root.payment.card_brand = match {
+          this.payment.card_number.has_prefix("4") => "visa",
+          this.payment.card_number.has_prefix("5") => "mastercard",
+          _ => "unknown"
+        }
+        root.payment = root.payment.without("card_number", "cvv", "cardholder_name")

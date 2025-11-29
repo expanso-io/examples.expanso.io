@@ -1,0 +1,30 @@
+# Age-based priority escalation prevents starvation
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        # ... classification logic ...
+
+        # Calculate message age
+        let message_ts = this.timestamp.parse_timestamp()
+        let age_seconds = (now().unix() - message_ts.unix()).round()
+        root.age_seconds = age_seconds
+
+        # Age boost escalates old messages
+        let age_boost = match {
+          age_seconds > 7200 => 900,  # > 2hr: important
+          age_seconds > 1800 => 400,  # > 30min: regular
+          age_seconds > 300 => 100,   # > 5min: small boost
+          _ => 0
+        }
+
+        # Archive (100) + age_boost (900) = 1000 (important!)
+        root.priority_score = base_score + age_boost
+        root.age_escalated = age_boost > 0
+
+        # Re-classify based on boosted score
+        root.priority_tier = match {
+          root.priority_score >= 1000 => 1,  # Escalated!
+          root.priority_score >= 500 => 2,
+          _ => 3
+        }

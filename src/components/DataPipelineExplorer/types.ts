@@ -1,7 +1,7 @@
 export type JsonLine = {
   content: string;
   indent: number;
-  type?: 'removed' | 'highlighted' | 'normal' | 'added';
+  type?: 'removed' | 'highlighted' | 'normal' | 'added' | 'comment';
   key?: string;
   valueType?: 'string' | 'number' | 'boolean' | 'null' | 'object' | 'array';
 };
