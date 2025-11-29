@@ -17,7 +17,11 @@ export const enrichExportStages: Stage[] = [
       root.message = "Demo log message from edge"
       root.user_id = "user_123"
       root.request_id = uuid_v4()`,
-    inputLines: [],
+    inputLines: [
+      { content: '// Data source: generate input', indent: 0, type: 'comment' },
+      { content: '// Produces synthetic log events', indent: 0, type: 'comment' },
+      { content: '// every 2 seconds for demo', indent: 0, type: 'comment' },
+    ],
     outputLines: [
       { content: '{', indent: 0 },
       { content: '"id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",', indent: 1, key: 'id', valueType: 'string' },
