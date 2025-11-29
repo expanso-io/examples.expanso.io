@@ -181,7 +181,7 @@ output:
     id: 4,
     title: "Starvation Prevention",
     description: "Age-based boost prevents low-priority starvation. This 3-hour-old archive message gets +900 boost, escalating it to important tier. After 2 hours, even archive messages ship with important priority.",
-    yamlFilename: 'step-4-complete.yaml',
+    yamlFilename: 'step-4-starvation-prevention.yaml',
     yamlCode: `# Age-based priority escalation prevents starvation
 pipeline:
   processors:

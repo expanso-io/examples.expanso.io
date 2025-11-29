@@ -1,11 +1,12 @@
 pipeline:
   processors:
     - mapping: |
-        root.customer.ssn_encrypted = crypto.encrypt_aes256_gcm(this.customer.ssn, env("PII_ENCRYPTION_KEY"))
-        root.customer.email_encrypted = crypto.encrypt_aes256_gcm(this.customer.email, env("PII_ENCRYPTION_KEY"))
-        root.customer.phone_encrypted = crypto.encrypt_aes256_gcm(this.customer.phone, env("PII_ENCRYPTION_KEY"))
-        root.customer.date_of_birth_encrypted = crypto.encrypt_aes256_gcm(this.customer.date_of_birth, env("PII_ENCRYPTION_KEY"))
+        root = this
+        root.customer.ssn_encrypted = this.customer.ssn.encrypt_aes_gcm(env("PII_KEY"))
+        root.customer.email_encrypted = this.customer.email.encrypt_aes_gcm(env("PII_KEY"))
+        root.customer.phone_encrypted = this.customer.phone.encrypt_aes_gcm(env("PII_KEY"))
+        root.customer.dob_encrypted = this.customer.date_of_birth.encrypt_aes_gcm(env("PII_KEY"))
         root.customer.ssn_last_four = this.customer.ssn.re_replace_all("[^0-9]", "").slice(-4)
         root.customer.email_domain = this.customer.email.split("@")[1]
-        root.customer.phone_area_code = this.customer.phone.re_find("\\+1-([0-9]{3})-.*")[0][1]
-        root.customer.birth_year = this.customer.date_of_birth.parse_timestamp("2006-01-02").format_timestamp("2006")
+        root.customer.phone_area_code = this.customer.phone.re_find("\\\\+1-(\\\\d{3})-")[1]
+        root.customer = root.customer.without("ssn", "email", "phone", "date_of_birth")

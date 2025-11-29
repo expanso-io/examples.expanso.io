@@ -27,6 +27,9 @@ Current validations that MUST pass both locally and in CI:
 - Pipeline YAML validation (`validate-complete-yaml.ts` on commit, `test-pipelines` in CI)
 - CLI command validation (`npm run validate-cli`)
 - Stage file validation (`npm run validate-stages`)
+- Stage YAML sync (`npm run sync-stages` on pre-commit, generates YAML files from `.stages.ts`)
+
+**IMPORTANT:** Never generate files during CI. All generated files (like YAML from stages) must be created locally via pre-commit hooks and committed to the repo.
 
 If you find yourself thinking "CI will catch it" - STOP. Add the local check first.
 

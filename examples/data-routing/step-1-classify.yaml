@@ -1,0 +1,37 @@
+# Classify messages into priority tiers
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+
+        let category = this.category.or("").lowercase()
+        let severity = this.severity.or("info").lowercase()
+        let event_type = this.event_type.or("").lowercase()
+
+        # Important: critical alerts, payment failures
+        let is_important = match {
+          category == "important" => true,
+          severity == "critical" => true,
+          event_type.has_prefix("payment.failed") => true,
+          _ => false
+        }
+
+        # Archive: debug logs, analytics
+        let is_archive = match {
+          category == "archive" => true,
+          severity == "debug" => true,
+          _ => false
+        }
+
+        # Assign tier (1=highest, 3=lowest)
+        root.priority_tier = match {
+          is_important => 1,
+          is_archive => 3,
+          _ => 2
+        }
+
+        root.priority_label = match root.priority_tier {
+          1 => "important",
+          2 => "regular",
+          3 => "archive"
+        }
