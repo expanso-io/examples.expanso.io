@@ -1,0 +1,63 @@
+---
+title: Complete Smart Buffering Pipeline
+sidebar_label: Complete Pipeline
+sidebar_position: 8
+description: The complete smart buffering pipeline with priority-based delivery
+keywords: [complete, smart-buffering, priority, ordering]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/data-routing/smart-buffering.yaml';
+
+# Complete Pipeline
+
+This pipeline combines all smart buffering techniques from this tutorial:
+
+- **Priority classification** - Messages categorized as important, regular, or archive
+- **Numeric scoring** - Precise ordering with base scores (1000/500/100) plus bonuses
+- **Buffer sorting** - Batches sorted by priority_score before delivery
+- **Starvation prevention** - Age-based boost ensures all messages eventually send
+
+## Full Configuration
+
+<CodeBlock language="yaml" title="smart-buffering.yaml">{pipelineYaml}</CodeBlock>
+
+## Quick Test
+
+```bash
+# Send important event (score: 1000, delivered first)
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{"category": "important", "message": "Critical alert"}'
+
+# Send regular event (score: 500, delivered second)
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{"severity": "info", "message": "User action"}'
+
+# Send archive event (score: 100, delivered last)
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{"severity": "debug", "message": "Debug log"}'
+```
+
+## Deploy
+
+```bash
+# Deploy to Expanso orchestrator
+expanso-cli job deploy smart-buffering.yaml
+
+# Or run locally with expanso-edge
+expanso-edge run --config smart-buffering.yaml
+```
+
+## Download
+
+<a href="/examples/data-routing/smart-buffering.yaml" download className="button button--primary">
+  Download smart-buffering.yaml
+</a>
+
+## What's Next?
+
+- [Troubleshooting](./troubleshooting) - Common issues and solutions
+- [Priority Queues](../priority-queues/) - Route to separate queue topics by priority

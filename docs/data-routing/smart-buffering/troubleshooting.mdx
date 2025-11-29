@@ -1,0 +1,114 @@
+---
+title: Troubleshooting
+sidebar_label: Troubleshooting
+sidebar_position: 9
+description: Common smart buffering issues and solutions
+keywords: [troubleshooting, debug, smart-buffering, priority]
+---
+
+# Troubleshooting
+
+## Quick Diagnosis
+
+```bash
+# Check container status
+docker ps | grep smart-buffer
+
+# Check recent logs
+docker logs smart-buffer --tail 50 2>&1 | grep -i error
+
+# Test priority classification
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{"severity": "critical", "message": "test"}'
+```
+
+## Common Issues
+
+### Important messages not prioritized
+
+**Cause:** Classification rules not matching message attributes
+
+```bash
+# Check classification output
+docker logs smart-buffer --tail 20 2>&1 | grep priority
+```
+
+**Fix:** Verify field names match your data:
+```yaml
+# If your field is "level" not "severity":
+let severity = this.level.or("info").string().lowercase()
+```
+
+---
+
+### All messages getting same score
+
+**Cause:** Classification always falling to default case
+
+**Fix:** Check field existence and add explicit logging:
+```yaml
+- mapping: |
+    root = this
+    root._debug_severity = this.severity.or("MISSING")
+    root._debug_category = this.category.or("MISSING")
+    # ... rest of classification
+```
+
+---
+
+### Archive messages never sent (starvation)
+
+**Cause:** Age boost not high enough or timestamp parsing failing
+
+**Fix:** Increase age boost values:
+```yaml
+let age_boost = match {
+  age_seconds > 3600 => 950,   # 1 hour = near-important
+  age_seconds > 600 => 500,    # 10 min = regular
+  _ => 0
+}
+```
+
+---
+
+### Messages not sorted in batch
+
+**Cause:** Sort processor not applied to output batch
+
+**Fix:** Ensure sort processor is in output processors, not pipeline:
+```yaml
+output:
+  broker:
+    outputs:
+      - processors:
+          - sort:
+              value: root.priority_score
+              order: descending
+```
+
+---
+
+### Buffer filling up
+
+**Cause:** Output slower than input
+
+**Fix:** Increase buffer limit or add overflow handling:
+```yaml
+buffer:
+  memory:
+    limit: 100000  # Increase capacity
+
+# Or add overflow to file
+output:
+  fallback:
+    - http_client: { ... }
+    - file:
+        path: /tmp/overflow.json
+```
+
+## Still stuck?
+
+1. Add debug logging: `logger: {level: DEBUG}`
+2. Check the [Complete Pipeline](./complete-smart-buffering) for reference config
+3. Review [Priority Queues](../priority-queues/) for separate queue routing

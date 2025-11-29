@@ -120,6 +120,23 @@ const sidebars: SidebarsConfig = {
             'data-routing/content-splitting/troubleshooting',
           ],
         },
+        {
+          type: 'category',
+          label: 'Smart Buffering',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'data-routing/smart-buffering/index',
+            'data-routing/smart-buffering/explorer',
+            'data-routing/smart-buffering/setup',
+            'data-routing/smart-buffering/step-1-classify-priority',
+            'data-routing/smart-buffering/step-2-priority-scoring',
+            'data-routing/smart-buffering/step-3-priority-output',
+            'data-routing/smart-buffering/step-4-prevent-starvation',
+            'data-routing/smart-buffering/complete-smart-buffering',
+            'data-routing/smart-buffering/troubleshooting',
+          ],
+        },
       ],
     },
     {
@@ -308,9 +325,11 @@ const sidebars: SidebarsConfig = {
           collapsed: true,
           items: [
             'log-processing/filter-severity/index',
+            'log-processing/filter-severity/explorer',
             'log-processing/filter-severity/setup',
             'log-processing/filter-severity/step-1-parse-json-add-metadata',
             'log-processing/filter-severity/step-2-filter-by-severity',
+            'log-processing/filter-severity/step-3-route-by-severity',
             'log-processing/filter-severity/step-4-advanced-patterns',
             'log-processing/filter-severity/complete-filter-severity',
             'log-processing/filter-severity/troubleshooting',
@@ -342,6 +361,7 @@ const sidebars: SidebarsConfig = {
           collapsed: true,
           items: [
             'log-processing/production-pipeline/index',
+            'log-processing/production-pipeline/explorer',
             'log-processing/production-pipeline/setup',
             'log-processing/production-pipeline/step-1-configure-http-input',
             'log-processing/production-pipeline/step-2-parse-validate-logs',
