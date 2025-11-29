@@ -1,4 +1,4 @@
 module.exports = {
-  '*.{ts,tsx}': 'echo "Skipping TSC check to unblock commit"',
-  '*.{yaml,yml}': 'echo "Skipping Prettier check to unblock commit"',
+  '*.{ts,tsx}': 'tsc-files --noEmit',
+  'examples/**/*-complete.yaml': 'npx tsx scripts/validate-complete-yaml.ts',
 };
