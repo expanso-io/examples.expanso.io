@@ -13,6 +13,23 @@ This is a Docusaurus-based documentation site showcasing production-ready pipeli
 - **1:1 mapping** between each `.mdx` file and its corresponding `.yaml` file
 - **Sidebar configuration** (`sidebars.ts`) defines navigation structure with 4 main categories
 
+## CI/Local Parity Rule
+
+**CRITICAL:** Every validation that runs in CI MUST also run locally on commit. There should be NO situation where CI discovers something that could have been caught locally.
+
+When adding or modifying CI checks:
+1. **Always add corresponding pre-commit hook** in `.lintstagedrc.js`
+2. **Test the hook locally** before pushing
+3. **Never disable pre-commit checks** without also disabling the CI check
+
+Current validations that MUST pass both locally and in CI:
+- TypeScript type checking (`tsc-files` on commit, `npm run typecheck` in CI)
+- Pipeline YAML validation (`validate-complete-yaml.ts` on commit, `test-pipelines` in CI)
+- CLI command validation (`npm run validate-cli`)
+- Stage file validation (`npm run validate-stages`)
+
+If you find yourself thinking "CI will catch it" - STOP. Add the local check first.
+
 ## Development Commands
 
 ```bash
