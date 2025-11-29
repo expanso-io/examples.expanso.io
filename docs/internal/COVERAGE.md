@@ -1,11 +1,11 @@
 # Example Coverage Report
 
-**Generated:** 2025-11-27
+**Generated:** 2025-11-29
 
 ## Overview
 
-- **Total Examples:** 17
-- **Complete Examples:** 17 (100%)
+- **Total Examples:** 18
+- **Complete Examples:** 18 (100%)
 - **Partial Examples:** 0 (0%)
 - **Minimal Examples:** 0 (0%)
 - **Average Completion:** 100%
@@ -20,12 +20,13 @@
 
 Circuit breakers, content routing, fan-out patterns, priority queues
 
-- **Examples:** 5
-- **Complete:** 5/5 (100%)
+- **Examples:** 6
+- **Complete:** 6/6 (100%)
 - **Average Completion:** 100%
 
 | Example | Stage File | Explorer | Index | Setup | Completion |
 |---------|-----------|----------|-------|-------|------------|
+| smart-buffering | ✅ | ✅ | ✅ | ✅ | ✅ 100% |
 | priority-queues | ✅ | ✅ | ✅ | ✅ | ✅ 100% |
 | fan-out-pattern | ✅ | ✅ | ✅ | ✅ | ✅ 100% |
 | content-splitting | ✅ | ✅ | ✅ | ✅ | ✅ 100% |
