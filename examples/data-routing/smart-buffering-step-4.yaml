@@ -1,0 +1,112 @@
+name: smart-buffering-step-4
+description: Step 4 - Prevent starvation with age-based priority boost
+type: pipeline
+namespace: default
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+      timeout: 5s
+
+  buffer:
+    memory:
+      limit: 50000
+      batch_policy:
+        count: 100
+        period: 1s
+
+  pipeline:
+    processors:
+      - json_documents:
+          parts: []
+
+      - mapping: |
+          root = this
+
+          let category = this.category.or("").string().lowercase()
+          let severity = this.severity.or("info").string().lowercase()
+          let event_type = this.event_type.or("").string().lowercase()
+
+          let is_important = match {
+            category == "important" => true,
+            severity == "critical" => true,
+            event_type.has_prefix("payment.failed") => true,
+            _ => false
+          }
+
+          let is_archive = match {
+            category == "archive" => true,
+            severity == "debug" => true,
+            event_type.has_prefix("analytics.") => true,
+            _ => false
+          }
+
+          root.priority_tier = match {
+            is_important => 1,
+            is_archive => 3,
+            _ => 2
+          }
+
+          root.priority_label = match root.priority_tier {
+            1 => "important",
+            2 => "regular",
+            3 => "archive"
+          }
+
+          # Base priority score
+          let base_score = match root.priority_tier {
+            1 => 1000,
+            2 => 500,
+            3 => 100
+          }
+
+          # Calculate message age for starvation prevention
+          let message_ts = this.timestamp.or(now().format_timestamp()).parse_timestamp()
+          let age_seconds = (now().unix() - message_ts.unix()).round()
+          root.age_seconds = age_seconds
+
+          # Age-based priority boost prevents starvation
+          # After 5 minutes, archive messages start getting boosted
+          # After 30 minutes, they're treated as regular
+          # After 2 hours, they're treated as important
+          let age_boost = match {
+            age_seconds > 7200 => 900,   # > 2 hours: near-important priority
+            age_seconds > 1800 => 400,   # > 30 min: regular priority
+            age_seconds > 300 => 100,    # > 5 min: small boost
+            _ => 0
+          }
+
+          root.age_boost = age_boost
+          root.priority_score = base_score + age_boost
+
+          # Flag if message was escalated due to age
+          root.age_escalated = age_boost > 0
+          root.buffered_at = now()
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        - label: priority_sorted_output
+          processors:
+            - sort:
+                value: root.priority_score
+                order: descending
+            - mapping: |
+                root = this
+                root.sent_at = now()
+                root.queue_time_ms = (root.sent_at.unix() - root.buffered_at.unix()) * 1000
+
+          output:
+            http_client:
+              url: ${DESTINATION_URL}
+              verb: POST
+              headers:
+                Content-Type: application/json
+              timeout: 30s
+              max_retries: 5
+              backoff:
+                initial_interval: 100ms
+                max_interval: 10s

@@ -1,0 +1,111 @@
+---
+title: Step 2 - Add Priority Scoring
+sidebar_label: Step 2 - Priority Scoring
+sidebar_position: 5
+description: Assign numeric priority scores for fine-grained buffer ordering.
+keywords: [priority, scoring, numeric, ordering, fine-grained]
+---
+
+# Step 2: Add Priority Scoring
+
+Priority tiers give us coarse ordering. Priority scores enable fine-grained ordering within each tier.
+
+## The Goal
+
+Assign numeric scores so the buffer can sort messages precisely:
+- **Important:** Base score 1000
+- **Regular:** Base score 500
+- **Archive:** Base score 100
+
+Higher scores are delivered first.
+
+## Implementation
+
+1. **Copy the previous pipeline:**
+    ```bash
+    cp smart-buffer-classify.yaml smart-buffer-scoring.yaml
+    ```
+
+2. **Add priority scoring:**
+
+    ```yaml title="Enhance the mapping processor in smart-buffer-scoring.yaml"
+    - mapping: |
+        root = this
+
+        let category = this.category.or("").string().lowercase()
+        let severity = this.severity.or("info").string().lowercase()
+        let event_type = this.event_type.or("").string().lowercase()
+
+        let is_important = match {
+          category == "important" => true,
+          severity == "critical" => true,
+          event_type.has_prefix("payment.failed") => true,
+          _ => false
+        }
+
+        let is_archive = match {
+          category == "archive" => true,
+          severity == "debug" => true,
+          event_type.has_prefix("analytics.") => true,
+          _ => false
+        }
+
+        root.priority_tier = match {
+          is_important => 1,
+          is_archive => 3,
+          _ => 2
+        }
+
+        root.priority_label = match root.priority_tier {
+          1 => "important",
+          2 => "regular",
+          3 => "archive"
+        }
+
+        # Base priority score by tier
+        let base_score = match root.priority_tier {
+          1 => 1000,
+          2 => 500,
+          3 => 100
+        }
+
+        # Severity bonus for fine-grained ordering within tier
+        let severity_bonus = match severity {
+          "critical" => 50,
+          "error" => 30,
+          "warn" => 10,
+          _ => 0
+        }
+
+        root.priority_score = base_score + severity_bonus
+        root.classified_at = now()
+    ```
+
+## Test
+
+```bash
+# Send messages with different severities
+curl -X POST http://localhost:8080/events \
+  -d '{"severity": "critical", "message": "Alert"}'   # Score: 1050
+
+curl -X POST http://localhost:8080/events \
+  -d '{"severity": "error", "message": "Error"}'      # Score: 530
+
+curl -X POST http://localhost:8080/events \
+  -d '{"severity": "info", "message": "Info"}'        # Score: 500
+
+curl -X POST http://localhost:8080/events \
+  -d '{"severity": "debug", "message": "Debug"}'      # Score: 100
+```
+
+## Key Insight
+
+The numeric score allows the buffer to precisely order messages. A critical error (1050) will always be delivered before a regular info message (500), which will always be delivered before debug logs (100).
+
+## Next Step
+
+<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
+  <a href="./step-3-priority-output" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+    Step 3: Priority Output
+  </a>
+</div>
