@@ -1,0 +1,285 @@
+# Data Transformation Patterns
+
+Transform and normalize data at the edge before sending to cloud destinations.
+
+## Time Window Aggregations
+
+Aggregate events over time windows.
+
+### Tumbling Windows
+
+Fixed, non-overlapping time windows.
+
+```yaml
+name: aggregate-time-windows-complete
+type: pipeline
+config:
+  input:
+    kafka:
+      topics: ["metrics"]
+
+  pipeline:
+    processors:
+      # Group by 1-minute tumbling windows
+      - mapping: |
+          root = this
+          root.window_start = (this.timestamp.ts_unix() / 60).floor() * 60
+          root.window_key = this.service + "_" + $window_start.string()
+
+      # Aggregate within window
+      - group_by:
+          key: ${!this.window_key}
+          aggregate:
+            count: { count: true }
+            sum_value: { sum: "value" }
+            avg_value: { mean: "value" }
+            min_value: { min: "value" }
+            max_value: { max: "value" }
+
+      # Format output
+      - mapping: |
+          root.service = this.messages.index(0).service
+          root.window_start = this.messages.index(0).window_start
+          root.count = this.count
+          root.sum = this.sum_value
+          root.avg = this.avg_value
+          root.min = this.min_value
+          root.max = this.max_value
+
+  output:
+    kafka:
+      topic: metrics-aggregated
+```
+
+### Sliding Windows
+
+Overlapping windows for smoother aggregations.
+
+```yaml
+processors:
+  - windowed:
+      size: 5m
+      slide: 1m
+      allowed_lateness: 30s
+      aggregate:
+        count: { count: true }
+        avg: { mean: "latency_ms" }
+```
+
+### Session Windows
+
+Dynamic windows based on activity gaps.
+
+```yaml
+processors:
+  - session_window:
+      gap: 30m
+      key: ${!this.user_id}
+      aggregate:
+        page_views: { count: true }
+        session_start: { min: "timestamp" }
+        session_end: { max: "timestamp" }
+```
+
+## Event Deduplication
+
+Remove duplicate events at the edge.
+
+### Hash-Based Deduplication
+
+```yaml
+name: deduplicate-events-complete
+type: pipeline
+config:
+  input:
+    kafka:
+      topics: ["events"]
+
+  pipeline:
+    processors:
+      # Create deduplication fingerprint
+      - mapping: |
+          root = this
+          root._dedup_key = (this.event_id + this.timestamp).hash("sha256")
+
+      # Deduplicate using cache
+      - dedupe:
+          cache: memory
+          key: ${!this._dedup_key}
+          drop_on_err: false
+
+      # Clean up internal field
+      - mapping: |
+          root = this.without("_dedup_key")
+
+  output:
+    kafka:
+      topic: events-deduped
+```
+
+### ID-Based Deduplication
+
+```yaml
+processors:
+  - dedupe:
+      cache: memory
+      key: ${!this.event_id}
+      ttl: 1h
+```
+
+### Fingerprint-Based Deduplication
+
+```yaml
+processors:
+  - mapping: |
+      # Create content fingerprint
+      root = this
+      root._fingerprint = (
+        this.user_id +
+        this.action +
+        this.timestamp.ts_unix().floor(60).string()
+      ).hash("sha256")
+
+  - dedupe:
+      key: ${!this._fingerprint}
+```
+
+## Format Transformation
+
+Convert between data formats.
+
+### JSON to Avro
+
+```yaml
+name: transform-formats-complete
+type: pipeline
+config:
+  input:
+    kafka:
+      topics: ["json-events"]
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+          # Ensure required fields
+          root.event_id = this.event_id.or(uuid_v4())
+          root.timestamp = this.timestamp.or(now())
+
+  output:
+    kafka:
+      topic: avro-events
+      schema_registry:
+        url: "${SCHEMA_REGISTRY}"
+        subject: events-value
+      codec: avro
+```
+
+### Auto-Detect Format
+
+```yaml
+processors:
+  - switch:
+      - check: this.content().re_match("^\\{")
+        processors:
+          - mapping: root = this.parse_json()
+      - check: this.content().re_match("^<")
+        processors:
+          - xml:
+              operator: to_json
+      - processors:
+          - mapping: root = {"raw": this.content()}
+```
+
+## Timestamp Normalization
+
+Normalize timestamps to consistent format.
+
+```yaml
+name: normalize-timestamps-complete
+type: pipeline
+config:
+  input:
+    kafka:
+      topics: ["events"]
+
+  pipeline:
+    processors:
+      - mapping: |
+          # Parse various timestamp formats to UTC
+          let ts = if this.timestamp.type() == "string" {
+            this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00")
+          } else if this.timestamp.type() == "number" {
+            if this.timestamp > 1000000000000 {
+              this.timestamp.ts_unix_milli()
+            } else {
+              this.timestamp.ts_unix()
+            }
+          } else {
+            now()
+          }
+
+          root = this
+          root.timestamp_utc = $ts.ts_format("2006-01-02T15:04:05Z")
+          root.timestamp_unix = $ts.ts_unix()
+          root.date = $ts.ts_format("2006-01-02")
+          root.hour = $ts.ts_format("15")
+
+  output:
+    kafka:
+      topic: events-normalized
+```
+
+## Log Parsing
+
+Parse unstructured logs into structured events.
+
+```yaml
+name: parse-logs-complete
+type: pipeline
+config:
+  input:
+    file:
+      paths: ["/var/log/*.log"]
+
+  pipeline:
+    processors:
+      # Auto-detect and parse log format
+      - switch:
+          # JSON logs
+          - check: this.content().re_match("^\\{")
+            processors:
+              - mapping: root = this.parse_json()
+
+          # Apache access logs
+          - check: this.content().re_match("^\\d+\\.\\d+\\.\\d+\\.\\d+")
+            processors:
+              - grok:
+                  pattern: '%{COMBINEDAPACHELOG}'
+
+          # Syslog
+          - check: this.content().re_match("^<\\d+>")
+            processors:
+              - grok:
+                  pattern: '%{SYSLOGBASE}'
+
+          # Default: wrap as raw
+          - processors:
+              - mapping: |
+                  root.raw = this.content()
+                  root.parsed = false
+
+  output:
+    kafka:
+      topic: logs-parsed
+```
+
+## Available Examples
+
+Download complete examples:
+
+- `aggregate-time-windows-complete.yaml` - Time window aggregations
+- `deduplicate-events-complete.yaml` - Event deduplication
+- `transform-formats-complete.yaml` - Format conversion
+- `normalize-timestamps-complete.yaml` - Timestamp normalization
+- `parse-logs-complete.yaml` - Log parsing

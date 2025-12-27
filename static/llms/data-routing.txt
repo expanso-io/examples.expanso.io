@@ -1,0 +1,262 @@
+# Data Routing Patterns
+
+Production-ready patterns for controlling data flow through Expanso Edge pipelines.
+
+## Circuit Breaker Patterns
+
+Protect pipelines from cascading failures when downstream systems fail.
+
+### Problem
+- Single unresponsive endpoint backs up entire pipeline
+- Pending requests consume memory until crash
+- No automatic recovery from transient failures
+
+### Solution
+
+Use try/catch with fallback chains:
+
+```yaml
+name: circuit-breakers-complete
+type: pipeline
+config:
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /events
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+          root.request_id = uuid_v4()
+          root.received_at = now()
+
+      # Primary API with circuit breaker
+      - try:
+          - http:
+              url: "${PRIMARY_API}/enrich/${!this.event_id}"
+              timeout: 3s
+              retries: 2
+          - mapping: |
+              root.enrichment = content().parse_json()
+              root.enrichment_source = "primary_api"
+        catch:
+          # Fallback to secondary
+          - try:
+              - http:
+                  url: "${SECONDARY_API}/enrich/${!this.event_id}"
+                  timeout: 5s
+            catch:
+              - mapping: |
+                  root.enrichment = null
+                  root.enrichment_failed = true
+
+  output:
+    fallback:
+      - http_client:
+          url: "${ELASTICSEARCH}/events/_doc"
+          timeout: 5s
+      - kafka:
+          addresses: ["${KAFKA_BROKERS}"]
+          topic: events-fallback
+      - file:
+          path: "/var/expanso/buffer/events.jsonl"
+      - file:
+          path: "/var/expanso/dlq/failed.jsonl"
+```
+
+## Fan-Out Pattern
+
+Send data to multiple destinations simultaneously.
+
+```yaml
+name: fan-out-complete
+type: pipeline
+config:
+  input:
+    kafka:
+      addresses: ["${KAFKA_BROKERS}"]
+      topics: ["events"]
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # Analytics destination
+        - http_client:
+            url: "${ANALYTICS_API}/events"
+
+        # Archive destination
+        - s3:
+            bucket: "${S3_BUCKET}"
+            path: "events/${!timestamp_unix_date('2006/01/02')}.jsonl"
+
+        # Search destination
+        - elasticsearch:
+            urls: ["${ES_URL}"]
+            index: events-${!timestamp_unix_date('2006.01.02')}
+```
+
+## Priority Queue Routing
+
+Route events based on priority scores.
+
+```yaml
+name: priority-queues-complete
+type: pipeline
+config:
+  input:
+    kafka:
+      addresses: ["${KAFKA_BROKERS}"]
+      topics: ["events"]
+
+  pipeline:
+    processors:
+      # Calculate priority score
+      - mapping: |
+          let severity_score = match this.severity {
+            "critical" => 100
+            "error" => 75
+            "warning" => 50
+            _ => 25
+          }
+          let tier_score = match this.customer_tier {
+            "enterprise" => 50
+            "premium" => 25
+            _ => 0
+          }
+          root = this
+          root.priority_score = $severity_score + $tier_score
+
+  output:
+    switch:
+      cases:
+        - check: this.priority_score >= 100
+          output:
+            kafka:
+              topic: events-critical
+        - check: this.priority_score >= 50
+          output:
+            kafka:
+              topic: events-high
+        - output:
+            kafka:
+              topic: events-normal
+```
+
+## Content-Based Routing
+
+Route data based on content analysis.
+
+```yaml
+name: content-routing-complete
+type: pipeline
+config:
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+          root.event_type = this.type.or("unknown")
+          root.region = this.metadata.region.or("unknown")
+
+  output:
+    switch:
+      cases:
+        - check: this.region == "eu"
+          output:
+            kafka:
+              addresses: ["${KAFKA_EU}"]
+              topic: eu-events
+        - check: this.region == "us"
+          output:
+            kafka:
+              addresses: ["${KAFKA_US}"]
+              topic: us-events
+        - output:
+            kafka:
+              topic: global-events
+```
+
+## Content Splitting
+
+Split batch messages into individual events.
+
+```yaml
+name: content-splitting-complete
+type: pipeline
+config:
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+
+  pipeline:
+    processors:
+      # Split JSON array into individual messages
+      - unarchive:
+          format: json_array
+
+      # Enrich each message
+      - mapping: |
+          root = this
+          root.split_at = now()
+          root.batch_id = uuid_v4()
+
+  output:
+    kafka:
+      topic: events-split
+```
+
+## Smart Buffering
+
+Buffer and batch events intelligently.
+
+```yaml
+name: smart-buffering-complete
+type: pipeline
+config:
+  input:
+    kafka:
+      topics: ["events"]
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+          root.priority = match this.severity {
+            "critical" => "high"
+            "error" => "high"
+            _ => "normal"
+          }
+
+  output:
+    switch:
+      cases:
+        - check: this.priority == "high"
+          output:
+            http_client:
+              url: "${API}/events"
+              batching:
+                count: 10
+                period: 1s
+        - output:
+            http_client:
+              url: "${API}/events"
+              batching:
+                count: 1000
+                period: 30s
+```
+
+## Available Examples
+
+Download complete examples:
+
+- `circuit-breakers-complete.yaml` - Full circuit breaker implementation
+- `fan-out-complete.yaml` - Multi-destination fan-out
+- `priority-queues-complete.yaml` - Priority-based routing
+- `content-routing.yaml` - Content-based routing
+- `content-splitting.yaml` - Batch splitting
+- `smart-buffering.yaml` - Intelligent buffering

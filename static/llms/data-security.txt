@@ -1,0 +1,228 @@
+# Data Security Patterns
+
+Compliance and security patterns for Expanso Edge pipelines. Process sensitive data safely at the edge before it reaches your data warehouse.
+
+## PII Removal
+
+Remove personally identifiable information before data leaves the edge.
+
+### Delete Sensitive Fields
+
+```yaml
+name: remove-pii-complete
+type: pipeline
+config:
+  input:
+    kafka:
+      topics: ["transactions"]
+
+  pipeline:
+    processors:
+      # Remove payment card data
+      - mapping: |
+          root = this
+          root.payment = this.payment.without("card_number", "cvv", "expiry")
+
+      # Remove personal identifiers
+      - mapping: |
+          root = this
+          root.customer = this.customer.without("ssn", "drivers_license")
+
+      # Hash email for analytics
+      - mapping: |
+          root = this
+          root.customer.email_hash = this.customer.email.hash("sha256")
+          root = root.without("customer.email")
+
+      # Generalize location data
+      - mapping: |
+          root = this
+          root.location.zip = this.location.zip.slice(0, 3) + "XX"
+          root = root.without("location.street", "location.apt")
+
+  output:
+    snowflake:
+      account: "${SNOWFLAKE_ACCOUNT}"
+      database: ANALYTICS
+      table: TRANSACTIONS_CLEAN
+```
+
+### Pseudonymization
+
+Replace identifiers with reversible tokens.
+
+```yaml
+processors:
+  - mapping: |
+      root = this
+      # Create deterministic pseudonym
+      root.customer.pseudonym = this.customer.id.hash("hmac_sha256", env("HMAC_KEY"))
+      # Remove original ID
+      root = root.without("customer.id", "customer.name")
+```
+
+## Encryption Patterns
+
+Encrypt sensitive data at the edge.
+
+### Field-Level Encryption
+
+```yaml
+name: encryption-patterns-complete
+type: pipeline
+config:
+  input:
+    kafka:
+      topics: ["orders"]
+
+  pipeline:
+    processors:
+      # Encrypt payment data
+      - mapping: |
+          root = this
+          root.payment.card_encrypted = this.payment.card_number.encrypt_aes(
+            env("PAYMENT_KEY"),
+            "gcm"
+          )
+          root = root.without("payment.card_number")
+
+      # Encrypt PII fields
+      - mapping: |
+          root = this
+          root.customer.name_encrypted = this.customer.name.encrypt_aes(
+            env("PII_KEY"),
+            "gcm"
+          )
+          root.customer.email_encrypted = this.customer.email.encrypt_aes(
+            env("PII_KEY"),
+            "gcm"
+          )
+          root = root.without("customer.name", "customer.email")
+
+      # Add encryption metadata
+      - mapping: |
+          root = this
+          root._encryption = {
+            "version": "1",
+            "algorithm": "AES-256-GCM",
+            "encrypted_at": now()
+          }
+
+  output:
+    s3:
+      bucket: "${ENCRYPTED_BUCKET}"
+      path: "orders/${!timestamp_unix_date('2006/01/02')}.jsonl"
+```
+
+### Multi-Key Strategy
+
+Use different keys for different data classifications.
+
+```yaml
+processors:
+  - mapping: |
+      root = this
+
+      # High-sensitivity: payment data
+      root.payment = this.payment.encrypt_aes(env("KEY_HIGH"), "gcm")
+
+      # Medium-sensitivity: contact info
+      root.customer.contact = this.customer.contact.encrypt_aes(env("KEY_MED"), "gcm")
+
+      # Low-sensitivity: preferences (no encryption)
+      root.preferences = this.preferences
+```
+
+## Schema Validation
+
+Enforce data quality with schema validation.
+
+### JSON Schema Validation
+
+```yaml
+name: enforce-schema-complete
+type: pipeline
+config:
+  input:
+    kafka:
+      topics: ["events"]
+
+  pipeline:
+    processors:
+      # Validate against JSON schema
+      - json_schema:
+          schema: |
+            {
+              "type": "object",
+              "required": ["event_id", "timestamp", "type"],
+              "properties": {
+                "event_id": {"type": "string", "format": "uuid"},
+                "timestamp": {"type": "string", "format": "date-time"},
+                "type": {"type": "string", "enum": ["click", "view", "purchase"]}
+              }
+            }
+
+      # Mark as validated
+      - mapping: |
+          root = this
+          root._validated = true
+          root._validated_at = now()
+
+  output:
+    switch:
+      cases:
+        - check: errored()
+          output:
+            # Send invalid to DLQ
+            kafka:
+              topic: events-dlq
+              processors:
+                - mapping: |
+                    root = this
+                    root._error = error()
+                    root._failed_at = now()
+        - output:
+            kafka:
+              topic: events-validated
+```
+
+### Required Field Validation
+
+```yaml
+processors:
+  - mapping: |
+      # Check required fields
+      if this.event_id == null {
+        throw("missing event_id")
+      }
+      if this.timestamp == null {
+        throw("missing timestamp")
+      }
+      root = this
+```
+
+## Audit Logging
+
+Track data transformations for compliance.
+
+```yaml
+processors:
+  - mapping: |
+      root = this
+      root._audit = {
+        "original_hash": this.hash("sha256"),
+        "processed_by": "expanso-edge",
+        "pipeline": "security-pipeline",
+        "timestamp": now(),
+        "transformations": ["pii_removal", "encryption"]
+      }
+```
+
+## Available Examples
+
+Download complete examples:
+
+- `remove-pii-complete.yaml` - Full PII removal pipeline
+- `encryption-patterns-complete.yaml` - Field-level encryption
+- `enforce-schema-complete.yaml` - Schema validation with DLQ
+- `encrypt-data-complete.yaml` - Data encryption patterns

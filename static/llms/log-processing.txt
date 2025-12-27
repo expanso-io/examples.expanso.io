@@ -1,0 +1,281 @@
+# Log Processing Patterns
+
+Production-ready patterns for processing logs at the edge with Expanso.
+
+## Severity-Based Filtering
+
+Filter logs by severity level before sending to destination.
+
+```yaml
+name: filter-severity-complete
+type: pipeline
+config:
+  input:
+    file:
+      paths: ["/var/log/app/*.log"]
+      codec: lines
+
+  pipeline:
+    processors:
+      # Parse log line
+      - mapping: |
+          root = this.parse_json()
+
+      # Filter by severity
+      - mapping: |
+          let severity = this.level.lowercase()
+          let keep = $severity in ["error", "warn", "fatal", "critical"]
+          if !$keep {
+            root = deleted()
+          }
+
+      # Enrich with metadata
+      - mapping: |
+          root = this
+          root.processed_at = now()
+          root.source = "edge-agent"
+
+  output:
+    kafka:
+      topic: logs-important
+```
+
+### Configurable Severity Filter
+
+```yaml
+processors:
+  - mapping: |
+      let min_level = env("MIN_LOG_LEVEL").or("warn")
+      let levels = {
+        "trace": 0,
+        "debug": 1,
+        "info": 2,
+        "warn": 3,
+        "error": 4,
+        "fatal": 5
+      }
+      let msg_level = $levels.get(this.level.lowercase()).or(0)
+      let threshold = $levels.get($min_level).or(3)
+
+      if $msg_level < $threshold {
+        root = deleted()
+      }
+```
+
+## Log Enrichment
+
+Add context and metadata to logs.
+
+```yaml
+name: enrich-export-complete
+type: pipeline
+config:
+  input:
+    kafka:
+      topics: ["raw-logs"]
+
+  pipeline:
+    processors:
+      # Add lineage tracking
+      - mapping: |
+          root = this
+          root._lineage = {
+            "source": "edge-${!env('NODE_ID')}",
+            "pipeline": "log-enrichment",
+            "ingested_at": now(),
+            "original_hash": this.hash("sha256")
+          }
+
+      # Enrich with environment metadata
+      - mapping: |
+          root = this
+          root.environment = env("ENVIRONMENT").or("production")
+          root.region = env("REGION").or("unknown")
+          root.cluster = env("CLUSTER_ID").or("default")
+
+      # Parse and classify log level
+      - mapping: |
+          root = this
+          root.severity_score = match this.level.lowercase() {
+            "fatal" => 100
+            "critical" => 90
+            "error" => 80
+            "warn" => 60
+            "info" => 40
+            "debug" => 20
+            "trace" => 10
+            _ => 0
+          }
+
+      # Extract structured data from message
+      - mapping: |
+          root = this
+          # Extract request ID if present
+          let req_match = this.message.re_find_all("request_id=([a-f0-9-]+)")
+          if $req_match.length() > 0 {
+            root.request_id = $req_match.index(0).index(1)
+          }
+          # Extract user ID if present
+          let user_match = this.message.re_find_all("user_id=([0-9]+)")
+          if $user_match.length() > 0 {
+            root.user_id = $user_match.index(0).index(1)
+          }
+
+  output:
+    kafka:
+      topic: logs-enriched
+```
+
+## Production Pipeline
+
+Complete production-ready log processing pipeline.
+
+```yaml
+name: production-pipeline-complete
+type: pipeline
+description: Production log pipeline with parsing, PII redaction, enrichment, and multi-destination output
+config:
+  input:
+    kafka:
+      addresses: ["${KAFKA_BROKERS}"]
+      topics: ["app-logs"]
+      consumer_group: log-processor
+
+  pipeline:
+    processors:
+      # Step 1: Parse and validate
+      - try:
+          - mapping: root = this.parse_json()
+        catch:
+          - mapping: |
+              root.raw = this.content()
+              root.parse_error = true
+
+      # Step 2: Classify severity
+      - mapping: |
+          root = this
+          root.is_error = this.level.lowercase() in ["error", "fatal", "critical"]
+          root.is_alert = this.level.lowercase() == "fatal" ||
+                          this.message.contains("ALERT")
+
+      # Step 3: Redact PII
+      - mapping: |
+          root = this
+          # Redact email addresses
+          root.message = this.message.re_replace_all(
+            "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}",
+            "[EMAIL_REDACTED]"
+          )
+          # Redact credit card numbers
+          root.message = root.message.re_replace_all(
+            "\\b\\d{4}[- ]?\\d{4}[- ]?\\d{4}[- ]?\\d{4}\\b",
+            "[CARD_REDACTED]"
+          )
+          # Redact SSN
+          root.message = root.message.re_replace_all(
+            "\\b\\d{3}-\\d{2}-\\d{4}\\b",
+            "[SSN_REDACTED]"
+          )
+
+      # Step 4: Add processing metadata
+      - mapping: |
+          root = this
+          root.processed_at = now()
+          root.processor_id = env("PROCESSOR_ID")
+          root.pipeline_version = "1.0"
+
+  output:
+    switch:
+      cases:
+        # Alerts go to PagerDuty
+        - check: this.is_alert
+          output:
+            http_client:
+              url: "${PAGERDUTY_ENDPOINT}"
+              verb: POST
+              headers:
+                Content-Type: application/json
+                Authorization: "Token token=${PAGERDUTY_KEY}"
+
+        # Errors go to Elasticsearch
+        - check: this.is_error
+          output:
+            elasticsearch:
+              urls: ["${ES_URL}"]
+              index: errors-${!timestamp_unix_date('2006.01.02')}
+
+        # Everything goes to S3
+        - output:
+            s3:
+              bucket: "${LOG_BUCKET}"
+              path: "logs/${!timestamp_unix_date('2006/01/02/15')}/logs.jsonl.gz"
+              batching:
+                count: 10000
+                period: 1m
+              codec: gzip
+```
+
+## Multi-Format Log Parsing
+
+Handle mixed log formats.
+
+```yaml
+processors:
+  - switch:
+      # JSON format
+      - check: this.content().slice(0, 1) == "{"
+        processors:
+          - mapping: root = this.parse_json()
+
+      # Apache combined log format
+      - check: this.content().re_match("^\\d+\\.\\d+\\.\\d+\\.\\d+ - -")
+        processors:
+          - grok:
+              pattern: '%{COMBINEDAPACHELOG}'
+
+      # Syslog format
+      - check: this.content().re_match("^[A-Z][a-z]{2}\\s+\\d+")
+        processors:
+          - grok:
+              pattern: '%{SYSLOGBASE} %{GREEDYDATA:message}'
+
+      # CSV format
+      - check: this.content().contains(",")
+        processors:
+          - mapping: |
+              let parts = this.content().split(",")
+              root.timestamp = $parts.index(0)
+              root.level = $parts.index(1)
+              root.message = $parts.index(2)
+
+      # Default: raw message
+      - processors:
+          - mapping: |
+              root.raw = this.content()
+              root.format = "unknown"
+```
+
+## Batching for Efficiency
+
+Batch logs before sending to reduce API calls.
+
+```yaml
+output:
+  http_client:
+    url: "${LOG_API}"
+    batching:
+      count: 1000
+      period: 5s
+      byte_size: 5000000  # 5MB max
+    processors:
+      - archive:
+          format: json_array
+```
+
+## Available Examples
+
+Download complete examples:
+
+- `filter-severity-complete.yaml` - Severity filtering
+- `enrich-export-complete.yaml` - Log enrichment
+- `production-pipeline-complete.yaml` - Production-ready pipeline
