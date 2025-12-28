@@ -54,6 +54,12 @@ const config: Config = {
     './plugins/tailwind-config.cjs',
     './plugins/alias-config.cjs',
     [
+      '@docusaurus/plugin-google-tag-manager',
+      {
+        containerId: 'GTM-MPSKFDMF',
+      },
+    ],
+    [
       '@docusaurus/plugin-client-redirects',
       {
         // Redirect old paths that no longer exist to their closest matching pages
