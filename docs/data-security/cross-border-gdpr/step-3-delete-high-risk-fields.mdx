@@ -1,0 +1,154 @@
+---
+title: "Step 3: Delete High-Risk Fields"
+sidebar_label: "Step 3: Delete Fields"
+sidebar_position: 5
+description: Remove fields with no analytics value and high privacy risk
+keywords: [delete, remove, pii, high-risk, anonymization]
+---
+
+# Step 3: Delete High-Risk Fields
+
+Some personal data has no analytics value but high privacy risk. Delete it entirely rather than trying to anonymize it.
+
+## The Goal
+
+- **Delete** `customer_name` - No aggregate analytics value
+- **Delete** `customer_address` - Too specific, no value anonymized
+- **Delete** `customer_dob` - But convert to age bucket first
+
+## Why Delete vs. Hash?
+
+| Treatment | Use When | Result |
+|-----------|----------|--------|
+| **Delete** | No analytics value, high risk | Field removed entirely |
+| **Hash** | Need to count unique values | Irreversible pseudonym |
+| **Generalize** | Need distribution analysis | Reduced precision |
+
+Names and addresses have no meaningful aggregate analytics value—you can't sum them or count unique patterns. Delete them.
+
+## Implementation
+
+```yaml title="step-3-delete.yaml"
+pipeline:
+  processors:
+    # Steps 1-2 from previous...
+    
+    # Step 3: Delete high-risk fields
+    - mapping: |
+        root = this
+        
+        # Full name - no analytics value, high risk
+        root = root.without("customer_name")
+        
+        # Full address - no analytics value
+        root = root.without("customer_address")
+        
+        # Date of birth - convert to age bucket before deleting
+        root.customer_age_bucket = match {
+          this.customer_dob == null => "unknown",
+          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 25 * 365 * 24 * 3600 => "18-24",
+          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 35 * 365 * 24 * 3600 => "25-34",
+          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 45 * 365 * 24 * 3600 => "35-44",
+          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 55 * 365 * 24 * 3600 => "45-54",
+          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 65 * 365 * 24 * 3600 => "55-64",
+          _ => "65+"
+        }
+        root = root.without("customer_dob")
+```
+
+## Understanding the Code
+
+| Expression | What It Does |
+|------------|--------------|
+| `root.without("field")` | Remove field from record |
+| `now().ts_unix()` | Current time as Unix timestamp |
+| `.ts_parse("2006-01-02")` | Parse date string |
+| `match {...}` | Pattern matching for age calculation |
+
+### Age Calculation Logic
+
+The age bucket calculation:
+1. Parse DOB as timestamp
+2. Subtract from current time (gives age in seconds)
+3. Compare against thresholds (years × 365 × 24 × 3600)
+4. Return appropriate bucket string
+
+## Expected Output
+
+**Input:**
+```json
+{
+  "customer_name": "Hans Schmidt",
+  "customer_address": "Hauptstraße 42, 10115 Berlin, Germany",
+  "customer_dob": "1985-03-15",
+  ...
+}
+```
+
+**Output:**
+```json
+{
+  "customer_age_bucket": "35-44",
+  ...
+}
+```
+
+Note: `customer_name`, `customer_address`, and `customer_dob` are completely removed.
+
+## Production Considerations
+
+### Audit What Was Deleted
+
+Track deleted fields for compliance:
+
+```yaml
+root._gdpr_compliance.fields_deleted = ["customer_name", "customer_address", "customer_dob"]
+root._gdpr_compliance.deletion_timestamp = now()
+```
+
+### Configurable Age Buckets
+
+Make buckets configurable for different markets:
+
+```yaml
+# Some markets use different age groupings
+let buckets = env("AGE_BUCKETS").or("18-24,25-34,35-44,45-54,55-64,65+")
+```
+
+### Handle Missing DOB
+
+Gracefully handle records without DOB:
+
+```yaml
+root.customer_age_bucket = if this.customer_dob == null {
+  "unknown"
+} else if this.customer_dob == "" {
+  "unknown"
+} else {
+  # age calculation...
+}
+```
+
+### EU-Specific Age Categories
+
+For GDPR, consider child protection (under 16):
+
+```yaml
+root.customer_age_bucket = match {
+  # GDPR considers under-16 as children requiring parental consent
+  age_years < 16 => "child",
+  age_years < 18 => "16-17",
+  age_years < 25 => "18-24",
+  # ... rest of buckets
+}
+```
+
+---
+
+## Next Step
+
+<div className="margin-top--lg margin-bottom--lg">
+  <a href="./step-4-hash-identifiers" className="button button--primary button--lg">
+    📖 Step 4: Hash Identifiers →
+  </a>
+</div>

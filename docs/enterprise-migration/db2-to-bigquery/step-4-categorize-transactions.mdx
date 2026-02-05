@@ -1,0 +1,177 @@
+---
+title: "Step 4: Categorize Transactions"
+sidebar_label: "Step 4: Categorize"
+sidebar_position: 6
+description: Replace DataStage Switch/Case with pattern matching for MCC code categorization
+keywords: [categorization, mcc, merchant, switch, case, pattern-matching]
+---
+
+# Step 4: Categorize Transactions
+
+Map Merchant Category Codes (MCC) to human-readable categories for analytics. This replaces DataStage Switch/Case stages with Expanso's `match` expression.
+
+## The Goal
+
+Convert numeric MCC codes like `5411` into readable categories like `GROCERY` for:
+- Dashboard filtering
+- Spending analytics
+- Fraud detection rules
+
+## DataStage Equivalent
+
+In DataStage, categorization typically requires:
+1. **Switch/Case Stage** with dozens of conditions
+2. **Lookup Table** maintained in a separate database
+3. **Default handling** for unknown codes
+
+**Expanso simplifies this** with inline `match` expressions that use pattern matching.
+
+## Implementation
+
+Add the categorization processor after account masking:
+
+```yaml title="step-4-categorize.yaml"
+pipeline:
+  processors:
+    # Steps 1-3 from previous...
+    
+    # Step 4: Categorize transactions by MCC
+    - mapping: |
+        root = this
+        
+        # Map MCC code prefixes to categories
+        let mcc = this.MERCHANT_CATEGORY_CODE.string()
+        
+        root.transaction_category = match mcc {
+          this.has_prefix("54") => "GROCERY",
+          this.has_prefix("55") => "AUTOMOTIVE",
+          this.has_prefix("58") => "RESTAURANT",
+          this.has_prefix("59") => "RETAIL",
+          this.has_prefix("47") => "TRANSPORTATION",
+          this.has_prefix("40") || this.has_prefix("41") => "TRAVEL",
+          this.has_prefix("60") || this.has_prefix("61") => "FINANCIAL",
+          this.has_prefix("80") => "PROFESSIONAL_SERVICES",
+          _ => "OTHER"
+        }
+```
+
+## Understanding the Code
+
+| Expression | What It Does |
+|------------|--------------|
+| `.string()` | Convert MCC to string for pattern matching |
+| `match mcc {...}` | Pattern matching expression |
+| `this.has_prefix("54")` | Check if string starts with "54" |
+| `\|\|` | Logical OR for multiple prefixes |
+| `_ => "OTHER"` | Default case (underscore = wildcard) |
+
+## MCC Code Reference
+
+Common MCC prefixes and their meanings:
+
+| Prefix | Category | Examples |
+|--------|----------|----------|
+| 54xx | Grocery | Supermarkets, food stores |
+| 55xx | Automotive | Gas stations, auto dealers |
+| 58xx | Restaurant | Fast food, dining |
+| 59xx | Retail | Department stores, misc retail |
+| 47xx | Transportation | Airlines, rail, taxi |
+| 40-41xx | Travel | Hotels, lodging |
+| 60-61xx | Financial | Banks, insurance |
+| 80xx | Professional | Legal, medical, accounting |
+
+## Expected Output
+
+**Input:**
+```json
+{
+  "MERCHANT_CATEGORY_CODE": "5411",
+  "MERCHANT_NAME": "ACME Electronics GmbH",
+  ...
+}
+```
+
+**Output:**
+```json
+{
+  "MERCHANT_CATEGORY_CODE": "5411",
+  "MERCHANT_NAME": "ACME Electronics GmbH",
+  "transaction_category": "GROCERY",
+  ...
+}
+```
+
+## Production Considerations
+
+### Exact MCC Matching
+
+For precise MCC codes instead of prefixes:
+
+```yaml
+let mcc_map = {
+  "5411": "GROCERY_SUPERMARKET",
+  "5412": "GROCERY_CONVENIENCE",
+  "5541": "GAS_STATION",
+  "5542": "GAS_AUTOMATED"
+}
+
+root.transaction_category = $mcc_map.get(this.MERCHANT_CATEGORY_CODE.string()).or("OTHER")
+```
+
+### External Category Lookup
+
+Load categories from a file or API:
+
+```yaml
+# Load MCC mappings from file at startup
+input:
+  file:
+    paths: ["mcc-categories.json"]
+    
+# Or fetch from API
+- http:
+    url: "https://api.internal/mcc-categories"
+    verb: GET
+```
+
+### Subcategories
+
+Add hierarchical categorization:
+
+```yaml
+root.category_level1 = match mcc {
+  this.has_prefix("5") => "RETAIL",
+  this.has_prefix("4") => "TRAVEL",
+  this.has_prefix("6") => "FINANCIAL",
+  _ => "OTHER"
+}
+
+root.category_level2 = match mcc {
+  this.has_prefix("54") => "GROCERY",
+  this.has_prefix("58") => "DINING",
+  _ => root.category_level1
+}
+```
+
+### Flagging High-Risk Categories
+
+Add fraud indicators:
+
+```yaml
+root.high_risk = match mcc {
+  this.has_prefix("59") => true,   # Misc retail
+  this.has_prefix("79") => true,   # Recreation
+  this.has_prefix("76") => true,   # Misc services
+  _ => false
+}
+```
+
+---
+
+## Next Step
+
+<div className="margin-top--lg margin-bottom--lg">
+  <a href="./step-5-standardize-schema" className="button button--primary button--lg">
+    📖 Step 5: Standardize Schema →
+  </a>
+</div>

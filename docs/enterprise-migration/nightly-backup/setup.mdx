@@ -1,0 +1,149 @@
+---
+title: Setup Environment for Nightly Backup
+sidebar_label: Setup
+sidebar_position: 2
+description: Configure database connectivity and cloud storage for backups
+keywords: [setup, postgres, gcs, backup, environment]
+---
+
+# Setup Environment for Nightly Backup
+
+Before building the backup pipeline, configure your database connection and cloud storage destination.
+
+## Prerequisites
+
+- **PostgreSQL Database:** Network accessible from edge node
+- **GCP Cloud Storage:** Bucket created with appropriate permissions
+- **Expanso Edge:** Installed with database connectivity
+
+## Step 1: Configure Database Connection
+
+```bash
+# Database connection
+export DB_HOST=postgres.internal.corp
+export DB_NAME=ecommerce
+export DB_USER=backup_reader
+export DB_PASSWORD=<your-password>
+
+# Node identifier for tracking
+export NODE_ID=backup-node-1
+```
+
+:::tip Dedicated Backup User
+Create a read-only database user specifically for backups:
+```sql
+CREATE USER backup_reader WITH PASSWORD 'secure-password';
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO backup_reader;
+```
+:::
+
+### Verify Database Connectivity
+
+```bash
+psql "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}" \
+  -c "SELECT COUNT(*) FROM orders LIMIT 1;"
+```
+
+## Step 2: Configure Cloud Storage
+
+```bash
+# GCS bucket for backups
+export GCS_BACKUP_BUCKET=my-backup-bucket
+
+# Authenticate with GCP
+gcloud auth application-default login
+```
+
+### Create Backup Bucket
+
+```bash
+# Create bucket with Nearline default storage class
+gsutil mb -c NEARLINE -l US gs://${GCS_BACKUP_BUCKET}
+
+# Verify bucket
+gsutil ls gs://${GCS_BACKUP_BUCKET}
+```
+
+### Set Lifecycle Policy (Optional)
+
+Automatically transition to Coldline after 90 days:
+
+```bash
+cat > lifecycle.json << 'EOF'
+{
+  "lifecycle": {
+    "rule": [
+      {
+        "action": {"type": "SetStorageClass", "storageClass": "COLDLINE"},
+        "condition": {"age": 90}
+      },
+      {
+        "action": {"type": "Delete"},
+        "condition": {"age": 365}
+      }
+    ]
+  }
+}
+EOF
+
+gsutil lifecycle set lifecycle.json gs://${GCS_BACKUP_BUCKET}
+```
+
+## Step 3: Create Foundation Pipeline
+
+Test with a simple single-table backup:
+
+```yaml title="backup-foundation.yaml"
+name: backup-foundation
+
+input:
+  sql_select:
+    driver: postgres
+    dsn: "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}"
+    table: orders
+    columns: ["*"]
+    where: "updated_at >= CURRENT_DATE - INTERVAL '1 day'"
+
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        root._table = "orders"
+
+output:
+  stdout:
+    codec: json_pretty
+```
+
+```bash
+# Test foundation
+expanso-edge run --config backup-foundation.yaml | head -20
+```
+
+## Step 4: Verify Environment
+
+```bash
+echo "=== Backup Pipeline Environment Check ==="
+echo "DB_HOST: ${DB_HOST:-NOT SET}"
+echo "DB_NAME: ${DB_NAME:-NOT SET}"
+echo "DB_USER: ${DB_USER:-NOT SET}"
+echo "GCS_BACKUP_BUCKET: ${GCS_BACKUP_BUCKET:-NOT SET}"
+echo "NODE_ID: ${NODE_ID:-NOT SET}"
+
+# Test GCS write access
+echo '{"test": true}' | gsutil cp - gs://${GCS_BACKUP_BUCKET}/test-write.json
+gsutil rm gs://${GCS_BACKUP_BUCKET}/test-write.json
+echo "GCS write access: OK"
+```
+
+---
+
+## Next Steps
+
+Environment ready! Now build the backup pipeline:
+
+<div className="margin-top--lg margin-bottom--lg">
+  <a href="./step-1-extract-tables" className="button button--primary button--lg">
+    📖 Step 1: Extract Tables →
+  </a>
+</div>

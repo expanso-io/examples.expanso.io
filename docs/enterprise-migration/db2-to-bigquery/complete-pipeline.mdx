@@ -1,0 +1,192 @@
+---
+title: Complete DB2 to BigQuery Pipeline
+sidebar_label: Complete Pipeline
+sidebar_position: 9
+description: Production-ready pipeline combining all 6 transformation steps
+keywords: [complete, production, db2, bigquery, deployment]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml';
+
+# Complete Pipeline
+
+This pipeline combines all 6 transformation steps for migrating DB2 transactions to BigQuery:
+
+1. **Add lineage metadata** - Full audit trail for compliance
+2. **Normalize currency** - Convert all amounts to USD
+3. **Mask account numbers** - PCI-DSS compliant masking with hash for joins
+4. **Categorize transactions** - MCC code to human-readable categories
+5. **Standardize schema** - Lowercase field names + partition field
+6. **Validate required fields** - Data quality gates before load
+
+**Result:** Production-ready, compliant data in BigQuery with complete lineage.
+
+## Full Configuration
+
+<CodeBlock language="yaml" title="db2-to-bigquery.yaml">{pipelineYaml}</CodeBlock>
+
+## Quick Test
+
+```bash
+# Set environment variables
+export DB2_HOST=db2.internal.corp
+export DB2_PORT=50000
+export DB2_DATABASE=FINPROD
+export DB2_USER=etl_reader
+export DB2_PASSWORD=<secret>
+export GCP_PROJECT=my-analytics-project
+export NODE_ID=edge-node-datacenter-1
+
+# Test with sample data (no DB2 required)
+echo '{
+  "TRANSACTION_ID": "TXN-2024-00123456",
+  "ACCOUNT_NUMBER": "4532-1234-5678-9012",
+  "CUSTOMER_ID": "CUST-789012",
+  "TRANSACTION_DATE": "2024-01-15",
+  "TRANSACTION_TYPE": "PURCHASE",
+  "AMOUNT": 125.50,
+  "CURRENCY": "EUR",
+  "MERCHANT_NAME": "ACME Electronics GmbH",
+  "MERCHANT_CATEGORY_CODE": "5411",
+  "SOURCE_SYSTEM": "CORE_BANKING_EU",
+  "CREATED_AT": "2024-01-15T14:32:17Z"
+}' | expanso-edge run --config db2-to-bigquery.yaml
+```
+
+**Expected Output:**
+```json
+{
+  "transaction_id": "TXN-2024-00123456",
+  "customer_id": "CUST-789012",
+  "transaction_date": "2024-01-15",
+  "transaction_type": "PURCHASE",
+  "merchant_name": "ACME Electronics GmbH",
+  "merchant_category_code": "5411",
+  "source_system": "CORE_BANKING_EU",
+  "created_at": "2024-01-15T14:32:17Z",
+  "amount_usd": 135.54,
+  "original_amount": 125.50,
+  "original_currency": "EUR",
+  "account_number_masked": "****-****-9012",
+  "account_number_hash": "a1b2c3d4e5f67890",
+  "transaction_category": "GROCERY",
+  "_partition_date": "2024-01-15",
+  "_lineage": {
+    "source_system": "DB2_PROD",
+    "source_table": "TRANSACTIONS",
+    "pipeline": "db2-to-bigquery-transactions",
+    "extracted_at": "2024-01-16T02:00:00Z",
+    "node_id": "edge-node-datacenter-1"
+  }
+}
+```
+
+## Deploy to Production
+
+### Option 1: Run Locally
+
+```bash
+# Run on edge node with DB2 access
+expanso-edge run --config db2-to-bigquery.yaml
+```
+
+### Option 2: Deploy to Orchestrator
+
+```bash
+# Deploy to Expanso fleet
+expanso-cli job deploy db2-to-bigquery.yaml --selector region=datacenter
+
+# Verify deployment
+expanso-cli job status db2-to-bigquery-transactions
+```
+
+### Option 3: Schedule Nightly
+
+Create a cron schedule for nightly migration:
+
+```yaml title="db2-to-bigquery-scheduled.yaml"
+name: db2-to-bigquery-transactions
+schedule: "0 2 * * *"  # 2 AM daily
+
+input:
+  sql_select:
+    # ... same config ...
+```
+
+## BigQuery Table Setup
+
+Create the target table with partitioning:
+
+```sql
+CREATE TABLE IF NOT EXISTS `${GCP_PROJECT}.financial_data.transactions`
+(
+  transaction_id STRING,
+  customer_id STRING,
+  transaction_date DATE,
+  transaction_type STRING,
+  merchant_name STRING,
+  merchant_category_code STRING,
+  source_system STRING,
+  created_at TIMESTAMP,
+  amount_usd FLOAT64,
+  original_amount FLOAT64,
+  original_currency STRING,
+  account_number_masked STRING,
+  account_number_hash STRING,
+  transaction_category STRING,
+  _partition_date DATE,
+  _lineage STRUCT<
+    source_system STRING,
+    source_table STRING,
+    pipeline STRING,
+    extracted_at TIMESTAMP,
+    node_id STRING
+  >
+)
+PARTITION BY _partition_date
+CLUSTER BY transaction_category, customer_id;
+```
+
+## Monitoring
+
+### Check Pipeline Health
+
+```bash
+# View recent logs
+expanso-edge logs --tail 100 | grep db2-to-bigquery
+
+# Check metrics
+curl http://localhost:4195/metrics | grep db2
+```
+
+### BigQuery Verification
+
+```sql
+-- Check recent loads
+SELECT 
+  _lineage.extracted_at,
+  _lineage.node_id,
+  COUNT(*) as record_count
+FROM `financial_data.transactions`
+WHERE _partition_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+GROUP BY 1, 2
+ORDER BY 1 DESC;
+
+-- Verify no PII leakage
+SELECT * FROM `financial_data.transactions`
+WHERE account_number_masked NOT LIKE '****%'
+LIMIT 10;  -- Should return 0 rows
+```
+
+## Download
+
+<a href="/examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml" download className="button button--primary">
+  Download db2-to-bigquery.yaml
+</a>
+
+## What's Next?
+
+- [Troubleshooting](./troubleshooting) - Common issues and solutions
+- [Cross-Border GDPR](../../data-security/cross-border-gdpr/) - Add regional data routing
+- [Nightly Backup](../nightly-backup/) - Backup patterns for enterprise data

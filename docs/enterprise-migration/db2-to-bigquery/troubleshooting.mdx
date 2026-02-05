@@ -1,0 +1,301 @@
+---
+title: Troubleshooting
+sidebar_label: Troubleshooting
+sidebar_position: 10
+description: Common DB2 migration issues and solutions
+keywords: [troubleshooting, debug, db2, bigquery, odbc, errors]
+---
+
+# Troubleshooting
+
+## Quick Diagnosis
+
+```bash
+# Check pipeline status
+expanso-edge status
+
+# View recent errors
+expanso-edge logs --tail 50 2>&1 | grep -i error
+
+# Test DB2 connectivity
+isql -v DB2_FINPROD $DB2_USER $DB2_PASSWORD -b <<< "SELECT 1 FROM SYSIBM.SYSDUMMY1"
+
+# Test BigQuery connectivity
+bq query "SELECT 1"
+```
+
+## Connection Issues
+
+### DB2 ODBC Connection Failed
+
+**Symptoms:**
+```
+Error: [IBM][CLI Driver] SQL30081N TCP/IP communication error
+```
+
+**Causes & Fixes:**
+
+1. **Network connectivity:**
+   ```bash
+   # Test network path
+   telnet $DB2_HOST $DB2_PORT
+   
+   # Check firewall rules
+   sudo iptables -L | grep $DB2_PORT
+   ```
+
+2. **ODBC driver not installed:**
+   ```bash
+   # Check driver
+   odbcinst -q -d
+   
+   # Install if missing (Debian/Ubuntu)
+   apt-get install ibm-data-db2
+   ```
+
+3. **DSN misconfigured:**
+   ```bash
+   # Test DSN directly
+   isql -v DB2_FINPROD $DB2_USER $DB2_PASSWORD
+   
+   # Check odbc.ini
+   cat /etc/odbc.ini
+   ```
+
+---
+
+### BigQuery Authentication Failed
+
+**Symptoms:**
+```
+Error: google: could not find default credentials
+```
+
+**Causes & Fixes:**
+
+1. **No credentials configured:**
+   ```bash
+   # Set up application default credentials
+   gcloud auth application-default login
+   
+   # Or use service account
+   export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+   ```
+
+2. **Wrong project:**
+   ```bash
+   # Verify project
+   echo $GCP_PROJECT
+   gcloud config get-value project
+   ```
+
+3. **Missing permissions:**
+   ```bash
+   # Check IAM roles (need BigQuery Data Editor)
+   gcloud projects get-iam-policy $GCP_PROJECT \
+     --filter="bindings.members:serviceAccount:*" \
+     --format="table(bindings.role)"
+   ```
+
+---
+
+## Data Issues
+
+### Currency Conversion Returning NULL
+
+**Symptoms:**
+```json
+{"amount_usd": null, "original_currency": "PLN"}
+```
+
+**Cause:** Currency not in the rates map.
+
+**Fix:** Add missing currencies or use a default:
+
+```yaml
+root.amount_usd = if $rates.exists(this.CURRENCY) {
+  this.AMOUNT * $rates.get(this.CURRENCY)
+} else {
+  # Log warning and use 1:1 rate
+  root._warnings = ["Unknown currency: " + this.CURRENCY]
+  this.AMOUNT
+}
+```
+
+---
+
+### Account Hash Inconsistent Across Runs
+
+**Symptoms:** Same account number produces different hashes.
+
+**Cause:** Hash salt not set or varying.
+
+**Fix:** Ensure consistent salt:
+
+```bash
+# Set salt explicitly
+export HASH_SALT="your-secret-salt-here"
+
+# Verify in pipeline
+expanso-edge run --config db2-to-bigquery.yaml --set 'pipeline.processors[2].mapping=root.hash_check = env("HASH_SALT")'
+```
+
+---
+
+### Missing Lineage Metadata
+
+**Symptoms:**
+```json
+{"_lineage": {"node_id": "unknown"}}
+```
+
+**Cause:** `NODE_ID` environment variable not set.
+
+**Fix:**
+```bash
+export NODE_ID=$(hostname)-$(date +%s)
+```
+
+---
+
+### Validation Rejecting Valid Records
+
+**Symptoms:**
+```
+Error: Missing required field for BigQuery load
+```
+
+**Cause:** Field name case mismatch (DB2 returns uppercase, validation checks lowercase).
+
+**Fix:** Ensure validation runs AFTER schema standardization:
+
+```yaml
+pipeline:
+  processors:
+    - mapping: root.transaction_id = this.TRANSACTION_ID  # Step 5
+    - mapping: |  # Step 6 must come after
+        root = if this.transaction_id == null { throw(...) } else { this }
+```
+
+---
+
+## Performance Issues
+
+### Pipeline Running Slowly
+
+**Diagnosis:**
+```bash
+# Check processing rate
+expanso-edge metrics | grep rate
+
+# Profile specific processors
+expanso-edge run --config db2-to-bigquery.yaml --debug
+```
+
+**Common Fixes:**
+
+1. **Increase batch size:**
+   ```yaml
+   output:
+     gcp_bigquery:
+       batching:
+         count: 5000   # Increase from 1000
+         period: 60s   # Increase window
+   ```
+
+2. **Add parallel processing:**
+   ```yaml
+   pipeline:
+     threads: 4  # Process 4 records concurrently
+   ```
+
+3. **Optimize DB2 query:**
+   ```yaml
+   input:
+     sql_select:
+       # Add index hints
+       query: "SELECT /*+ INDEX(TXN_DATE_IDX) */ * FROM TRANSACTIONS WHERE ..."
+   ```
+
+---
+
+### BigQuery Load Quota Exceeded
+
+**Symptoms:**
+```
+Error: Quota exceeded: Your table exceeded quota for imports per table
+```
+
+**Fix:** Use streaming inserts for high volume:
+
+```yaml
+output:
+  gcp_bigquery:
+    # Switch from load jobs to streaming
+    method: STREAMING_INSERT
+    batching:
+      count: 500
+      period: 1s
+```
+
+---
+
+## Schema Issues
+
+### BigQuery Schema Mismatch
+
+**Symptoms:**
+```
+Error: Provided Schema does not match Table
+```
+
+**Cause:** Pipeline output doesn't match BigQuery table schema.
+
+**Fix:** Compare schemas:
+
+```bash
+# Get current BigQuery schema
+bq show --schema financial_data.transactions > bq-schema.json
+
+# Test pipeline output
+expanso-edge run --config db2-to-bigquery.yaml --dry-run | jq 'keys'
+```
+
+---
+
+### Partition Field Invalid
+
+**Symptoms:**
+```
+Error: Invalid partition value
+```
+
+**Cause:** Date format doesn't match BigQuery expectation.
+
+**Fix:** Ensure correct date format:
+
+```yaml
+# BigQuery expects YYYY-MM-DD for DATE partitions
+root._partition_date = this.TRANSACTION_DATE.ts_parse("2006-01-02").ts_format("2006-01-02")
+```
+
+---
+
+## Still Stuck?
+
+1. **Enable debug logging:**
+   ```yaml
+   logger:
+     level: DEBUG
+     format: json
+   ```
+
+2. **Test each step individually:**
+   ```bash
+   # Test just step 1
+   echo '{"TRANSACTION_ID": "test"}' | expanso-edge run --config step-1-lineage.yaml
+   ```
+
+3. **Check the [Complete Pipeline](./complete-pipeline)** for reference configuration
+
+4. **Review [Expanso documentation](https://docs.expanso.io)** for processor details

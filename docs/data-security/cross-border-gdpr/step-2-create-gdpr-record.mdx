@@ -1,0 +1,165 @@
+---
+title: "Step 2: Create GDPR Compliance Record"
+sidebar_label: "Step 2: GDPR Record"
+sidebar_position: 4
+description: Document legal basis and PII fields before anonymization
+keywords: [gdpr, compliance, legal-basis, documentation, audit]
+---
+
+# Step 2: Create GDPR Compliance Record
+
+Before transforming any data, document the legal basis and what PII fields exist. This creates an audit trail proving you processed data lawfully.
+
+## The Goal
+
+Add a `_gdpr_compliance` object containing:
+- Legal basis for processing (GDPR Article 6)
+- List of original PII fields
+- Anonymization flag
+- Transfer type description
+- Relevant GDPR article citation
+
+## Why This Matters
+
+**GDPR Article 5(2):** The controller must demonstrate compliance ("accountability principle").
+
+**Audit Evidence:** This record proves you knew what PII existed and had a legal basis to process it.
+
+**Incident Response:** If challenged, you can show exactly what was anonymized.
+
+## Implementation
+
+```yaml title="step-2-gdpr-record.yaml"
+pipeline:
+  processors:
+    # Step 1: Origin tagging (from previous)
+    - mapping: |
+        root = this
+        root._data_origin = {
+          "region": "EU",
+          "country": env("SOURCE_COUNTRY").or("DE"),
+          "database": "transactions_eu",
+          "extracted_at": now(),
+          "pipeline": "eu-cross-border-compliance"
+        }
+
+    # Step 2: GDPR compliance record
+    - mapping: |
+        root = this
+        root._gdpr_compliance = {
+          "legal_basis": "legitimate_interest_analytics",
+          "original_pii_fields": [
+            "customer_id",
+            "customer_name",
+            "customer_email",
+            "customer_dob",
+            "customer_address",
+            "iban",
+            "ip_address"
+          ],
+          "anonymization_applied": true,
+          "transfer_type": "cross_border_eu_to_global",
+          "gdpr_article": "Article 44 - General principle for transfers"
+        }
+```
+
+## Understanding the Code
+
+| Field | Purpose |
+|-------|---------|
+| `legal_basis` | GDPR Article 6 lawful basis (consent, contract, legitimate interest, etc.) |
+| `original_pii_fields` | Explicit list of personal data being processed |
+| `anonymization_applied` | Flag indicating data will be anonymized |
+| `transfer_type` | Description of the data transfer |
+| `gdpr_article` | Relevant GDPR provision |
+
+## Legal Basis Options
+
+Common lawful bases under GDPR Article 6:
+
+| Basis | Use When |
+|-------|----------|
+| `consent` | User explicitly agreed |
+| `contract` | Necessary for service delivery |
+| `legal_obligation` | Required by law |
+| `vital_interests` | Life/death situations |
+| `public_task` | Public authority functions |
+| `legitimate_interest` | Business need, balanced against user rights |
+
+For analytics, `legitimate_interest` is common but requires a balancing test.
+
+## Expected Output
+
+```json
+{
+  "transaction_id": "TXN-EU-2024-00001",
+  "customer_id": "CUST-DE-12345",
+  ...,
+  "_data_origin": {...},
+  "_gdpr_compliance": {
+    "legal_basis": "legitimate_interest_analytics",
+    "original_pii_fields": [
+      "customer_id",
+      "customer_name",
+      "customer_email",
+      "customer_dob",
+      "customer_address",
+      "iban",
+      "ip_address"
+    ],
+    "anonymization_applied": true,
+    "transfer_type": "cross_border_eu_to_global",
+    "gdpr_article": "Article 44 - General principle for transfers"
+  }
+}
+```
+
+## Production Considerations
+
+### Dynamic Legal Basis
+
+Different processing purposes may have different bases:
+
+```yaml
+root._gdpr_compliance.legal_basis = match this.processing_purpose {
+  "fraud_detection" => "legitimate_interest_security",
+  "marketing" => "consent",
+  "service_delivery" => "contract",
+  _ => "legitimate_interest_analytics"
+}
+```
+
+### Data Subject Rights Reference
+
+Include rights information for audit completeness:
+
+```yaml
+root._gdpr_compliance.data_subject_rights = {
+  "access": "Article 15",
+  "rectification": "Article 16",
+  "erasure": "Article 17",
+  "portability": "Article 20"
+}
+```
+
+### Retention Policy
+
+Document how long data is kept:
+
+```yaml
+root._gdpr_compliance.retention = {
+  "anonymized_data": "indefinite",
+  "eu_archive": "7_years",
+  "audit_logs": "10_years"
+}
+```
+
+---
+
+## Next Step
+
+<div className="margin-top--lg margin-bottom--lg">
+  <a href="./step-3-delete-high-risk-fields" className="button button--primary button--lg">
+    📖 Step 3: Delete High-Risk Fields →
+  </a>
+</div>

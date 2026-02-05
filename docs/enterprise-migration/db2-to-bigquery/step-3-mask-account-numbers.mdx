@@ -1,0 +1,143 @@
+---
+title: "Step 3: Mask Account Numbers"
+sidebar_label: "Step 3: Mask Accounts"
+sidebar_position: 5
+description: PCI-DSS compliant account masking with hash preservation for joins
+keywords: [pci, compliance, masking, hash, account, security]
+---
+
+# Step 3: Mask Account Numbers
+
+Mask sensitive account numbers for PCI-DSS compliance while preserving the ability to join records. This replaces DataStage Transformer routines with built-in slice and hash functions.
+
+## The Goal
+
+- Remove the full account number from the record
+- Keep last 4 digits for customer service reconciliation
+- Create a hash for joining related records without exposing the actual number
+
+## Why This Matters
+
+**PCI-DSS Requirement 3.4:** Render PANs unreadable anywhere they are stored.
+
+**Analytics Need:** You still need to count unique accounts and join transactions.
+
+**The Solution:** Hash for joins, last-4 for display.
+
+## DataStage Equivalent
+
+In DataStage, account masking typically requires:
+1. **Transformer Stage** with custom routines
+2. **External library** for hashing (often COBOL or Java)
+3. **Multiple output columns** managed manually
+
+**Expanso simplifies this** with built-in `slice()` and `hash()` functions.
+
+## Implementation
+
+Add the masking processor after currency normalization:
+
+```yaml title="step-3-masking.yaml"
+pipeline:
+  processors:
+    # Steps 1-2 from previous...
+    
+    # Step 3: Mask account numbers for PCI compliance
+    - mapping: |
+        root = this
+        
+        # Keep last 4 digits for reconciliation
+        root.account_number_masked = "****-****-" + this.ACCOUNT_NUMBER.slice(-4)
+        
+        # Hash for joins (truncated to 16 chars)
+        root.account_number_hash = this.ACCOUNT_NUMBER.hash("sha256").slice(0, 16)
+        
+        # Remove the original account number
+        root = root.without("ACCOUNT_NUMBER")
+```
+
+## Understanding the Code
+
+| Expression | What It Does |
+|------------|--------------|
+| `.slice(-4)` | Get last 4 characters |
+| `.hash("sha256")` | Create SHA-256 hash (64 hex chars) |
+| `.slice(0, 16)` | Truncate hash to 16 chars |
+| `.without("ACCOUNT_NUMBER")` | Remove field from record |
+
+## Expected Output
+
+**Input:**
+```json
+{
+  "ACCOUNT_NUMBER": "4532-1234-5678-9012",
+  ...
+}
+```
+
+**Output:**
+```json
+{
+  "account_number_masked": "****-****-9012",
+  "account_number_hash": "a1b2c3d4e5f67890",
+  ...
+}
+```
+
+Note: `ACCOUNT_NUMBER` is completely removed from the output.
+
+## Production Considerations
+
+### Salted Hashing
+
+Add a secret salt to prevent rainbow table attacks:
+
+```yaml
+root.account_number_hash = (env("HASH_SALT") + this.ACCOUNT_NUMBER).hash("sha256").slice(0, 16)
+```
+
+:::danger Protect Your Salt
+Store the hash salt in a secrets manager. If compromised, attackers can reverse-engineer account numbers.
+:::
+
+### Format-Preserving Masking
+
+For systems that validate account format:
+
+```yaml
+# Preserve format: XXXX-XXXX-XXXX-1234
+let parts = this.ACCOUNT_NUMBER.split("-")
+root.account_number_masked = "XXXX-XXXX-XXXX-" + $parts.index(3)
+```
+
+### Multiple Sensitive Fields
+
+Mask several fields at once:
+
+```yaml
+root = root.without("ACCOUNT_NUMBER", "CARD_CVV", "CARD_EXPIRY")
+root.account_last4 = this.ACCOUNT_NUMBER.slice(-4)
+root.card_present = this.CARD_CVV != null  # Boolean flag only
+```
+
+### Consistent Hashing Across Pipelines
+
+Ensure all pipelines use the same hash configuration for joins to work:
+
+```yaml
+# Document your hash spec:
+# Algorithm: SHA-256
+# Salt: env("HASH_SALT")  
+# Truncation: 16 characters
+# Input: Raw account number with dashes
+```
+
+---
+
+## Next Step
+
+<div className="margin-top--lg margin-bottom--lg">
+  <a href="./step-4-categorize-transactions" className="button button--primary button--lg">
+    📖 Step 4: Categorize Transactions →
+  </a>
+</div>

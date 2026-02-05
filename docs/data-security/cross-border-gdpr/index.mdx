@@ -1,0 +1,141 @@
+---
+title: Cross-Border GDPR Compliance
+sidebar_label: Introduction
+sidebar_position: 1
+description: Anonymize EU financial data before cross-border transfer to global analytics systems
+keywords: [gdpr, cross-border, anonymization, eu, compliance, article-44, data-residency]
+---
+
+# Cross-Border GDPR Compliance
+
+Anonymize EU financial data at the edge before it crosses borders to global analytics.
+
+## The Problem
+
+Your organization has:
+- EU customer transaction data subject to GDPR
+- Global analytics platform (BigQuery in US or multi-region)
+- Requirement to aggregate data globally for business intelligence
+
+**The challenge:** GDPR Article 44+ restricts transfer of personal data outside EU/EEA. Standard contractual clauses and adequacy decisions add complexity and legal risk.
+
+**The solution:** Fully anonymize data at the EU edge. Anonymized data is no longer "personal data" under GDPR—it can flow freely across borders.
+
+## The Solution: 5 Anonymization Steps
+
+This pipeline transforms personal data into analytics-safe aggregates:
+
+### 1. **Tag Data Origin** → Compliance Tracking
+- Record source region, extraction time, pipeline ID
+- Required for audit trail and data lineage
+
+### 2. **Create GDPR Record** → Legal Documentation
+- Document lawful basis before transformation
+- List all PII fields being processed
+- Cite relevant GDPR article (44)
+
+### 3. **Delete High-Risk Fields** → No Recovery Needed
+- Full names, addresses—no analytics value
+- Convert DOB to age buckets (25-34, 35-44)
+
+### 4. **Hash Identifiers** → Pseudonymization
+- Customer ID → salted hash (for cohort counting)
+- Email → domain only (B2B vs B2C analysis)
+- IBAN → country code (geographic distribution)
+- IP → /16 subnet (regional analysis)
+
+### 5. **Generalize Values** → Reduce Precision
+- Transaction amounts → buckets
+- Timestamps → hour-level
+
+### 6. **Validate Completeness** → Compliance Gate
+- Verify no PII fields remain
+- Add compliance attestation
+
+## How This Differs from Remove PII
+
+| Aspect | Remove PII | Cross-Border GDPR |
+|--------|-----------|-------------------|
+| **Focus** | General privacy | Data residency & transfer |
+| **Input** | HTTP streams | SQL database |
+| **Data type** | User activity | Financial transactions |
+| **Output** | Single destination | Dual: global + EU archive |
+| **Compliance** | Generic best practice | GDPR Article 44 specific |
+| **Audit** | Optional | Required attestation |
+
+## Data Flow
+
+```
+┌─────────────────┐     ┌─────────────────────────┐
+│  EU Database    │────▶│  Expanso Edge (EU)      │
+│  (Personal Data)│     │  - Tag origin           │
+└─────────────────┘     │  - Anonymize            │
+                        │  - Validate             │
+                        └───────┬─────────────────┘
+                                │
+                    ┌───────────┼───────────┐
+                    ▼           ▼           ▼
+            ┌───────────┐ ┌──────────┐ ┌──────────┐
+            │ Global    │ │ EU       │ │ Audit    │
+            │ BigQuery  │ │ Archive  │ │ Log      │
+            │ (Anon)    │ │ (Full)   │ │          │
+            └───────────┘ └──────────┘ └──────────┘
+```
+
+## Why This Works Under GDPR
+
+Under GDPR, data is "personal" only if it can identify a natural person. After this pipeline:
+
+✅ **No direct identifiers** - Names, emails, IBANs removed or hashed  
+✅ **Indirect identifiers generalized** - Age buckets, amount ranges  
+✅ **k-anonymity achieved** - Many people per bucket (non-unique)  
+✅ **Irreversible** - Salted hashes cannot be reversed  
+
+**Result:** The output is no longer "personal data" under GDPR Article 4(1).
+
+## What You'll Learn
+
+By the end of this guide, you'll be able to:
+
+✅ **Classify PII by anonymization treatment** (delete/hash/generalize)  
+✅ **Build GDPR-compliant audit trails** with legal basis documentation  
+✅ **Route data to multiple destinations** (global + regional archive)  
+✅ **Validate anonymization completeness** before cross-border transfer  
+✅ **Deploy to EU-only edge nodes** with compliance selectors  
+
+## Get Started
+
+### Option 1: Step-by-Step Tutorial (Recommended)
+Build the pipeline incrementally, understanding each GDPR requirement:
+
+1. [**Setup Guide**](./setup) - Prerequisites and environment
+2. [**Step 1: Tag Data Origin**](./step-1-tag-data-origin) - Compliance tracking
+3. [**Step 2: Create GDPR Record**](./step-2-create-gdpr-record) - Legal basis
+4. [**Step 3: Delete High-Risk Fields**](./step-3-delete-high-risk-fields) - No-value PII
+5. [**Step 4: Hash Identifiers**](./step-4-hash-identifiers) - Pseudonymization
+6. [**Step 5: Generalize Values**](./step-5-generalize-values) - Reduce precision
+7. [**Step 6: Validate Anonymization**](./step-6-validate-anonymization) - Compliance gate
+
+### Option 2: Jump to Complete Pipeline
+Download the production-ready configuration:
+
+[**→ Get Complete Pipeline**](./complete-pipeline)
+
+## Who This Guide Is For
+
+- **Data Protection Officers** implementing GDPR transfer mechanisms
+- **Data Engineers** building compliant cross-border pipelines
+- **Legal/Compliance Teams** documenting data transfer safeguards
+- **Platform Teams** deploying EU-specific data infrastructure
+
+## Prerequisites
+
+- PostgreSQL database with EU transaction data
+- GCP project with BigQuery (global) and Cloud Storage (EU region)
+- Expanso Edge installed on EU-located infrastructure
+- Basic understanding of GDPR principles
+
+## Time to Complete
+
+- **Step-by-Step Tutorial:** 45-60 minutes
+- **Quick Deploy:** 10 minutes

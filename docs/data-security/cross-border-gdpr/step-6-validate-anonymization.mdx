@@ -1,0 +1,178 @@
+---
+title: "Step 6: Validate Anonymization"
+sidebar_label: "Step 6: Validate"
+sidebar_position: 8
+description: Verify no PII remains before cross-border transfer
+keywords: [validation, compliance, gate, verification, audit]
+---
+
+# Step 6: Validate Anonymization
+
+Before data crosses borders, verify that all PII fields have been properly anonymized. This is your compliance gate.
+
+## The Goal
+
+- Check that no PII fields remain in the record
+- Throw an error (reject the record) if validation fails
+- Add compliance attestation with verification timestamp
+- Document which fields were removed/hashed
+
+## Why This Matters
+
+**Defense in Depth:** Even if anonymization logic has bugs, the validation gate catches it.
+
+**Audit Evidence:** The attestation proves anonymization was verified before transfer.
+
+**Fail-Safe:** Better to reject a record than transfer PII illegally.
+
+## Implementation
+
+```yaml title="step-6-validate.yaml"
+pipeline:
+  processors:
+    # Steps 1-5 from previous...
+    
+    # Step 6: Validate anonymization completeness
+    - mapping: |
+        # List of PII fields that must NOT exist
+        let pii_fields = [
+          "customer_id",
+          "customer_name",
+          "customer_email",
+          "customer_dob",
+          "customer_address",
+          "iban",
+          "ip_address"
+        ]
+        
+        # Check for any remaining PII
+        let remaining_pii = $pii_fields.filter(f -> this.exists(f))
+        
+        root = if $remaining_pii.length() > 0 {
+          throw("GDPR VIOLATION: PII fields still present: " + $remaining_pii.join(", "))
+        } else {
+          this
+        }
+        
+        # Add compliance attestation
+        root._gdpr_compliance.anonymization_verified = true
+        root._gdpr_compliance.verification_timestamp = now()
+        root._gdpr_compliance.fields_removed = ["customer_name", "customer_address", "customer_dob"]
+        root._gdpr_compliance.fields_hashed = ["customer_id", "customer_email", "iban", "ip_address"]
+```
+
+## Understanding the Code
+
+| Expression | What It Does |
+|------------|--------------|
+| `$pii_fields.filter(f -> this.exists(f))` | Find PII fields that still exist |
+| `$remaining_pii.length() > 0` | Check if any PII remains |
+| `throw("message")` | Reject record with error |
+| `root._gdpr_compliance.anonymization_verified = true` | Add attestation |
+
+## Expected Behavior
+
+**Valid Record (all PII removed):**
+```json
+{
+  "transaction_id": "TXN-EU-2024-00001",
+  "anonymized_customer_id": "x9y8z7w6e5r4",
+  "email_domain": "example.de",
+  "bank_country": "DE",
+  "ip_subnet": "91.64.0.0/16",
+  "customer_age_bucket": "35-44",
+  "amount_bucket": "100-500",
+  "transaction_hour": "2024-01-15T14:00:00Z",
+  "_gdpr_compliance": {
+    "legal_basis": "legitimate_interest_analytics",
+    "anonymization_applied": true,
+    "anonymization_verified": true,
+    "verification_timestamp": "2024-01-15T02:00:00Z",
+    "fields_removed": ["customer_name", "customer_address", "customer_dob"],
+    "fields_hashed": ["customer_id", "customer_email", "iban", "ip_address"]
+  }
+}
+```
+
+**Invalid Record (PII found):**
+```
+ERROR: GDPR VIOLATION: PII fields still present: customer_email, iban
+```
+
+Record is rejected—does not proceed to output.
+
+## Production Considerations
+
+### Dead Letter Queue for Failures
+
+Route failed records for investigation instead of losing them:
+
+```yaml
+output:
+  switch:
+    - check: errored()
+      output:
+        gcp_pubsub:
+          project: "${GCP_PROJECT}"
+          topic: gdpr-validation-failures
+    - output:
+        # Normal output for valid records
+```
+
+### Pattern-Based PII Detection
+
+Also check for PII patterns, not just field names:
+
+```yaml
+# Check for email patterns in any string field
+let email_pattern = "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+let has_email = this.values().any(v -> v.type() == "string" && v.re_match($email_pattern))
+
+root = if $has_email {
+  throw("GDPR VIOLATION: Email pattern detected in data")
+} else {
+  this
+}
+```
+
+### Metrics for Monitoring
+
+Track validation failures:
+
+```yaml
+- metric:
+    type: counter
+    name: gdpr_validation_failures
+    labels:
+      reason: ${! meta("validation_error").or("unknown") }
+```
+
+### Compliance Report Generation
+
+Generate daily compliance summaries:
+
+```yaml
+# Add to output
+- processors:
+    - mapping: |
+        root = {
+          "report_type": "gdpr_transfer_compliance",
+          "date": now().ts_format("2006-01-02"),
+          "records_processed": meta("count"),
+          "records_passed": meta("passed_count"),
+          "records_failed": meta("failed_count"),
+          "anonymization_rate": 100.0
+        }
+```
+
+---
+
+## Complete Pipeline
+
+You've built all 6 GDPR compliance steps! See the complete, production-ready configuration:
+
+<div className="margin-top--lg margin-bottom--lg">
+  <a href="./complete-pipeline" className="button button--primary button--lg">
+    📖 Complete Pipeline →
+  </a>
+</div>

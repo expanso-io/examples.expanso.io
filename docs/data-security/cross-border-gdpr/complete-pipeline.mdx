@@ -1,0 +1,209 @@
+---
+title: Complete Cross-Border GDPR Pipeline
+sidebar_label: Complete Pipeline
+sidebar_position: 9
+description: Production-ready GDPR-compliant cross-border data pipeline
+keywords: [complete, production, gdpr, cross-border, deployment]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/data-security/cross-border-gdpr/cross-border-gdpr.yaml';
+
+# Complete Pipeline
+
+This pipeline combines all 6 GDPR compliance steps for cross-border data transfer:
+
+1. **Tag data origin** - Source region and extraction metadata
+2. **Create GDPR record** - Legal basis and PII field documentation
+3. **Delete high-risk fields** - Names, addresses, DOB → age bucket
+4. **Hash identifiers** - Customer ID, email, IBAN, IP
+5. **Generalize values** - Amount buckets, hour-level timestamps
+6. **Validate anonymization** - Compliance gate before transfer
+
+**Result:** GDPR-compliant anonymized data for global analytics with full audit trail.
+
+## Data Flow
+
+```
+EU Database ──→ [Anonymization Pipeline] ──→ Global BigQuery (anonymized)
+                        │
+                        ├──→ EU Archive (full data, stays in EU)
+                        │
+                        └──→ Audit Log (compliance records)
+```
+
+## Full Configuration
+
+<CodeBlock language="yaml" title="cross-border-gdpr.yaml">{pipelineYaml}</CodeBlock>
+
+## Quick Test
+
+```bash
+# Set environment variables
+export EU_DB_HOST=postgres.eu-west-1.internal
+export DB_USER=analytics_reader
+export DB_PASSWORD=<secret>
+export SOURCE_COUNTRY=DE
+export ANONYMIZATION_SALT=$(openssl rand -hex 32)
+export GCP_GLOBAL_PROJECT=global-analytics
+export EU_ARCHIVE_BUCKET=eu-west-1-archive
+
+# Test with sample data
+echo '{
+  "transaction_id": "TXN-EU-2024-00001",
+  "customer_id": "CUST-DE-12345",
+  "customer_name": "Hans Schmidt",
+  "customer_email": "hans.schmidt@example.de",
+  "customer_dob": "1985-03-15",
+  "customer_address": "Hauptstraße 42, 10115 Berlin, Germany",
+  "iban": "DE89370400440532013000",
+  "transaction_amount": 249.99,
+  "transaction_currency": "EUR",
+  "merchant_name": "Tech Store GmbH",
+  "merchant_country": "DE",
+  "transaction_timestamp": "2024-01-15T14:32:17Z",
+  "ip_address": "91.64.42.17"
+}' | expanso-edge run --config cross-border-gdpr.yaml
+```
+
+**Expected Output (anonymized):**
+```json
+{
+  "transaction_id": "TXN-EU-2024-00001",
+  "anonymized_customer_id": "x9y8z7w6e5r4",
+  "email_domain": "example.de",
+  "bank_country": "DE",
+  "ip_subnet": "91.64.0.0/16",
+  "customer_age_bucket": "35-44",
+  "transaction_amount": 249.99,
+  "amount_bucket": "100-500",
+  "transaction_currency": "EUR",
+  "merchant_name": "Tech Store GmbH",
+  "merchant_country": "DE",
+  "transaction_hour": "2024-01-15T14:00:00Z",
+  "_data_origin": {
+    "region": "EU",
+    "country": "DE",
+    "database": "transactions_eu",
+    "extracted_at": "2024-01-15T02:00:00Z",
+    "pipeline": "eu-cross-border-compliance"
+  },
+  "_gdpr_compliance": {
+    "legal_basis": "legitimate_interest_analytics",
+    "anonymization_applied": true,
+    "anonymization_verified": true,
+    "verification_timestamp": "2024-01-15T02:00:00Z",
+    "fields_removed": ["customer_name", "customer_address", "customer_dob"],
+    "fields_hashed": ["customer_id", "customer_email", "iban", "ip_address"]
+  }
+}
+```
+
+## Deploy to Production
+
+### EU-Only Deployment
+
+Deploy only to EU-located edge nodes:
+
+```bash
+# Deploy with region selector
+expanso-cli job deploy cross-border-gdpr.yaml \
+  --selector region=eu \
+  --selector compliance=gdpr
+
+# Verify deployment location
+expanso-cli job status eu-cross-border-compliance --show-nodes
+```
+
+### Schedule Hourly
+
+Run every hour for near-real-time analytics:
+
+```yaml title="cross-border-gdpr-scheduled.yaml"
+name: eu-cross-border-compliance
+schedule: "0 * * * *"  # Every hour
+
+input:
+  sql_select:
+    where: "transaction_timestamp >= NOW() - INTERVAL '1 hour'"
+    # ... rest of config
+```
+
+## BigQuery Table Setup
+
+Create the anonymized transactions table:
+
+```sql
+CREATE TABLE IF NOT EXISTS `global-analytics.global_analytics.anonymized_transactions`
+(
+  transaction_id STRING,
+  anonymized_customer_id STRING,
+  email_domain STRING,
+  bank_country STRING,
+  ip_subnet STRING,
+  customer_age_bucket STRING,
+  transaction_amount FLOAT64,
+  amount_bucket STRING,
+  transaction_currency STRING,
+  merchant_name STRING,
+  merchant_country STRING,
+  transaction_hour TIMESTAMP,
+  _data_origin STRUCT<
+    region STRING,
+    country STRING,
+    database STRING,
+    extracted_at TIMESTAMP,
+    pipeline STRING
+  >,
+  _gdpr_compliance STRUCT<
+    legal_basis STRING,
+    anonymization_applied BOOL,
+    anonymization_verified BOOL,
+    verification_timestamp TIMESTAMP,
+    fields_removed ARRAY<STRING>,
+    fields_hashed ARRAY<STRING>
+  >
+)
+PARTITION BY DATE(transaction_hour)
+CLUSTER BY merchant_country, customer_age_bucket;
+```
+
+## Compliance Verification
+
+### Verify No PII in Global Dataset
+
+```sql
+-- This query should return 0 rows
+SELECT * FROM `global_analytics.anonymized_transactions`
+WHERE 
+  anonymized_customer_id IS NULL
+  OR _gdpr_compliance.anonymization_verified != true
+LIMIT 10;
+```
+
+### Audit Trail Query
+
+```sql
+-- Daily compliance report
+SELECT 
+  DATE(transaction_hour) as date,
+  _data_origin.country as source_country,
+  COUNT(*) as records_transferred,
+  COUNTIF(_gdpr_compliance.anonymization_verified) as verified_count
+FROM `global_analytics.anonymized_transactions`
+WHERE transaction_hour >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
+GROUP BY 1, 2
+ORDER BY 1 DESC, 2;
+```
+
+## Download
+
+<a href="/examples/data-security/cross-border-gdpr/cross-border-gdpr.yaml" download className="button button--primary">
+  Download cross-border-gdpr.yaml
+</a>
+
+## What's Next?
+
+- [Troubleshooting](./troubleshooting) - Common issues and solutions
+- [Remove PII](../remove-pii/) - General PII removal patterns
+- [DB2 to BigQuery](../../enterprise-migration/db2-to-bigquery/) - Enterprise database migration
