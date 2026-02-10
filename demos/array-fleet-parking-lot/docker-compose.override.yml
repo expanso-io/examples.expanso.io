@@ -1,0 +1,35 @@
+# Override for local demo - removes cloud dependencies
+services:
+  postgres:
+    # Remove gatekeeper dependency for local demo
+    depends_on: []
+
+  backend-api:
+    # Remove gatekeeper dependency, keep postgres
+    depends_on:
+      - postgres
+    # Use host's local Expanso Edge instead of container
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/parking_lot
+      EXPANSO_EDGE_URL: http://host.docker.internal:9010
+
+  detector:
+    # Remove gatekeeper dependency for local demo
+    depends_on: []
+
+  dashboard:
+    # Remove gatekeeper dependency, keep backend-api
+    depends_on:
+      - backend-api
+
+  # Disable gatekeeper service entirely for local demo
+  gatekeeper:
+    image: alpine:latest
+    command: ["sh", "-c", "echo 'Gatekeeper disabled for local demo' && sleep infinity"]
+    restart: "no"
+
+  # Disable expanso-edge service (we'll use host's local instance)
+  expanso-edge:
+    image: alpine:latest  
+    command: ["sh", "-c", "echo 'Using host Expanso Edge' && sleep infinity"]
+    restart: "no"
