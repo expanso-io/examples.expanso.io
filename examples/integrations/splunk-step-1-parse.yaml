@@ -1,0 +1,9 @@
+pipeline:
+  processors:
+    - mapping: |
+        # Parse syslog timestamp and message structure
+        root.timestamp = this.match("^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})").string()
+        root.level = this.match(" (INFO|WARN|ERROR|DEBUG) ").string()
+        root.thread = this.match("\\[([^\\]]+)\\]").string()
+        root.message = this.match("\\] (.+)$").string()
+        root.raw = content()
