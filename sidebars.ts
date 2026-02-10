@@ -388,6 +388,7 @@ const sidebars: SidebarsConfig = {
           collapsed: true,
           items: [
             'integrations/splunk-edge-processing/index',
+            'integrations/splunk-edge-processing/explorer',
             'integrations/splunk-edge-processing/setup',
             'integrations/splunk-edge-processing/step-1-collect-like-inputs-conf',
             'integrations/splunk-edge-processing/step-2-parse-like-props-conf',
@@ -404,6 +405,7 @@ const sidebars: SidebarsConfig = {
           collapsed: true,
           items: [
             'integrations/oran-telco-pipeline/index',
+            'integrations/oran-telco-pipeline/explorer',
             'integrations/oran-telco-pipeline/setup',
             'integrations/oran-telco-pipeline/step-1-collect-oran-metrics',
             'integrations/oran-telco-pipeline/step-2-transform-and-enrich',
