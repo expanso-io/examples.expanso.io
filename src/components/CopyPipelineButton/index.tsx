@@ -1,29 +1,30 @@
 import React, { useState, useEffect } from 'react';
 
 interface CopyPipelineButtonProps {
-  /** Path to the pipeline YAML file in /static (e.g. "/pipelines/splunk.yaml") */
-  yamlUrl: string;
-  /** Optional label override */
+  /** Raw pipeline string (from raw-loader import) */
+  pipeline?: string;
+  /** OR: path to YAML in /static */
+  yamlUrl?: string;
+  /** Optional label */
   label?: string;
 }
 
 export default function CopyPipelineButton({
+  pipeline: inlinePipeline,
   yamlUrl,
   label = 'Copy Full Pipeline',
 }: CopyPipelineButtonProps) {
   const [copied, setCopied] = useState(false);
-  const [pipeline, setPipeline] = useState<string | null>(null);
-  const [error, setError] = useState(false);
+  const [pipeline, setPipeline] = useState<string | null>(inlinePipeline || null);
 
   useEffect(() => {
-    fetch(yamlUrl)
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to fetch');
-        return res.text();
-      })
-      .then(setPipeline)
-      .catch(() => setError(true));
-  }, [yamlUrl]);
+    if (!inlinePipeline && yamlUrl) {
+      fetch(yamlUrl)
+        .then((r) => (r.ok ? r.text() : Promise.reject()))
+        .then(setPipeline)
+        .catch(() => {});
+    }
+  }, [inlinePipeline, yamlUrl]);
 
   const handleCopy = async () => {
     if (!pipeline) return;
@@ -43,7 +44,7 @@ export default function CopyPipelineButton({
     setTimeout(() => setCopied(false), 2500);
   };
 
-  if (error) return null;
+  if (!pipeline && !yamlUrl) return null;
 
   return (
     <div
