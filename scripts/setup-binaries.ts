@@ -12,50 +12,48 @@ function setup() {
   console.log(`🏗️  Setting up Expanso binaries in ${BIN_DIR}...`);
 
   // --- Install Expanso Edge ---
-  console.log(`
-⬇️  Installing expanso-edge using official script...`);
+  console.log(`\n⬇️  Installing expanso-edge using official script...`);
   try {
-    // The install script respects EXPANSO_INSTALL_DIR
-    execSync('curl -fsSL https://get.expanso.io/edge/install.sh | EXPANSO_INSTALL_DIR=' + BIN_DIR + ' bash', { stdio: ['ignore', 'inherit', 'inherit'] });
+    // Set EXPANSO_INSTALL_DIR via env, not inline — ensures bash subprocess inherits it
+    execSync('curl -fsSL https://get.expanso.io/edge/install.sh | bash', {
+      stdio: ['ignore', 'inherit', 'inherit'],
+      env: { ...process.env, EXPANSO_INSTALL_DIR: BIN_DIR, USE_SUDO: 'false' },
+    });
     const edgePath = path.join(BIN_DIR, 'expanso-edge');
-    if (fs.existsSync(edgePath)) {
-      fs.chmodSync(edgePath, '755'); // Ensure executable
-      const version = execSync(`${edgePath} version`).toString().trim();
-      console.log(`✅ Installed expanso-edge (${version}) to ${edgePath}`);
-    } else {
+    if (!fs.existsSync(edgePath)) {
       throw new Error('expanso-edge binary not found after running install script.');
     }
+    fs.chmodSync(edgePath, '755');
+    const version = execSync(`${edgePath} version`).toString().trim();
+    console.log(`✅ Installed expanso-edge (${version}) to ${edgePath}`);
   } catch (e: any) {
-    console.error(`❌ Failed to install expanso-edge:`);
-    console.error(`   ${e.message}`);
-    console.log(`   Falling back to system expanso-edge (if available).`);
+    console.error(`❌ Failed to install expanso-edge: ${e.message}`);
+    process.exit(1);
   }
 
   // --- Install Expanso CLI ---
-  console.log(`
-⬇️  Installing expanso-cli using official script...`);
+  console.log(`\n⬇️  Installing expanso-cli using official script...`);
   try {
-    // The install script respects EXPANSO_INSTALL_DIR
-    execSync('curl -fsSL https://get.expanso.io/cli/install.sh | EXPANSO_INSTALL_DIR=' + BIN_DIR + ' bash', { stdio: ['ignore', 'inherit', 'inherit'] });
-    const cliPath = path.join(BIN_DIR, 'expanso-cli'); // The CLI binary is named 'expanso-cli' by the installer
-    if (fs.existsSync(cliPath)) {
-      fs.chmodSync(cliPath, '755'); // Ensure executable
-      const version = execSync(`${cliPath} version`).toString().trim();
-      console.log(`✅ Installed expanso-cli (${version}) to ${cliPath}`);
-
-      // Create a dummy profile for local testing
-      console.log(`
-⚙️  Configuring 'local' profile for expanso-cli...`);
-      execSync(`npm run run-with-expanso -- expanso-cli profile save local --endpoint http://localhost:8080 --auth-token test-token --select`, { stdio: 'inherit' });
-      console.log(`✅ 'local' profile configured.`);
-
-    } else {
+    // Set EXPANSO_INSTALL_DIR via env, not inline — ensures bash subprocess inherits it
+    execSync('curl -fsSL https://get.expanso.io/cli/install.sh | bash', {
+      stdio: ['ignore', 'inherit', 'inherit'],
+      env: { ...process.env, EXPANSO_INSTALL_DIR: BIN_DIR, USE_SUDO: 'false' },
+    });
+    const cliPath = path.join(BIN_DIR, 'expanso-cli');
+    if (!fs.existsSync(cliPath)) {
       throw new Error('expanso-cli binary not found after running install script.');
     }
+    fs.chmodSync(cliPath, '755');
+    const version = execSync(`${cliPath} version`).toString().trim();
+    console.log(`✅ Installed expanso-cli (${version}) to ${cliPath}`);
+
+    // Create a dummy profile for local testing
+    console.log(`\n⚙️  Configuring 'local' profile for expanso-cli...`);
+    execSync(`npm run run-with-expanso -- expanso-cli profile save local --endpoint http://localhost:8080 --auth-token test-token --select`, { stdio: 'inherit' });
+    console.log(`✅ 'local' profile configured.`);
   } catch (e: any) {
-    console.error(`❌ Failed to install expanso-cli:`);
-    console.error(`   ${e.message}`);
-    console.log(`   Falling back to system expanso-cli (if available).`);
+    console.error(`❌ Failed to install expanso-cli: ${e.message}`);
+    process.exit(1);
   }
 }
 
