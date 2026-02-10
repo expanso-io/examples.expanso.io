@@ -1,0 +1,266 @@
+---
+title: "Step 1: Collect Data Like inputs.conf"
+description: "Learn how Expanso input configuration maps to Splunk's inputs.conf"
+---
+
+# Step 1: Collect Data Like inputs.conf
+
+If you've configured Splunk before, you know `inputs.conf` is where data collection begins. Expanso pipelines use the same concepts but with more powerful capabilities.
+
+## Splunk inputs.conf vs. Expanso Pipeline Input
+
+### Traditional Splunk inputs.conf
+
+In Splunk, you'd monitor files like this:
+
+```ini
+# /opt/splunk/etc/apps/myapp/local/inputs.conf
+[monitor:///var/log/expanso-demo/app.log]
+disabled = false
+followTail = 0
+sourcetype = json_logs
+index = main
+host_segment = 1
+
+[monitor:///var/log/expanso-demo/security.log]
+disabled = false
+followTail = 0
+sourcetype = cef
+index = security
+
+[monitor:///var/log/expanso-demo/system.log]
+disabled = false
+followTail = 0
+sourcetype = syslog
+index = main
+```
+
+### Expanso Pipeline Input (Better!)
+
+Expanso consolidates this into a single, more flexible configuration:
+
+```yaml
+# pipeline.yaml
+input:
+  file_watcher:
+    paths:
+      - "/var/log/expanso-demo/*.log"
+    
+    # Advanced file handling (beyond basic Splunk)
+    include_file_name: true
+    multiline:
+      pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}'
+      negate: false
+      match: after
+    
+    # Real-time parsing (Splunk does this at index time)
+    auto_parse_json: true
+    
+    # Metadata tagging
+    metadata:
+      source_system: "expanso-edge"
+      collection_time: "${timestamp()}"
+```
+
+**Key Advantages:**
+- ✅ **Wildcard monitoring** — one config handles multiple log types
+- ✅ **Real-time parsing** — JSON/CEF parsed immediately, not at search time
+- ✅ **Automatic metadata** — timestamps, source info added automatically
+- ✅ **Multiline handling** — built-in support for stack traces, error blocks
+
+## Create Your First Expanso Pipeline
+
+Let's build a pipeline that monitors our test data just like inputs.conf:
+
+### 1. Create Pipeline Configuration
+
+```bash
+cat > ~/splunk-edge-pipeline.yaml << 'EOF'
+apiVersion: v1
+kind: Pipeline
+metadata:
+  name: "splunk-edge-collection"
+  description: "Collect data like Splunk inputs.conf but better"
+
+input:
+  file_watcher:
+    paths:
+      - "/var/log/expanso-demo/app.log"
+      - "/var/log/expanso-demo/security.log" 
+      - "/var/log/expanso-demo/system.log"
+    
+    # File monitoring settings
+    poll_interval: "1s"
+    start_from_beginning: true
+    include_file_name: true
+    
+    # Multiline support for stack traces
+    multiline:
+      pattern: '^(\d{4}-\d{2}-\d{2}T|\w{3}\s+\d{1,2}\s|\{"timestamp")'
+      negate: false
+      match: after
+      timeout: "5s"
+
+processors:
+  # Add source file as field (like Splunk's source field)
+  - mapping: |
+      root.source_file = file.name
+      root.collection_timestamp = timestamp()
+      root.host = hostname()
+      
+      # Determine sourcetype based on file name (like Splunk)
+      root.sourcetype = match file.name {
+        this.contains("app.log") => "json_logs"
+        this.contains("security.log") => "cef"  
+        this.contains("system.log") => "syslog"
+        _ => "unknown"
+      }
+      
+      # Determine target index based on content
+      root.target_index = match {
+        this.sourcetype == "cef" => "security"
+        _ => "main"
+      }
+
+# For now, just output to console - we'll add Splunk HEC in Step 4
+output:
+  stdout:
+    format: "json"
+EOF
+```
+
+### 2. Deploy and Test the Pipeline
+
+```bash
+# Deploy the pipeline
+expanso pipeline deploy ~/splunk-edge-pipeline.yaml
+
+# Check pipeline status
+expanso pipeline status splunk-edge-collection
+
+# View real-time logs
+expanso pipeline logs splunk-edge-collection -f
+```
+
+### 3. Generate Test Data and Observe
+
+In another terminal, generate some test events:
+
+```bash
+# Add some new events to test real-time collection
+echo '{"timestamp":"'$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")'","level":"INFO","message":"New user registration","user":"test.user","source_ip":"192.168.1.150"}' >> $TEST_DATA_DIR/app.log
+
+echo 'CEF:0|Company|WebApp|1.0|600|New Security Event|Medium|src=192.168.1.150 suser=test.user act=register outcome=success' >> $TEST_DATA_DIR/security.log
+```
+
+You should see output like this:
+
+```json
+{
+  "timestamp": "2024-02-10T10:15:01.123Z",
+  "level": "INFO", 
+  "message": "New user registration",
+  "user": "test.user",
+  "source_ip": "192.168.1.150",
+  "source_file": "/var/log/expanso-demo/app.log",
+  "collection_timestamp": "2024-02-10T10:15:01.456Z",
+  "host": "edge-node-01",
+  "sourcetype": "json_logs",
+  "target_index": "main"
+}
+```
+
+## Key Differences from Splunk inputs.conf
+
+| **Feature** | **Splunk inputs.conf** | **Expanso Pipeline** |
+|---|---|---|
+| **File Monitoring** | Individual stanza per path | Wildcard patterns, single config |
+| **Parsing** | At index time (expensive) | Real-time at collection |
+| **Metadata** | Limited host/source | Rich automatic tagging |
+| **Multiline** | Complex regex, per-sourcetype | Built-in intelligent detection |
+| **Routing Logic** | Static index assignment | Dynamic routing based on content |
+| **Performance** | Resource intensive | Lightweight, optimized |
+
+## Advanced File Collection Features
+
+Expanso provides several features beyond basic Splunk file monitoring:
+
+### 1. Intelligent File Type Detection
+
+```yaml
+processors:
+  - mapping: |
+      # Auto-detect log format beyond just filename
+      root.log_format = match {
+        this.contains("CEF:") => "cef"
+        this.contains("{") && this.contains("}") => "json" 
+        this.contains("timestamp") => "structured"
+        _ => "plain_text"
+      }
+```
+
+### 2. File Rotation Handling
+
+```yaml
+input:
+  file_watcher:
+    # Handle log rotation better than Splunk
+    ignore_older: "24h"
+    close_inactive: "1h" 
+    clean_inactive: "72h"
+    scan_frequency: "10s"
+```
+
+### 3. Error Resilience
+
+```yaml
+input:
+  file_watcher:
+    # Continue processing if one file has issues
+    ignore_errors: true
+    retry_interval: "30s"
+    max_retries: 3
+```
+
+## Monitoring and Troubleshooting
+
+### Check Collection Metrics
+
+```bash
+# View pipeline metrics
+expanso pipeline metrics splunk-edge-collection
+
+# Check for any collection errors
+expanso pipeline logs splunk-edge-collection --level error
+```
+
+### Common Issues and Solutions
+
+1. **Permission Denied**
+   ```bash
+   # Ensure expanso user can read log files
+   sudo chown -R expanso:expanso /var/log/expanso-demo
+   sudo chmod -R 644 /var/log/expanso-demo/*.log
+   ```
+
+2. **File Not Found**
+   ```bash
+   # Verify test data exists
+   ls -la /var/log/expanso-demo/
+   ```
+
+3. **Pipeline Won't Start**
+   ```bash
+   # Check configuration syntax
+   expanso pipeline validate ~/splunk-edge-pipeline.yaml
+   ```
+
+## What's Next?
+
+Great! You're now collecting data just like Splunk's inputs.conf, but with enhanced capabilities. Next, we'll add parsing and field extraction that rivals Splunk's props.conf and transforms.conf.
+
+→ **Next Step:** [Step 2: Parse Data Like props.conf](./step-2-parse-like-props-conf)
+
+---
+
+**Key Takeaway:** Expanso file collection gives you all the power of Splunk's inputs.conf plus real-time parsing, intelligent routing, and simplified configuration. If you can configure inputs.conf, you already know Expanso input configuration!
