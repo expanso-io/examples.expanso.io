@@ -375,6 +375,46 @@ const sidebars: SidebarsConfig = {
         },
       ],
     },
+    {
+      type: 'category',
+      label: 'Integrations',
+      collapsible: true,
+      collapsed: false,
+      items: [
+        {
+          type: 'category',
+          label: 'Splunk Edge Processing',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'integrations/splunk-edge-processing/index',
+            'integrations/splunk-edge-processing/setup',
+            'integrations/splunk-edge-processing/step-1-collect-like-inputs-conf',
+            'integrations/splunk-edge-processing/step-2-parse-like-props-conf',
+            'integrations/splunk-edge-processing/step-3-filter-before-indexing',
+            'integrations/splunk-edge-processing/step-4-route-to-splunk-hec',
+            'integrations/splunk-edge-processing/step-5-advanced-splunk-patterns',
+            'integrations/splunk-edge-processing/complete-splunk-integration',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'O-RAN Telco Pipeline',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'integrations/oran-telco-pipeline/index',
+            'integrations/oran-telco-pipeline/setup',
+            'integrations/oran-telco-pipeline/step-1-collect-oran-metrics',
+            'integrations/oran-telco-pipeline/step-2-transform-and-enrich',
+            'integrations/oran-telco-pipeline/step-3-multi-destination-routing',
+            'integrations/oran-telco-pipeline/step-4-grafana-dashboards',
+            'integrations/oran-telco-pipeline/step-5-parquet-and-cloudera',
+            'integrations/oran-telco-pipeline/complete-oran-pipeline',
+          ],
+        },
+      ],
+    },
   ],
 };
 
