@@ -1,47 +1,47 @@
 ---
 title: "Edge Processing for Splunk Environments"
-description: "Reduce Splunk indexing costs by 60-80% with edge data processing"
-tags: [splunk, edge-processing, log-management, cost-optimization]
+description: "Get cleaner, faster data into your Splunk index with edge processing"
+tags: [splunk, edge-processing, log-management, data-quality]
 ---
 
 # Edge Processing for Splunk Environments
 
-## The Problem: Splunk Costs Are Out of Control
+## The Problem: Raw Data Slows Everything Down
 
-If you're a Splunk administrator, this scenario sounds familiar:
+If you're a Splunk administrator, you know the pain:
 
-- **Your indexing costs are skyrocketing** — Splunk charges $150-250 per GB indexed daily
-- **60-80% of your log data is noise** — DEBUG messages, health checks, duplicate events
-- **Heavy Forwarders are expensive to maintain** — require dedicated infrastructure and ongoing management
-- **Data travels to indexers before any filtering happens** — you pay to process noise
+- **Searches are slow** because your indexes are full of noise — DEBUG messages, health checks, duplicate events that nobody queries
+- **Field extraction at search time is expensive** — `props.conf` and `transforms.conf` run on every search, burning compute
+- **Heavy Forwarders are a pain to manage** — config drift across hundreds of forwarders, no central visibility, manual updates
+- **Data arrives unparsed and unstructured** — your analysts spend time cleaning data instead of finding insights
 
-**The math is brutal:** A typical enterprise with 1TB/day ingestion pays ~$200 × 1,000GB = **$200,000/day** to index data, where 700GB is noise. That's **$51M/year** wasted on indexing garbage.
+Your Splunk deployment works. But it could work **much better**.
 
-## The Solution: Process Data AT THE SOURCE
+## The Solution: Clean Data Before It Hits the Index
 
-Expanso Edge acts like an intelligent **Heavy Forwarder** that sits between your data sources and Splunk indexers. Instead of sending everything to Splunk and filtering later, Expanso:
+Expanso Edge sits between your data sources and Splunk. It does the heavy lifting *before* data reaches your indexers — so what arrives is already parsed, enriched, deduplicated, and routed to the right index.
 
-✅ **Filters noise before it reaches Splunk** — drop DEBUG/TRACE, dedupe events, sample verbose sources  
-✅ **Parses and enriches at the edge** — field extraction, normalization, metadata tagging  
-✅ **Routes intelligently** — send security events to `security` index, metrics to `metrics`, etc.  
-✅ **Reduces indexing volume by 60-80%** — only critical data reaches your indexers  
+✅ **Faster searches** — pre-parsed fields mean less search-time extraction, cleaner data means more relevant results  
+✅ **Simpler management** — one pipeline config replaces `inputs.conf` + `props.conf` + `transforms.conf` across every forwarder  
+✅ **Better data quality** — normalize timestamps, enrich with metadata, deduplicate at the edge  
+✅ **Smarter routing** — security events to `security`, metrics to `metrics`, compliance data tagged and masked automatically  
 
 ## Architecture: Expanso + Splunk Integration
 
 <div style={{display: 'flex', gap: '2rem', flexWrap: 'wrap', margin: '2rem 0'}}>
 
 <div style={{flex: '1', minWidth: '280px', padding: '1.5rem', borderRadius: '12px', border: '1px solid var(--ifm-color-emphasis-300)', background: 'var(--ifm-background-surface-color)'}}>
-<div style={{fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--ifm-color-danger)', marginBottom: '1rem'}}>❌ Traditional Splunk</div>
+<div style={{fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--ifm-font-color-secondary)', marginBottom: '1rem'}}>Traditional Splunk</div>
 <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem'}}>
 <div style={{padding: '0.6rem 1.5rem', borderRadius: '8px', background: 'var(--ifm-color-emphasis-200)', fontWeight: 500, textAlign: 'center', width: '100%'}}>Log Sources</div>
 <div style={{fontSize: '1.2rem'}}>↓</div>
 <div style={{padding: '0.6rem 1.5rem', borderRadius: '8px', background: 'var(--ifm-color-emphasis-200)', fontWeight: 500, textAlign: 'center', width: '100%'}}>Heavy Forwarder</div>
-<div style={{fontSize: '0.7rem', color: 'var(--ifm-font-color-secondary)'}}>no filtering</div>
-<div style={{fontSize: '1.2rem'}}>↓ 100% of data</div>
-<div style={{padding: '0.6rem 1.5rem', borderRadius: '8px', background: '#dc2626', color: 'white', fontWeight: 600, textAlign: 'center', width: '100%'}}>Splunk Indexers</div>
-<div style={{fontSize: '0.7rem', color: 'var(--ifm-color-danger)'}}>$200K/day</div>
+<div style={{fontSize: '0.7rem', color: 'var(--ifm-font-color-secondary)'}}>raw, unparsed data</div>
+<div style={{fontSize: '1.2rem'}}>↓ 100% noise + signal</div>
+<div style={{padding: '0.6rem 1.5rem', borderRadius: '8px', background: 'var(--ifm-color-emphasis-300)', fontWeight: 500, textAlign: 'center', width: '100%'}}>Splunk Indexers</div>
+<div style={{fontSize: '0.7rem', color: 'var(--ifm-font-color-secondary)'}}>search-time field extraction</div>
 <div style={{fontSize: '1.2rem'}}>↓</div>
-<div style={{padding: '0.6rem 1.5rem', borderRadius: '8px', background: 'var(--ifm-color-emphasis-200)', fontWeight: 500, textAlign: 'center', width: '100%'}}>Expensive Storage</div>
+<div style={{padding: '0.6rem 1.5rem', borderRadius: '8px', background: 'var(--ifm-color-emphasis-200)', fontWeight: 500, textAlign: 'center', width: '100%'}}>Slow Searches</div>
 </div>
 </div>
 
@@ -51,19 +51,19 @@ Expanso Edge acts like an intelligent **Heavy Forwarder** that sits between your
 <div style={{padding: '0.6rem 1.5rem', borderRadius: '8px', background: 'var(--ifm-color-emphasis-200)', fontWeight: 500, textAlign: 'center', width: '100%'}}>Log Sources</div>
 <div style={{fontSize: '1.2rem'}}>↓</div>
 <div style={{padding: '0.75rem 1.5rem', borderRadius: '8px', background: 'var(--ifm-color-primary)', color: 'white', fontWeight: 600, textAlign: 'center', width: '100%', boxShadow: '0 2px 8px rgba(107,70,193,0.3)'}}>Expanso Edge</div>
-<div style={{fontSize: '0.7rem', color: 'var(--ifm-color-primary)'}}>filter, parse, enrich, route</div>
+<div style={{fontSize: '0.7rem', color: 'var(--ifm-color-primary)'}}>parse, enrich, dedupe, route</div>
 <div style={{display: 'flex', gap: '1rem', width: '100%', justifyContent: 'center'}}>
 <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1}}>
-<div style={{fontSize: '1rem'}}>↓ 30%</div>
+<div style={{fontSize: '1rem'}}>↓ clean data</div>
 <div style={{padding: '0.5rem 0.75rem', borderRadius: '8px', background: '#16a34a', color: 'white', fontWeight: 600, textAlign: 'center', width: '100%', fontSize: '0.85rem'}}>Splunk HEC</div>
 <div style={{fontSize: '1rem'}}>↓</div>
-<div style={{padding: '0.5rem 0.75rem', borderRadius: '8px', background: 'var(--ifm-color-emphasis-200)', fontWeight: 500, textAlign: 'center', width: '100%', fontSize: '0.85rem'}}>Indexers</div>
-<div style={{fontSize: '0.7rem', color: '#16a34a'}}>$60K/day</div>
+<div style={{padding: '0.5rem 0.75rem', borderRadius: '8px', background: 'var(--ifm-color-emphasis-200)', fontWeight: 500, textAlign: 'center', width: '100%', fontSize: '0.85rem'}}>Fast Searches</div>
+<div style={{fontSize: '0.7rem', color: '#16a34a'}}>pre-parsed fields</div>
 </div>
 <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1}}>
-<div style={{fontSize: '1rem'}}>↓ 70%</div>
+<div style={{fontSize: '1rem'}}>↓ archive</div>
 <div style={{padding: '0.5rem 0.75rem', borderRadius: '8px', background: 'var(--ifm-color-emphasis-200)', fontWeight: 500, textAlign: 'center', width: '100%', fontSize: '0.85rem'}}>S3 / Archive</div>
-<div style={{fontSize: '0.7rem', color: 'var(--ifm-font-color-secondary)'}}>cold storage</div>
+<div style={{fontSize: '0.7rem', color: 'var(--ifm-font-color-secondary)'}}>full fidelity backup</div>
 </div>
 </div>
 </div>
@@ -71,23 +71,23 @@ Expanso Edge acts like an intelligent **Heavy Forwarder** that sits between your
 
 </div>
 
-**Key Benefits:**
-- **Cost Reduction:** $200K/day → $60K/day (70% savings)
-- **Better Performance:** Less data = faster searches
-- **Compliance Ready:** PII masking before it enters Splunk
-- **Multi-Destination:** Send to Splunk + S3 + metrics systems simultaneously
+**What changes:**
+- **Search performance** — pre-extracted fields, no more search-time `rex` commands
+- **Data quality** — normalized timestamps, deduplicated events, enriched metadata
+- **Simpler ops** — one pipeline YAML replaces configs spread across every forwarder
+- **Multi-destination** — same data to Splunk + S3 + metrics systems, parsed once
 
 ## If You Know Splunk, You Already Know Expanso
 
-Expanso uses familiar Splunk concepts with more powerful capabilities:
+Expanso uses familiar Splunk concepts — but simpler to manage:
 
-| **Splunk Concept** | **Expanso Equivalent** | **Enhancement** |
+| **Splunk Concept** | **Expanso Equivalent** | **What's Better** |
 |---|---|---|
 | `inputs.conf` | Pipeline `input` section | Real-time parsing, multiformat support |
-| `props.conf` / `transforms.conf` | Pipeline `processors` + Bloblang | Side-by-side SPL translations |
-| `outputs.conf` | Pipeline `output` section | Multi-destination routing |
-| Heavy Forwarder | Expanso Edge Node | Lightweight, cloud-managed |
-| SPL field extraction | Bloblang mapping | More expressive, reusable |
+| `props.conf` / `transforms.conf` | Pipeline `processors` + Bloblang | One file, not three. Side-by-side SPL translations |
+| `outputs.conf` | Pipeline `output` section | Multi-destination routing built in |
+| Heavy Forwarder fleet | Expanso Edge nodes | Cloud-managed, no config drift |
+| SPL field extraction | Bloblang mapping | Runs at ingest, not search time |
 | Deployment Server | Expanso Cloud Console | GitOps-driven, instant rollouts |
 
 ## What You'll Build
@@ -95,10 +95,10 @@ Expanso uses familiar Splunk concepts with more powerful capabilities:
 In this tutorial, you'll create a complete Splunk integration that:
 
 1. **Collects logs like inputs.conf** — file monitoring, multiline parsing
-2. **Parses data like props.conf** — field extraction, normalization  
-3. **Filters before indexing** — the game-changer Splunk can't do natively
-4. **Routes to Splunk HEC** — proper index/sourcetype tagging
-5. **Advanced patterns** — multi-destination, compliance, metrics
+2. **Parses data like props.conf** — field extraction, normalization at ingest time
+3. **Filters noise before indexing** — so your indexes only contain data people actually query
+4. **Routes to Splunk HEC** — proper index/sourcetype tagging, pre-parsed fields
+5. **Advanced patterns** — multi-destination, compliance masking, metrics extraction
 
 ## Prerequisites
 
@@ -126,4 +126,4 @@ Download the production-ready solution
 
 ---
 
-*Expanso makes your Splunk investment go further. This isn't about replacing Splunk — it's about making it more efficient, cost-effective, and powerful.*
+*Expanso makes your Splunk investment go further. Faster searches, cleaner data, simpler management.*
