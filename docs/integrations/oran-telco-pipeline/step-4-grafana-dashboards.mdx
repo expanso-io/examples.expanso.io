@@ -1,0 +1,681 @@
+# Step 4: Grafana Dashboards
+
+Create comprehensive Grafana dashboards to visualize O-RAN telemetry for NOC operations, compliance monitoring, and performance analysis.
+
+## Dashboard Overview
+
+Build three specialized dashboards:
+
+1. **O-RAN Operations Dashboard** — Real-time NOC view with KPIs
+2. **PTP Compliance Dashboard** — 5G timing compliance monitoring
+3. **Network Performance Dashboard** — Capacity planning and optimization
+
+## Dashboard 1: O-RAN Operations (NOC View)
+
+Real-time operational dashboard for network operations center:
+
+### JSON Configuration
+
+```json
+{
+  "dashboard": {
+    "id": null,
+    "title": "O-RAN Edge Operations Dashboard",
+    "description": "Real-time O-RAN DU telemetry for NOC operations",
+    "tags": ["oran", "telco", "noc", "operations"],
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Network Health Overview",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 8, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "count(oran_ptp_compliance_score > 90)",
+            "legendFormat": "Compliant Sites",
+            "refId": "A"
+          },
+          {
+            "expr": "count(oran_ptp_compliance_score)",
+            "legendFormat": "Total Sites", 
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 80},
+                {"color": "green", "value": 95}
+              ]
+            },
+            "unit": "short"
+          }
+        },
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"],
+            "fields": ""
+          },
+          "orientation": "auto",
+          "textMode": "auto",
+          "colorMode": "background"
+        }
+      },
+      {
+        "id": 2,
+        "title": "PTP Timing Compliance",
+        "type": "gauge",
+        "gridPos": {"h": 6, "w": 8, "x": 8, "y": 0},
+        "targets": [
+          {
+            "expr": "avg(oran_ptp_compliance_score)",
+            "legendFormat": "Network Average",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 70},
+                {"color": "green", "value": 90}
+              ]
+            },
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        },
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          },
+          "orientation": "auto",
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true
+        }
+      },
+      {
+        "id": 3, 
+        "title": "Critical Alerts",
+        "type": "table",
+        "gridPos": {"h": 6, "w": 8, "x": 16, "y": 0},
+        "targets": [
+          {
+            "expr": "oran_ptp_compliance_score{ptp_compliance=\"critical\"} < 50",
+            "format": "table",
+            "legendFormat": "{{du_id}} - {{cell_id}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "displayMode": "list",
+              "filterable": true
+            },
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "steps": [
+                {"color": "transparent", "value": 0},
+                {"color": "red", "value": 1}
+              ]
+            }
+          }
+        },
+        "options": {
+          "showHeader": true,
+          "sortBy": [{"desc": true, "displayName": "Value"}]
+        },
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {"Time": true},
+              "indexByName": {
+                "du_id": 0,
+                "cell_id": 1,
+                "Value": 2
+              },
+              "renameByName": {
+                "du_id": "DU ID",
+                "cell_id": "Cell ID", 
+                "Value": "Compliance Score"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "PRB Utilization Heatmap",
+        "type": "heatmap",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+        "targets": [
+          {
+            "expr": "oran_prb_utilization_percent{direction=\"downlink\"}",
+            "legendFormat": "{{du_id}}-{{cell_id}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              },
+              "scaleDistribution": {"type": "linear"}
+            },
+            "color": {
+              "mode": "continuous-GrYlRd",
+              "steps": 256
+            },
+            "unit": "percent"
+          }
+        },
+        "options": {
+          "calculate": true,
+          "calculation": {"xBuckets": {"mode": "count", "value": "50"}},
+          "cellGap": 2,
+          "cellValues": {"unit": "percent"},
+          "color": {
+            "exponent": 0.5,
+            "fill": "dark-orange",
+            "mode": "spectrum",
+            "reverse": false,
+            "scheme": "Oranges",
+            "steps": 64
+          },
+          "exemplars": {"color": "rgba(255,0,255,0.7)"},
+          "filterValues": {"le": 1e-9},
+          "legend": {"show": false},
+          "rowsFrame": {"layout": "auto"},
+          "tooltip": {"show": true, "yHistogram": false},
+          "yAxis": {
+            "axisPlacement": "left",
+            "reverse": false,
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "CPU Utilization by Site",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+        "targets": [
+          {
+            "expr": "oran_cpu_utilization_percent",
+            "legendFormat": "{{du_id}} ({{region}})",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              },
+              "lineInterpolation": "smooth",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {"type": "linear"},
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {"group": "A", "mode": "none"},
+              "thresholdsStyle": {"mode": "line"}
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 70},
+                {"color": "red", "value": 90}
+              ]
+            },
+            "unit": "percent"
+          }
+        },
+        "options": {
+          "legend": {
+            "calcs": ["mean", "max"],
+            "displayMode": "table",
+            "placement": "bottom"
+          },
+          "tooltip": {"mode": "multi", "sort": "desc"}
+        }
+      },
+      {
+        "id": 6,
+        "title": "RF Quality Distribution",
+        "type": "piechart", 
+        "gridPos": {"h": 6, "w": 8, "x": 0, "y": 14},
+        "targets": [
+          {
+            "expr": "count by (rsrp_quality) (oran_rf_health_score)",
+            "legendFormat": "{{rsrp_quality}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              }
+            },
+            "unit": "short"
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "excellent"},
+              "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]
+            },
+            {
+              "matcher": {"id": "byName", "options": "poor"},
+              "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]
+            }
+          ]
+        },
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"],
+            "fields": ""
+          },
+          "pieType": "pie",
+          "tooltip": {"mode": "single", "sort": "none"},
+          "legend": {
+            "displayMode": "table", 
+            "placement": "right",
+            "values": ["percent"]
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Congestion Forecast",
+        "type": "timeseries",
+        "gridPos": {"h": 6, "w": 16, "x": 8, "y": 14},
+        "targets": [
+          {
+            "expr": "predict_linear(oran_prb_utilization_percent{direction=\"downlink\"}[30m], 3600)",
+            "legendFormat": "Predicted DL PRB % (+1h)",
+            "refId": "A"
+          },
+          {
+            "expr": "oran_prb_utilization_percent{direction=\"downlink\"}",
+            "legendFormat": "Current DL PRB %",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisPlacement": "auto",
+              "drawStyle": "line",
+              "lineWidth": 2,
+              "fillOpacity": 20,
+              "gradientMode": "opacity"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "transparent", "value": null},
+                {"color": "yellow", "value": 80},
+                {"color": "red", "value": 95}
+              ]
+            },
+            "unit": "percent"
+          }
+        },
+        "options": {
+          "legend": {"displayMode": "table", "placement": "bottom"},
+          "tooltip": {"mode": "multi", "sort": "desc"}
+        }
+      }
+    ]
+  }
+}
+```
+
+## Dashboard 2: PTP Compliance Monitoring
+
+Specialized dashboard for 5G timing compliance:
+
+### Key Panels
+
+```json
+{
+  "dashboard": {
+    "title": "O-RAN PTP Timing Compliance",
+    "description": "5G precision timing protocol compliance monitoring",
+    "panels": [
+      {
+        "id": 1,
+        "title": "PTP Offset Distribution",
+        "type": "histogram",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(oran_ptp_offset_nanoseconds_bucket[5m]))",
+            "legendFormat": "95th percentile",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"bucketSize": 50},
+            "unit": "ns",
+            "color": {"mode": "continuous-GrYlRd"}
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Compliance Violations (Last 24h)",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "increase(oran_ptp_violations_total[24h])",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "du_id": {"aggregation": ["distinctCount"], "operation": "groupby"},
+                "severity": {"aggregation": ["last"], "operation": "groupby"},
+                "Value": {"aggregation": ["sum"], "operation": "aggregate"}
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "PTP Master Clock Health",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "oran_ptp_master_reachable",
+            "legendFormat": "Master Reachable",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "green", "value": 1}
+              ]
+            },
+            "mappings": [
+              {"options": {"0": {"text": "Unreachable"}}, "type": "value"},
+              {"options": {"1": {"text": "Healthy"}}, "type": "value"}
+            ]
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+## Dashboard 3: Network Performance Analytics
+
+Advanced analytics dashboard for capacity planning:
+
+### Performance Panels
+
+```json
+{
+  "dashboard": {
+    "title": "O-RAN Network Performance Analytics", 
+    "panels": [
+      {
+        "id": 1,
+        "title": "Spectral Efficiency Trend",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "avg by (cell_id) (oran_spectral_efficiency_dl)",
+            "legendFormat": "{{cell_id}} Efficiency",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bps/Hz",
+            "custom": {
+              "drawStyle": "line",
+              "lineWidth": 2,
+              "fillOpacity": 10
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Capacity Headroom by Region",
+        "type": "bargauge",
+        "targets": [
+          {
+            "expr": "avg by (region) (oran_capacity_headroom_percent)",
+            "legendFormat": "{{region}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 20},
+                {"color": "green", "value": 50}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Coverage Quality Matrix",
+        "type": "heatmap",
+        "targets": [
+          {
+            "expr": "oran_rf_health_score",
+            "format": "time_series",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false}
+            },
+            "color": {"mode": "continuous-GrYlRd"}
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+## Alert Rules
+
+Configure Prometheus alerting rules for proactive monitoring:
+
+```yaml
+# alerts/oran-alerts.yml
+groups:
+  - name: oran_ptp_compliance
+    rules:
+      - alert: PTPComplianceCritical
+        expr: oran_ptp_compliance_score < 50
+        for: 2m
+        labels:
+          severity: critical
+          service: oran_timing
+        annotations:
+          summary: "PTP compliance critical on {{$labels.du_id}}"
+          description: "PTP compliance score is {{$value}}% on DU {{$labels.du_id}}, cell {{$labels.cell_id}}"
+          
+      - alert: PTPOffsetHigh  
+        expr: abs(oran_ptp_offset_nanoseconds) > 1000
+        for: 1m
+        labels:
+          severity: warning
+          service: oran_timing
+        annotations:
+          summary: "High PTP offset detected"
+          description: "PTP offset is {{$value}}ns on {{$labels.du_id}}"
+
+  - name: oran_capacity
+    rules:
+      - alert: PRBUtilizationHigh
+        expr: oran_prb_utilization_percent{direction="downlink"} > 90
+        for: 5m
+        labels:
+          severity: warning
+          service: oran_capacity
+        annotations:
+          summary: "High PRB utilization on {{$labels.du_id}}"
+          description: "DL PRB utilization is {{$value}}% on cell {{$labels.cell_id}}"
+          
+      - alert: CongestedCellPredicted
+        expr: predict_linear(oran_prb_utilization_percent{direction="downlink"}[30m], 3600) > 95
+        for: 10m
+        labels:
+          severity: warning
+          service: oran_capacity
+        annotations:
+          summary: "Cell congestion predicted in 1 hour"
+          description: "PRB utilization on {{$labels.cell_id}} predicted to reach {{$value}}%"
+
+  - name: oran_rf_quality
+    rules:
+      - alert: RFQualityDegraded
+        expr: oran_rf_health_score < 40
+        for: 3m
+        labels:
+          severity: warning
+          service: oran_rf
+        annotations:
+          summary: "RF quality degraded on {{$labels.du_id}}"
+          description: "RF health score is {{$value}} on cell {{$labels.cell_id}}"
+```
+
+## Dashboard Import Script
+
+Automate dashboard deployment:
+
+```bash
+#!/bin/bash
+# scripts/import-dashboards.sh
+
+GRAFANA_URL="http://grafana:3000"
+GRAFANA_TOKEN="your-api-token"
+
+# Import O-RAN Operations Dashboard
+curl -X POST \
+  -H "Authorization: Bearer ${GRAFANA_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d @dashboards/oran-operations.json \
+  "${GRAFANA_URL}/api/dashboards/db"
+
+# Import PTP Compliance Dashboard  
+curl -X POST \
+  -H "Authorization: Bearer ${GRAFANA_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d @dashboards/oran-ptp-compliance.json \
+  "${GRAFANA_URL}/api/dashboards/db"
+
+# Import Performance Analytics Dashboard
+curl -X POST \
+  -H "Authorization: Bearer ${GRAFANA_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d @dashboards/oran-performance.json \
+  "${GRAFANA_URL}/api/dashboards/db"
+
+echo "Dashboards imported successfully"
+```
+
+## Dashboard Variables
+
+Configure template variables for dynamic filtering:
+
+```json
+{
+  "templating": {
+    "list": [
+      {
+        "name": "region",
+        "type": "query",
+        "query": "label_values(oran_ptp_compliance_score, region)",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*"
+      },
+      {
+        "name": "du_id", 
+        "type": "query",
+        "query": "label_values(oran_ptp_compliance_score{region=~\"$region\"}, du_id)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true
+      },
+      {
+        "name": "time_range",
+        "type": "custom",
+        "options": [
+          {"text": "Last 15 minutes", "value": "15m"},
+          {"text": "Last hour", "value": "1h"},
+          {"text": "Last 6 hours", "value": "6h"},
+          {"text": "Last 24 hours", "value": "24h"}
+        ],
+        "current": {"text": "Last hour", "value": "1h"}
+      }
+    ]
+  }
+}
+```
+
+## Next Steps
+
+With Grafana dashboards providing real-time visibility, proceed to [Parquet storage and Cloudera integration](./step-5-parquet-and-cloudera.mdx) for long-term analytics capabilities.

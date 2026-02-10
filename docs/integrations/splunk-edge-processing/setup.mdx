@@ -1,0 +1,193 @@
+---
+title: "Environment Setup"
+description: "Configure your environment for Splunk + Expanso integration"
+---
+
+# Environment Setup
+
+Before we build our edge processing pipeline, let's set up a complete Splunk environment and generate realistic test data.
+
+## Prerequisites
+
+### Expanso Edge Installation
+
+If you haven't installed Expanso Edge yet:
+
+```bash
+# Download and install Expanso Edge
+curl -sSL https://get.expanso.io | sh
+sudo systemctl enable --now expanso-edge
+```
+
+Verify installation:
+```bash
+expanso version
+# Expected: Expanso Edge v2.x.x
+```
+
+### Splunk HEC Configuration
+
+You need a Splunk instance with HTTP Event Collector (HEC) enabled. If you're using Splunk Cloud or Enterprise:
+
+#### 1. Enable HEC in Splunk Web
+```
+Settings → Data Inputs → HTTP Event Collector → Global Settings
+✓ Enable → Save
+```
+
+#### 2. Create an HEC Token
+```
+Settings → Data Inputs → HTTP Event Collector → New Token
+- Name: "expanso-edge-integration"  
+- Source Type: "Automatic"
+- Allowed Indexes: main, security, metrics
+- Copy the token (you'll need it later)
+```
+
+#### 3. Test HEC Connectivity
+```bash
+curl -k https://your-splunk-host:8088/services/collector/event \
+  -H "Authorization: Splunk your-hec-token" \
+  -d '{"event": "test message"}'
+```
+
+## Environment Variables
+
+Set these environment variables (add to `~/.bashrc` for persistence):
+
+```bash
+# Splunk HEC Configuration
+export HEC_TOKEN="your-hec-token-here"
+export SPLUNK_HOST="your-splunk-host.com"
+export SPLUNK_PORT="8088"
+
+# Splunk Indexes
+export MAIN_INDEX="main"
+export SECURITY_INDEX="security"  
+export METRICS_INDEX="metrics"
+
+# Test Data Directory
+export TEST_DATA_DIR="/var/log/expanso-demo"
+```
+
+Apply the configuration:
+```bash
+source ~/.bashrc
+```
+
+## Generate Realistic Test Data
+
+Let's create sample logs that mirror real Splunk environments:
+
+### 1. Create Test Data Directory
+```bash
+sudo mkdir -p $TEST_DATA_DIR
+sudo chown $USER:$USER $TEST_DATA_DIR
+```
+
+### 2. Application Logs (JSON Format)
+```bash
+cat > $TEST_DATA_DIR/app.log << 'EOF'
+{"timestamp":"2024-02-10T10:00:01.123Z","level":"INFO","message":"User authentication successful","user":"john.doe","source_ip":"192.168.1.100","session_id":"sess_abc123"}
+{"timestamp":"2024-02-10T10:00:02.456Z","level":"DEBUG","message":"Cache hit for user preferences","user":"john.doe","cache_key":"prefs_john.doe","response_time_ms":15}
+{"timestamp":"2024-02-10T10:00:03.789Z","level":"ERROR","message":"Database connection timeout","database":"users_db","connection_pool":"primary","retry_count":3}
+{"timestamp":"2024-02-10T10:00:04.012Z","level":"INFO","message":"API request processed","endpoint":"/api/v1/users","method":"GET","status_code":200,"response_time_ms":250}
+{"timestamp":"2024-02-10T10:00:05.345Z","level":"DEBUG","message":"SQL query executed","query":"SELECT * FROM users WHERE active=1","execution_time_ms":50}
+{"timestamp":"2024-02-10T10:00:06.678Z","level":"WARN","message":"Rate limit approaching","user":"john.doe","current_requests":95,"limit":100,"window_seconds":60}
+{"timestamp":"2024-02-10T10:00:07.901Z","level":"INFO","message":"User logout successful","user":"john.doe","session_duration_minutes":45}
+{"timestamp":"2024-02-10T10:00:08.234Z","level":"DEBUG","message":"Health check passed","service":"user-service","response_time_ms":5,"status":"healthy"}
+EOF
+```
+
+### 3. Security Logs (CEF Format)
+```bash
+cat > $TEST_DATA_DIR/security.log << 'EOF'
+CEF:0|Company|WebApp|1.0|100|Authentication Success|Low|src=192.168.1.100 suser=john.doe act=login outcome=success
+CEF:0|Company|WebApp|1.0|200|Authentication Failure|Medium|src=10.0.0.50 suser=unknown act=login outcome=failure reason=invalid_credentials
+CEF:0|Company|Firewall|2.1|300|Connection Blocked|High|src=203.0.113.10 dst=192.168.1.5 dpt=22 act=blocked reason=suspicious_activity
+CEF:0|Company|WebApp|1.0|400|SQL Injection Attempt|Critical|src=203.0.113.15 suser=attacker act=query outcome=blocked msg=Detected SQL injection in parameter 'id'
+CEF:0|Company|WebApp|1.0|101|Authentication Success|Low|src=192.168.1.105 suser=jane.smith act=login outcome=success
+EOF
+```
+
+### 4. System Logs (Syslog Format)
+```bash
+cat > $TEST_DATA_DIR/system.log << 'EOF'
+Feb 10 10:00:01 web01 systemd[1]: Started User Manager for UID 1000.
+Feb 10 10:00:02 web01 sshd[12345]: Accepted publickey for deploy from 192.168.1.200 port 52122 ssh2: RSA SHA256:abc123
+Feb 10 10:00:03 web01 nginx[23456]: 192.168.1.100 - - [10/Feb/2024:10:00:03 +0000] "GET /api/health HTTP/1.1" 200 15 "-" "curl/7.68.0"
+Feb 10 10:00:04 web01 systemd-resolved[567]: Server returned error NXDOMAIN, mitigating potential DNS violation DVE-2018-0001
+Feb 10 10:00:05 web01 kernel: [1234567.890] Out of memory: Kill process 98765 (chrome) score 1000 or sacrifice child
+EOF
+```
+
+### 5. Continuous Log Generation Script
+
+For realistic testing, create a script that generates ongoing logs:
+
+```bash
+cat > $TEST_DATA_DIR/generate_logs.sh << 'EOF'
+#!/bin/bash
+
+# Continuous log generation for demo purposes
+while true; do
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
+    
+    # Random log levels weighted toward INFO/DEBUG
+    levels=("DEBUG" "DEBUG" "DEBUG" "INFO" "INFO" "WARN" "ERROR")
+    level=${levels[$RANDOM % ${#levels[@]}]}
+    
+    # Generate application log
+    echo "{\"timestamp\":\"$timestamp\",\"level\":\"$level\",\"message\":\"Automated test log\",\"component\":\"demo-app\",\"request_id\":\"$(uuidgen)\"}" >> $TEST_DATA_DIR/app.log
+    
+    # Occasionally generate security event
+    if [ $((RANDOM % 10)) -eq 0 ]; then
+        echo "CEF:0|Company|DemoApp|1.0|500|Test Event|Low|src=192.168.1.$((RANDOM % 255)) act=demo msg=Generated for testing" >> $TEST_DATA_DIR/security.log
+    fi
+    
+    sleep 2
+done
+EOF
+
+chmod +x $TEST_DATA_DIR/generate_logs.sh
+```
+
+## Verify Your Setup
+
+### 1. Check Test Data
+```bash
+ls -la $TEST_DATA_DIR/
+# Should show: app.log, security.log, system.log, generate_logs.sh
+```
+
+### 2. Verify Environment Variables
+```bash
+echo "HEC_TOKEN: $HEC_TOKEN"
+echo "SPLUNK_HOST: $SPLUNK_HOST"
+echo "Test Data: $TEST_DATA_DIR"
+```
+
+### 3. Test Splunk Connectivity
+```bash
+curl -k https://$SPLUNK_HOST:$SPLUNK_PORT/services/collector/event \
+  -H "Authorization: Splunk $HEC_TOKEN" \
+  -d '{"event": "Setup verification successful", "source": "expanso-demo"}'
+```
+
+Expected response:
+```json
+{"text":"Success","code":0}
+```
+
+## What's Next?
+
+Now that your environment is configured, you're ready to build your first Expanso pipeline that collects data **just like inputs.conf**.
+
+→ **Next Step:** [Step 1: Collect Data Like inputs.conf](./step-1-collect-like-inputs-conf)
+
+---
+
+**Pro Tip:** Start the log generator in the background for realistic testing:
+```bash
+nohup $TEST_DATA_DIR/generate_logs.sh > /dev/null 2>&1 &
+```
