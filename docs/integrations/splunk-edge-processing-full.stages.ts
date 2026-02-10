@@ -5,7 +5,7 @@ export const splunkEdgeProcessingStages: Stage[] = [
     id: 1,
     title: "Raw Syslog Data",
     description: "Unprocessed syslog messages from application servers. In traditional Splunk, ALL of this data gets indexed at $200/TB, including verbose DEBUG messages and noise.",
-    yamlFilename: "input.yaml",
+    yamlFilename: "splunk-input.yaml",
     yamlCode: `input:
   file:
     paths: [ "/var/log/app/*.log" ]
@@ -34,7 +34,7 @@ export const splunkEdgeProcessingStages: Stage[] = [
     id: 2,
     title: "Parse Fields (Like props.conf)",
     description: "Extract structured fields from log messages using Bloblang mapping. This replaces Splunk's props.conf and transforms.conf field extraction.",
-    yamlFilename: "step-1-parse.yaml",
+    yamlFilename: "splunk-step-1-parse.yaml",
     yamlCode: `pipeline:
   processors:
     - mapping: |
@@ -63,7 +63,7 @@ export const splunkEdgeProcessingStages: Stage[] = [
     id: 3,
     title: "Filter Out Noise (The Cost Saver)",
     description: "Drop DEBUG messages and verbose health checks before they reach Splunk. This is where you save 60-80% on indexing costs - traditional Splunk can't filter before indexing!",
-    yamlFilename: "step-2-filter.yaml",
+    yamlFilename: "splunk-step-2-filter.yaml",
     yamlCode: `pipeline:
   processors:
     - mapping: |
@@ -96,7 +96,7 @@ export const splunkEdgeProcessingStages: Stage[] = [
     id: 4,
     title: "Enrich for Splunk (sourcetype/index)",
     description: "Add Splunk-specific metadata including sourcetype, index, and host fields. This ensures proper routing and compliance within Splunk.",
-    yamlFilename: "step-3-enrich.yaml",
+    yamlFilename: "splunk-step-3-enrich.yaml",
     yamlCode: `pipeline:
   processors:
     - mapping: |
@@ -141,7 +141,7 @@ export const splunkEdgeProcessingStages: Stage[] = [
     id: 5,
     title: "Ready for Splunk HEC",
     description: "Final JSON format optimized for Splunk HTTP Event Collector (HEC) ingestion with proper metadata organization and efficient batching.",
-    yamlFilename: "output.yaml",
+    yamlFilename: "splunk-output.yaml",
     yamlCode: `output:
   http:
     url: "https://splunk.company.com:8088/services/collector/event"

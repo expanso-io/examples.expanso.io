@@ -1,0 +1,23 @@
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        
+        # Add cell site metadata (from env or lookup)
+        root.cell_id = env("CELL_ID").or("DU_001")
+        root.site_name = env("SITE_NAME").or("tower-downtown-01")
+        root.region = "northeast"
+        
+        # Calculate compliance status
+        root.ptp_compliant = this.ptp_offset_ns >= -100 && this.ptp_offset_ns <= 100
+        root.ptp_status = if this.ptp_offset_ns >= -100 && this.ptp_offset_ns <= 100 {
+          "compliant"
+        } else if this.ptp_offset_ns >= -1000 && this.ptp_offset_ns <= 1000 {
+          "degraded" 
+        } else {
+          "critical"
+        }
+        
+        # Add operational flags
+        root.prb_congested = this.prb_dl_util_percent > 90 || this.prb_ul_util_percent > 90
+        root.cpu_alert = this.cpu_percent > 80

@@ -5,7 +5,7 @@ export const oranTelcoPipelineStages: Stage[] = [
     id: 1,
     title: "Raw DU Metrics",
     description: "Raw telemetry data from O-RAN DU nodes including PTP timing, PRB utilization, and CPU metrics. This unstructured data needs normalization and enrichment before routing to multiple destinations.",
-    yamlFilename: "input.yaml",
+    yamlFilename: "oran-input.yaml",
     yamlCode: `input:
   prometheus_input:
     url: "http://localhost:9090/api/v1/query_range"
@@ -27,7 +27,7 @@ export const oranTelcoPipelineStages: Stage[] = [
     id: 2,
     title: "Parse & Normalize Metrics",
     description: "Extract and normalize O-RAN telemetry into structured JSON format with proper data types and units. This enables downstream systems to consume metrics consistently.",
-    yamlFilename: "step-1-parse.yaml",
+    yamlFilename: "oran-step-1-parse.yaml",
     yamlCode: `pipeline:
   processors:
     - mapping: |
@@ -64,7 +64,7 @@ export const oranTelcoPipelineStages: Stage[] = [
     id: 3,
     title: "Enrich with Cell Metadata",
     description: "Add cell site information, compliance status, and operational context using lookup tables and environmental data. This enables proper routing and alerting.",
-    yamlFilename: "step-2-enrich.yaml",
+    yamlFilename: "oran-step-2-enrich.yaml",
     yamlCode: `pipeline:
   processors:
     - mapping: |
@@ -122,7 +122,7 @@ export const oranTelcoPipelineStages: Stage[] = [
     id: 4,
     title: "Filter Anomalies & Alerts",
     description: "Filter telemetry based on thresholds and compliance status. Only anomalies and alerts are sent to high-priority destinations, reducing noise and costs.",
-    yamlFilename: "step-3-filter.yaml",
+    yamlFilename: "oran-step-3-filter.yaml",
     yamlCode: `pipeline:
   processors:
     - mapping: |
@@ -170,7 +170,7 @@ export const oranTelcoPipelineStages: Stage[] = [
     id: 5,
     title: "Multi-Destination Output",
     description: "Fan-out alerts and metrics to multiple destinations simultaneously: real-time Grafana dashboards, Parquet storage for analytics, and direct integration with NOC systems.",
-    yamlFilename: "output.yaml",
+    yamlFilename: "oran-output.yaml",
     yamlCode: `output:
   broker:
     outputs:

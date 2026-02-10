@@ -1,0 +1,17 @@
+pipeline:
+  processors:
+    - mapping: |
+        # Parse semicolon-delimited metrics
+        let metrics = content().split(";").fold({}, (acc, item) -> {
+          let parts = item.split("=")
+          acc | { parts[0]: parts[1] }
+        })
+        
+        # Normalize to structured format
+        root.timestamp = metrics.TIMESTAMP.number()
+        root.ptp_offset_ns = metrics.PTP4L_OFFSET.re_replace_all("ns$", "").number()
+        root.cpu_percent = metrics.CPU_PERCENT.number()
+        root.prb_dl_util_percent = metrics.PRB_DL_UTIL.number()
+        root.prb_ul_util_percent = metrics.PRB_UL_UTIL.number()
+        root.rsrp_dbm = metrics.RSRP.re_replace_all("dBm$", "").number()
+        root.sinr_db = metrics.SINR.re_replace_all("dB$", "").number()
