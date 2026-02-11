@@ -1,0 +1,84 @@
+# Step 3: Validate and Flag Anomalies
+
+Before data leaves the store, we validate every transaction. Bad records get flagged — not dropped — so analysts can investigate without losing data.
+
+## Validation Rules
+
+```yaml
+    - mapping: |
+        root = this
+
+        # Initialize flags
+        let flags = []
+
+        # Rule 1: Empty basket
+        let flags = if this.items.length() == 0 {
+          $flags.append("EMPTY_BASKET")
+        }
+
+        # Rule 2: Suspiciously high total (> $500 for non-electronics)
+        let has_electronics = this.items.map_each(this.category).flatten().any(c -> c == "electronics")
+        let flags = if this.total_amount.abs() > 500 && !$has_electronics {
+          $flags.append("HIGH_VALUE_NON_ELECTRONICS")
+        }
+
+        # Rule 3: Sale with negative total (data error)
+        let flags = if this.type == "sale" && this.total_amount < 0 {
+          $flags.append("NEGATIVE_SALE")
+        }
+
+        # Rule 4: Return without negative total
+        let flags = if this.type == "return" && this.total_amount > 0 {
+          $flags.append("POSITIVE_RETURN")
+        }
+
+        # Rule 5: Quantity exceeds 10 on a single line item
+        let bulk_items = this.items.filter(i -> i.qty > 10)
+        let flags = if $bulk_items.length() > 0 {
+          $flags.append("BULK_QUANTITY")
+        }
+
+        # Rule 6: Missing employee ID
+        let flags = if this.employee_id == "" || this.employee_id == null {
+          $flags.append("MISSING_EMPLOYEE")
+        }
+
+        # Apply flags
+        root.anomaly_flags = $flags
+        root.is_anomaly = $flags.length() > 0
+        root.quality_score = match {
+          $flags.length() == 0 => "clean",
+          $flags.length() == 1 => "warning",
+          _ => "review"
+        }
+```
+
+## Sample Flagged Transaction
+
+```json
+{
+  "txn_id": "...",
+  "type": "sale",
+  "total_amount": 723.50,
+  "items": [
+    {"category": "grocery", "qty": 2, "unit_price": 3.49},
+    {"category": "household", "qty": 1, "unit_price": 349.99}
+  ],
+  "anomaly_flags": ["HIGH_VALUE_NON_ELECTRONICS"],
+  "is_anomaly": true,
+  "quality_score": "warning"
+}
+```
+
+## Why Validate at the Edge?
+
+- **Catch errors at the source**: A misconfigured POS terminal gets flagged immediately, not discovered during month-end reconciliation
+- **No bad data in the warehouse**: MotherDuck queries are clean from day one
+- **Anomaly detection without ML**: Simple rules catch 90% of data quality issues
+- **Flags, not drops**: Anomalous transactions are kept but tagged — analysts decide what to do
+
+## Next Step
+
+Clean, enriched, validated transactions are ready for the big transformation: batching into Parquet.
+
+→ [Step 4: Batch and Encode to Parquet](./step-4-batch-parquet-encode)

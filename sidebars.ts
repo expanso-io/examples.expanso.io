@@ -427,6 +427,23 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'category',
+          label: 'MotherDuck Retail Analytics',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'integrations/motherduck-retail-analytics/index',
+            'integrations/motherduck-retail-analytics/setup',
+            'integrations/motherduck-retail-analytics/step-1-generate-pos-data',
+            'integrations/motherduck-retail-analytics/step-2-enrich-store-metadata',
+            'integrations/motherduck-retail-analytics/step-3-validate-transactions',
+            'integrations/motherduck-retail-analytics/step-4-batch-parquet-encode',
+            'integrations/motherduck-retail-analytics/step-5-ship-to-s3',
+            'integrations/motherduck-retail-analytics/step-6-ducklake-query',
+            'integrations/motherduck-retail-analytics/complete-pipeline',
+          ],
+        },
+        {
+          type: 'category',
           label: 'O-RAN Telco Pipeline',
           collapsible: true,
           collapsed: true,

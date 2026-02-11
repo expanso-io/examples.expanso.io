@@ -1,0 +1,114 @@
+# Step 4: Batch and Encode to Parquet
+
+This is where the magic happens. Individual JSON transactions become compressed, columnar Parquet — 10-50x smaller, infinitely faster to query.
+
+## Batching Strategy
+
+Parquet files work best at 50-200MB. Too small and you get "small file problem" overhead in DuckLake. Too large and you lose parallelism. We use micro-batching:
+
+```yaml
+    # Batch: collect 1000 transactions or flush every 10 seconds
+    - batch:
+        count: 1000
+        period: 10s
+```
+
+At 10 TPS per store, that's roughly one Parquet file every 100 seconds (1000 rows), or a flush every 10 seconds during slow periods. Both produce well-sized files for DuckLake.
+
+## Flatten for Parquet
+
+Parquet handles flat columns best. We serialize nested items as JSON strings — DuckDB can parse these natively with `json_extract`:
+
+```yaml
+    # Prepare for Parquet encoding
+    - mapping: |
+        root = this
+        # Serialize nested items array as JSON string for Parquet
+        root.items_json = this.items.format_json()
+        # Drop the original nested array
+        root = root.without("items")
+```
+
+## Encode to Parquet
+
+```yaml
+    # Encode batch to Parquet with Zstandard compression
+    - parquet_encode:
+        schema:
+          - name: txn_id
+            type: UTF8
+          - name: store_id
+            type: INT32
+          - name: terminal_id
+            type: INT32
+          - name: timestamp
+            type: UTF8
+          - name: type
+            type: UTF8
+          - name: payment_method
+            type: UTF8
+          - name: employee_id
+            type: UTF8
+          - name: items_json
+            type: UTF8
+          - name: item_count
+            type: INT32
+          - name: subtotal
+            type: DOUBLE
+          - name: tax_rate
+            type: DOUBLE
+          - name: tax_amount
+            type: DOUBLE
+          - name: total_amount
+            type: DOUBLE
+          - name: store_region
+            type: UTF8
+          - name: store_format
+            type: UTF8
+          - name: store_city
+            type: UTF8
+          - name: store_state
+            type: UTF8
+          - name: store_sqft
+            type: INT32
+          - name: hour_of_day
+            type: INT32
+          - name: day_of_week
+            type: UTF8
+          - name: is_weekend
+            type: BOOLEAN
+          - name: basket_size
+            type: INT32
+          - name: avg_item_price
+            type: DOUBLE
+          - name: anomaly_flags
+            type: UTF8
+          - name: is_anomaly
+            type: BOOLEAN
+          - name: quality_score
+            type: UTF8
+        default_compression: zstd
+```
+
+## Compression Results
+
+| Format | Size per 1000 txns | Compression |
+|--------|-------------------|-------------|
+| Raw JSON | ~2.1 MB | 1x (baseline) |
+| Parquet (uncompressed) | ~280 KB | 7.5x |
+| Parquet (Zstandard) | ~85 KB | **25x** |
+
+That's 25x compression before the data even leaves the store. A retail chain doing 43M transactions/day goes from ~90GB of raw JSON to ~3.6GB of Parquet.
+
+## Why Parquet + DuckLake?
+
+- **Columnar**: Query `SELECT sum(total_amount) FROM ...` only reads the `total_amount` column, not the entire row
+- **Typed**: No runtime type parsing — DuckDB knows every column type at read time
+- **Compressed**: Zstandard on columnar data compresses extremely well (repeated store IDs, payment methods, etc.)
+- **DuckLake inlining**: Small batches get inlined into the catalog, periodically flushed to Parquet — no small-file overhead
+
+## Next Step
+
+Parquet-encoded batches are ready. Next, we write them to S3 with Hive-style partitioning for automatic DuckLake discovery.
+
+→ [Step 5: Ship to S3 with Partitioning](./step-5-ship-to-s3)
