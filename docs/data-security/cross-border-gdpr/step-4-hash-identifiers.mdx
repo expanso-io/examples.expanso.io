@@ -1,0 +1,175 @@
+---
+title: "Step 4: Hash Identifiers"
+sidebar_label: "Step 4: Hash Identifiers"
+sidebar_position: 6
+description: Pseudonymize customer identifiers with one-way hashing
+keywords: [hash, pseudonymization, identifiers, salt, sha256]
+---
+
+# Step 4: Hash Identifiers
+
+Transform identifiers into irreversible hashes for cohort analytics while making re-identification impossible.
+
+## The Goal
+
+- **Customer ID** → Salted hash (count unique customers without knowing who)
+- **Email** → Domain only (B2B vs B2C segmentation)
+- **IBAN** → Country code only (geographic distribution)
+- **IP Address** → /16 subnet (regional analysis)
+
+## Why Hash vs. Delete?
+
+Hashed identifiers enable valuable analytics:
+- Count unique customers per merchant
+- Track customer cohort behavior over time
+- Detect fraud patterns across anonymized IDs
+
+The key is using **salted, one-way hashes** that cannot be reversed.
+
+## Implementation
+
+```yaml title="step-4-hash.yaml"
+pipeline:
+  processors:
+    # Steps 1-3 from previous...
+    
+    # Step 4: Hash identifiers
+    - mapping: |
+        root = this
+        
+        # Customer ID → anonymized cohort ID
+        # Salt ensures can't be reversed even with rainbow tables
+        let salt = env("ANONYMIZATION_SALT").or("gdpr-compliance-2024")
+        root.anonymized_customer_id = (this.customer_id.string() + $salt).hash("sha256").slice(0, 12)
+        root = root.without("customer_id")
+        
+        # Email → domain only (for B2B vs B2C analysis)
+        root.email_domain = if this.customer_email.contains("@") {
+          this.customer_email.split("@").index(1).lowercase()
+        } else {
+          "unknown"
+        }
+        root = root.without("customer_email")
+        
+        # IBAN → country code only (for geographic analysis)
+        root.bank_country = this.iban.slice(0, 2)
+        root = root.without("iban")
+        
+        # IP address → /16 subnet (country-level geolocation possible)
+        root.ip_subnet = if this.ip_address.contains(".") {
+          this.ip_address.split(".").slice(0, 2).join(".") + ".0.0/16"
+        } else {
+          "unknown"
+        }
+        root = root.without("ip_address")
+```
+
+## Understanding the Code
+
+| Expression | What It Does |
+|------------|--------------|
+| `(value + $salt).hash("sha256")` | Salted SHA-256 hash |
+| `.slice(0, 12)` | Truncate to 12 chars (still unique enough) |
+| `.split("@").index(1)` | Get domain from email |
+| `.slice(0, 2)` | Get first 2 characters (country code from IBAN) |
+
+## Why Salting Matters
+
+**Without salt:** Attacker with customer ID list can hash each and match.
+
+**With salt:** Attacker needs both the ID list AND your secret salt.
+
+```
+customer_id = "CUST-DE-12345"
+
+# Without salt (vulnerable):
+hash("CUST-DE-12345") → "a1b2c3d4..."  # Rainbow table attack possible
+
+# With salt (secure):
+hash("CUST-DE-12345" + "secret-salt-xyz") → "x9y8z7w6..."  # Requires salt knowledge
+```
+
+## Expected Output
+
+**Input:**
+```json
+{
+  "customer_id": "CUST-DE-12345",
+  "customer_email": "hans.schmidt@example.de",
+  "iban": "DE89370400440532013000",
+  "ip_address": "91.64.42.17",
+  ...
+}
+```
+
+**Output:**
+```json
+{
+  "anonymized_customer_id": "x9y8z7w6e5r4",
+  "email_domain": "example.de",
+  "bank_country": "DE",
+  "ip_subnet": "91.64.0.0/16",
+  ...
+}
+```
+
+## Analytics Value Preserved
+
+| Original | Anonymized | Analytics Possible |
+|----------|------------|-------------------|
+| customer_id | anonymized_customer_id | Count unique customers, cohort tracking |
+| customer_email | email_domain | B2B vs B2C ratio, company analysis |
+| iban | bank_country | Geographic distribution by bank country |
+| ip_address | ip_subnet | Regional traffic patterns |
+
+## Production Considerations
+
+### Consistent Hashing Across Pipelines
+
+Document your hash specification:
+
+```yaml
+# HASH SPECIFICATION (document for all pipelines):
+# Algorithm: SHA-256
+# Salt: env("ANONYMIZATION_SALT")
+# Truncation: 12 characters
+# Input format: Raw value as string
+```
+
+### Handle IPv6
+
+Support both IPv4 and IPv6:
+
+```yaml
+root.ip_subnet = if this.ip_address.contains(":") {
+  # IPv6: keep first 4 groups
+  this.ip_address.split(":").slice(0, 4).join(":") + "::/64"
+} else if this.ip_address.contains(".") {
+  # IPv4: keep first 2 octets
+  this.ip_address.split(".").slice(0, 2).join(".") + ".0.0/16"
+} else {
+  "unknown"
+}
+```
+
+### Email Domain Categorization
+
+Enhance domain extraction with categorization:
+
+```yaml
+let domain = this.customer_email.split("@").index(1).lowercase()
+let freemail = ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com"]
+
+root.email_domain = domain
+root.email_type = if $freemail.contains(domain) { "consumer" } else { "business" }
+```
+
+---
+
+## Next Step
+
+<div className="margin-top--lg margin-bottom--lg">
+  <a href="./step-5-generalize-values" className="button button--primary button--lg">
+    📖 Step 5: Generalize Values →
+  </a>
+</div>

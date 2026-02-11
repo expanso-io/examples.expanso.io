@@ -1,0 +1,137 @@
+---
+title: Nightly Database Backup
+sidebar_label: Introduction
+sidebar_position: 1
+description: Simple, reliable database backups to cloud cold storage for disaster recovery
+keywords: [backup, disaster-recovery, postgres, cloud-storage, parquet, nearline]
+---
+
+# Nightly Database Backup
+
+Simple, reliable replication of database tables to cloud cold storage for disaster recovery.
+
+## The Problem
+
+Your organization needs:
+- **Reliable backups** of critical database tables
+- **Cloud storage** for DR (not on-premise tape)
+- **Cost efficiency** - cold storage classes for rarely-accessed backups
+- **Verifiable recovery** - checksums to confirm data integrity
+
+## The Solution: 4 Backup Steps
+
+This pipeline provides production-ready database backups:
+
+### 1. **Extract Multiple Tables** → Sequence Input
+- Orders (incremental - last 24 hours)
+- Inventory (full - complete table)
+- Order items (incremental - last 24 hours)
+
+### 2. **Add Backup Metadata** → Recovery Context
+- Backup date and timestamp
+- Source host and database
+- Pipeline version
+- Processing node ID
+
+### 3. **Calculate Checksums** → Integrity Verification
+- MD5 hash of row data
+- Verify integrity during recovery
+
+### 4. **Route to Storage** → Table-Specific Paths
+- Organized by table and date
+- Compressed Parquet format
+- Cloud Nearline/Coldline storage class
+
+## Data Flow
+
+```
+┌─────────────────┐
+│  PostgreSQL     │
+│  ┌───────────┐  │
+│  │  orders   │──┼──┐
+│  ├───────────┤  │  │     ┌─────────────────────┐
+│  │ inventory │──┼──┼────▶│  Expanso Edge       │
+│  ├───────────┤  │  │     │  - Add metadata     │
+│  │order_items│──┼──┘     │  - Calculate checksum│
+│  └───────────┘  │        │  - Route by table   │
+└─────────────────┘        └──────────┬──────────┘
+                                      │
+                    ┌─────────────────┼─────────────────┐
+                    ▼                 ▼                 ▼
+              ┌──────────┐      ┌──────────┐      ┌──────────┐
+              │ /orders/ │      │/inventory│      │ /items/  │
+              │ 2024-01-15│      │ 2024-01-15│      │ 2024-01-15│
+              └──────────┘      └──────────┘      └──────────┘
+                        Cloud Storage (Nearline)
+```
+
+## Storage Layout
+
+```
+gs://backup-bucket/
+├── backups/
+│   ├── orders/
+│   │   ├── 2024-01-15/
+│   │   │   └── orders-1705363200.parquet
+│   │   └── 2024-01-16/
+│   │       └── orders-1705449600.parquet
+│   ├── inventory/
+│   │   └── 2024-01-15/
+│   │       └── inventory-full.parquet
+│   └── order_items/
+│       └── 2024-01-15/
+│           └── items-1705363200.parquet
+```
+
+## Why Parquet + Nearline?
+
+| Choice | Benefit |
+|--------|---------|
+| **Parquet** | 70-90% compression, columnar queries |
+| **Nearline** | $0.01/GB/month (vs $0.02 Standard) |
+| **Date partitions** | Point-in-time recovery |
+| **Checksums** | Verify integrity on restore |
+
+## What You'll Learn
+
+By the end of this guide, you'll be able to:
+
+✅ **Extract from multiple tables** in a single pipeline  
+✅ **Add backup metadata** for recovery context  
+✅ **Calculate row checksums** for integrity verification  
+✅ **Route to table-specific paths** with date partitions  
+✅ **Schedule nightly runs** with cron  
+
+## Get Started
+
+### Option 1: Step-by-Step Tutorial (Recommended)
+Build the pipeline incrementally:
+
+1. [**Setup Guide**](./setup) - Prerequisites and environment
+2. [**Step 1: Extract Tables**](./step-1-extract-tables) - Multi-table sequence
+3. [**Step 2: Add Metadata**](./step-2-add-metadata) - Backup context
+4. [**Step 3: Calculate Checksum**](./step-3-calculate-checksum) - Integrity
+5. [**Step 4: Route to Storage**](./step-4-route-to-storage) - Table paths
+
+### Option 2: Jump to Complete Pipeline
+Download the production-ready configuration:
+
+[**→ Get Complete Pipeline**](./complete-pipeline)
+
+## Who This Guide Is For
+
+- **DBAs** implementing backup strategies
+- **Platform Engineers** building DR infrastructure
+- **DevOps Teams** automating data protection
+- **Compliance Teams** meeting backup requirements
+
+## Prerequisites
+
+- PostgreSQL (or MySQL/MSSQL) database
+- GCP project with Cloud Storage (or AWS S3)
+- Expanso Edge installed with database network access
+
+## Time to Complete
+
+- **Step-by-Step Tutorial:** 30-40 minutes
+- **Quick Deploy:** 5 minutes

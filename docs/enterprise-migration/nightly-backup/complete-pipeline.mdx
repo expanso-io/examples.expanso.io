@@ -1,0 +1,162 @@
+---
+title: Complete Nightly Backup Pipeline
+sidebar_label: Complete Pipeline
+sidebar_position: 7
+description: Production-ready database backup pipeline
+keywords: [complete, production, backup, deployment]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/enterprise-migration/nightly-backup/nightly-backup.yaml';
+
+# Complete Pipeline
+
+This pipeline provides production-ready database backups:
+
+1. **Extract multiple tables** - Orders, inventory, order_items
+2. **Add backup metadata** - Timestamp, source, version
+3. **Calculate checksums** - Row-level integrity verification
+4. **Route to storage** - Table-specific paths, Parquet compression
+
+**Result:** Reliable, verifiable backups with 70-90% compression.
+
+## Full Configuration
+
+<CodeBlock language="yaml" title="nightly-backup.yaml">{pipelineYaml}</CodeBlock>
+
+## Quick Test
+
+```bash
+# Set environment variables
+export DB_HOST=postgres.internal.corp
+export DB_NAME=ecommerce
+export DB_USER=backup_reader
+export DB_PASSWORD=<secret>
+export GCS_BACKUP_BUCKET=my-backup-bucket
+export NODE_ID=backup-node-1
+
+# Test (writes to stdout instead of GCS)
+expanso-edge run --config nightly-backup.yaml \
+  --set 'output.switch.cases[0].output=stdout' | head -5
+```
+
+## Deploy to Production
+
+### Schedule Nightly at 2 AM
+
+```bash
+expanso-cli job deploy nightly-backup.yaml --cron "0 2 * * *"
+```
+
+### Verify Deployment
+
+```bash
+# Check job status
+expanso-cli job describe nightly-backup-orders
+
+# View recent runs
+expanso-cli job executions nightly-backup-orders --limit 5
+```
+
+## Recovery Procedures
+
+### List Available Backups
+
+```bash
+# List all backup dates
+gsutil ls gs://${GCS_BACKUP_BUCKET}/backups/orders/
+
+# List files for specific date
+gsutil ls gs://${GCS_BACKUP_BUCKET}/backups/orders/2024-01-15/
+```
+
+### Download Backup
+
+```bash
+# Download single file
+gsutil cp gs://${GCS_BACKUP_BUCKET}/backups/orders/2024-01-15/orders-1705276800.parquet ./
+
+# Download entire date
+gsutil -m cp -r gs://${GCS_BACKUP_BUCKET}/backups/orders/2024-01-15/ ./restore/
+```
+
+### Restore to Database
+
+```python
+import pandas as pd
+import psycopg2
+
+# Read Parquet
+df = pd.read_parquet('orders-1705276800.parquet')
+
+# Verify checksums
+for _, row in df.iterrows():
+    data = row.drop(['_table', '_backup_type', '_backup_metadata', '_checksum'])
+    calculated = hashlib.md5(data.to_json().encode()).hexdigest()
+    assert calculated == row['_checksum'], f"Checksum mismatch for {row['order_id']}"
+
+# Restore to database
+conn = psycopg2.connect(...)
+df.drop(columns=['_table', '_backup_type', '_backup_metadata', '_checksum']).to_sql(
+    'orders_restored', conn, if_exists='replace', index=False
+)
+```
+
+## Monitoring
+
+### Check Backup Size
+
+```bash
+# Total backup size
+gsutil du -sh gs://${GCS_BACKUP_BUCKET}/backups/
+
+# Size by table
+gsutil du -sh gs://${GCS_BACKUP_BUCKET}/backups/orders/
+gsutil du -sh gs://${GCS_BACKUP_BUCKET}/backups/inventory/
+```
+
+### Alert on Failure
+
+```yaml
+# Add to pipeline
+output:
+  broker:
+    outputs:
+      - # Normal storage output...
+      - processors:
+          - mapping: |
+              root = if errored() {
+                {
+                  "alert": "Backup failed",
+                  "table": this._table,
+                  "error": error()
+                }
+              } else { deleted() }
+        http_client:
+          url: "https://alerts.example.com/webhook"
+```
+
+## Cost Estimation
+
+| Component | Monthly Cost (1TB) |
+|-----------|-------------------|
+| Nearline Storage | $10 |
+| Write Operations | $0.50 |
+| Network Egress | $0 (same region) |
+| **Total** | **~$10.50/TB/month** |
+
+Compare to:
+- Standard storage: $20/TB/month
+- Traditional backup software: $50-200/TB/month
+
+## Download
+
+<a href="/examples/enterprise-migration/nightly-backup/nightly-backup.yaml" download className="button button--primary">
+  Download nightly-backup.yaml
+</a>
+
+## What's Next?
+
+- [Troubleshooting](./troubleshooting) - Common issues and solutions
+- [DB2 to BigQuery](../db2-to-bigquery/) - Database migration patterns
+- [Cross-Border GDPR](../../data-security/cross-border-gdpr/) - Compliance for EU data

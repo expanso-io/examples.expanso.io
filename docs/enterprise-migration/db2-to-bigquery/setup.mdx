@@ -1,0 +1,175 @@
+---
+title: Setup Environment for DB2 Migration
+sidebar_label: Setup
+sidebar_position: 2
+description: Configure DB2 connectivity, GCP credentials, and sample data for migration testing
+keywords: [setup, db2, bigquery, odbc, gcp, environment]
+---
+
+# Setup Environment for DB2 Migration
+
+Before building the migration pipeline, configure your DB2 connection, GCP credentials, and test data.
+
+## Prerequisites
+
+- **DB2 Server:** Network accessible from your edge node
+- **ODBC Driver:** IBM DB2 ODBC Driver installed
+- **GCP Project:** BigQuery dataset created
+- **Expanso Edge:** Installed and running
+
+## Step 1: Configure DB2 Connection
+
+Set environment variables for your DB2 database:
+
+```bash
+# DB2 connection details
+export DB2_HOST=db2.internal.corp
+export DB2_PORT=50000
+export DB2_DATABASE=FINPROD
+export DB2_USER=etl_reader
+export DB2_PASSWORD=<your-password>
+```
+
+:::danger Protect Your Credentials
+Never commit database credentials to version control.
+
+**Production best practices:**
+- Use a secrets manager (HashiCorp Vault, AWS Secrets Manager)
+- Configure service accounts with minimal required permissions
+- Rotate credentials on a schedule (90 days recommended)
+:::
+
+### Verify DB2 Connectivity
+
+```bash
+# Test ODBC connection
+isql -v DB2_FINPROD $DB2_USER $DB2_PASSWORD
+
+# Or use db2cli
+db2cli validate -dsn FINPROD -connect -user $DB2_USER -passwd $DB2_PASSWORD
+```
+
+## Step 2: Configure GCP Credentials
+
+Set up BigQuery access:
+
+```bash
+# GCP project for BigQuery
+export GCP_PROJECT=my-analytics-project
+
+# Node identifier for lineage tracking
+export NODE_ID=edge-node-datacenter-1
+
+# Authenticate with GCP (if not using workload identity)
+gcloud auth application-default login
+```
+
+### Create BigQuery Dataset
+
+```bash
+# Create dataset if it doesn't exist
+bq mk --dataset ${GCP_PROJECT}:financial_data
+
+# Verify access
+bq ls ${GCP_PROJECT}:financial_data
+```
+
+## Step 3: Download Sample Data
+
+For local testing without DB2 access:
+
+```bash
+# Create working directory
+mkdir -p ~/db2-migration-tutorial
+cd ~/db2-migration-tutorial
+
+# Download sample DB2 record
+curl -o sample-input.json \
+  https://examples.expanso.io/files/enterprise-migration/db2-to-bigquery/sample-input.json
+
+# Verify download
+cat sample-input.json | jq .
+```
+
+**Sample Input (DB2 Record):**
+```json
+{
+  "TRANSACTION_ID": "TXN-2024-00123456",
+  "ACCOUNT_NUMBER": "4532-1234-5678-9012",
+  "CUSTOMER_ID": "CUST-789012",
+  "TRANSACTION_DATE": "2024-01-15",
+  "TRANSACTION_TYPE": "PURCHASE",
+  "AMOUNT": 125.50,
+  "CURRENCY": "EUR",
+  "MERCHANT_NAME": "ACME Electronics GmbH",
+  "MERCHANT_CATEGORY_CODE": "5411",
+  "SOURCE_SYSTEM": "CORE_BANKING_EU",
+  "CREATED_AT": "2024-01-15T14:32:17Z"
+}
+```
+
+## Step 4: Create Foundation Pipeline
+
+Start with a minimal pipeline that reads and writes without transformation:
+
+```yaml title="db2-foundation.yaml"
+name: db2-migration-foundation
+
+input:
+  # For testing: read from file
+  file:
+    paths: ["./sample-input.json"]
+    codec: json_documents
+
+pipeline:
+  processors:
+    # Placeholder for transformations
+    - mapping: |
+        root = this
+
+output:
+  # For testing: write to stdout
+  stdout:
+    codec: json_pretty
+```
+
+```bash
+# Test the foundation pipeline
+expanso-edge run --config db2-foundation.yaml
+```
+
+## Step 5: Verify Environment
+
+Run this checklist before proceeding:
+
+```bash
+# Check environment variables are set
+echo "DB2_HOST: ${DB2_HOST:-NOT SET}"
+echo "GCP_PROJECT: ${GCP_PROJECT:-NOT SET}"
+echo "NODE_ID: ${NODE_ID:-NOT SET}"
+
+# Check Expanso Edge is installed
+expanso-edge --version
+
+# Check GCP authentication
+gcloud auth list
+```
+
+---
+
+## Next Steps
+
+Environment ready! Now build the pipeline step-by-step:
+
+<div className="margin-top--lg margin-bottom--lg">
+  <a href="./step-1-add-lineage-metadata" className="button button--primary button--lg">
+    📖 Step 1: Add Lineage Metadata →
+  </a>
+</div>
+
+Or jump to a specific step:
+- [**Step 2: Normalize Currency**](./step-2-normalize-currency)
+- [**Step 3: Mask Account Numbers**](./step-3-mask-account-numbers)
+- [**Step 4: Categorize Transactions**](./step-4-categorize-transactions)
+- [**Step 5: Standardize Schema**](./step-5-standardize-schema)
+- [**Step 6: Validate Required Fields**](./step-6-validate-required-fields)

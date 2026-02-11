@@ -1,0 +1,277 @@
+---
+title: Troubleshooting
+sidebar_label: Troubleshooting
+sidebar_position: 8
+description: Common backup pipeline issues and solutions
+keywords: [troubleshooting, debug, backup, errors]
+---
+
+# Troubleshooting
+
+## Quick Diagnosis
+
+```bash
+# Check pipeline status
+expanso-cli status
+
+# View recent errors
+expanso-cli job logs --tail 50 2>&1 | grep -i error
+
+# Test database connectivity
+psql "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}" \
+  -c "SELECT 1;"
+
+# Test GCS connectivity
+gsutil ls gs://${GCS_BACKUP_BUCKET}/
+```
+
+## Database Issues
+
+### Connection refused
+
+**Symptoms:**
+```
+Error: dial tcp: connection refused
+```
+
+**Fixes:**
+
+1. Check network connectivity:
+   ```bash
+   telnet ${DB_HOST} 5432
+   ```
+
+2. Verify firewall rules allow edge node
+
+3. Check database is running:
+   ```bash
+   pg_isready -h ${DB_HOST}
+   ```
+
+---
+
+### Permission denied on table
+
+**Symptoms:**
+```
+Error: permission denied for table orders
+```
+
+**Fix:**
+
+```sql
+-- Grant SELECT to backup user
+GRANT SELECT ON orders, inventory, order_items TO backup_reader;
+
+-- Or grant on all tables
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO backup_reader;
+```
+
+---
+
+### No rows returned (empty backup)
+
+**Symptoms:** Backup completes but files are tiny/empty.
+
+**Cause:** Incremental filter too restrictive.
+
+**Fix:**
+
+```yaml
+# Check your WHERE clause
+where: "updated_at >= CURRENT_DATE - INTERVAL '1 day'"
+
+# Debug: count matching rows
+psql -c "SELECT COUNT(*) FROM orders WHERE updated_at >= CURRENT_DATE - INTERVAL '1 day';"
+```
+
+---
+
+## Storage Issues
+
+### GCS permission denied
+
+**Symptoms:**
+```
+Error: googleapi: Error 403: Access denied
+```
+
+**Fixes:**
+
+1. Check authentication:
+   ```bash
+   gcloud auth list
+   gcloud auth application-default login
+   ```
+
+2. Verify bucket permissions:
+   ```bash
+   gsutil iam get gs://${GCS_BACKUP_BUCKET}
+   ```
+
+3. Required role: `roles/storage.objectCreator`
+
+---
+
+### Bucket doesn't exist
+
+**Symptoms:**
+```
+Error: bucket does not exist
+```
+
+**Fix:**
+
+```bash
+# Create bucket
+gsutil mb -c NEARLINE -l US gs://${GCS_BACKUP_BUCKET}
+
+# Or check for typo
+echo $GCS_BACKUP_BUCKET
+```
+
+---
+
+### Parquet encoding failed
+
+**Symptoms:**
+```
+Error: failed to encode parquet
+```
+
+**Cause:** Data type incompatibility.
+
+**Fixes:**
+
+1. Check for NULL in non-nullable fields
+2. Ensure consistent types across rows
+3. Fall back to JSON:
+   ```yaml
+   # Temporarily disable Parquet
+   output:
+     gcp_cloud_storage:
+       path: "...data.json"
+       content_type: application/json
+       # Remove parquet_encoding section
+   ```
+
+---
+
+## Performance Issues
+
+### Backup taking too long
+
+**Diagnosis:**
+```bash
+expanso-cli node list
+```
+
+**Fixes:**
+
+1. Increase batch size:
+   ```yaml
+   batching:
+     count: 50000  # Increase from 10000
+     period: 120s
+   ```
+
+2. Add parallelism:
+   ```yaml
+   pipeline:
+     threads: 4
+   ```
+
+3. Optimize database query:
+   ```sql
+   -- Add index on incremental column
+   CREATE INDEX idx_orders_updated_at ON orders(updated_at);
+   ```
+
+---
+
+### Running out of memory
+
+**Symptoms:**
+```
+Error: out of memory
+```
+
+**Fixes:**
+
+1. Reduce batch size:
+   ```yaml
+   batching:
+     count: 1000  # Smaller batches
+   ```
+
+2. Add memory limit:
+   ```bash
+   expanso-edge run --config backup.yaml --memory-limit 512MB
+   ```
+
+---
+
+## Checksum Issues
+
+### Checksums don't match on restore
+
+**Cause:** Field order changed or floating point precision.
+
+**Fix:** Ensure consistent JSON serialization:
+
+```yaml
+# Sort keys for consistent ordering
+root._checksum = $data_fields.format_json({"sort_keys": true}).hash("md5")
+```
+
+---
+
+## Recovery Issues
+
+### Can't read Parquet file
+
+**Fix:** Install pyarrow or fastparquet:
+
+```bash
+pip install pyarrow pandas
+
+# Then read
+python -c "import pandas; print(pandas.read_parquet('file.parquet').head())"
+```
+
+---
+
+### Restore to wrong table
+
+**Prevention:** Always restore to a staging table first:
+
+```sql
+-- Restore to staging
+CREATE TABLE orders_restore_2024_01_15 AS SELECT * FROM ...;
+
+-- Verify row counts match backup metadata
+SELECT COUNT(*) FROM orders_restore_2024_01_15;
+
+-- Then swap if needed
+ALTER TABLE orders RENAME TO orders_old;
+ALTER TABLE orders_restore_2024_01_15 RENAME TO orders;
+```
+
+---
+
+## Still Stuck?
+
+1. **Enable debug logging:**
+   ```yaml
+   logger:
+     level: DEBUG
+   ```
+
+2. **Test single table:**
+   ```bash
+   # Isolate the problem
+   expanso-edge run --config backup.yaml \
+     --set 'input.sequence.inputs=[input.sequence.inputs[0]]'
+   ```
+
+3. **Check the [Complete Pipeline](./complete-pipeline)** for reference

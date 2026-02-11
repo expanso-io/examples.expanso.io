@@ -1,0 +1,173 @@
+---
+title: "Step 5: Generalize Values"
+sidebar_label: "Step 5: Generalize"
+sidebar_position: 7
+description: Reduce precision on numeric and temporal fields while preserving analytics value
+keywords: [generalize, bucket, precision, anonymization, k-anonymity]
+---
+
+# Step 5: Generalize Values
+
+Reduce precision on values to achieve k-anonymity—ensuring each data point represents many individuals, not just one.
+
+## The Goal
+
+- **Transaction amount** → Bucket (0-10, 10-50, 50-100, etc.)
+- **Timestamp** → Hour-level only (sufficient for pattern analysis)
+- Keep exact amount for SUM calculations (not PII without identifier)
+
+## Why Generalize?
+
+Generalization achieves **k-anonymity**: each record looks like at least k other people.
+
+| Precision | k-anonymity | Risk |
+|-----------|-------------|------|
+| Exact: €247.83 at 14:32:17 | k=1 (unique) | High |
+| Bucket: €100-500 at 14:00 | k=many | Low |
+
+When combined with hashed identifiers, generalized values make re-identification statistically impossible.
+
+## Implementation
+
+```yaml title="step-5-generalize.yaml"
+pipeline:
+  processors:
+    # Steps 1-4 from previous...
+    
+    # Step 5: Generalize values
+    - mapping: |
+        root = this
+        
+        # Transaction amount → bucket (preserves distribution analysis)
+        root.amount_bucket = match {
+          this.transaction_amount < 10 => "0-10",
+          this.transaction_amount < 50 => "10-50",
+          this.transaction_amount < 100 => "50-100",
+          this.transaction_amount < 500 => "100-500",
+          this.transaction_amount < 1000 => "500-1000",
+          this.transaction_amount < 5000 => "1000-5000",
+          _ => "5000+"
+        }
+        
+        # Keep exact amount for aggregate SUM calculations
+        # (amount alone without identifier is not personal data)
+        root.transaction_amount = this.transaction_amount
+        
+        # Timestamp → hour bucket (sufficient for pattern analysis)
+        root.transaction_hour = this.transaction_timestamp.ts_parse("2006-01-02T15:04:05Z").ts_format("2006-01-02T15:00:00Z")
+```
+
+## Understanding the Code
+
+| Expression | What It Does |
+|------------|--------------|
+| `match {...}` | Pattern matching for bucketing |
+| `this.transaction_amount < 50` | Comparison condition |
+| `.ts_parse(...)` | Parse ISO timestamp |
+| `.ts_format("...T15:00:00Z")` | Format to hour-level (minutes/seconds zeroed) |
+
+## Expected Output
+
+**Input:**
+```json
+{
+  "transaction_amount": 249.99,
+  "transaction_timestamp": "2024-01-15T14:32:17Z",
+  ...
+}
+```
+
+**Output:**
+```json
+{
+  "transaction_amount": 249.99,
+  "amount_bucket": "100-500",
+  "transaction_hour": "2024-01-15T14:00:00Z",
+  ...
+}
+```
+
+## Why Keep Exact Amount?
+
+The exact `transaction_amount` (249.99) is kept because:
+
+1. **Not PII alone:** Without an identifier, knowing someone spent €249.99 doesn't identify them
+2. **Analytics need:** Aggregate SUM/AVG requires exact values
+3. **Risk is bucket:** The bucket is used for distribution queries, exact for totals
+
+This is a risk-based decision—your compliance team may require bucketing all values.
+
+## Production Considerations
+
+### Configurable Buckets
+
+Different markets may need different bucket ranges:
+
+```yaml
+# High-value transaction market (B2B)
+root.amount_bucket = match {
+  this.transaction_amount < 1000 => "0-1000",
+  this.transaction_amount < 10000 => "1000-10000",
+  this.transaction_amount < 100000 => "10000-100000",
+  _ => "100000+"
+}
+```
+
+### Time Zone Handling
+
+Be explicit about time zones for global data:
+
+```yaml
+# Convert to UTC before bucketing
+root.transaction_hour = this.transaction_timestamp
+  .ts_parse("2006-01-02T15:04:05Z")
+  .ts_tz("UTC")
+  .ts_format("2006-01-02T15:00:00Z")
+
+# Also store day-of-week for pattern analysis
+root.transaction_dow = this.transaction_timestamp
+  .ts_parse("2006-01-02T15:04:05Z")
+  .ts_format("Monday")
+```
+
+### Currency-Aware Buckets
+
+Different currencies need different bucket ranges:
+
+```yaml
+root.amount_bucket = match this.transaction_currency {
+  "JPY" => match {
+    this.transaction_amount < 1000 => "0-1000",
+    this.transaction_amount < 5000 => "1000-5000",
+    _ => "5000+"
+  },
+  _ => match {
+    this.transaction_amount < 10 => "0-10",
+    this.transaction_amount < 100 => "10-100",
+    _ => "100+"
+  }
+}
+```
+
+### Minimum Bucket Size (k-anonymity)
+
+Ensure buckets have enough records:
+
+```yaml
+# In aggregation step, filter out buckets with < k records
+root = if meta("bucket_count") < 5 {
+  root.amount_bucket = "other"  # Merge small buckets
+} else {
+  this
+}
+```
+
+---
+
+## Next Step
+
+<div className="margin-top--lg margin-bottom--lg">
+  <a href="./step-6-validate-anonymization" className="button button--primary button--lg">
+    📖 Step 6: Validate Anonymization →
+  </a>
+</div>
