@@ -1,0 +1,52 @@
+# Setup: MotherDuck Retail Analytics Pipeline
+
+## Prerequisites
+
+Before building the pipeline, ensure you have:
+
+### 1. Expanso Edge
+
+```bash
+curl -sSL https://get.expanso.io | bash
+```
+
+### 2. MotherDuck Account
+
+1. Sign up at [motherduck.com](https://motherduck.com) (free tier includes 10GB storage)
+2. Get your access token from **Settings → Access Tokens**
+3. Save it — you'll need it for Step 6
+
+### 3. S3 Bucket
+
+Create a bucket for your retail data. Any S3-compatible storage works:
+
+```bash
+# AWS S3
+aws s3 mb s3://my-retail-data
+
+# Or use MinIO, Cloudflare R2, etc.
+```
+
+### 4. AWS Credentials
+
+Ensure your environment has S3 write access:
+
+```bash
+export AWS_ACCESS_KEY_ID=your-key
+export AWS_SECRET_ACCESS_KEY=your-secret
+export AWS_REGION=us-east-1
+```
+
+## Pipeline Architecture
+
+The complete pipeline has 6 stages:
+
+```
+POS Terminal → [Generate] → [Enrich] → [Validate] → [Batch] → [Parquet] → S3 → DuckLake
+```
+
+Each step in this tutorial adds one stage. By the end, you'll have a production-ready pipeline that transforms raw POS events into compressed, partitioned Parquet files on S3 — ready for instant MotherDuck queries.
+
+## Next Step
+
+→ [Step 1: Generate POS Transactions](./step-1-generate-pos-data)

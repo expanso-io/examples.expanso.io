@@ -1,0 +1,101 @@
+# Step 5: Ship to S3 with Partitioning
+
+The final edge step: write Parquet files to S3 with Hive-style partitioning so DuckLake can auto-discover and index them.
+
+## Hive-Style Partitioning
+
+DuckLake expects partitioned paths like:
+
+```
+s3://my-retail-data/transactions/
+  region=NW/date=2026-02-11/batch_1707616800_001.parquet
+  region=NW/date=2026-02-11/batch_1707616810_002.parquet
+  region=SW/date=2026-02-11/batch_1707616800_001.parquet
+  ...
+```
+
+This lets DuckLake skip entire partitions when filtering by region or date — massive query speedups on large datasets.
+
+## S3 Output
+
+```yaml
+output:
+  aws_s3:
+    bucket: "${S3_BUCKET}"
+    path: >-
+      transactions/region=${! json("store_region") }/date=${! now().ts_format("2006-01-02") }/batch_${! timestamp_unix() }_${! count("s3_files") }.parquet
+    content_type: application/octet-stream
+    max_in_flight: 4
+    batching:
+      count: 1
+      processors: []
+```
+
+## Local Fallback for Development
+
+For local development or testing without S3, write to the filesystem:
+
+```yaml
+output:
+  file:
+    path: >-
+      ./retail_data/region=${! json("store_region") }/date=${! now().ts_format("2006-01-02") }/batch_${! timestamp_unix() }_${! count("files") }.parquet
+    codec: all-bytes
+```
+
+## Dual Output: S3 + Local Buffer
+
+In production, write to both S3 and a local buffer. If S3 connectivity drops, the local buffer retains data for retry:
+
+```yaml
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Primary: S3
+      - aws_s3:
+          bucket: "${S3_BUCKET}"
+          path: >-
+            transactions/region=${! json("store_region") }/date=${! now().ts_format("2006-01-02") }/batch_${! timestamp_unix() }_${! count("s3_files") }.parquet
+          content_type: application/octet-stream
+          max_in_flight: 4
+
+      # Backup: local filesystem (7-day retention)
+      - file:
+          path: >-
+            /var/expanso/retail-buffer/batch_${! timestamp_unix() }.parquet
+          codec: all-bytes
+```
+
+## What Lands in S3
+
+After running for a few minutes with 50 stores:
+
+```
+s3://my-retail-data/transactions/
+├── region=MW/
+│   └── date=2026-02-11/
+│       ├── batch_1707616800_001.parquet  (85 KB, ~1000 txns)
+│       ├── batch_1707616810_002.parquet  (82 KB, ~1000 txns)
+│       └── ...
+├── region=NE/
+│   └── date=2026-02-11/
+│       └── ...
+├── region=NW/
+│   └── date=2026-02-11/
+│       └── ...
+├── region=SE/
+│   └── date=2026-02-11/
+│       └── ...
+└── region=SW/
+    └── date=2026-02-11/
+        └── ...
+```
+
+Each file: ~85KB, ~1000 transactions, Zstandard-compressed Parquet. DuckLake picks them up automatically.
+
+## Next Step
+
+Data is landing in S3. Now we connect MotherDuck's DuckLake to auto-index it and run SQL queries across all stores.
+
+→ [Step 6: Connect DuckLake and Query](./step-6-ducklake-query)

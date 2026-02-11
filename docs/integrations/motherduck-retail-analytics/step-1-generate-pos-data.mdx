@@ -1,0 +1,114 @@
+# Step 1: Generate POS Transactions
+
+First, we'll create a synthetic POS data generator that produces realistic retail transactions. In production, this would be replaced by your actual POS system feed.
+
+## The Generator
+
+```yaml
+input:
+  generate:
+    interval: 100ms
+    mapping: |
+      # Unique transaction ID
+      root.txn_id = uuid_v4()
+
+      # Store and terminal
+      root.store_id = random_int(min: 1, max: 50)
+      root.terminal_id = random_int(min: 1, max: 10)
+      root.timestamp = now()
+
+      # Transaction type (weighted: 85% sale, 10% return, 5% exchange)
+      let roll = random_int(min: 1, max: 100)
+      root.type = match {
+        $roll <= 85 => "sale",
+        $roll <= 95 => "return",
+        _ => "exchange"
+      }
+
+      # Payment method
+      root.payment_method = ["card", "card", "card", "cash", "mobile", "gift_card"]
+        .index(random_int(min: 0, max: 5))
+
+      # Employee/cashier
+      root.employee_id = "EMP-" + random_int(min: 1000, max: 9999).string()
+
+      # Basket items (1-6 items per transaction)
+      let categories = ["grocery", "produce", "dairy", "bakery", "meat",
+                         "frozen", "beverage", "household", "personal_care", "electronics"]
+      let item_count = random_int(min: 1, max: 6)
+      root.items = range(0, $item_count).map_each(
+        {
+          "sku": "SKU-" + random_int(min: 10000, max: 99999).string(),
+          "name": "Item " + random_int(min: 1, max: 500).string(),
+          "category": $categories.index(random_int(min: 0, max: 9)),
+          "qty": random_int(min: 1, max: 4),
+          "unit_price": (random_int(min: 99, max: 4999).number() / 100)
+        }
+      )
+
+      # Calculate totals
+      root.subtotal = root.items.map_each(this.qty * this.unit_price).sum().round(2)
+      root.tax_rate = 0.0875
+      root.tax_amount = (root.subtotal * root.tax_rate).round(2)
+      root.total_amount = (root.subtotal + root.tax_amount).round(2)
+
+      # Returns are negative
+      root = if root.type == "return" {
+        root.assign({
+          "subtotal": -root.subtotal,
+          "tax_amount": -root.tax_amount,
+          "total_amount": -root.total_amount
+        })
+      }
+```
+
+## Test It
+
+Save the config and pipe output to stdout:
+
+```yaml
+output:
+  stdout:
+    codec: lines
+```
+
+```bash
+expanso-edge run --config pos-generator.yaml
+```
+
+You should see transactions flowing:
+
+```json
+{
+  "txn_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "store_id": 42,
+  "terminal_id": 7,
+  "timestamp": "2026-02-11T04:00:00.000Z",
+  "type": "sale",
+  "payment_method": "card",
+  "employee_id": "EMP-4521",
+  "items": [
+    {"sku": "SKU-34521", "name": "Item 127", "category": "grocery", "qty": 2, "unit_price": 3.49},
+    {"sku": "SKU-78234", "name": "Item 303", "category": "produce", "qty": 1, "unit_price": 5.99}
+  ],
+  "subtotal": 12.97,
+  "tax_rate": 0.0875,
+  "tax_amount": 1.13,
+  "total_amount": 14.10
+}
+```
+
+## What's Happening
+
+At 10 transactions per second across 50 stores, this simulates ~43 million transactions per day — a realistic volume for a mid-size retail chain. Each transaction includes:
+
+- **Basket-level detail**: Individual SKUs with categories, quantities, and prices
+- **Weighted distribution**: 85% sales, 10% returns, 5% exchanges
+- **Calculated fields**: Subtotal, tax, and total with proper rounding
+- **Negative amounts for returns**: Returns flip the sign on all monetary fields
+
+## Next Step
+
+The raw data is flowing, but it's missing store context. Next, we'll enrich each transaction with store metadata.
+
+→ [Step 2: Enrich with Store Metadata](./step-2-enrich-store-metadata)

@@ -1,0 +1,161 @@
+# Step 6: Connect DuckLake and Query in MotherDuck
+
+Data is landing in S3 as partitioned Parquet. Now we connect MotherDuck's DuckLake to auto-index it and start querying.
+
+## Set Up DuckLake
+
+### 1. Connect to MotherDuck
+
+```sql
+-- In DuckDB CLI or MotherDuck UI
+INSTALL ducklake;
+LOAD ducklake;
+
+-- Connect to MotherDuck
+ATTACH 'md:';
+```
+
+### 2. Create a DuckLake Catalog
+
+```sql
+-- Create a DuckLake catalog pointing to your S3 bucket
+ATTACH 'ducklake:retail_analytics'
+  (DATA_PATH 's3://my-retail-data/ducklake',
+   METADATA_PATH 's3://my-retail-data/ducklake_metadata');
+```
+
+### 3. Create the Transactions Table
+
+```sql
+USE retail_analytics;
+
+CREATE TABLE transactions AS
+  SELECT *
+  FROM read_parquet('s3://my-retail-data/transactions/**/*.parquet',
+                    hive_partitioning=true);
+```
+
+DuckLake now manages this table. New Parquet files landing in S3 are automatically detected and indexed — no manual refresh needed.
+
+## Query Examples
+
+### Revenue by Region (Today)
+
+```sql
+SELECT
+  store_region,
+  COUNT(*) as txn_count,
+  SUM(total_amount) as revenue,
+  AVG(total_amount) as avg_ticket,
+  AVG(basket_size) as avg_basket
+FROM transactions
+WHERE date = CURRENT_DATE
+  AND type = 'sale'
+GROUP BY store_region
+ORDER BY revenue DESC;
+```
+
+```
+┌──────────────┬───────────┬───────────┬────────────┬────────────┐
+│ store_region │ txn_count │  revenue  │ avg_ticket │ avg_basket │
+├──────────────┼───────────┼───────────┼────────────┼────────────┤
+│ SW           │    18,432 │ 487,291.4 │      26.43 │       3.2  │
+│ NW           │    16,891 │ 445,120.8 │      26.35 │       3.1  │
+│ NE           │    15,203 │ 401,887.2 │      26.43 │       3.3  │
+│ SE           │    12,876 │ 340,092.1 │      26.41 │       3.1  │
+│ MW           │    11,598 │ 306,389.5 │      26.42 │       3.2  │
+└──────────────┴───────────┴───────────┴────────────┴────────────┘
+```
+
+### Hourly Sales Heatmap
+
+```sql
+SELECT
+  hour_of_day,
+  day_of_week,
+  COUNT(*) as txn_count,
+  SUM(total_amount) as revenue
+FROM transactions
+WHERE type = 'sale'
+  AND date >= CURRENT_DATE - INTERVAL '7 days'
+GROUP BY hour_of_day, day_of_week
+ORDER BY hour_of_day, day_of_week;
+```
+
+### Top Categories by Store Format
+
+```sql
+SELECT
+  store_format,
+  item.category,
+  SUM(item.qty * item.unit_price) as category_revenue
+FROM transactions,
+  LATERAL (SELECT * FROM json_extract_many(items_json)) as item
+WHERE type = 'sale'
+GROUP BY store_format, item.category
+ORDER BY store_format, category_revenue DESC;
+```
+
+### Anomaly Report
+
+```sql
+SELECT
+  quality_score,
+  anomaly_flags,
+  COUNT(*) as count,
+  SUM(total_amount) as total_value
+FROM transactions
+WHERE is_anomaly = true
+GROUP BY quality_score, anomaly_flags
+ORDER BY count DESC;
+```
+
+### Store Performance Scorecard
+
+```sql
+SELECT
+  store_id,
+  store_city,
+  store_format,
+  store_sqft,
+  COUNT(*) as daily_txns,
+  SUM(total_amount) as daily_revenue,
+  ROUND(SUM(total_amount) / store_sqft * 365, 2) as annual_rev_per_sqft,
+  AVG(basket_size) as avg_basket,
+  SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END) as anomaly_count
+FROM transactions
+WHERE date = CURRENT_DATE AND type = 'sale'
+GROUP BY ALL
+ORDER BY annual_rev_per_sqft DESC;
+```
+
+## DuckLake Data Inlining
+
+For near-real-time queries, DuckLake's [data inlining](https://ducklake.select/docs/stable/duckdb/advanced_features/data_inlining) feature is key. Small Parquet files (like our micro-batches) get inlined directly into the catalog database rather than stored as separate files. DuckLake periodically flushes inlined data to full-size Parquet files — giving you:
+
+- **Instant availability**: Data is queryable the moment it's ingested
+- **No small-file overhead**: Automatic compaction handles the rest
+- **Best of both worlds**: Real-time inserts with analytical performance
+
+## What You've Built
+
+```
+50 Stores → Expanso Edge → S3 (Partitioned Parquet) → DuckLake → MotherDuck SQL
+               │                                          │
+               ├── Parse POS JSON                         ├── Auto-index new files
+               ├── Enrich (store metadata)                ├── Inline small batches
+               ├── Validate (anomaly flags)               ├── Partition pruning
+               ├── Batch (1000 rows / 10s)                └── Serverless scale
+               ├── Encode (Zstandard Parquet)
+               └── Ship (Hive partitioned)
+```
+
+**Edge processing**: ~3.6 GB/day of Parquet (down from ~90 GB raw JSON)
+**Query latency**: Sub-second on MotherDuck for most analytical queries
+**Data freshness**: ~10 seconds from POS terminal to queryable in MotherDuck
+
+## Next Step
+
+Want the complete pipeline in one file? Copy, paste, deploy.
+
+→ [Complete Pipeline](./complete-pipeline)
