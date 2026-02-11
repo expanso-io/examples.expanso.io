@@ -1,0 +1,324 @@
+---
+title: "Medical Device Field Report Intelligence"
+description: "Batch hospital equipment data at the edge, analyze with Claude, store locally for compliance, and push summaries to fleet management"
+tags: [healthcare, claude, anthropic, ai, edge-processing, medical-devices, compliance, batch-processing]
+---
+
+# Medical Device Field Report Intelligence
+
+## The Problem: Smart Devices, Dumb Data Flow
+
+A typical hospital runs thousands of medical devices — ventilators, infusion pumps, patient monitors, defibrillators. Every day, field technicians generate maintenance logs, devices emit error codes, and shift notes capture critical observations that only exist as freeform text.
+
+Today, this data lives in three different places in three different formats. A technician notices that the third O2 sensor has failed on the same ventilator in six months — but that pattern is trapped in a text file. An infusion pump firmware update causes false alarms across a fleet — but the connection between the error codes and the firmware rollback lives only in a technician's head.
+
+**The gap isn't data collection. It's intelligence extraction.**
+
+## What This Pipeline Does
+
+<div style={{
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '2px',
+  margin: '2rem 0',
+  fontFamily: 'var(--ifm-font-family-monospace)',
+  fontSize: '0.85rem',
+}}>
+  <div style={{
+    display: 'flex',
+    justifyContent: 'center',
+    gap: '1rem',
+    flexWrap: 'wrap',
+  }}>
+    <div style={{
+      background: 'var(--ifm-color-primary-lightest)',
+      border: '2px solid var(--ifm-color-primary)',
+      borderRadius: '8px',
+      padding: '12px 16px',
+      textAlign: 'center',
+      minWidth: '160px',
+    }}>
+      <div style={{ fontWeight: 700 }}>📋 Maintenance Logs</div>
+      <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>CSV • Structured</div>
+    </div>
+    <div style={{
+      background: 'var(--ifm-color-primary-lightest)',
+      border: '2px solid var(--ifm-color-primary)',
+      borderRadius: '8px',
+      padding: '12px 16px',
+      textAlign: 'center',
+      minWidth: '160px',
+    }}>
+      <div style={{ fontWeight: 700 }}>⚠️ Error Events</div>
+      <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>JSON • Device telemetry</div>
+    </div>
+    <div style={{
+      background: 'var(--ifm-color-primary-lightest)',
+      border: '2px solid var(--ifm-color-primary)',
+      borderRadius: '8px',
+      padding: '12px 16px',
+      textAlign: 'center',
+      minWidth: '160px',
+    }}>
+      <div style={{ fontWeight: 700 }}>📝 Technician Notes</div>
+      <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Freeform text</div>
+    </div>
+  </div>
+
+  <div style={{ textAlign: 'center', fontSize: '1.5rem', padding: '4px 0' }}>▼</div>
+
+  <div style={{
+    background: 'var(--ifm-color-emphasis-200)',
+    border: '2px solid var(--ifm-color-emphasis-500)',
+    borderRadius: '8px',
+    padding: '16px',
+    textAlign: 'center',
+    maxWidth: '500px',
+    margin: '0 auto',
+  }}>
+    <div style={{ fontWeight: 700, fontSize: '1rem' }}>🔄 Expanso Edge Pipeline</div>
+    <div style={{ fontSize: '0.8rem', marginTop: '4px' }}>Merge → Batch → Shape</div>
+  </div>
+
+  <div style={{ textAlign: 'center', fontSize: '1.5rem', padding: '4px 0' }}>▼</div>
+
+  <div style={{
+    background: '#f0e6ff',
+    border: '2px solid #7c3aed',
+    borderRadius: '8px',
+    padding: '16px',
+    textAlign: 'center',
+    maxWidth: '500px',
+    margin: '0 auto',
+  }}>
+    <div style={{ fontWeight: 700, fontSize: '1rem', color: '#7c3aed' }}>🧠 Claude Analysis</div>
+    <div style={{ fontSize: '0.8rem', marginTop: '4px' }}>Anthropic Messages API</div>
+    <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Incident extraction • Root cause • Fleet patterns</div>
+  </div>
+
+  <div style={{ textAlign: 'center', fontSize: '1.5rem', padding: '4px 0' }}>▼</div>
+
+  <div style={{
+    display: 'flex',
+    justifyContent: 'center',
+    gap: '1rem',
+    flexWrap: 'wrap',
+  }}>
+    <div style={{
+      background: '#e6f4ea',
+      border: '2px solid #34a853',
+      borderRadius: '8px',
+      padding: '12px 16px',
+      textAlign: 'center',
+      minWidth: '200px',
+    }}>
+      <div style={{ fontWeight: 700, color: '#34a853' }}>💾 Local Storage</div>
+      <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Compliance & audit trail</div>
+    </div>
+    <div style={{
+      background: '#fff3e0',
+      border: '2px solid #f59e0b',
+      borderRadius: '8px',
+      padding: '12px 16px',
+      textAlign: 'center',
+      minWidth: '200px',
+    }}>
+      <div style={{ fontWeight: 700, color: '#f59e0b' }}>📡 Fleet Dashboard</div>
+      <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Central management endpoint</div>
+    </div>
+  </div>
+</div>
+
+Three data sources at the hospital edge → merged and batched by Expanso → analyzed by Claude for structured incident extraction → results stored locally (HIPAA compliance) AND pushed to the central fleet management dashboard.
+
+## Why This Architecture
+
+**Why batch, not real-time?** Clinical device maintenance isn't a millisecond game. Technicians complete rounds, file notes, and hand off shifts. Batching hourly (or per-shift) matches the natural rhythm of the work and keeps API costs predictable.
+
+**Why Claude?** The hardest part of this pipeline is the freeform technician notes. A technician writes _"This is the third O2 cell we've gone through on this unit in 6 months. I think the sensor housing might have a seal issue letting moisture in."_ — extracting "recurring failure pattern → probable root cause → recommended manufacturer inspection" requires genuine language understanding, not regex.
+
+**Why store locally AND push externally?** Healthcare compliance (HIPAA, FDA 21 CFR Part 11) requires that device maintenance records stay at the facility. But fleet managers need visibility across all sites. The pipeline satisfies both: full records stay on-site, structured summaries go to central.
+
+## The Pipeline
+
+```yaml title="pipeline.yaml"
+input:
+  broker:
+    inputs:
+      # Source 1: Structured maintenance logs (CSV)
+      - csv:
+          paths: ["./data/maintenance-logs.csv"]
+          parse_header_row: true
+        processors:
+          - mapping: |
+              root.source = "maintenance_log"
+              root.device_id = this.device_id
+              root.timestamp = this.timestamp
+              root.data = this
+
+      # Source 2: Device error events (JSON)
+      - file:
+          paths: ["./data/error-events.json"]
+          codec: all-bytes
+        processors:
+          - mapping: |
+              root.source = "error_events"
+              root.data = this.parse_json()
+
+      # Source 3: Freeform technician notes (text)
+      - file:
+          paths: ["./data/technician-notes.txt"]
+          codec: all-bytes
+        processors:
+          - mapping: |
+              root.source = "technician_notes"
+              root.data = content()
+
+pipeline:
+  processors:
+    # Batch and tag
+    - mapping: |
+        root = this
+        meta batch_id = "BATCH-" + now().format_timestamp("20060102-1504")
+
+    # Claude-powered analysis
+    - command:
+        name: python3
+        args: ["./scripts/analyze_reports.py"]
+
+    # Shape output
+    - mapping: |
+        root = this.parse_json()
+        root.pipeline_version = "1.0.0"
+        root.processed_at = now()
+
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Compliance copy stays on-site
+      - file:
+          path: "./output/incident-reports.json"
+          codec: lines
+
+      # Summaries go to central fleet dashboard
+      - http_client:
+          url: "http://localhost:8089/api/v1/incidents"
+          verb: POST
+          headers:
+            Content-Type: application/json
+```
+
+## The Claude Integration
+
+The Python analyzer merges all three data sources and sends them to Claude with a structured prompt. If no API key is available, it returns a realistic mock response — so anyone can run the demo without credentials.
+
+```python title="scripts/analyze_reports.py (key section)"
+def analyze_with_claude(batch_payload):
+    """Call Claude API for structured incident extraction."""
+    import anthropic
+
+    client = anthropic.Anthropic()
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        system=SYSTEM_PROMPT,
+        messages=[{
+            "role": "user",
+            "content": f"Analyze this batch of medical device field data "
+                       f"and produce structured incident reports:\n\n"
+                       f"```json\n{json.dumps(batch_payload, indent=2)}\n```",
+        }],
+    )
+    return json.loads(response.content[0].text)
+
+# Graceful fallback
+api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+if api_key:
+    result = analyze_with_claude(batch)
+else:
+    result = mock_analysis(batch)  # realistic mock response
+```
+
+## Sample Output
+
+What Claude extracts from the raw data:
+
+```json
+{
+  "batch_id": "BATCH-20260210-1600",
+  "site": "General Hospital — Main Campus",
+  "incidents": [
+    {
+      "incident_id": "INC-001",
+      "device_id": "VENT-4012",
+      "device_model": "Dräger Evita V500 Ventilator",
+      "failure_mode": "Recurring O2 sensor failure — 3 cells in 6 months",
+      "severity": "critical",
+      "root_cause": "Probable moisture ingress through degraded sensor housing seal",
+      "recommended_action": "Schedule Dräger inspection of sensor housing before replacing another cell",
+      "confidence": 0.88,
+      "fleet_impact": "Check other Dräger units of same vintage (2022)"
+    },
+    {
+      "incident_id": "INC-002",
+      "device_id": "PUMP-7891",
+      "device_model": "B. Braun Infusomat Space",
+      "failure_mode": "Firmware 4.2.1 causes false occlusion alarms",
+      "severity": "warning",
+      "root_cause": "Firmware update introduced oversensitive occlusion threshold",
+      "recommended_action": "Hold firmware 4.2.1 fleet-wide. File manufacturer report.",
+      "confidence": 0.95,
+      "fleet_impact": "All pumps on firmware upgrade schedule — DO NOT upgrade"
+    }
+  ],
+  "fleet_alerts": [
+    {
+      "alert": "Philips MX800 connector degradation",
+      "severity": "high",
+      "detail": "3 units with same failure this quarter — systemic issue"
+    }
+  ],
+  "supply_alerts": [
+    {
+      "item": "Philips SpO2 probe cables (REF M1191B)",
+      "current_stock": 3,
+      "recommended_order": 10,
+      "urgency": "high"
+    }
+  ]
+}
+```
+
+Notice what Claude extracted that no simple parser could:
+- **Cross-referencing** maintenance logs with technician notes to identify the recurring ventilator sensor pattern
+- **Fleet-level alerts** by connecting a single technician's observation ("3 units this quarter") to a systemic concern
+- **Supply chain signals** buried in freeform shift notes
+- **Firmware hold recommendation** by correlating error events with the rollback action
+
+## Running the Example
+
+```bash
+# 1. Start the mock fleet dashboard (in a separate terminal)
+python3 scripts/mock_receiver.py 8089
+
+# 2. Run the pipeline (mock mode — no API key needed)
+python3 scripts/analyze_reports.py
+
+# 3. Run with real Claude analysis
+ANTHROPIC_API_KEY=sk-ant-... python3 scripts/analyze_reports.py
+
+# 4. Run the full test suite
+bash scripts/test-pipeline.sh
+```
+
+## The Value Proposition
+
+| Without Expanso | With Expanso + Claude |
+|---|---|
+| Maintenance logs sit in a CSV on a shared drive | Structured incidents with root cause analysis |
+| Error codes are just codes — no context | Error codes correlated with maintenance history and technician observations |
+| Technician notes are unstructured text files | Fleet-level pattern detection from freeform observations |
+| No cross-device visibility | Systemic alerts across the device fleet |
+| Compliance data stays siloed | Full records local (compliant) + summaries centralized |
+| Reactive maintenance | Proactive: "stop upgrading firmware X" before more devices are affected |

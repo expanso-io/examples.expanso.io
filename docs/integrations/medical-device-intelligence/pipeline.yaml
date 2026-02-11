@@ -1,0 +1,87 @@
+# Medical Device Field Report Intelligence Pipeline
+#
+# Collects maintenance logs, error events, and technician notes from
+# hospital edge nodes. Batches them hourly, runs Claude-powered analysis
+# to extract structured incident reports, stores results locally for
+# compliance, and pushes summaries to the central fleet dashboard.
+
+input:
+  broker:
+    inputs:
+      # Source 1: Structured maintenance logs (CSV)
+      - csv:
+          paths: ["./data/maintenance-logs.csv"]
+          parse_header_row: true
+          batch_count: 0  # read all rows
+        processors:
+          - mapping: |
+              root.source = "maintenance_log"
+              root.device_id = this.device_id
+              root.timestamp = this.timestamp
+              root.data = this
+
+      # Source 2: Device error events (JSON)
+      - file:
+          paths: ["./data/error-events.json"]
+          codec: all-bytes
+        processors:
+          - mapping: |
+              root.source = "error_events"
+              root.data = this.parse_json()
+
+      # Source 3: Freeform technician notes (text)
+      - file:
+          paths: ["./data/technician-notes.txt"]
+          codec: all-bytes
+        processors:
+          - mapping: |
+              root.source = "technician_notes"
+              root.data = content()
+
+pipeline:
+  processors:
+    # --- Stage 1: Batch all sources together ---
+    # In production, this would use a time-based window (e.g. hourly).
+    # For the demo, we batch everything that arrived.
+    - mapping: |
+        root = this
+        meta batch_id = "BATCH-" + now().format_timestamp("20060102-1504")
+        meta site = "General Hospital — Main Campus"
+
+    # --- Stage 2: Run Claude-powered analysis ---
+    # Calls analyze_reports.py which:
+    #   - Merges all three data sources
+    #   - Sends to Claude API (or mock if no key)
+    #   - Returns structured incident reports
+    - command:
+        name: python3
+        args:
+          - "./scripts/analyze_reports.py"
+
+    # --- Stage 3: Shape the output ---
+    # Ensure consistent structure for downstream consumers
+    - mapping: |
+        root = this.parse_json()
+        root.pipeline_version = "1.0.0"
+        root.processed_at = now()
+
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Output 1: Store locally for compliance/audit
+      - file:
+          path: "./output/incident-reports.json"
+          codec: lines
+
+      # Output 2: Push to central fleet management dashboard
+      - http_client:
+          url: "http://localhost:8089/api/v1/incidents"
+          verb: POST
+          headers:
+            Content-Type: application/json
+          max_in_flight: 1
+          retries: 3
+          backoff:
+            initial_interval: 1s
+            max_interval: 10s
