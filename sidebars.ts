@@ -418,6 +418,15 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'category',
+          label: 'Medical Device Intelligence',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'integrations/medical-device-intelligence/index',
+          ],
+        },
+        {
+          type: 'category',
           label: 'O-RAN Telco Pipeline',
           collapsible: true,
           collapsed: true,
