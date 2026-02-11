@@ -21,9 +21,9 @@ None of this is in Splunk today. Not because Splunk can't handle it — but beca
 
 **That's the opportunity.** Not "do the same thing for less." It's **"bring Splunk into places it's never been."**
 
-## Three Wins, One Pipeline
+## Four Wins, One Pipeline
 
-Expanso Edge sits between your data sources and Splunk. It unlocks three things simultaneously:
+Expanso Edge sits between your data sources and Splunk. It unlocks four things simultaneously:
 
 ### Win #1: New Data Sources That Don't Exist in Splunk Today
 
@@ -61,7 +61,43 @@ Expanso Edge transforms raw data into AI-ready data before it arrives:
 ✅ **Schema normalization across thousands of sources** — a customer with 247 different log sources has 247 different ways of expressing "a user logged in." Expanso normalizes all of them into a consistent schema before they hit the index. Cisco's TSFM (Time Series Foundation Model) can work across the entire dataset without fighting format inconsistencies  
 ✅ **Continuous data quality validation** — enforce schemas, validate field types, check for anomalies in the data itself. Events that fail validation get flagged, routed to dead-letter queues, or corrected. The data that arrives in Splunk is trustworthy — the prerequisite for any serious AI/ML deployment  
 
-### Win #3: Better Existing Data
+**Training data extraction** — here's what makes this concrete: the upstream layer can fork a stream. One copy goes to Splunk for real-time analytics. Another copy — enriched, labeled, structured, PII-stripped — goes to a data lake in Parquet or Delta Lake format, partitioned and ready for model training. Splunk becomes the real-time analytics layer *and* the source of truth for ML training data. That's the Data Fabric story made concrete.
+
+The pitch to a customer isn't "Splunk costs less." It's **"Splunk is now your AI/ML data backbone.** Every event arrives enriched, normalized, and validated. Your data science team can train models on operational data that was previously inaccessible or unusable."
+
+### Win #3: Federated Data Architecture — Extended to the Actual Edge
+
+The Cisco Data Fabric already federates across S3, Snowflake, Azure, and Iceberg. The Machine Data Lake gives customers a cost-effective place to land data within the Splunk ecosystem. Edge Processor handles filtering and routing within the Splunk pipeline.
+
+**The natural next step: extend federation all the way to the endpoint.**
+
+Not everything needs to be ingested. Not everything needs to be in S3. Some data is most valuable *in situ* — sitting on the device that generated it, queryable on demand.
+
+Think about what this means for an analyst running Federated Search:
+
+```spl
+| federated source=edge_fleet host="factory-floor-*" metric="vibration" earliest=-7d
+| join type=inner
+    [search index=iot_alerts severity=critical host="factory-floor-*"]
+| timechart span=1h avg(vibration_amplitude) by host
+```
+
+The analyst just queried vibration data from 200 factory floor sensors **without that data ever being ingested.** It stayed on the sensors. The upstream processing layer at each site handled the query, filtered it, and returned only the results. Splunk ran the analytics. The Machine Data Lake didn't need to store it. The ingest pipeline didn't need to carry it.
+
+This is the Cisco Data Fabric's "bring analytics to data" principle taken to its extreme: **analytics at the farthest edge, with Splunk as the unified query layer.**
+
+For customers, this unlocks a completely new tier of data:
+
+| **Data Tier** | **Where It Lives** | **How Splunk Accesses It** |
+|---|---|---|
+| Hot | Splunk Indexes | Direct search (SPL) |
+| Warm | Machine Data Lake | Promoted search |
+| Cold | S3 / Data Lake | Federated Search (FS-S3) |
+| **Edge** | **On the endpoint** | **Federated Edge Query (NEW)** |
+
+That fourth tier doesn't exist today. It's a new capability. It's a new SKU opportunity. And it positions Splunk as the only platform that can query from the index all the way down to the actual device.
+
+### Win #4: Better Existing Data
 
 For data you're *already* sending to Splunk, Expanso makes it arrive cleaner, faster, and cheaper:
 
