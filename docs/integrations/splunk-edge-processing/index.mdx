@@ -21,19 +21,48 @@ None of this is in Splunk today. Not because Splunk can't handle it — but beca
 
 **That's the opportunity.** Not "do the same thing for less." It's **"bring Splunk into places it's never been."**
 
-## Two Wins, One Pipeline
+## Three Wins, One Pipeline
 
-Expanso Edge sits between your data sources and Splunk. It unlocks two things simultaneously:
+Expanso Edge sits between your data sources and Splunk. It unlocks three things simultaneously:
 
-### Win #1: New Data Sources
-Expanso Edge deploys anywhere — edge devices, OT networks, remote sites, IoT gateways. It collects data from sources that were never practical to connect to Splunk, structures it at the edge, and delivers it ready to index.
+### Win #1: New Data Sources That Don't Exist in Splunk Today
 
-✅ **Edge collection** — deploy lightweight pipelines on devices, gateways, and remote infrastructure  
-✅ **Protocol translation** — MQTT, OPC-UA, Modbus, syslog, file tailing — all normalized to Splunk-ready events  
-✅ **Smart filtering at source** — send the signal, not the noise. A 200-turbine wind farm doesn't need to ship raw vibration data at 1kHz — it needs anomaly summaries  
+The Universal Forwarder is brilliant at what it does — collect logs from servers and ship them. But the world has moved way beyond servers.
+
+The edge is exploding. Gartner says 75% of enterprise data will be created and processed outside traditional data centers by 2025. That's data from:
+
+- **Industrial IoT:** Vibration sensors, temperature probes, pressure gauges, flow meters — each generating structured telemetry that's perfect for Splunk analytics but trapped on local PLCs
+- **Connected infrastructure:** Smart grid sensors, traffic systems, building management systems — each producing event streams that security and operations teams would love to correlate in ES
+- **Medical devices:** Patient monitors, infusion pumps, imaging systems — each generating data that compliance teams need centralized audit trails for
+- **Retail and logistics:** POS systems, RFID readers, fleet GPS, cold chain monitors — operational data that's been invisible to enterprise analytics
+
+The problem isn't that this data is unstructured. **It's that it's uncollected.** There's no Universal Forwarder for a wind turbine. There's no TA for a PLC.
+
+Expanso Edge solves this by sitting at the edge — on a gateway, an industrial PC, a Kubernetes node at a remote site — and doing the work of collecting, structuring, and preparing this data for Splunk:
+
+✅ **Protocols Splunk doesn't natively speak** — MQTT, OPC-UA, Modbus, AMQP, industrial historians  
+✅ **Proprietary telemetry → CIM-compliant events** — raw sensor readings become Splunk-ready data  
+✅ **Smart filtering at source** — a 200-turbine wind farm doesn't ship raw vibration data at 1kHz. It sends anomaly summaries  
 ✅ **OT/IT bridge** — the OT team keeps control of their network; Expanso filters and forwards only what's needed  
 
-### Win #2: Better Existing Data
+This isn't taking away anything Splunk already ingests. It's opening up entirely new categories of data that were previously invisible. For every customer, that's a net-new data source — which means net-new ingest, net-new TAs, net-new dashboards, net-new ES correlation rules. The whole ecosystem grows.
+
+### Win #2: Making Splunk the AI/ML Platform of Record
+
+Cisco's Data Fabric vision points toward Splunk as the intelligence layer for the entire enterprise — not just the IT operations team. But AI and ML models are only as good as their training data.
+
+Right now, the data that reaches Splunk arrives in whatever format the source decided to emit. Debug logs mixed with security events. Unstructured text blobs from legacy apps. Timestamps in fourteen different formats. PII scattered everywhere. No semantic context, no labeling, no lineage.
+
+This is the gap between "data in Splunk" and **"data that's actually useful for AI."**
+
+Expanso Edge transforms raw data into AI-ready data before it arrives:
+
+✅ **Semantic enrichment at the source** — every event gets context before it moves: what system generated it, what business function it supports, what data classification it carries, what regulatory jurisdiction it falls under. An ML model training on this data doesn't need months of data engineering — it arrives ready  
+✅ **Schema normalization across thousands of sources** — a customer with 247 different log sources has 247 different ways of expressing "a user logged in." Expanso normalizes all of them into a consistent schema before they hit the index. Cisco's TSFM (Time Series Foundation Model) can work across the entire dataset without fighting format inconsistencies  
+✅ **Continuous data quality validation** — enforce schemas, validate field types, check for anomalies in the data itself. Events that fail validation get flagged, routed to dead-letter queues, or corrected. The data that arrives in Splunk is trustworthy — the prerequisite for any serious AI/ML deployment  
+
+### Win #3: Better Existing Data
+
 For data you're *already* sending to Splunk, Expanso makes it arrive cleaner, faster, and cheaper:
 
 ✅ **Faster searches** — pre-parsed fields mean less search-time extraction, cleaner data means more relevant results  
