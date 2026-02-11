@@ -12,9 +12,9 @@ Telco operators managing O-RAN networks face a complex observability challenge:
   - Long-term storage (Parquet) for capacity planning
   - Analytics platforms (Cloudera) for ML/AI insights
   - Compliance reporting for PTP timing requirements
-- **The standard stack is heavy**: NiFi for ingestion, Kafka for buffering, Flink/Spark for processing — three distributed systems before data even reaches storage
+- **The edge gap**: Data needs to be collected, shaped, and enriched before it reaches your Cloudera/Kafka/Grafana backends — but there's no lightweight, Red Hat-integrated way to do it at the edge
 
-The result: 3-5x network overhead, operational complexity across multiple systems, and teams spending more time managing the pipeline than analyzing the data.
+The result: 3-5x network overhead from shipping raw data, inconsistent schemas across destinations, and no edge-native processing before data hits your backends.
 
 ## The Solution
 
@@ -49,34 +49,32 @@ The result: 3-5x network overhead, operational complexity across multiple system
 </div>
 </div>
 
-### What You're Replacing
+### Where Expanso Fits In Your Stack
 
-The standard Cloudera Data Platform telco stack looks like this:
+Your backend stays exactly as-is — Cloudera CDP, Kafka, Grafana, HDFS/Ozone. Expanso Edge handles what happens **before** data reaches those systems: collect, shape, augment, and deliver to multiple destinations simultaneously.
 
-| Layer | Traditional Stack | What It Does |
-|-------|------------------|--------------|
-| **Ingest** | Apache NiFi | Connects to towers/switches, parses messy telco logs, enriches with geospatial data |
-| **Buffer** | Apache Kafka | Handles burst traffic (outages, events), decouples ingestion from processing |
-| **Process** | Apache Flink / Spark Streaming | Rolling window aggregations, anomaly detection, routing to multiple stores |
-| **Store** | Kudu (real-time) + HDFS/Ozone (long-term) | Dashboards for NOC, Parquet for billing/capacity planning |
-
-That's **four systems** to deploy, configure, monitor, and scale — each with its own failure modes, its own team, its own upgrade cycle.
-
-**Expanso replaces the first three layers with a single pipeline YAML.** One config file. One deployment. One thing to monitor. Data arrives at Cloudera (or Grafana, or S3, or all three) already parsed, enriched, filtered, and schema-validated.
+| Layer | What | How Expanso Helps |
+|-------|------|-------------------|
+| **Collect** | MQTT, OPC-UA, syslog, file tailing from DU/RU/CU nodes | Single lightweight agent on OpenShift SNO — no NiFi deployment at the edge |
+| **Shape** | Parse messy telco logs, normalize schemas, filter noise | Bloblang processors run at the edge — only clean data leaves the site |
+| **Augment** | Enrich with cell site metadata, geo coordinates, compliance zones | Lookups and enrichment happen before transmission, not after |
+| **Deliver** | Fan-out to Kafka, Grafana, Parquet, Cloudera — all at once | One pipeline, multiple destinations. Your backends receive ready-to-use data |
 
 ```
-Traditional:  Tower → NiFi → Kafka → Flink → Kudu/HDFS
-Expanso:      Tower → Expanso Edge → Kudu/HDFS/Grafana/S3 (all at once)
+Tower → Expanso Edge (collect, shape, augment) → Kafka / Cloudera / Grafana / S3
+        ├── runs on OpenShift SNO                  (your existing backends, unchanged)
+        ├── buffers locally during outages
+        └── managed via Red Hat-integrated operator
 ```
 
 ### Key Benefits
 
-- **3 systems → 1**: Replace NiFi + Kafka + Flink with a single Expanso Edge pipeline
-- **99% bandwidth reduction**: Transform and filter at the edge before transmission
-- **Zero data loss**: Local buffering handles burst traffic (no Kafka needed)
-- **Unified data model**: Consistent schemas across all destinations
-- **Edge resilience**: Continues operating during network partitions
-- **OpenShift native**: Runs as certified operator on existing SNO infrastructure
+- **Edge-native processing**: Collect and transform at the source, not in the datacenter
+- **99% bandwidth reduction**: Only shaped, filtered data leaves the edge site
+- **Zero data loss**: Local buffering handles burst traffic and connectivity drops
+- **Unified data model**: Every destination receives consistent, enriched schemas
+- **Multi-destination fan-out**: Same data to Kafka, Grafana, Parquet, and Cloudera simultaneously
+- **Red Hat integrated**: Runs as certified OpenShift operator on existing SNO infrastructure
 
 ## What You'll Build
 
