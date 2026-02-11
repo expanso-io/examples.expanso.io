@@ -12,9 +12,9 @@ Telco operators managing O-RAN networks face a complex observability challenge:
   - Long-term storage (Parquet) for capacity planning
   - Analytics platforms (Cloudera) for ML/AI insights
   - Compliance reporting for PTP timing requirements
-- **Current solutions are inefficient**: Separate collection agents for each destination create bandwidth waste, complexity, and inconsistent data
+- **The standard stack is heavy**: NiFi for ingestion, Kafka for buffering, Flink/Spark for processing — three distributed systems before data even reaches storage
 
-The result: 3-5x network overhead, data synchronization issues, and operational complexity that doesn't scale.
+The result: 3-5x network overhead, operational complexity across multiple systems, and teams spending more time managing the pipeline than analyzing the data.
 
 ## The Solution
 
@@ -49,10 +49,31 @@ The result: 3-5x network overhead, data synchronization issues, and operational 
 </div>
 </div>
 
+### What You're Replacing
+
+The standard Cloudera Data Platform telco stack looks like this:
+
+| Layer | Traditional Stack | What It Does |
+|-------|------------------|--------------|
+| **Ingest** | Apache NiFi | Connects to towers/switches, parses messy telco logs, enriches with geospatial data |
+| **Buffer** | Apache Kafka | Handles burst traffic (outages, events), decouples ingestion from processing |
+| **Process** | Apache Flink / Spark Streaming | Rolling window aggregations, anomaly detection, routing to multiple stores |
+| **Store** | Kudu (real-time) + HDFS/Ozone (long-term) | Dashboards for NOC, Parquet for billing/capacity planning |
+
+That's **four systems** to deploy, configure, monitor, and scale — each with its own failure modes, its own team, its own upgrade cycle.
+
+**Expanso replaces the first three layers with a single pipeline YAML.** One config file. One deployment. One thing to monitor. Data arrives at Cloudera (or Grafana, or S3, or all three) already parsed, enriched, filtered, and schema-validated.
+
+```
+Traditional:  Tower → NiFi → Kafka → Flink → Kudu/HDFS
+Expanso:      Tower → Expanso Edge → Kudu/HDFS/Grafana/S3 (all at once)
+```
+
 ### Key Benefits
 
+- **3 systems → 1**: Replace NiFi + Kafka + Flink with a single Expanso Edge pipeline
 - **99% bandwidth reduction**: Transform and filter at the edge before transmission
-- **Zero data loss**: Local buffering when connectivity drops
+- **Zero data loss**: Local buffering handles burst traffic (no Kafka needed)
 - **Unified data model**: Consistent schemas across all destinations
 - **Edge resilience**: Continues operating during network partitions
 - **OpenShift native**: Runs as certified operator on existing SNO infrastructure
