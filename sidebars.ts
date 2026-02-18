@@ -459,6 +459,23 @@ const sidebars: SidebarsConfig = {
             'integrations/oran-telco-pipeline/complete-oran-pipeline',
           ],
         },
+        {
+          type: 'category',
+          label: 'SCADA Energy Edge',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            'integrations/scada-energy-edge/index',
+            'integrations/scada-energy-edge/explorer',
+            'integrations/scada-energy-edge/setup',
+            'integrations/scada-energy-edge/step-1-parse-modbus-registers',
+            'integrations/scada-energy-edge/step-2-filter-normalize-readings',
+            'integrations/scada-energy-edge/step-3-classify-fault-events',
+            'integrations/scada-energy-edge/step-4-route-to-destinations',
+            'integrations/scada-energy-edge/complete-scada-integration',
+            'integrations/scada-energy-edge/troubleshooting',
+          ],
+        },
       ],
     },
     {

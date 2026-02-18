@@ -1,0 +1,73 @@
+# step-2-filter-nominal.yaml
+# Stage 2: Filter nominal readings at the edge
+# Drops readings within NERC reliability operating bands — only anomalies pass through.
+#
+# NERC standards applied:
+#   Voltage:     110–145 kV (±10% of 132 kV nominal, per NERC FAC-001)
+#   Frequency:   59.95–60.05 Hz (±0.5% per NERC BAL-003)
+#   Temperature: ≤ 75°C (IEEE C57.91 thermal rating + 10°C margin)
+#
+# Typical result: 99%+ of readings dropped before crossing OT/IT boundary.
+
+input:
+  socket:
+    network: tcp
+    address: 0.0.0.0:502
+    codec: lines
+
+pipeline:
+  processors:
+    # Parse registers (Stage 1)
+    - mapping: |
+        let fields = content().string().split(";").fold({}, (acc, item) -> {
+          let parts = item.split("=")
+          acc | { parts[0]: parts[1] }
+        })
+        let reg = fields.REG.number()
+        let val = fields.VAL.number()
+
+        root.voltage_kv   = if reg == 40001 { val / 100.0 } else { deleted() }
+        root.current_a    = if reg == 40003 { val / 10.0 }  else { deleted() }
+        root.frequency_hz = if reg == 40005 { val / 100.0 } else { deleted() }
+        root.temp_c       = if reg == 40007 { val / 10.0 }  else { deleted() }
+        root.power_mw     = if reg == 40009 { val / 10.0 }  else { deleted() }
+
+        root.device_id     = fields.DEVICE
+        root.register      = reg
+        root.raw_value     = val
+        root.status        = fields.STATUS.number()
+        root.substation_id = env("SUBSTATION_ID").or("SUB-CENTRAL-01")
+        root.region        = env("GRID_REGION").or("WECC-SOUTHWEST")
+        root."@timestamp"  = fields.TS.number()
+
+    # Filter nominal readings — only anomalies survive
+    - mapping: |
+        # Load thresholds from environment (allows per-site tuning without code changes)
+        let v_min = env("VOLTAGE_MIN_KV").number().catch(110.0)
+        let v_max = env("VOLTAGE_MAX_KV").number().catch(145.0)
+        let f_min = env("FREQ_MIN_HZ").number().catch(59.95)
+        let f_max = env("FREQ_MAX_HZ").number().catch(60.05)
+        let t_max = env("TEMP_MAX_C").number().catch(75.0)
+
+        # A reading is nominal only if ALL present values are within bounds
+        let voltage_ok   = !this.voltage_kv.exists()   || (this.voltage_kv >= v_min && this.voltage_kv <= v_max)
+        let frequency_ok = !this.frequency_hz.exists()  || (this.frequency_hz >= f_min && this.frequency_hz <= f_max)
+        let temp_ok      = !this.temp_c.exists()        || this.temp_c <= t_max
+        # LINE_FAULT: simultaneous current spike and voltage depression
+        let line_fault   = this.current_a.exists() && this.voltage_kv.exists() &&
+                           this.current_a > 400.0 && this.voltage_kv < 115.0
+
+        # Drop nominal readings — root = deleted() produces no output message
+        if voltage_ok && frequency_ok && temp_ok && !line_fault {
+          root = deleted()
+        }
+
+        # Tag anomaly type for next stage
+        root.voltage_anomaly   = this.voltage_kv.exists() && (this.voltage_kv < v_min || this.voltage_kv > v_max)
+        root.frequency_anomaly = this.frequency_hz.exists() && (this.frequency_hz < f_min || this.frequency_hz > f_max)
+        root.temp_anomaly      = this.temp_c.exists() && this.temp_c > t_max
+        root.line_fault        = line_fault
+
+output:
+  stdout:
+    codec: lines

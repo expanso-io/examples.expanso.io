@@ -1,0 +1,241 @@
+---
+title: "Step 3: Classify Fault Types with Bloblang"
+sidebar_label: "Step 3: Classify Faults"
+sidebar_position: 6
+description: "Tag each anomaly with fault type and severity using Bloblang match expressions. VOLTAGE_DEVIATION, FREQUENCY_DRIFT, THERMAL_OVERLOAD, LINE_FAULT."
+keywords: [scada, fault-classification, bloblang, voltage-deviation, frequency-drift, thermal-overload, line-fault]
+---
+
+# Step 3: Classify Fault Types with Bloblang
+
+## The Goal
+
+An anomaly passed the filter. Now what is it? "Voltage is out of range" is not enough information for a grid operator responding to an alert at 2 AM. They need:
+
+- **What type of fault?** Undervoltage? Overvoltage? Frequency drift? Thermal overload?
+- **How severe?** Immediate action required, or monitor closely?
+- **Does this require an alert?** Or is it a marginal reading that can wait for morning review?
+
+This step adds that context using Bloblang `match` expressions — the same logic that would otherwise live in historian scripts, Excel alarm sheets, or operator runbooks. Here it's version-controlled YAML that runs at the edge.
+
+## Fault Categories
+
+| **Fault Type** | **Trigger Condition** | **Typical Cause** | **Operator Action** |
+|---|---|---|---|
+| `VOLTAGE_DEVIATION` | Voltage &lt; 110 kV or &gt; 145 kV | Generation loss, load imbalance, switching error | Load shed or capacitor bank switching |
+| `FREQUENCY_DRIFT` | Frequency &lt; 59.95 Hz or &gt; 60.05 Hz | Area control error, sudden generation loss | AGC response, possible under-freq relay |
+| `THERMAL_OVERLOAD` | Temperature &gt; 75°C | Sustained overcurrent, cooling failure | Reduce load, inspect cooling system |
+| `LINE_FAULT` | Current spike AND voltage drop | Short circuit, insulator failure, tree contact | Protection relay operation, field crew |
+
+## Before and After
+
+**Before** (anomaly from Step 2, just flagged as abnormal):
+
+```json
+{
+  "voltage_kv": 104.5,
+  "device_id": "RTU-07A",
+  "substation_id": "SUB-CENTRAL-01",
+  "voltage_anomaly": true,
+  "@timestamp": 1708290846
+}
+```
+
+**After** (classified with fault type, severity, and alert routing):
+
+```json
+{
+  "voltage_kv": 104.5,
+  "device_id": "RTU-07A",
+  "substation_id": "SUB-CENTRAL-01",
+  "voltage_anomaly": true,
+  "@timestamp": 1708290846,
+  "fault_type": "VOLTAGE_DEVIATION",
+  "fault_detail": "undervoltage",
+  "severity": "critical",
+  "alert_required": true,
+  "operator_action": "Check generation dispatch and capacitor banks on SUB-CENTRAL-01 bus"
+}
+```
+
+## Implementation
+
+### The `match` Expression
+
+Bloblang's `match` expression evaluates conditions top-to-bottom and returns the first matching branch. For fault classification, this maps naturally to SCADA alarm logic:
+
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        # Classify fault type based on which reading is out of bounds
+        root.fault_type = match {
+          this.voltage_kv < 110.0 || this.voltage_kv > 145.0 => "VOLTAGE_DEVIATION"
+          this.frequency_hz < 59.95 || this.frequency_hz > 60.05 => "FREQUENCY_DRIFT"
+          this.temp_c > 75.0 => "THERMAL_OVERLOAD"
+          # LINE_FAULT: current spike (> 400 A) with voltage drop (< 115 kV)
+          this.current_a > 400.0 && this.voltage_kv < 115.0 => "LINE_FAULT"
+          _ => "NOMINAL"
+        }
+```
+
+### Full Classification Pipeline
+
+```bash
+cat > ~/scada-step-3-classify.yaml << 'EOF'
+# scada-step-3-classify.yaml
+# Stage 3: Classify fault types and assign severity
+
+input:
+  socket:
+    network: tcp
+    address: 0.0.0.0:502
+    codec: lines
+
+pipeline:
+  processors:
+    # Parse registers (Stage 1)
+    - mapping: |
+        let fields = content().string().split(";").fold({}, (acc, item) -> {
+          let parts = item.split("=")
+          acc | { parts[0]: parts[1] }
+        })
+        let reg = fields.REG.number()
+        let val = fields.VAL.number()
+
+        root.voltage_kv   = if reg == 40001 { val / 100.0 } else { deleted() }
+        root.current_a    = if reg == 40003 { val / 10.0 }  else { deleted() }
+        root.frequency_hz = if reg == 40005 { val / 100.0 } else { deleted() }
+        root.temp_c       = if reg == 40007 { val / 10.0 }  else { deleted() }
+        root.power_mw     = if reg == 40009 { val / 10.0 }  else { deleted() }
+
+        root.device_id     = fields.DEVICE
+        root.register      = reg
+        root.raw_value     = val
+        root.status        = fields.STATUS.number()
+        root.substation_id = env("SUBSTATION_ID").or("SUB-CENTRAL-01")
+        root.region        = env("GRID_REGION").or("WECC-SOUTHWEST")
+        root."@timestamp"  = fields.TS.number()
+
+    # Filter nominal (Stage 2)
+    - mapping: |
+        let voltage_ok   = !this.voltage_kv.exists()   || (this.voltage_kv >= 110.0 && this.voltage_kv <= 145.0)
+        let frequency_ok = !this.frequency_hz.exists()  || (this.frequency_hz >= 59.95 && this.frequency_hz <= 60.05)
+        let temp_ok      = !this.temp_c.exists()        || this.temp_c <= 75.0
+        let line_fault   = this.current_a.exists() && this.voltage_kv.exists() && this.current_a > 400.0 && this.voltage_kv < 115.0
+
+        if voltage_ok && frequency_ok && temp_ok && !line_fault {
+          root = deleted()
+        }
+
+    # Classify faults (Stage 3)
+    - mapping: |
+        # Primary fault type classification
+        root.fault_type = match {
+          this.voltage_kv.exists() && (this.voltage_kv < 110.0 || this.voltage_kv > 145.0) => "VOLTAGE_DEVIATION"
+          this.frequency_hz.exists() && (this.frequency_hz < 59.95 || this.frequency_hz > 60.05) => "FREQUENCY_DRIFT"
+          this.temp_c.exists() && this.temp_c > 75.0 => "THERMAL_OVERLOAD"
+          this.current_a.exists() && this.voltage_kv.exists() && this.current_a > 400.0 && this.voltage_kv < 115.0 => "LINE_FAULT"
+          _ => "NOMINAL"
+        }
+
+        # Fault sub-type for more specific operator guidance
+        root.fault_detail = match {
+          this.fault_type == "VOLTAGE_DEVIATION" && this.voltage_kv < 110.0 => "undervoltage"
+          this.fault_type == "VOLTAGE_DEVIATION" && this.voltage_kv > 145.0 => "overvoltage"
+          this.fault_type == "FREQUENCY_DRIFT" && this.frequency_hz < 59.95 => "underfrequency"
+          this.fault_type == "FREQUENCY_DRIFT" && this.frequency_hz > 60.05 => "overfrequency"
+          this.fault_type == "THERMAL_OVERLOAD" => "high_temperature"
+          this.fault_type == "LINE_FAULT" => "fault_current"
+          _ => "none"
+        }
+
+        # Severity based on fault type and magnitude
+        root.severity = match {
+          this.fault_type == "LINE_FAULT" => "critical"
+          this.fault_type == "VOLTAGE_DEVIATION" && (this.voltage_kv < 100.0 || this.voltage_kv > 150.0) => "critical"
+          this.fault_type == "THERMAL_OVERLOAD" && this.temp_c > 90.0 => "critical"
+          this.fault_type == "FREQUENCY_DRIFT" && (this.frequency_hz < 59.5 || this.frequency_hz > 60.5) => "critical"
+          this.fault_type == "NOMINAL" => "info"
+          _ => "warning"
+        }
+
+        # Alert routing flag
+        root.alert_required = this.fault_type != "NOMINAL"
+
+        # Operator guidance field
+        root.operator_action = match {
+          this.fault_detail == "undervoltage" => "Check generation dispatch and capacitor banks on " + this.substation_id + " bus"
+          this.fault_detail == "overvoltage" => "Check reactive power compensation and tap changer position at " + this.substation_id
+          this.fault_detail == "underfrequency" => "AGC response may be insufficient — check area generation reserves"
+          this.fault_detail == "overfrequency" => "Load shedding or generation curtailment may be needed"
+          this.fault_type == "THERMAL_OVERLOAD" => "Reduce loading on " + this.device_id + " immediately — thermal rating exceeded"
+          this.fault_type == "LINE_FAULT" => "Protection relay operation expected — dispatch field crew to " + this.substation_id
+          _ => "Monitor"
+        }
+
+        # Add processing metadata
+        root.processed_at  = now()
+        root.pipeline_stage = "fault-classification"
+
+output:
+  stdout:
+    codec: lines
+EOF
+```
+
+### Test the Classification Logic
+
+```bash
+# Undervoltage fault — 104.5 kV
+echo "REG=40001;VAL=10450;UNIT=V_x100;TS=$(date +%s);DEVICE=RTU-07A;STATUS=2" | nc localhost 502
+# Expected: fault_type: VOLTAGE_DEVIATION, fault_detail: undervoltage, severity: warning, alert_required: true
+
+# Overvoltage fault — 152.8 kV
+echo "REG=40001;VAL=15280;UNIT=V_x100;TS=$(date +%s);DEVICE=RTU-07A;STATUS=2" | nc localhost 502
+# Expected: fault_type: VOLTAGE_DEVIATION, fault_detail: overvoltage, severity: critical, alert_required: true
+
+# Frequency drift — 59.87 Hz
+echo "REG=40005;VAL=5987;UNIT=Hz_x100;TS=$(date +%s);DEVICE=RTU-07A;STATUS=1" | nc localhost 502
+# Expected: fault_type: FREQUENCY_DRIFT, fault_detail: underfrequency, severity: warning, alert_required: true
+
+# Thermal overload — 87.3°C
+echo "REG=40007;VAL=873;UNIT=degC_x10;TS=$(date +%s);DEVICE=RTU-07A;STATUS=1" | nc localhost 502
+# Expected: fault_type: THERMAL_OVERLOAD, fault_detail: high_temperature, severity: warning, alert_required: true
+
+# Normal reading — should be filtered (no output)
+echo "REG=40001;VAL=14823;UNIT=V_x100;TS=$(date +%s);DEVICE=RTU-07A;STATUS=0" | nc localhost 502
+# Expected: no output
+```
+
+## Output Format for Downstream Systems
+
+The classified fault event is ready for the SCADA historian and alerting systems:
+
+```json
+{
+  "voltage_kv": 104.5,
+  "device_id": "RTU-07A",
+  "register": 40001,
+  "raw_value": 10450,
+  "status": 2,
+  "substation_id": "SUB-CENTRAL-01",
+  "region": "WECC-SOUTHWEST",
+  "@timestamp": 1708290846,
+  "fault_type": "VOLTAGE_DEVIATION",
+  "fault_detail": "undervoltage",
+  "severity": "warning",
+  "alert_required": true,
+  "operator_action": "Check generation dispatch and capacitor banks on SUB-CENTRAL-01 bus",
+  "processed_at": "2024-02-18T22:14:06Z",
+  "pipeline_stage": "fault-classification"
+}
+```
+
+This format is ready to ingest directly into your SCADA historian's event database, PagerDuty alerting payload, or Grafana dashboard data source.
+
+## What's Next?
+
+Fault events are classified. Now route them: critical faults go to the historian and PagerDuty, KPI summaries go to the cloud dashboard, and sensitive topology data stays local.
+
+→ **Next Step:** [Step 4: Route to SCADA Historian and Alerting](./step-4-route-to-destinations)

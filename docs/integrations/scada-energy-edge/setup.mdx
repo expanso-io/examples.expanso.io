@@ -1,0 +1,310 @@
+---
+title: "Setup Environment for SCADA Edge Processing"
+sidebar_label: "Environment Setup"
+sidebar_position: 3
+description: "Configure your environment for SCADA edge processing — Modbus TCP simulator, environment variables, and test data generation."
+keywords: [scada, modbus, setup, environment, diagslave, nerc-cip, edge-processing]
+---
+
+# Setup Environment for SCADA Edge Processing
+
+Before building the pipeline, let's set up a Modbus TCP environment and generate realistic substation telemetry for testing.
+
+## Prerequisites
+
+### Expanso Edge Installation
+
+If you haven't installed Expanso Edge yet:
+
+```bash
+# Download and install Expanso Edge
+curl -sSL https://get.expanso.io | sh
+sudo systemctl enable --now expanso-edge
+```
+
+Verify installation:
+
+```bash
+expanso version
+# Expected: Expanso Edge v2.x.x
+```
+
+### Access Requirements
+
+You'll need one of the following:
+
+- **Physical RTU/PLC** with Modbus TCP enabled on your OT network (port 502)
+- **Modbus TCP simulator** (recommended for development/testing)
+- **Network access** through your substation DMZ or a controlled test network
+
+:::caution OT Network Safety
+Never connect development tooling directly to live substation equipment without OT team approval and a proper change management process. Use a simulator or isolated test network for development.
+:::
+
+## Step 1: Install Modbus TCP Simulator
+
+For testing without physical RTU hardware, install a Modbus TCP slave simulator:
+
+### Option A: diagslave (Linux/macOS)
+
+```bash
+# Download diagslave from FieldTalk (free for non-commercial use)
+# https://www.modbusdriver.com/diagslave.html
+wget https://www.modbusdriver.com/downloads/diagslave.zip
+unzip diagslave.zip
+sudo cp diagslave/linux_x86-64/diagslave /usr/local/bin/
+
+# Start as Modbus TCP slave on port 502 with device ID 1
+sudo diagslave -m tcp -p 502 1
+```
+
+### Option B: modbus-simulator (Python-based, cross-platform)
+
+```bash
+# Install via pip
+pip install pymodbus
+
+# Create a simple simulator script
+cat > modbus_simulator.py << 'EOF'
+from pymodbus.server.sync import StartTcpServer
+from pymodbus.datastore import ModbusSlaveContext, ModbusServerContext
+from pymodbus.datastore import ModbusSequentialDataBlock
+import threading
+import time
+import random
+
+def create_context():
+    # Holding registers (40001 onwards)
+    # REG 40001: Voltage (V x100) — normal: 11500-14500 (115-145 kV)
+    # REG 40003: Current (A x10)  — normal: 0-5000 (0-500 A)
+    # REG 40005: Frequency (Hz x100) — normal: 5995-6005 (59.95-60.05 Hz)
+    # REG 40007: Temperature (degC x10) — normal: 0-750 (0-75°C)
+    # REG 40009: Power (MW x10) — normal: 0-5000 (0-500 MW)
+    registers = [
+        0,      # pad (address 0)
+        14823,  # REG 40001: voltage 148.23 kV
+        0,      # pad
+        2341,   # REG 40003: current 234.1 A
+        0,      # pad
+        6001,   # REG 40005: frequency 60.01 Hz
+        0,      # pad
+        423,    # REG 40007: temp 42.3°C
+        0,      # pad
+        2847,   # REG 40009: power 284.7 MW
+    ]
+    store = ModbusSlaveContext(
+        hr=ModbusSequentialDataBlock(0, registers)
+    )
+    return ModbusServerContext(slaves=store, single=True)
+
+context = create_context()
+print("Starting Modbus TCP simulator on 0.0.0.0:502")
+StartTcpServer(context, address=("0.0.0.0", 502))
+EOF
+
+sudo python3 modbus_simulator.py
+```
+
+### Option C: Docker-based simulator
+
+```bash
+docker run -d \
+  --name modbus-sim \
+  -p 502:502 \
+  --env MODBUS_SLAVE_ID=1 \
+  oitc/modbus-server:latest
+```
+
+## Step 2: Configure Environment Variables
+
+Set these environment variables before deploying the pipeline:
+
+```bash
+# Substation identity
+export SUBSTATION_ID="SUB-CENTRAL-01"
+export GRID_REGION="WECC-SOUTHWEST"
+export RTU_DEVICE_PREFIX="RTU-07"
+
+# SCADA historian (your existing SCADA system's API endpoint)
+export SCADA_HISTORIAN_URL="https://historian.internal.example.com/api/v1/events"
+export HISTORIAN_API_KEY="your-historian-api-key"
+
+# PagerDuty for critical fault alerting
+export PAGERDUTY_WEBHOOK_URL="https://events.pagerduty.com/v2/enqueue"
+export PAGERDUTY_ROUTING_KEY="your-pagerduty-routing-key"
+
+# Grafana Cloud for KPI dashboards (CIP-safe aggregated data only)
+export GRAFANA_CLOUD_URL="https://influx.grafana.net/api/v1/push/influx/write"
+export GRAFANA_API_KEY="your-grafana-api-key"
+
+# Local audit archive (NERC CIP §R1.4 — full raw data stays local)
+export LOCAL_AUDIT_PATH="/var/lib/expanso/scada-audit"
+
+# Fault classification thresholds (NERC reliability standards)
+export VOLTAGE_MIN_KV="110.0"
+export VOLTAGE_MAX_KV="145.0"
+export FREQ_MIN_HZ="59.95"
+export FREQ_MAX_HZ="60.05"
+export TEMP_MAX_C="75.0"
+```
+
+Apply to your shell:
+
+```bash
+# Add to ~/.bashrc or /etc/environment for persistence
+source ~/.bashrc
+
+# Or create an env file for the pipeline
+cat > /etc/expanso/scada-edge.env << 'ENVEOF'
+SUBSTATION_ID=SUB-CENTRAL-01
+GRID_REGION=WECC-SOUTHWEST
+SCADA_HISTORIAN_URL=https://historian.internal.example.com/api/v1/events
+PAGERDUTY_WEBHOOK_URL=https://events.pagerduty.com/v2/enqueue
+GRAFANA_CLOUD_URL=https://influx.grafana.net/api/v1/push/influx/write
+LOCAL_AUDIT_PATH=/var/lib/expanso/scada-audit
+ENVEOF
+```
+
+## Step 3: Generate Sample Modbus Data for Testing
+
+Use this script to generate realistic RTU telemetry — including occasional fault conditions:
+
+```bash
+cat > /var/lib/expanso/generate-modbus-data.sh << 'EOF'
+#!/bin/bash
+# Generate sample Modbus register data for Expanso pipeline testing
+# Outputs semicolon-delimited key=value lines simulating RTU polling
+
+DEVICE="RTU-07A"
+TS=$(date +%s)
+
+# Normal readings (90% of the time)
+generate_normal() {
+  local ts=$1
+  echo "REG=40001;VAL=14823;UNIT=V_x100;TS=${ts};DEVICE=${DEVICE};STATUS=0"
+  echo "REG=40003;VAL=2341;UNIT=A_x10;TS=${ts};DEVICE=${DEVICE};STATUS=0"
+  echo "REG=40005;VAL=6001;UNIT=Hz_x100;TS=${ts};DEVICE=${DEVICE};STATUS=0"
+  echo "REG=40007;VAL=423;UNIT=degC_x10;TS=${ts};DEVICE=${DEVICE};STATUS=0"
+  echo "REG=40009;VAL=2847;UNIT=MW_x10;TS=${ts};DEVICE=${DEVICE};STATUS=0"
+}
+
+# Voltage deviation (undervoltage event — 104.5 kV, below 110 kV threshold)
+generate_voltage_fault() {
+  local ts=$1
+  echo "REG=40001;VAL=10450;UNIT=V_x100;TS=${ts};DEVICE=${DEVICE};STATUS=2"
+  echo "REG=40003;VAL=4820;UNIT=A_x10;TS=${ts};DEVICE=${DEVICE};STATUS=2"
+  echo "REG=40005;VAL=5992;UNIT=Hz_x100;TS=${ts};DEVICE=${DEVICE};STATUS=0"
+  echo "REG=40007;VAL=512;UNIT=degC_x10;TS=${ts};DEVICE=${DEVICE};STATUS=0"
+  echo "REG=40009;VAL=2710;UNIT=MW_x10;TS=${ts};DEVICE=${DEVICE};STATUS=0"
+}
+
+# Thermal overload (87.3°C — above 75°C threshold)
+generate_thermal_fault() {
+  local ts=$1
+  echo "REG=40001;VAL=14100;UNIT=V_x100;TS=${ts};DEVICE=${DEVICE};STATUS=0"
+  echo "REG=40003;VAL=4901;UNIT=A_x10;TS=${ts};DEVICE=${DEVICE};STATUS=1"
+  echo "REG=40005;VAL=5999;UNIT=Hz_x100;TS=${ts};DEVICE=${DEVICE};STATUS=0"
+  echo "REG=40007;VAL=873;UNIT=degC_x10;TS=${ts};DEVICE=${DEVICE};STATUS=1"
+  echo "REG=40009;VAL=4890;UNIT=MW_x10;TS=${ts};DEVICE=${DEVICE};STATUS=0"
+}
+
+# Generate a stream of readings
+for i in $(seq 1 100); do
+  ts=$(date +%s)
+  rand=$((RANDOM % 10))
+
+  if [ "$rand" -eq 0 ]; then
+    generate_voltage_fault $ts
+  elif [ "$rand" -eq 1 ]; then
+    generate_thermal_fault $ts
+  else
+    generate_normal $ts
+  fi
+
+  sleep 0.5
+done
+EOF
+
+chmod +x /var/lib/expanso/generate-modbus-data.sh
+```
+
+Run the generator:
+
+```bash
+/var/lib/expanso/generate-modbus-data.sh
+```
+
+Example output:
+```
+REG=40001;VAL=14823;UNIT=V_x100;TS=1708290845;DEVICE=RTU-07A;STATUS=0
+REG=40003;VAL=2341;UNIT=A_x10;TS=1708290845;DEVICE=RTU-07A;STATUS=0
+REG=40005;VAL=6001;UNIT=Hz_x100;TS=1708290845;DEVICE=RTU-07A;STATUS=0
+REG=40007;VAL=423;UNIT=degC_x10;TS=1708290845;DEVICE=RTU-07A;STATUS=0
+REG=40009;VAL=2847;UNIT=MW_x10;TS=1708290845;DEVICE=RTU-07A;STATUS=0
+REG=40001;VAL=10450;UNIT=V_x100;TS=1708290846;DEVICE=RTU-07A;STATUS=2  ← voltage fault
+```
+
+## Step 4: Verify Connectivity
+
+Before deploying the pipeline, verify each component:
+
+### Check Modbus TCP Simulator
+
+```bash
+# Test Modbus TCP connection (requires modbus-cli or similar)
+nc -zv localhost 502
+# Expected: Connection to localhost (127.0.0.1) 502 port [tcp/modbus] succeeded!
+```
+
+### Check Historian Endpoint
+
+```bash
+curl -sf -o /dev/null -w "%{http_code}" \
+  -H "Authorization: Bearer $HISTORIAN_API_KEY" \
+  "$SCADA_HISTORIAN_URL/health"
+# Expected: 200
+```
+
+### Check PagerDuty Webhook
+
+```bash
+curl -X POST "$PAGERDUTY_WEBHOOK_URL" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "routing_key": "'"$PAGERDUTY_ROUTING_KEY"'",
+    "event_action": "trigger",
+    "payload": {
+      "summary": "Expanso pipeline connectivity test",
+      "severity": "info",
+      "source": "expanso-setup"
+    }
+  }'
+# Expected: {"status":"success","message":"Event processed"}
+```
+
+### Create Local Audit Directory
+
+```bash
+sudo mkdir -p $LOCAL_AUDIT_PATH
+sudo chown expanso:expanso $LOCAL_AUDIT_PATH
+sudo chmod 750 $LOCAL_AUDIT_PATH
+
+# Verify write access
+touch $LOCAL_AUDIT_PATH/.write-test && rm $LOCAL_AUDIT_PATH/.write-test
+echo "✓ Audit directory ready: $LOCAL_AUDIT_PATH"
+```
+
+## What's Next?
+
+Your environment is ready. Now build the first pipeline stage — parsing raw Modbus register values into structured engineering units.
+
+→ **Next Step:** [Step 1: Parse Modbus Register Data](./step-1-parse-modbus-registers)
+
+---
+
+**Pro Tip:** Run the data generator in the background for continuous testing:
+
+```bash
+nohup /var/lib/expanso/generate-modbus-data.sh > /tmp/modbus-test-data.log 2>&1 &
+echo "Generator PID: $!"
+```

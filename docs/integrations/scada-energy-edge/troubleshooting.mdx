@@ -1,0 +1,283 @@
+---
+title: "Troubleshooting SCADA Edge Integration"
+sidebar_label: "Troubleshooting"
+sidebar_position: 9
+description: "Common issues and solutions for SCADA edge processing — Modbus TCP connection problems, register mapping errors, threshold tuning, and debug logging."
+keywords: [scada, troubleshooting, modbus, debugging, nerc-cip, expanso, pipeline]
+---
+
+# Troubleshooting SCADA Edge Integration
+
+## Common Issues
+
+### 1. Modbus TCP Connection Refused
+
+**Symptom:** Pipeline starts but no data flows. Logs show `connection refused` on port 502.
+
+**Causes and Fixes:**
+
+```bash
+# Check if the RTU/simulator is listening on port 502
+netstat -tlnp | grep 502
+# Expected: tcp ... 0.0.0.0:502 ... LISTEN
+
+# Test connectivity from the edge gateway
+nc -zv <rtu-ip-address> 502
+# Expected: Connection to <rtu-ip-address> 502 port [tcp/modbus] succeeded!
+
+# If using diagslave, ensure it's running with sudo (port 502 requires root)
+sudo diagslave -m tcp -p 502 1
+# Or use a high port for testing:
+diagslave -m tcp -p 5020 1
+# And update pipeline config: address: 0.0.0.0:5020
+```
+
+**Firewall check:**
+
+```bash
+# Check for firewall rules blocking port 502
+sudo iptables -L INPUT -n | grep 502
+# If blocked, allow it (on the edge gateway only — not the full OT network):
+sudo iptables -A INPUT -p tcp --dport 502 -s <rtu-network-cidr> -j ACCEPT
+```
+
+---
+
+### 2. Register Mapping Returns Wrong Values
+
+**Symptom:** Voltage reads as 14823.0 instead of 148.23 kV — scaling factor not applied.
+
+**Diagnosis:**
+
+```bash
+# Add a debug processor to log raw parsed values
+expanso pipeline logs scada-edge-complete -f
+
+# Look for raw_value and the decoded field side by side:
+# {"register":40001,"raw_value":14823,"voltage_kv":14823.0}  ← missing /100
+# {"register":40001,"raw_value":14823,"voltage_kv":148.23}   ← correct
+```
+
+**Fix:**
+
+```yaml
+# Verify the scaling in your Bloblang mapping:
+root.voltage_kv = if reg == 40001 { val / 100.0 } else { deleted() }
+#                                      ^^^^^ must be float division
+# Not: val / 100  ← integer division in some contexts
+```
+
+**Check your RTU's register documentation** — unit codes like `V_x100` and `A_x10` must match your specific device. Some RTUs use different scaling (e.g., `V_x10` giving 10x difference):
+
+```bash
+# Query the RTU directly to check raw register values
+modpoll -m tcp -t 4 -r 1 -c 10 <rtu-ip>
+# Compare with what you expect from your device spec sheet
+```
+
+---
+
+### 3. All Readings Are Being Filtered (No Output)
+
+**Symptom:** Pipeline is running, data is being received, but no output events are produced.
+
+**Diagnosis:**
+
+```bash
+# Temporarily disable the filter to see what's coming in:
+# Edit your pipeline YAML to comment out the filter processor:
+# pipeline:
+#   processors:
+#     - mapping: |
+#         # (parse stage)
+#     # TEMPORARILY DISABLED:
+#     # - mapping: |
+#     #     if voltage_ok && frequency_ok && temp_ok { root = deleted() }
+
+expanso pipeline deploy ~/scada-step-2-filter.yaml
+expanso pipeline logs scada-step-2-filter.yaml -f
+```
+
+**Common causes:**
+
+| **Cause** | **Check** | **Fix** |
+|---|---|---|
+| Voltage register not decoded | `voltage_kv` field missing from parsed output | Verify register address is 40001 for your RTU |
+| All readings truly nominal | Filter thresholds too wide | Tighten thresholds or verify test data has anomalies |
+| Wrong register address | REG=40001 in data but mapping uses 40000 | Check 0-based vs 1-based addressing in your device |
+| Scale factor off | `voltage_kv: 148.23` but threshold is `> 200.0` | Recalculate expected range after scaling |
+
+**Add a count processor to see how many readings pass:**
+
+```yaml
+- mapping: |
+    # Count total vs filtered
+    # Temporarily output everything with a "filtered" flag
+    root = this
+    root.would_filter = this.voltage_kv >= 110.0 && this.voltage_kv <= 145.0
+```
+
+---
+
+### 4. PagerDuty Alerts Not Firing
+
+**Symptom:** Fault events are detected, SCADA historian receives them, but PagerDuty stays silent.
+
+**Diagnosis:**
+
+```bash
+# Test PagerDuty webhook directly
+curl -X POST "${PAGERDUTY_WEBHOOK_URL}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "routing_key": "'"${PAGERDUTY_ROUTING_KEY}"'",
+    "event_action": "trigger",
+    "payload": {
+      "summary": "Test alert from Expanso pipeline",
+      "severity": "warning",
+      "source": "troubleshooting-test"
+    }
+  }'
+# Expected: {"status":"success","message":"Event processed","dedup_key":"..."}
+
+# Check the PagerDuty processor mapping in your pipeline
+# Verify routing_key is set from env:
+root.routing_key = env("PAGERDUTY_ROUTING_KEY")
+# If PAGERDUTY_ROUTING_KEY is not set, routing_key will be empty → events rejected
+```
+
+**Check environment variable:**
+
+```bash
+echo "PAGERDUTY_ROUTING_KEY: $PAGERDUTY_ROUTING_KEY"
+# If empty, set it:
+export PAGERDUTY_ROUTING_KEY="your-32-char-routing-key-here"
+```
+
+---
+
+### 5. NERC CIP Fields Still Present in Historian
+
+**Symptom:** Historian receives events containing `bus_topology` or `relay_config` fields.
+
+**Fix:**
+
+Ensure the CIP field stripping processor runs *before* the output stage:
+
+```yaml
+pipeline:
+  processors:
+    - mapping: |  # Parse stage
+        ...
+    - mapping: |  # Filter stage
+        ...
+    - mapping: |  # Classify stage
+        ...
+    - mapping: |  # CIP strip stage — must be LAST processor before output
+        root = this.without(
+          "bus_topology",
+          "relay_config",
+          "esp_network_map",
+          "protection_zone",
+          "rtu_ip_address",
+          "dnp3_address"
+        )
+        root.cip_fields_stripped = true
+```
+
+Verify in logs:
+
+```bash
+expanso pipeline logs scada-edge-complete -f | jq 'select(.cip_fields_stripped == true) | has("bus_topology")'
+# Expected: false (field should not exist)
+```
+
+---
+
+## Debug Pipeline Configuration
+
+Add verbose logging to any stage for detailed debugging:
+
+```yaml
+# scada-debug.yaml
+# Debug version of the SCADA pipeline with verbose logging
+
+input:
+  socket:
+    network: tcp
+    address: 0.0.0.0:502
+    codec: lines
+
+pipeline:
+  processors:
+    - mapping: |
+        # Parse stage (same as production)
+        let fields = content().string().split(";").fold({}, (acc, item) -> {
+          let parts = item.split("=")
+          acc | { parts[0]: parts[1] }
+        })
+        let reg = fields.REG.number()
+        let val = fields.VAL.number()
+
+        root.voltage_kv   = if reg == 40001 { val / 100.0 } else { deleted() }
+        root.frequency_hz = if reg == 40005 { val / 100.0 } else { deleted() }
+        root.temp_c       = if reg == 40007 { val / 10.0 }  else { deleted() }
+        root.device_id     = fields.DEVICE
+        root.register      = reg
+        root.raw_value     = val
+        root.substation_id = env("SUBSTATION_ID").or("SUB-CENTRAL-01")
+        root."@timestamp"  = fields.TS.number()
+
+        # DEBUG: add parsing metadata
+        root._debug_raw_content = content().string()
+        root._debug_parsed_fields = fields.string()
+
+    # DEBUG: log before filter
+    - log:
+        level: DEBUG
+        message: "Pre-filter reading: voltage=${!this.voltage_kv} freq=${!this.frequency_hz} temp=${!this.temp_c}"
+
+    - mapping: |
+        let voltage_ok   = !this.voltage_kv.exists()   || (this.voltage_kv >= 110.0 && this.voltage_kv <= 145.0)
+        let frequency_ok = !this.frequency_hz.exists()  || (this.frequency_hz >= 59.95 && this.frequency_hz <= 60.05)
+        let temp_ok      = !this.temp_c.exists()        || this.temp_c <= 75.0
+
+        if voltage_ok && frequency_ok && temp_ok {
+          root = deleted()
+        }
+
+        root._debug_filter_passed = true
+        root._debug_voltage_ok   = voltage_ok
+        root._debug_frequency_ok = frequency_ok
+        root._debug_temp_ok      = temp_ok
+
+    # DEBUG: log what passes filter
+    - log:
+        level: INFO
+        message: "ANOMALY DETECTED: ${!this.fault_type} on ${!this.device_id}"
+
+# Debug: output to stdout (not to production destinations)
+output:
+  stdout:
+    codec: lines
+```
+
+Deploy the debug pipeline:
+
+```bash
+expanso pipeline deploy ~/scada-debug.yaml --name scada-debug
+expanso pipeline logs scada-debug -f --level debug
+```
+
+## Getting Help
+
+If you're still stuck:
+
+1. **Check the Expanso docs** — [docs.expanso.io](https://docs.expanso.io) for Bloblang reference and pipeline configuration
+2. **Community Slack** — [expanso.io/community](https://expanso.io/community) for real-time help from the Expanso team
+3. **GitHub Issues** — [github.com/expanso-io/expanso](https://github.com/expanso-io/expanso) for bug reports
+4. **Pipeline validation** — always run `expanso pipeline validate your-pipeline.yaml` before deploying
+
+---
+
+→ **Back to:** [Complete SCADA Integration](./complete-scada-integration)

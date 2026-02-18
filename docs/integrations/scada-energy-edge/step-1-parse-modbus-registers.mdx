@@ -1,0 +1,215 @@
+---
+title: "Step 1: Parse Modbus Register Data"
+sidebar_label: "Step 1: Parse Registers"
+sidebar_position: 4
+description: "Map raw Modbus register addresses to engineering field names and apply scaling factors using Bloblang."
+keywords: [modbus, scada, bloblang, register-mapping, parsing, voltage, frequency, temperature]
+---
+
+# Step 1: Parse Modbus Register Data
+
+## The Goal
+
+RTUs and PLCs speak Modbus — a protocol that has been the language of industrial automation since 1979. When a relay polls your substation sensors, it returns raw register values like this:
+
+```
+REG=40001;VAL=14823;UNIT=V_x100;TS=1708290845;DEVICE=RTU-07A;STATUS=0
+```
+
+What does `VAL=14823` mean? It means the voltage is 148.23 kV — but only if you know that:
+1. Register `40001` is the voltage register
+2. The unit is `V_x100`, so the value is divided by 100 to get kV
+3. 148.23 kV is on a 132 kV nominal transmission line (within operating range)
+
+None of that context exists in the raw Modbus frame. This step creates it.
+
+## Modbus Register Map
+
+This pipeline uses the following register assignments (typical for a 115–132 kV transmission substation):
+
+| Register | Field | Unit | Scaling | Example Value | Decoded |
+|---|---|---|---|---|---|
+| `40001` | `voltage_kv` | V × 100 | ÷ 100 | `14823` | 148.23 kV |
+| `40003` | `current_a` | A × 10 | ÷ 10 | `2341` | 234.1 A |
+| `40005` | `frequency_hz` | Hz × 100 | ÷ 100 | `6001` | 60.01 Hz |
+| `40007` | `temp_c` | °C × 10 | ÷ 10 | `423` | 42.3°C |
+| `40009` | `power_mw` | MW × 10 | ÷ 10 | `2847` | 284.7 MW |
+
+:::info Register Addressing
+Modbus holding registers start at address 40001 in the Modbus coil/register space. Your RTU may use 0-based or 1-based addressing — check your device documentation. This pipeline uses 1-based addressing (40001 = first holding register).
+:::
+
+## Before and After
+
+**Before** (raw register line from RTU):
+```
+REG=40001;VAL=14823;UNIT=V_x100;TS=1708290845;DEVICE=RTU-07A;STATUS=0
+```
+
+**After** (structured JSON with engineering units):
+```json
+{
+  "voltage_kv": 148.23,
+  "device_id": "RTU-07A",
+  "register": 40001,
+  "raw_value": 14823,
+  "status": 0,
+  "substation_id": "SUB-CENTRAL-01",
+  "region": "WECC-SOUTHWEST",
+  "@timestamp": 1708290845
+}
+```
+
+## Implementation
+
+### Create the Pipeline Configuration
+
+```bash
+cat > ~/scada-step-1-parse.yaml << 'EOF'
+# scada-step-1-parse.yaml
+# Stage 1: Parse raw Modbus register data into structured JSON
+
+input:
+  socket:
+    network: tcp
+    address: 0.0.0.0:502
+    codec: lines
+
+pipeline:
+  processors:
+    - mapping: |
+        # Parse semicolon-delimited Modbus register data
+        let fields = content().string().split(";").fold({}, (acc, item) -> {
+          let parts = item.split("=")
+          acc | { parts[0]: parts[1] }
+        })
+
+        let reg = fields.REG.number()
+        let val = fields.VAL.number()
+
+        # Map register addresses to field names with scaling factors
+        # Register 40001 = Voltage (V x100, divide by 100 for kV)
+        root.voltage_kv   = if reg == 40001 { val / 100.0 } else { deleted() }
+        # Register 40003 = Current (A x10, divide by 10 for A)
+        root.current_a    = if reg == 40003 { val / 10.0 }  else { deleted() }
+        # Register 40005 = Frequency (Hz x100, divide by 100 for Hz)
+        root.frequency_hz = if reg == 40005 { val / 100.0 } else { deleted() }
+        # Register 40007 = Temperature (degC x10, divide by 10 for °C)
+        root.temp_c       = if reg == 40007 { val / 10.0 }  else { deleted() }
+        # Register 40009 = Active Power (MW x10, divide by 10 for MW)
+        root.power_mw     = if reg == 40009 { val / 10.0 }  else { deleted() }
+
+        # Device and register metadata
+        root.device_id     = fields.DEVICE
+        root.register      = reg
+        root.raw_value     = val
+        root.status        = fields.STATUS.number()
+
+        # Substation identity from environment (set per deployment)
+        root.substation_id = env("SUBSTATION_ID").or("SUB-CENTRAL-01")
+        root.region        = env("GRID_REGION").or("WECC-SOUTHWEST")
+
+        # Unix timestamp from RTU
+        root."@timestamp"  = fields.TS.number()
+
+# For this step, output to stdout to verify parsing
+output:
+  stdout:
+    codec: lines
+EOF
+```
+
+### Deploy and Test
+
+```bash
+# Deploy the pipeline
+expanso pipeline deploy ~/scada-step-1-parse.yaml
+
+# Check status
+expanso pipeline status scada-step-1-parse
+
+# Stream output
+expanso pipeline logs scada-step-1-parse -f
+```
+
+In another terminal, send a test reading:
+
+```bash
+echo "REG=40001;VAL=14823;UNIT=V_x100;TS=$(date +%s);DEVICE=RTU-07A;STATUS=0" | \
+  nc localhost 502
+```
+
+Expected output:
+
+```json
+{
+  "voltage_kv": 148.23,
+  "device_id": "RTU-07A",
+  "register": 40001,
+  "raw_value": 14823,
+  "status": 0,
+  "substation_id": "SUB-CENTRAL-01",
+  "region": "WECC-SOUTHWEST",
+  "@timestamp": 1708290845
+}
+```
+
+### Test All Register Types
+
+```bash
+# Voltage (REG 40001) — 148.23 kV
+echo "REG=40001;VAL=14823;UNIT=V_x100;TS=$(date +%s);DEVICE=RTU-07A;STATUS=0" | nc localhost 502
+
+# Current (REG 40003) — 234.1 A
+echo "REG=40003;VAL=2341;UNIT=A_x10;TS=$(date +%s);DEVICE=RTU-07A;STATUS=0" | nc localhost 502
+
+# Frequency (REG 40005) — 60.01 Hz
+echo "REG=40005;VAL=6001;UNIT=Hz_x100;TS=$(date +%s);DEVICE=RTU-07A;STATUS=0" | nc localhost 502
+
+# Temperature (REG 40007) — 42.3°C
+echo "REG=40007;VAL=423;UNIT=degC_x10;TS=$(date +%s);DEVICE=RTU-07A;STATUS=0" | nc localhost 502
+
+# Active Power (REG 40009) — 284.7 MW
+echo "REG=40009;VAL=2847;UNIT=MW_x10;TS=$(date +%s);DEVICE=RTU-07A;STATUS=0" | nc localhost 502
+```
+
+## Handling Additional Registers
+
+Your substation may have additional measurement points. Extend the mapping:
+
+```yaml
+# Power factor (REG 40011) — stored as pf x1000
+root.power_factor = if reg == 40011 { val / 1000.0 } else { deleted() }
+
+# Reactive power MVAR (REG 40013) — stored as MVAR x10
+root.reactive_mvar = if reg == 40013 { val / 10.0 } else { deleted() }
+
+# Line impedance (REG 40015) — stored as ohm x100
+root.impedance_ohm = if reg == 40015 { val / 100.0 } else { deleted() }
+```
+
+:::tip CIP-Sensitive Registers
+Some registers contain topology data that must not leave the substation under NERC CIP §R1.4. Mark these explicitly and handle deletion in the routing stage:
+
+```yaml
+# Bus topology register — CIP sensitive, do not forward
+root.bus_topology_raw = if reg == 40099 { val } else { deleted() }
+root.cip_sensitive = if reg == 40099 { true } else { false }
+```
+:::
+
+## Key Differences from Manual Historian Parsing
+
+| **Approach** | **Manual Historian** | **Expanso Pipeline** |
+|---|---|---|
+| Register mapping | Configured in historian UI | YAML + Bloblang, version-controlled |
+| Scaling factors | Hardcoded per device | Configurable per register in one file |
+| New register type | Requires historian configuration change | Edit pipeline YAML, redeploy |
+| Multi-site | N configs for N sites | One pipeline, N env var overrides |
+| Audit trail | Historian logs | Bloblang metadata + local archive |
+
+## What's Next?
+
+You now have structured, human-readable JSON from raw Modbus frames. Next: filter out the 99%+ of nominal readings so only meaningful data crosses the OT/IT boundary.
+
+→ **Next Step:** [Step 2: Filter Nominal Readings at the Edge](./step-2-filter-normalize-readings)

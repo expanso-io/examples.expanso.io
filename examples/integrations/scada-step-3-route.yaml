@@ -1,0 +1,23 @@
+output:
+  switch:
+    cases:
+      - check: this.alert_required == true
+        output:
+          broker:
+            outputs:
+              - http_client:
+                  url: "\${SCADA_HISTORIAN_URL}"
+                  verb: POST
+                  headers:
+                    Content-Type: "application/json"
+              - http_client:
+                  url: "\${PAGERDUTY_WEBHOOK_URL}"
+                  verb: POST
+                  headers:
+                    Content-Type: "application/json"
+      - output:
+          http_client:
+            url: "\${GRAFANA_CLOUD_URL}"
+            verb: POST
+            headers:
+              Content-Type: "application/json"

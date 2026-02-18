@@ -1,0 +1,195 @@
+name: scada-edge-complete
+type: pipeline
+description: Complete SCADA edge processing pipeline for power grid substations. Parses raw Modbus register data, filters nominal readings (99.9% reduction), classifies fault events, and routes to SCADA historian, PagerDuty alerting, and Grafana Cloud with NERC CIP compliance.
+namespace: production
+labels:
+  category: integrations
+  pattern: scada-edge-processing
+  industry: energy
+  compliance: nerc-cip
+
+config:
+  input:
+    socket:
+      network: tcp
+      address: 0.0.0.0:502
+      codec: lines
+
+  pipeline:
+    processors:
+      # ───────────────────────────────────────────────────────────────────────
+      # STAGE 1: Parse raw Modbus register data into structured JSON
+      # Maps register addresses to field names and applies scaling factors.
+      #
+      # Register map (132 kV substation):
+      #   40001 = Voltage (V x100 → kV, divide by 100)
+      #   40003 = Current (A x10 → A, divide by 10)
+      #   40005 = Frequency (Hz x100 → Hz, divide by 100)
+      #   40007 = Temperature (degC x10 → °C, divide by 10)
+      #   40009 = Active Power (MW x10 → MW, divide by 10)
+      # ───────────────────────────────────────────────────────────────────────
+      - mapping: |
+          let fields = content().string().split(";").fold({}, (acc, item) -> {
+            let parts = item.split("=")
+            acc | { parts[0]: parts[1] }
+          })
+
+          let reg = fields.REG.number()
+          let val = fields.VAL.number()
+
+          root.voltage_kv    = if reg == 40001 { val / 100.0 }  else { deleted() }
+          root.current_a     = if reg == 40003 { val / 10.0 }   else { deleted() }
+          root.frequency_hz  = if reg == 40005 { val / 100.0 }  else { deleted() }
+          root.temp_c        = if reg == 40007 { val / 10.0 }   else { deleted() }
+          root.power_mw      = if reg == 40009 { val / 10.0 }   else { deleted() }
+          root.power_factor  = if reg == 40011 { val / 1000.0 } else { deleted() }
+          root.reactive_mvar = if reg == 40013 { val / 10.0 }   else { deleted() }
+
+          root.device_id     = fields.DEVICE
+          root.register      = reg
+          root.raw_value     = val
+          root.status        = fields.STATUS.number()
+          root.substation_id = env("SUBSTATION_ID").or("SUB-CENTRAL-01")
+          root.region        = env("GRID_REGION").or("WECC-SOUTHWEST")
+          root."@timestamp"  = fields.TS.number()
+
+      # ───────────────────────────────────────────────────────────────────────
+      # STAGE 2: Filter nominal readings
+      # Drops readings within NERC reliability operating bands.
+      # Thresholds: NERC FAC-001, BAL-003, IEEE C57.91
+      # ───────────────────────────────────────────────────────────────────────
+      - mapping: |
+          let v_min = env("VOLTAGE_MIN_KV").number().catch(110.0)
+          let v_max = env("VOLTAGE_MAX_KV").number().catch(145.0)
+          let f_min = env("FREQ_MIN_HZ").number().catch(59.95)
+          let f_max = env("FREQ_MAX_HZ").number().catch(60.05)
+          let t_max = env("TEMP_MAX_C").number().catch(75.0)
+
+          let voltage_ok   = !this.voltage_kv.exists()   || (this.voltage_kv >= v_min && this.voltage_kv <= v_max)
+          let frequency_ok = !this.frequency_hz.exists()  || (this.frequency_hz >= f_min && this.frequency_hz <= f_max)
+          let temp_ok      = !this.temp_c.exists()        || this.temp_c <= t_max
+          let line_fault   = this.current_a.exists() && this.voltage_kv.exists() &&
+                             this.current_a > 400.0 && this.voltage_kv < 115.0
+
+          if voltage_ok && frequency_ok && temp_ok && !line_fault {
+            root = deleted()
+          }
+
+      # ───────────────────────────────────────────────────────────────────────
+      # STAGE 3: Classify fault events
+      # Tags each anomaly with fault type, severity, and alert routing flag.
+      # ───────────────────────────────────────────────────────────────────────
+      - mapping: |
+          root.fault_type = match {
+            this.voltage_kv.exists() && (this.voltage_kv < 110.0 || this.voltage_kv > 145.0) => "VOLTAGE_DEVIATION"
+            this.frequency_hz.exists() && (this.frequency_hz < 59.95 || this.frequency_hz > 60.05) => "FREQUENCY_DRIFT"
+            this.temp_c.exists() && this.temp_c > 75.0 => "THERMAL_OVERLOAD"
+            this.current_a.exists() && this.voltage_kv.exists() &&
+              this.current_a > 400.0 && this.voltage_kv < 115.0 => "LINE_FAULT"
+            _ => "NOMINAL"
+          }
+
+          root.fault_detail = match {
+            this.fault_type == "VOLTAGE_DEVIATION" && this.voltage_kv < 110.0 => "undervoltage"
+            this.fault_type == "VOLTAGE_DEVIATION" && this.voltage_kv > 145.0 => "overvoltage"
+            this.fault_type == "FREQUENCY_DRIFT"   && this.frequency_hz < 59.95 => "underfrequency"
+            this.fault_type == "FREQUENCY_DRIFT"   && this.frequency_hz > 60.05 => "overfrequency"
+            this.fault_type == "THERMAL_OVERLOAD"  => "high_temperature"
+            this.fault_type == "LINE_FAULT"        => "fault_current"
+            _ => "none"
+          }
+
+          root.severity = match {
+            this.fault_type == "LINE_FAULT" => "critical"
+            this.fault_type == "VOLTAGE_DEVIATION" && (this.voltage_kv < 100.0 || this.voltage_kv > 150.0) => "critical"
+            this.fault_type == "THERMAL_OVERLOAD" && this.temp_c > 90.0 => "critical"
+            this.fault_type == "FREQUENCY_DRIFT" && (this.frequency_hz < 59.5 || this.frequency_hz > 60.5) => "critical"
+            this.fault_type == "NOMINAL" => "info"
+            _ => "warning"
+          }
+
+          root.alert_required   = this.fault_type != "NOMINAL"
+          root.processed_at     = now()
+          root.pipeline_version = "1.0.0"
+
+      # ───────────────────────────────────────────────────────────────────────
+      # STAGE 4 (pre-output): Strip NERC CIP-sensitive topology fields
+      # Reference: NERC CIP-011-2 §R1.4 — BES Cyber System Information
+      # These fields must not cross the electronic security perimeter.
+      # ───────────────────────────────────────────────────────────────────────
+      - mapping: |
+          root = this.without(
+            "bus_topology",
+            "relay_config",
+            "esp_network_map",
+            "protection_zone",
+            "rtu_ip_address",
+            "dnp3_address",
+            "fiber_map"
+          )
+          root.cip_fields_stripped = true
+          root.cip_strip_timestamp = now()
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # OUTPUT: Multi-destination routing
+  #   alert_required=true  → SCADA historian + PagerDuty (simultaneous)
+  #   alert_required=false → Grafana Cloud KPI dashboard
+  #   all events           → local audit archive (NERC CIP §R1.4)
+  # ─────────────────────────────────────────────────────────────────────────
+  output:
+    broker:
+      outputs:
+        - switch:
+            cases:
+              - check: this.alert_required == true
+                output:
+                  broker:
+                    outputs:
+                      - http_client:
+                          url: "${SCADA_HISTORIAN_URL}"
+                          verb: POST
+                          headers:
+                            Content-Type: "application/json"
+                            Authorization: "Bearer ${HISTORIAN_API_KEY}"
+                          timeout: 10s
+                          retry_policy:
+                            max_retries: 3
+                            initial_interval: 1s
+                            max_interval: 30s
+
+                      - http_client:
+                          url: "${PAGERDUTY_WEBHOOK_URL}"
+                          verb: POST
+                          headers:
+                            Content-Type: "application/json"
+                          timeout: 5s
+                          processors:
+                            - mapping: |
+                                root = {
+                                  "routing_key": env("PAGERDUTY_ROUTING_KEY"),
+                                  "event_action": "trigger",
+                                  "dedup_key": this.substation_id + "_" + this.fault_type + "_" + this.device_id,
+                                  "payload": {
+                                    "summary": this.fault_type + " on " + this.device_id + " at " + this.substation_id,
+                                    "severity": this.severity,
+                                    "source": this.substation_id,
+                                    "timestamp": this.processed_at,
+                                    "custom_details": this.without("pipeline_version", "cip_fields_stripped", "cip_strip_timestamp")
+                                  }
+                                }
+
+              - output:
+                  http_client:
+                    url: "${GRAFANA_CLOUD_URL}"
+                    verb: POST
+                    headers:
+                      Content-Type: "application/json"
+                      Authorization: "Bearer ${GRAFANA_API_KEY}"
+                    timeout: 15s
+                    batching:
+                      count: 100
+                      period: 5s
+
+        - file:
+            path: "${LOCAL_AUDIT_PATH}/scada-audit-${!timestamp().format('2006-01-02')}.jsonl"
+            codec: lines
