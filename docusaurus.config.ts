@@ -22,6 +22,10 @@ const config: Config = {
 
   onBrokenLinks: 'warn',
 
+  // Ensure sitemap and pages use trailing slashes — matches Cloudflare Pages
+  // canonical URL behavior, eliminating 301 redirects that prevent indexing
+  trailingSlash: true,
+
   markdown: {
     mermaid: true,
   },
