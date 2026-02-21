@@ -1,0 +1,19 @@
+pipeline:
+  processors:
+    - mapping: |
+        # Filter: drop readings within normal operating bounds
+        if this.voltage_kv >= 110.0 && this.voltage_kv <= 145.0 &&
+           this.frequency_hz >= 59.95 && this.frequency_hz <= 60.05 &&
+           this.temp_c <= 75.0 {
+          root = deleted()
+        }
+        
+        # Classify fault type for surviving anomalies
+        root.fault_type = match {
+          this.voltage_kv < 110.0 || this.voltage_kv > 145.0 => "VOLTAGE_DEVIATION"
+          this.frequency_hz < 59.95 || this.frequency_hz > 60.05 => "FREQUENCY_DRIFT"
+          this.temp_c > 75.0 => "THERMAL_OVERLOAD"
+          _ => "NOMINAL"
+        }
+        root.severity      = if this.fault_type == "NOMINAL" { "info" } else { "critical" }
+        root.alert_required = this.fault_type != "NOMINAL"

@@ -1,0 +1,142 @@
+# step-4-route-destinations.yaml
+# Stage 4: Route fault events to multiple destinations
+# - alert_required=true  → SCADA historian + PagerDuty (via broker for simultaneous delivery)
+# - alert_required=false → Grafana Cloud KPI dashboard
+# - all events           → local audit archive (NERC CIP §R1.4 compliance)
+#
+# NERC CIP: topology fields (bus_topology, relay_config, etc.) are stripped
+# before any data leaves the substation electronic security perimeter.
+
+input:
+  socket:
+    network: tcp
+    address: 0.0.0.0:502
+    codec: lines
+
+pipeline:
+  processors:
+    # Stage 1: Parse registers
+    - mapping: |
+        let fields = content().string().split(";").fold({}, (acc, item) -> {
+          let parts = item.split("=")
+          acc | { parts[0]: parts[1] }
+        })
+        let reg = fields.REG.number()
+        let val = fields.VAL.number()
+
+        root.voltage_kv   = if reg == 40001 { val / 100.0 } else { deleted() }
+        root.current_a    = if reg == 40003 { val / 10.0 }  else { deleted() }
+        root.frequency_hz = if reg == 40005 { val / 100.0 } else { deleted() }
+        root.temp_c       = if reg == 40007 { val / 10.0 }  else { deleted() }
+        root.power_mw     = if reg == 40009 { val / 10.0 }  else { deleted() }
+
+        root.device_id     = fields.DEVICE
+        root.register      = reg
+        root.raw_value     = val
+        root.status        = fields.STATUS.number()
+        root.substation_id = env("SUBSTATION_ID").or("SUB-CENTRAL-01")
+        root.region        = env("GRID_REGION").or("WECC-SOUTHWEST")
+        root."@timestamp"  = fields.TS.number()
+
+    # Stage 2: Filter nominal
+    - mapping: |
+        let voltage_ok   = !this.voltage_kv.exists()   || (this.voltage_kv >= 110.0 && this.voltage_kv <= 145.0)
+        let frequency_ok = !this.frequency_hz.exists()  || (this.frequency_hz >= 59.95 && this.frequency_hz <= 60.05)
+        let temp_ok      = !this.temp_c.exists()        || this.temp_c <= 75.0
+
+        if voltage_ok && frequency_ok && temp_ok {
+          root = deleted()
+        }
+
+    # Stage 3: Classify faults
+    - mapping: |
+        root.fault_type = match {
+          this.voltage_kv.exists() && (this.voltage_kv < 110.0 || this.voltage_kv > 145.0) => "VOLTAGE_DEVIATION"
+          this.frequency_hz.exists() && (this.frequency_hz < 59.95 || this.frequency_hz > 60.05) => "FREQUENCY_DRIFT"
+          this.temp_c.exists() && this.temp_c > 75.0 => "THERMAL_OVERLOAD"
+          _ => "NOMINAL"
+        }
+        root.severity      = if this.fault_type == "NOMINAL" { "info" } else { "critical" }
+        root.alert_required = this.fault_type != "NOMINAL"
+        root.processed_at  = now()
+
+    # Stage 4a: Strip NERC CIP-sensitive topology fields before egress
+    - mapping: |
+        root = this.without(
+          "bus_topology",
+          "relay_config",
+          "esp_network_map",
+          "protection_zone",
+          "rtu_ip_address",
+          "dnp3_address",
+          "fiber_map"
+        )
+        root.cip_fields_stripped = true
+
+# Route based on alert_required flag, with audit archive for all events
+output:
+  broker:
+    outputs:
+      # Primary routing: conditional on alert_required
+      - switch:
+          cases:
+            # Critical fault → SCADA historian + PagerDuty simultaneously
+            - check: this.alert_required == true
+              output:
+                broker:
+                  outputs:
+                    - http_client:
+                        url: "${SCADA_HISTORIAN_URL}"
+                        verb: POST
+                        headers:
+                          Content-Type: "application/json"
+                          Authorization: "Bearer ${HISTORIAN_API_KEY}"
+                        timeout: 10s
+                        retry_policy:
+                          max_retries: 3
+                          initial_interval: 1s
+
+                    - http_client:
+                        url: "${PAGERDUTY_WEBHOOK_URL}"
+                        verb: POST
+                        headers:
+                          Content-Type: "application/json"
+                        timeout: 5s
+                        processors:
+                          - mapping: |
+                              root = {
+                                "routing_key": env("PAGERDUTY_ROUTING_KEY"),
+                                "event_action": "trigger",
+                                "dedup_key": this.substation_id + "_" + this.fault_type + "_" + this.device_id,
+                                "payload": {
+                                  "summary": this.fault_type + " on " + this.device_id + " at " + this.substation_id,
+                                  "severity": this.severity,
+                                  "source": this.substation_id,
+                                  "timestamp": this.processed_at,
+                                  "custom_details": {
+                                    "voltage_kv": this.voltage_kv,
+                                    "frequency_hz": this.frequency_hz,
+                                    "temp_c": this.temp_c,
+                                    "fault_type": this.fault_type,
+                                    "device_id": this.device_id
+                                  }
+                                }
+                              }
+
+            # KPI summary → Grafana Cloud (CIP-safe — no topology data)
+            - output:
+                http_client:
+                  url: "${GRAFANA_CLOUD_URL}"
+                  verb: POST
+                  headers:
+                    Content-Type: "application/json"
+                    Authorization: "Bearer ${GRAFANA_API_KEY}"
+                  timeout: 15s
+                  batching:
+                    count: 100
+                    period: 5s
+
+      # Audit archive: all events, stored locally (NERC CIP §R1.4)
+      - file:
+          path: "${LOCAL_AUDIT_PATH}/scada-audit-${!timestamp().format('2006-01-02')}.jsonl"
+          codec: lines

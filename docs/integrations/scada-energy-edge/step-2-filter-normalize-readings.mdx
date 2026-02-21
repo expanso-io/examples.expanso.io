@@ -1,0 +1,212 @@
+---
+title: "Step 2: Filter Nominal Readings at the Edge"
+sidebar_label: "Step 2: Filter Nominal"
+sidebar_position: 5
+description: "Drop readings within normal operating bands using NERC reliability standards. Filter 99%+ of substation telemetry at the edge before it crosses the OT/IT boundary."
+keywords: [modbus, scada, filtering, nerc, reliability, bloblang, edge-processing, noise-reduction]
+---
+
+# Step 2: Filter Nominal Readings at the Edge
+
+## The Goal
+
+A 132 kV substation with 50 measurement points, polling every 100ms, generates:
+
+- **50 registers × 600 polls/minute = 30,000 readings/minute per substation**
+- **At 10 substations: 300,000 readings/minute**
+- **Monthly: ~13 billion data points**
+
+Of those 13 billion readings, how many are actionable? On a healthy grid operating within NERC reliability standards, **less than 0.1%**. The other 99.9% are "voltage is 148.23 kV — same as last reading."
+
+This step drops the noise at the edge. Normal readings never leave the substation.
+
+## NERC Reliability Standards
+
+The filtering thresholds are grounded in established grid reliability standards:
+
+| **Parameter** | **Normal Band** | **Source** | **Why This Threshold** |
+|---|---|---|---|
+| Voltage (132 kV bus) | 110–145 kV | NERC FAC-001, ±10% of nominal | ±10% is standard transmission voltage tolerance |
+| Frequency | 59.95–60.05 Hz | NERC BAL-003, ±0.5% | Under-frequency load shed starts at 59.5 Hz; 59.95 gives early warning margin |
+| Transformer temp | ≤ 75°C | IEEE C57.91, 65°C rated + 10°C margin | Thermal aging accelerates exponentially above rated temperature |
+
+:::info Site-Specific Thresholds
+These thresholds are appropriate for typical 115–138 kV transmission. Your substation may have different nominal voltage, equipment ratings, or operating agreements. Adjust the Bloblang conditionals to match your operational requirements.
+:::
+
+## The `root = deleted()` Pattern
+
+Expanso Bloblang uses `root = deleted()` to drop a message entirely. No output is produced for that message — it simply disappears:
+
+```yaml
+- mapping: |
+    # Drop this message if voltage is within normal range
+    if this.voltage_kv >= 110.0 && this.voltage_kv <= 145.0 {
+      root = deleted()
+    }
+```
+
+This is fundamentally different from filtering after transmission — the message never reaches the output stage at all. For SCADA edge processing, this means filtered data physically never crosses the OT/IT boundary.
+
+## Before and After
+
+**Before** (1,000 readings/minute, all readings):
+
+```
+voltage_kv: 148.23  ← normal
+voltage_kv: 148.21  ← normal
+voltage_kv: 148.25  ← normal
+voltage_kv: 104.50  ← UNDERVOLTAGE — keep!
+voltage_kv: 148.22  ← normal
+... 995 more normal readings ...
+```
+
+**After** (fewer than 5 anomalies/minute shipped):
+
+```json
+{
+  "voltage_kv": 104.50,
+  "device_id": "RTU-07A",
+  "substation_id": "SUB-CENTRAL-01",
+  "@timestamp": 1708290846
+}
+```
+
+**Volume reduction: 99.5%+**. Only anomalies cross the boundary.
+
+## Implementation
+
+### Create the Filter Pipeline
+
+```bash
+cat > ~/scada-step-2-filter.yaml << 'EOF'
+# scada-step-2-filter.yaml
+# Stage 2: Filter nominal readings — keep only anomalies
+
+input:
+  socket:
+    network: tcp
+    address: 0.0.0.0:502
+    codec: lines
+
+pipeline:
+  processors:
+    # First: parse registers (same as Step 1)
+    - mapping: |
+        let fields = content().string().split(";").fold({}, (acc, item) -> {
+          let parts = item.split("=")
+          acc | { parts[0]: parts[1] }
+        })
+        let reg = fields.REG.number()
+        let val = fields.VAL.number()
+
+        root.voltage_kv   = if reg == 40001 { val / 100.0 } else { deleted() }
+        root.current_a    = if reg == 40003 { val / 10.0 }  else { deleted() }
+        root.frequency_hz = if reg == 40005 { val / 100.0 } else { deleted() }
+        root.temp_c       = if reg == 40007 { val / 10.0 }  else { deleted() }
+        root.power_mw     = if reg == 40009 { val / 10.0 }  else { deleted() }
+
+        root.device_id     = fields.DEVICE
+        root.register      = reg
+        root.raw_value     = val
+        root.status        = fields.STATUS.number()
+        root.substation_id = env("SUBSTATION_ID").or("SUB-CENTRAL-01")
+        root.region        = env("GRID_REGION").or("WECC-SOUTHWEST")
+        root."@timestamp"  = fields.TS.number()
+
+    # Second: filter nominal readings
+    - mapping: |
+        # Check if ALL available readings are within normal operating bounds
+        # A reading is "normal" if it's within the NERC reliability bands
+        let voltage_ok   = !this.voltage_kv.exists()   || (this.voltage_kv >= 110.0 && this.voltage_kv <= 145.0)
+        let frequency_ok = !this.frequency_hz.exists()  || (this.frequency_hz >= 59.95 && this.frequency_hz <= 60.05)
+        let temp_ok      = !this.temp_c.exists()        || this.temp_c <= 75.0
+
+        # Drop nominal readings — they never leave the substation
+        if voltage_ok && frequency_ok && temp_ok {
+          root = deleted()
+        }
+
+        # Track which threshold was exceeded (for Step 3 classification)
+        root.voltage_anomaly   = this.voltage_kv.exists() && (this.voltage_kv < 110.0 || this.voltage_kv > 145.0)
+        root.frequency_anomaly = this.frequency_hz.exists() && (this.frequency_hz < 59.95 || this.frequency_hz > 60.05)
+        root.temp_anomaly      = this.temp_c.exists() && this.temp_c > 75.0
+
+output:
+  stdout:
+    codec: lines
+EOF
+```
+
+### Test with Normal and Anomalous Readings
+
+```bash
+# Normal voltage (148.23 kV — within 110-145 kV band) — should be filtered
+echo "REG=40001;VAL=14823;UNIT=V_x100;TS=$(date +%s);DEVICE=RTU-07A;STATUS=0" | nc localhost 502
+
+# Undervoltage (104.5 kV — below 110 kV threshold) — should PASS
+echo "REG=40001;VAL=10450;UNIT=V_x100;TS=$(date +%s);DEVICE=RTU-07A;STATUS=2" | nc localhost 502
+
+# Normal frequency (60.01 Hz) — filtered
+echo "REG=40005;VAL=6001;UNIT=Hz_x100;TS=$(date +%s);DEVICE=RTU-07A;STATUS=0" | nc localhost 502
+
+# Frequency drift (59.90 Hz — below 59.95 Hz) — should PASS
+echo "REG=40005;VAL=5990;UNIT=Hz_x100;TS=$(date +%s);DEVICE=RTU-07A;STATUS=1" | nc localhost 502
+
+# Normal temperature (42.3°C) — filtered
+echo "REG=40007;VAL=423;UNIT=degC_x10;TS=$(date +%s);DEVICE=RTU-07A;STATUS=0" | nc localhost 502
+
+# Thermal overload (87.3°C — above 75°C threshold) — should PASS
+echo "REG=40007;VAL=873;UNIT=degC_x10;TS=$(date +%s);DEVICE=RTU-07A;STATUS=1" | nc localhost 502
+```
+
+Expected: the first, third, and fifth commands produce no output. The second, fourth, and sixth produce JSON with anomaly flags.
+
+## Tuning for Your Grid
+
+### Seasonal Voltage Adjustments
+
+Voltage tolerances may vary with load and season. Use environment-driven thresholds:
+
+```yaml
+- mapping: |
+    let v_min = env("VOLTAGE_MIN_KV").number().catch(110.0)
+    let v_max = env("VOLTAGE_MAX_KV").number().catch(145.0)
+    let f_min = env("FREQ_MIN_HZ").number().catch(59.95)
+    let f_max = env("FREQ_MAX_HZ").number().catch(60.05)
+    let t_max = env("TEMP_MAX_C").number().catch(75.0)
+
+    let voltage_ok   = !this.voltage_kv.exists()   || (this.voltage_kv >= v_min && this.voltage_kv <= v_max)
+    let frequency_ok = !this.frequency_hz.exists()  || (this.frequency_hz >= f_min && this.frequency_hz <= f_max)
+    let temp_ok      = !this.temp_c.exists()        || this.temp_c <= t_max
+
+    if voltage_ok && frequency_ok && temp_ok {
+      root = deleted()
+    }
+```
+
+### Statistical Sampling for Baseline Analytics
+
+Even when readings are nominal, you may want to sample a small percentage for trending and baseline analysis:
+
+```yaml
+- mapping: |
+    let voltage_ok   = !this.voltage_kv.exists()   || (this.voltage_kv >= 110.0 && this.voltage_kv <= 145.0)
+    let frequency_ok = !this.frequency_hz.exists()  || (this.frequency_hz >= 59.95 && this.frequency_hz <= 60.05)
+    let temp_ok      = !this.temp_c.exists()        || this.temp_c <= 75.0
+
+    if voltage_ok && frequency_ok && temp_ok {
+      # Sample 1% of nominal readings for baseline trending
+      let hash = content().hash("xxhash64") % 100
+      if hash != 0 {
+        root = deleted()
+      }
+      root.sample_type = "baseline"
+    }
+```
+
+## What's Next?
+
+You've reduced 50,000 readings/minute to a handful of anomalies. Next: classify each anomaly with its fault type so downstream systems know what they're dealing with before they receive it.
+
+→ **Next Step:** [Step 3: Classify Fault Types with Bloblang](./step-3-classify-fault-events)

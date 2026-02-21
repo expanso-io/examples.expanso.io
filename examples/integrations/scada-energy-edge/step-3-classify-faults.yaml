@@ -1,0 +1,106 @@
+# step-3-classify-faults.yaml
+# Stage 3: Classify fault types using Bloblang match expressions
+# Tags each anomaly with fault type, sub-type, severity, and alert routing decision.
+#
+# Fault categories:
+#   VOLTAGE_DEVIATION  — voltage outside 110–145 kV band (undervoltage or overvoltage)
+#   FREQUENCY_DRIFT    — frequency outside 59.95–60.05 Hz (under- or overfrequency)
+#   THERMAL_OVERLOAD   — transformer/line temperature above 75°C
+#   LINE_FAULT         — simultaneous current spike (>400 A) and voltage drop (<115 kV)
+
+input:
+  socket:
+    network: tcp
+    address: 0.0.0.0:502
+    codec: lines
+
+pipeline:
+  processors:
+    # Stage 1: Parse registers
+    - mapping: |
+        let fields = content().string().split(";").fold({}, (acc, item) -> {
+          let parts = item.split("=")
+          acc | { parts[0]: parts[1] }
+        })
+        let reg = fields.REG.number()
+        let val = fields.VAL.number()
+
+        root.voltage_kv   = if reg == 40001 { val / 100.0 } else { deleted() }
+        root.current_a    = if reg == 40003 { val / 10.0 }  else { deleted() }
+        root.frequency_hz = if reg == 40005 { val / 100.0 } else { deleted() }
+        root.temp_c       = if reg == 40007 { val / 10.0 }  else { deleted() }
+        root.power_mw     = if reg == 40009 { val / 10.0 }  else { deleted() }
+
+        root.device_id     = fields.DEVICE
+        root.register      = reg
+        root.raw_value     = val
+        root.status        = fields.STATUS.number()
+        root.substation_id = env("SUBSTATION_ID").or("SUB-CENTRAL-01")
+        root.region        = env("GRID_REGION").or("WECC-SOUTHWEST")
+        root."@timestamp"  = fields.TS.number()
+
+    # Stage 2: Filter nominal
+    - mapping: |
+        let voltage_ok   = !this.voltage_kv.exists()   || (this.voltage_kv >= 110.0 && this.voltage_kv <= 145.0)
+        let frequency_ok = !this.frequency_hz.exists()  || (this.frequency_hz >= 59.95 && this.frequency_hz <= 60.05)
+        let temp_ok      = !this.temp_c.exists()        || this.temp_c <= 75.0
+        let line_fault   = this.current_a.exists() && this.voltage_kv.exists() &&
+                           this.current_a > 400.0 && this.voltage_kv < 115.0
+
+        if voltage_ok && frequency_ok && temp_ok && !line_fault {
+          root = deleted()
+        }
+
+    # Stage 3: Classify faults
+    - mapping: |
+        # Primary fault type — evaluated top-to-bottom, first match wins
+        root.fault_type = match {
+          this.voltage_kv.exists() && (this.voltage_kv < 110.0 || this.voltage_kv > 145.0) => "VOLTAGE_DEVIATION"
+          this.frequency_hz.exists() && (this.frequency_hz < 59.95 || this.frequency_hz > 60.05) => "FREQUENCY_DRIFT"
+          this.temp_c.exists() && this.temp_c > 75.0 => "THERMAL_OVERLOAD"
+          this.current_a.exists() && this.voltage_kv.exists() &&
+            this.current_a > 400.0 && this.voltage_kv < 115.0 => "LINE_FAULT"
+          _ => "NOMINAL"
+        }
+
+        # Fault sub-type for more specific operator guidance
+        root.fault_detail = match {
+          this.fault_type == "VOLTAGE_DEVIATION" && this.voltage_kv < 110.0 => "undervoltage"
+          this.fault_type == "VOLTAGE_DEVIATION" && this.voltage_kv > 145.0 => "overvoltage"
+          this.fault_type == "FREQUENCY_DRIFT"   && this.frequency_hz < 59.95 => "underfrequency"
+          this.fault_type == "FREQUENCY_DRIFT"   && this.frequency_hz > 60.05 => "overfrequency"
+          this.fault_type == "THERMAL_OVERLOAD"  => "high_temperature"
+          this.fault_type == "LINE_FAULT"        => "fault_current"
+          _ => "none"
+        }
+
+        # Severity escalation: critical for extreme deviations or line faults
+        root.severity = match {
+          this.fault_type == "LINE_FAULT" => "critical"
+          this.fault_type == "VOLTAGE_DEVIATION" && (this.voltage_kv < 100.0 || this.voltage_kv > 150.0) => "critical"
+          this.fault_type == "THERMAL_OVERLOAD" && this.temp_c > 90.0 => "critical"
+          this.fault_type == "FREQUENCY_DRIFT" && (this.frequency_hz < 59.5 || this.frequency_hz > 60.5) => "critical"
+          this.fault_type == "NOMINAL" => "info"
+          _ => "warning"
+        }
+
+        # Routing decision
+        root.alert_required = this.fault_type != "NOMINAL"
+
+        # Operator guidance
+        root.operator_action = match {
+          this.fault_detail == "undervoltage" => "Check generation dispatch and capacitor banks on " + this.substation_id + " bus"
+          this.fault_detail == "overvoltage" => "Check reactive power compensation and tap changer position at " + this.substation_id
+          this.fault_detail == "underfrequency" => "AGC response may be insufficient — check area generation reserves"
+          this.fault_detail == "overfrequency" => "Load shedding or generation curtailment may be needed"
+          this.fault_type == "THERMAL_OVERLOAD" => "Reduce loading on " + this.device_id + " immediately — thermal rating exceeded"
+          this.fault_type == "LINE_FAULT" => "Protection relay operation expected — dispatch field crew to " + this.substation_id
+          _ => "Monitor"
+        }
+
+        root.processed_at     = now()
+        root.pipeline_version = "1.0.0"
+
+output:
+  stdout:
+    codec: lines

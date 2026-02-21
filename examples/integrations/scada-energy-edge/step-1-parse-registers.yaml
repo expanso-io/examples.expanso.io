@@ -1,0 +1,48 @@
+# step-1-parse-registers.yaml
+# Stage 1: Parse raw Modbus register data into structured JSON
+# Maps register addresses to engineering field names and applies scaling factors.
+#
+# Register map (132 kV substation):
+#   40001 = Voltage (V x100 → kV, divide by 100)
+#   40003 = Current (A x10 → A, divide by 10)
+#   40005 = Frequency (Hz x100 → Hz, divide by 100)
+#   40007 = Temperature (degC x10 → °C, divide by 10)
+#   40009 = Active Power (MW x10 → MW, divide by 10)
+
+input:
+  socket:
+    network: tcp
+    address: 0.0.0.0:502
+    codec: lines
+
+pipeline:
+  processors:
+    - mapping: |
+        # Parse semicolon-delimited Modbus register data
+        let fields = content().string().split(";").fold({}, (acc, item) -> {
+          let parts = item.split("=")
+          acc | { parts[0]: parts[1] }
+        })
+
+        let reg = fields.REG.number()
+        let val = fields.VAL.number()
+
+        # Map register addresses to field names with scaling factors
+        root.voltage_kv   = if reg == 40001 { val / 100.0 } else { deleted() }
+        root.current_a    = if reg == 40003 { val / 10.0 }  else { deleted() }
+        root.frequency_hz = if reg == 40005 { val / 100.0 } else { deleted() }
+        root.temp_c       = if reg == 40007 { val / 10.0 }  else { deleted() }
+        root.power_mw     = if reg == 40009 { val / 10.0 }  else { deleted() }
+
+        # Device and substation metadata
+        root.device_id     = fields.DEVICE
+        root.register      = reg
+        root.raw_value     = val
+        root.status        = fields.STATUS.number()
+        root.substation_id = env("SUBSTATION_ID").or("SUB-CENTRAL-01")
+        root.region        = env("GRID_REGION").or("WECC-SOUTHWEST")
+        root."@timestamp"  = fields.TS.number()
+
+output:
+  stdout:
+    codec: lines
