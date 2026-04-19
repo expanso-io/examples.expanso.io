@@ -18,13 +18,13 @@ export function JSONViewer({
   highlightPaths = [],
   removedPaths = [],
   isInput = false,
-}: JSONViewerProps): JSX.Element {
+}: JSONViewerProps): React.JSX.Element {
   const renderValue = (
     value: any,
     key: string,
     path: string,
     indent: number
-  ): JSX.Element => {
+  ): React.JSX.Element => {
     const isHighlighted = highlightPaths.some(p => path.startsWith(p) || p.startsWith(path));
     const isRemoved = removedPaths.some(p => path === p);
 

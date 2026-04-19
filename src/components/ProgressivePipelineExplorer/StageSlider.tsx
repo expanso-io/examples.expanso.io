@@ -15,7 +15,7 @@ export function StageSlider({
   stages,
   currentStage,
   onStageChange,
-}: StageSliderProps): JSX.Element {
+}: StageSliderProps): React.JSX.Element {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     onStageChange(parseInt(e.target.value, 10));
   };

@@ -17,7 +17,7 @@ export default function ExplorerSection({
   completeLink,
   setupLabel = 'Start Tutorial',
   completeLabel = 'Download Complete Solution',
-}: ExplorerSectionProps): JSX.Element {
+}: ExplorerSectionProps): React.JSX.Element {
   const containerStyle: React.CSSProperties = {
     display: 'flex',
     gap: '1.5rem',

@@ -10,7 +10,7 @@ export interface ButtonProps {
  * Shared button component for explorer pages
  * Provides consistent styling across all interactive examples
  */
-export default function Button({ href, variant, children }: ButtonProps): JSX.Element {
+export default function Button({ href, variant, children }: ButtonProps): React.JSX.Element {
   const baseClassName = `button button--${variant} button--lg`;
 
   const buttonStyle: React.CSSProperties = {

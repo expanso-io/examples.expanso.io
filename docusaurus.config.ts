@@ -157,6 +157,9 @@ const config: Config = {
           {from: '/log-processing/enrich-export/explorer/setup', to: '/log-processing/enrich-export/explorer'},
           {from: '/log-processing/enrich-export/explorer/complete-log-enrichment', to: '/log-processing/enrich-export/complete-log-enrichment'},
 
+          // integrations/splunk-edge-processing missing troubleshooting page
+          {from: '/integrations/splunk-edge-processing/troubleshooting', to: '/integrations/splunk-edge-processing/'},
+
           // =====================================================
           // /examples/* paths: Redirect to actual example pages
           // =====================================================

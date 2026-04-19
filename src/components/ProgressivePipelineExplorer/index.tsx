@@ -16,7 +16,7 @@ export default function ProgressivePipelineExplorer({
   inputData,
   title = 'Interactive Pipeline Explorer',
   initialStage = 1,
-}: ProgressivePipelineExplorerProps): JSX.Element {
+}: ProgressivePipelineExplorerProps): React.JSX.Element {
   const [currentStage, setCurrentStage] = useState(initialStage);
 
   const stage = stages.find(s => s.id === currentStage);
