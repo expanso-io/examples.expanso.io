@@ -15,7 +15,7 @@ npm run coverage-report       # Report scaffold file coverage
 
 ## create-explorer
 
-Generate complete boilerplate for a new interactive explorer in seconds.
+Generate a starter scaffold for a new interactive explorer.
 
 ### Usage
 
@@ -61,7 +61,7 @@ npm run create-explorer -- \
 
 ### What Gets Generated
 
-The CLI tool generates **4 files** for a complete example:
+The CLI tool generates **4 files** and updates the sidebar:
 
 1. **Stage file**: `docs/{category}/{name}-full.stages.ts`
    - TypeScript file with Stage type import
@@ -86,7 +86,7 @@ The CLI tool generates **4 files** for a complete example:
    - Project setup instructions
    - Troubleshooting section
 
-5. **Sidebar entry**: Updates `sidebars.ts`
+**Sidebar entry**: Updates `sidebars.ts`
    - Adds new example to appropriate category
    - Includes all 3 pages (index, explorer, setup)
    - Configured as collapsible nested item
@@ -145,9 +145,9 @@ docs/
         └── complete-*.mdx             # Complete solution (create manually)
 ```
 
-**Generated automatically:** Stage file, index.mdx, explorer.mdx, setup.mdx (75% complete!)
+**Generated automatically:** Stage file, index page, explorer page, and setup guide.
 
-**Create manually:** Step-by-step tutorial pages and complete solution page
+Replace the starter text in those files, then create the step-by-step tutorial pages and complete solution page required for the example.
 
 ### Troubleshooting
 
@@ -295,7 +295,7 @@ This check verifies four required files only.
 ### Use in CI/CD
 
 The structural check runs automatically via `.github/workflows/example-health.yml`:
-- On every PR (posts comment with status)
+- On pull requests that change stage-backed docs, the inventory scripts, or the workflow itself
 - Daily at 9am UTC (tracks progress)
 - Manual trigger available
 
