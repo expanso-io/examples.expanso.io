@@ -1,4 +1,4 @@
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
@@ -49,7 +49,39 @@ function setup() {
 
     // Create a dummy profile for local testing
     console.log(`\n⚙️  Configuring 'local' profile for expanso-cli...`);
-    execSync(`npm run run-with-expanso -- expanso-cli profile save local --endpoint http://localhost:8080 --auth-token test-token --select`, { stdio: 'inherit' });
+    const profileHelp = execFileSync(
+      cliPath,
+      ['profile', 'save', '--help'],
+      { encoding: 'utf8' }
+    );
+    const tokenFlag = profileHelp.includes('--auth-token')
+      ? '--auth-token'
+      : profileHelp.includes('--api-key')
+        ? '--api-key'
+      : profileHelp.includes('--token')
+        ? '--token'
+        : null;
+
+    if (!tokenFlag) {
+      throw new Error(
+        'Could not find a supported token flag for `expanso-cli profile save`.'
+      );
+    }
+
+    execFileSync(
+      cliPath,
+      [
+        'profile',
+        'save',
+        'local',
+        '--endpoint',
+        'http://localhost:8080',
+        tokenFlag,
+        'test-token',
+        '--select',
+      ],
+      { stdio: 'inherit' }
+    );
     console.log(`✅ 'local' profile configured.`);
   } catch (e: any) {
     console.error(`❌ Failed to install expanso-cli: ${e.message}`);
