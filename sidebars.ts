@@ -347,7 +347,6 @@ const sidebars: SidebarsConfig = {
             'log-processing/filter-severity/setup',
             'log-processing/filter-severity/step-1-parse-json-add-metadata',
             'log-processing/filter-severity/step-2-filter-by-severity',
-            'log-processing/filter-severity/step-3-route-by-severity',
             'log-processing/filter-severity/step-4-advanced-patterns',
             'log-processing/filter-severity/complete-filter-severity',
             'log-processing/filter-severity/troubleshooting',

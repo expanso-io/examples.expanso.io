@@ -1,17 +1,20 @@
 #!/usr/bin/env ts-node
 
 /**
- * Example Coverage Report Generator
+ * Interactive Scaffold File Coverage Report Generator
  *
  * Generates a markdown report showing:
- * - Overall example coverage statistics
+ * - Required-file coverage for stage-backed interactive scaffolds
  * - Category-by-category breakdown
  * - Detailed missing files list
  * - Progress tracking over time
  *
  * Usage:
  *   npm run coverage-report
- *   npm run coverage-report -- --output docs/internal/COVERAGE.md
+ * This report does not inventory every published example or assess runtime
+ * behavior, content quality, operational evidence, or production readiness.
+ *
+ *   npm run coverage-report -- --output COVERAGE.md
  */
 
 import * as fs from 'fs';
@@ -36,6 +39,10 @@ const CATEGORY_DESCRIPTIONS: Record<string, string> = {
   'data-transformation': 'Time windows, deduplication, format conversion, data enrichment',
   'log-processing': 'Log filtering, parsing, enrichment, production pipelines',
 };
+
+function percentage(count: number, total: number): number {
+  return total > 0 ? Math.round((count / total) * 100) : 0;
+}
 
 /**
  * Find all examples across all categories
@@ -80,8 +87,9 @@ async function findAllExamples(): Promise<ExampleFiles[]> {
 function generateMarkdownReport(examples: ExampleFiles[]): string {
   const now = new Date().toISOString().split('T')[0];
 
-  let md = `# Example Coverage Report\n\n`;
+  let md = `# Interactive Scaffold File Coverage\n\n`;
   md += `**Generated:** ${now}\n\n`;
+  md += `> Scope: stage-backed interactive scaffolds in the four original categories. This checks four required repository files only; it does not assess all published examples, runtime behavior, content quality, or production readiness.\n\n`;
   md += `## Overview\n\n`;
 
   // Overall statistics
@@ -93,11 +101,11 @@ function generateMarkdownReport(examples: ExampleFiles[]): string {
   const totalCompletion = examples.reduce((sum, e) => sum + e.completionPercent, 0);
   const avgCompletion = total > 0 ? Math.round(totalCompletion / total) : 0;
 
-  md += `- **Total Examples:** ${total}\n`;
-  md += `- **Complete Examples:** ${complete} (${Math.round((complete / total) * 100)}%)\n`;
-  md += `- **Partial Examples:** ${partial} (${Math.round((partial / total) * 100)}%)\n`;
-  md += `- **Minimal Examples:** ${minimal} (${Math.round((minimal / total) * 100)}%)\n`;
-  md += `- **Average Completion:** ${avgCompletion}%\n\n`;
+  md += `- **Stage-backed scaffolds discovered:** ${total}\n`;
+  md += `- **All required files present:** ${complete} (${percentage(complete, total)}%)\n`;
+  md += `- **Partial file sets:** ${partial} (${percentage(partial, total)}%)\n`;
+  md += `- **Minimal file sets:** ${minimal} (${percentage(minimal, total)}%)\n`;
+  md += `- **Average required-file coverage:** ${avgCompletion}%\n\n`;
 
   // Progress bar
   const completeBar = '█'.repeat(Math.round(avgCompletion / 5));
@@ -122,12 +130,12 @@ function generateMarkdownReport(examples: ExampleFiles[]): string {
 
     md += `### ${category}\n\n`;
     md += `${CATEGORY_DESCRIPTIONS[category]}\n\n`;
-    md += `- **Examples:** ${catTotal}\n`;
-    md += `- **Complete:** ${catComplete}/${catTotal} (${Math.round((catComplete / catTotal) * 100)}%)\n`;
-    md += `- **Average Completion:** ${catAvg}%\n\n`;
+    md += `- **Scaffolds:** ${catTotal}\n`;
+    md += `- **All required files present:** ${catComplete}/${catTotal} (${percentage(catComplete, catTotal)}%)\n`;
+    md += `- **Average required-file coverage:** ${catAvg}%\n\n`;
 
     // Example table
-    md += `| Example | Stage File | Explorer | Index | Setup | Completion |\n`;
+    md += `| Scaffold | Stage File | Explorer | Index | Setup | File Coverage |\n`;
     md += `|---------|-----------|----------|-------|-------|------------|\n`;
 
     for (const example of categoryExamples) {
@@ -147,8 +155,8 @@ function generateMarkdownReport(examples: ExampleFiles[]): string {
   const incompleteExamples = examples.filter(e => e.completionPercent < 100);
 
   if (incompleteExamples.length > 0) {
-    md += `## Incomplete Examples\n\n`;
-    md += `The following examples need additional files:\n\n`;
+    md += `## Scaffolds Missing Required Files\n\n`;
+    md += `The following discovered scaffolds need additional required files:\n\n`;
 
     for (const example of incompleteExamples) {
       md += `### ${example.category}/${example.name} (${example.completionPercent}%)\n\n`;
@@ -172,21 +180,21 @@ function generateMarkdownReport(examples: ExampleFiles[]): string {
   // Next steps
   md += `## Next Steps\n\n`;
 
-  if (complete === total) {
-    md += `🎉 **All examples are complete!** Great work!\n\n`;
-    md += `Consider:\n`;
-    md += `- Adding more examples to cover additional use cases\n`;
-    md += `- Improving existing examples with more detailed tutorials\n`;
-    md += `- Creating cross-references between related examples\n`;
+  if (total === 0) {
+    md += `❌ **No stage-backed interactive scaffolds were discovered.**\n\n`;
+    md += `Check the stage-file paths and inventory configuration before treating this report as a release signal.\n`;
+  } else if (complete === total) {
+    md += `✅ **All discovered stage-backed scaffolds contain the four required files.**\n\n`;
+    md += `This is structural coverage only; use the separate content, runtime, and operational-evidence reviews before making broader quality or readiness claims.\n`;
   } else {
-    md += `To improve coverage:\n\n`;
+    md += `To restore structural file coverage:\n\n`;
 
     const priorities = incompleteExamples
       .filter(e => e.completionPercent >= 50)
       .sort((a, b) => b.completionPercent - a.completionPercent);
 
     if (priorities.length > 0) {
-      md += `### High Priority (>50% complete)\n\n`;
+      md += `### High Priority (>50% file coverage)\n\n`;
       for (const example of priorities.slice(0, 5)) {
         md += `- **${example.category}/${example.name}** (${example.completionPercent}%)\n`;
       }
@@ -195,7 +203,7 @@ function generateMarkdownReport(examples: ExampleFiles[]): string {
 
     const needWork = incompleteExamples.filter(e => e.completionPercent < 50);
     if (needWork.length > 0) {
-      md += `### Needs Significant Work (<50% complete)\n\n`;
+      md += `### Needs Significant Work (<50% file coverage)\n\n`;
       for (const example of needWork) {
         md += `- **${example.category}/${example.name}** (${example.completionPercent}%)\n`;
       }
@@ -223,7 +231,7 @@ async function main(): Promise<void> {
     }
   }
 
-  console.log('📊 Generating example coverage report...\n');
+  console.log('📊 Generating interactive scaffold file coverage report...\n');
 
   const examples = await findAllExamples();
   const report = generateMarkdownReport(examples);

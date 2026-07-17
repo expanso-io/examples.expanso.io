@@ -31,9 +31,11 @@ Each interactive example consists of:
 
 ## Quick Start
 
-The fastest way to create a new interactive example is using the CLI tool:
+Use Node.js 20 or newer. Install the repository dependencies, then run the CLI tool:
 
 ```bash
+npm install
+
 npm run create-explorer -- \
   --name "your-example-name" \
   --category "data-routing" \
@@ -41,7 +43,7 @@ npm run create-explorer -- \
   --title "Your Example Title"
 ```
 
-This generates all the boilerplate files you need to get started.
+This generates the starter files you need to begin an interactive example.
 
 ## Creating a New Interactive Explorer
 
@@ -76,7 +78,9 @@ npm run create-explorer -- \
 **What gets generated:**
 
 - `docs/{category}/{name}-full.stages.ts` - Stage definitions template
+- `docs/{category}/{name}/index.mdx` - Introduction template
 - `docs/{category}/{name}/explorer.mdx` - Explorer page with TODOs
+- `docs/{category}/{name}/setup.mdx` - Setup template
 - `sidebars.ts` - Updated with new entry
 
 ### 3. Implement Stage Definitions
@@ -118,7 +122,7 @@ pipeline:
 - Use sequential IDs starting from 1
 - Write clear, descriptive titles (shown in stage buttons)
 - Provide detailed descriptions explaining the "why" not just the "what"
-- Include complete, working YAML configurations
+- Include complete pipeline YAML and identify any environment-specific prerequisites
 - Use `inputLines`/`outputLines` arrays (not legacy `input`/`output` strings)
 - Highlight important changes with `type: 'highlighted'`, `type: 'removed'`, or `type: 'normal'`
 
@@ -297,13 +301,13 @@ Navigate to your new explorer and verify:
 npm run build
 ```
 
-Ensure the build succeeds with no errors (broken link warnings are okay for incomplete examples).
+Ensure the build succeeds with no errors. Broken links fail the production build.
 
 ## Best Practices
 
 ### Writing Stage Descriptions
 
-✅ **Good:** "Delete the password field using `.without('password')` to comply with GDPR's data minimization principle. This reduces breach liability by 90%."
+✅ **Good:** "Delete the password field using `.without('password')` so sensitive data does not leave the source environment."
 
 ❌ **Bad:** "This stage removes the password."
 
@@ -312,7 +316,7 @@ Ensure the build succeeds with no errors (broken link warnings are okay for inco
 - Explain **why**, not just **what**
 - Include business impact (compliance, cost savings, performance)
 - Reference specific Bloblang functions or YAML features
-- Use concrete numbers when possible
+- Use concrete numbers only when a cited source or repeatable test supports them
 
 ### Choosing Stage Count
 
@@ -382,9 +386,13 @@ Then create a pull request on GitHub with:
 Your PR will trigger automated validation:
 
 - ✅ Stage file validation (`npm run validate-stages`)
+- ✅ CLI command, YAML, and pipeline validation
 - ✅ TypeScript compilation (`npm run typecheck`)
 - ✅ Build success (`npm run build`)
-- ✅ GitHub Pages deployment preview
+- ✅ Public-artifact and repository privacy checks
+- ✅ Interactive scaffold file inventory for relevant changes
+
+Workflow path filters determine which validation suites run. The production site deploys only after changes land on `main`; pull requests do not create a GitHub Pages preview.
 
 Fix any failing checks before requesting review.
 

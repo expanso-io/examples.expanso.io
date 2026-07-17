@@ -22,7 +22,7 @@ Transform identifiers into irreversible hashes for cohort analytics while making
 Hashed identifiers enable valuable analytics:
 - Count unique customers per merchant
 - Track customer cohort behavior over time
-- Detect fraud patterns across anonymized IDs
+- Detect patterns across pseudonymous IDs
 
 The key is using **salted, one-way hashes** that cannot be reversed.
 
@@ -37,7 +37,7 @@ pipeline:
     - mapping: |
         root = this
         
-        # Customer ID → anonymized cohort ID
+        # Customer ID → pseudonymous cohort ID
         # Salt ensures can't be reversed even with rainbow tables
         let salt = env("ANONYMIZATION_SALT").or("gdpr-compliance-2024")
         root.anonymized_customer_id = (this.customer_id.string() + $salt).hash("sha256").slice(0, 12)
@@ -115,7 +115,7 @@ hash("CUST-DE-12345" + "secret-salt-xyz") → "x9y8z7w6..."  # Requires salt kno
 
 ## Analytics Value Preserved
 
-| Original | Anonymized | Analytics Possible |
+| Original | Pseudonymous output | Analytics Possible |
 |----------|------------|-------------------|
 | customer_id | anonymized_customer_id | Count unique customers, cohort tracking |
 | customer_email | email_domain | B2B vs B2C ratio, company analysis |

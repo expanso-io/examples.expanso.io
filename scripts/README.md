@@ -7,15 +7,15 @@ This directory contains CLI tools for creating, validating, and monitoring inter
 ```bash
 npm run create-explorer      # Generate new example boilerplate
 npm run validate-stages       # Validate stage file format
-npm run check-health          # Check example completion status
-npm run coverage-report       # Generate coverage markdown report
+npm run check-health          # Verify interactive scaffold files
+npm run coverage-report       # Report scaffold file coverage
 ```
 
 ---
 
 ## create-explorer
 
-Generate complete boilerplate for a new interactive explorer in seconds.
+Generate a starter scaffold for a new interactive explorer.
 
 ### Usage
 
@@ -61,7 +61,7 @@ npm run create-explorer -- \
 
 ### What Gets Generated
 
-The CLI tool generates **4 files** for a complete example:
+The CLI tool generates **4 files** and updates the sidebar:
 
 1. **Stage file**: `docs/{category}/{name}-full.stages.ts`
    - TypeScript file with Stage type import
@@ -86,7 +86,7 @@ The CLI tool generates **4 files** for a complete example:
    - Project setup instructions
    - Troubleshooting section
 
-5. **Sidebar entry**: Updates `sidebars.ts`
+**Sidebar entry**: Updates `sidebars.ts`
    - Adds new example to appropriate category
    - Includes all 3 pages (index, explorer, setup)
    - Configured as collapsible nested item
@@ -145,9 +145,9 @@ docs/
         └── complete-*.mdx             # Complete solution (create manually)
 ```
 
-**Generated automatically:** Stage file, index.mdx, explorer.mdx, setup.mdx (75% complete!)
+**Generated automatically:** Stage file, index page, explorer page, and setup guide.
 
-**Create manually:** Step-by-step tutorial pages and complete solution page
+Replace the starter text in those files, then create the step-by-step tutorial pages and complete solution page required for the example.
 
 ### Troubleshooting
 
@@ -221,12 +221,14 @@ The validation script runs automatically in GitHub Actions on every PR. See `.gi
 
 ## check-health
 
-Analyzes all examples and reports completion status (which files exist vs. are missing).
+Inventories stage-backed interactive scaffolds in the four original categories and verifies their required files.
+
+This is a structural repository check. It does not inventory every published example family or assess runtime behavior, content quality, operational evidence, or production readiness.
 
 ### Usage
 
 ```bash
-# Check all examples
+# Check all discovered stage-backed scaffolds
 npm run check-health
 
 # Check specific category
@@ -238,44 +240,47 @@ npm run check-health -- --format json
 
 ### What It Checks
 
-For each example, checks for these 4 required files:
+For each discovered scaffold, checks for these 4 required files:
 
 1. **Stage file** (`*-full.stages.ts`)
 2. **Explorer page** (`explorer.mdx`)
 3. **Index page** (`index.mdx`)
 4. **Setup guide** (`setup.mdx`)
 
-### Completion Levels
+### File Coverage Levels
 
-- **Complete (100%)**: All 4 files present
+- **Structurally complete (100%)**: All 4 files present
 - **Partial (50-99%)**: 2-3 files present
 - **Minimal (below 50%)**: Only 1 file present
 
 ### Example Output
 
 ```
-📊 Example Health Report
+📊 Interactive Scaffold Inventory
 
 ================================================================================
 
-📈 Overall Statistics:
-   Total Examples: 15
-   ✅ Complete (100%): 8
-   ⚠️  Partial (50-99%): 5
-   ❌ Minimal (<50%): 2
-   📊 Average Completion: 73%
+Scope: stage-backed interactive scaffolds in four original categories.
+This check verifies four required files only.
+
+📈 Structural Statistics:
+   Total Scaffolds: 15
+   ✅ Required Files Present: 8
+   ⚠️  Partial File Sets (50-99%): 5
+   ❌ Minimal File Sets (<50%): 2
+   📊 Average File Coverage: 73%
 
 📂 Category Breakdown:
 
 ✅ data-routing:
-   Examples: 4
-   Complete: 3, Partial: 1, Minimal: 0
-   Average Completion: 88%
+   Scaffolds: 4
+   Required files present: 3, Partial: 1, Minimal: 0
+   Average file coverage: 88%
 
 ⚠️ data-security:
-   Examples: 4
-   Complete: 2, Partial: 2, Minimal: 0
-   Average Completion: 75%
+   Scaffolds: 4
+   Required files present: 2, Partial: 2, Minimal: 0
+   Average file coverage: 75%
 
 ...
 
@@ -284,13 +289,13 @@ For each example, checks for these 4 required files:
 
 ### Exit Codes
 
-- `0` - All examples are 100% complete
-- `1` - One or more examples are incomplete
+- `0` - Every discovered scaffold has all four required files
+- `1` - One or more discovered scaffolds is missing a required file, or the inventory failed
 
 ### Use in CI/CD
 
-The health check runs automatically via `.github/workflows/example-health.yml`:
-- On every PR (posts comment with status)
+The structural check runs automatically via `.github/workflows/example-health.yml`:
+- On pull requests that change stage-backed docs, the inventory scripts, or the workflow itself
 - Daily at 9am UTC (tracks progress)
 - Manual trigger available
 
@@ -298,7 +303,7 @@ The health check runs automatically via `.github/workflows/example-health.yml`:
 
 ## coverage-report
 
-Generates a comprehensive markdown coverage report showing example completion status.
+Generates a markdown report showing required-file coverage for the same stage-backed interactive scaffold scope.
 
 ### Usage
 
@@ -306,31 +311,31 @@ Generates a comprehensive markdown coverage report showing example completion st
 # Print report to console
 npm run coverage-report
 
-# Save to file
-npm run coverage-report -- --output docs/internal/COVERAGE.md
+# Save a local report
+npm run coverage-report -- --output COVERAGE.md
 ```
 
 ### Report Contents
 
-- **Overview**: Total examples, completion percentages, visual progress bar
-- **Category breakdown**: Tables showing which examples have which files
-- **Incomplete examples**: Detailed list of missing files
+- **Overview**: Discovered scaffolds, required-file coverage, visual progress bar
+- **Category breakdown**: Tables showing which scaffolds have which files
+- **Missing files**: Detailed list of required files that are absent
 - **Next steps**: Prioritized recommendations for improvement
 
 ### Example Output
 
-```markdown
-# Example Coverage Report
+````markdown
+# Interactive Scaffold File Coverage
 
 **Generated:** 2025-11-17
 
 ## Overview
 
-- **Total Examples:** 15
-- **Complete Examples:** 8 (53%)
-- **Partial Examples:** 5 (33%)
-- **Minimal Examples:** 2 (13%)
-- **Average Completion:** 73%
+- **Stage-backed scaffolds discovered:** 15
+- **All required files present:** 8 (53%)
+- **Partial file sets:** 5 (33%)
+- **Minimal file sets:** 2 (13%)
+- **Average required-file coverage:** 73%
 
 ```
 ███████████████░░░░░ 73%
@@ -340,22 +345,21 @@ npm run coverage-report -- --output docs/internal/COVERAGE.md
 
 ### data-routing
 
-| Example | Stage File | Explorer | Index | Setup | Completion |
+| Scaffold | Stage File | Explorer | Index | Setup | File Coverage |
 |---------|-----------|----------|-------|-------|------------|
 | circuit-breakers | ✅ | ✅ | ✅ | ✅ | ✅ 100% |
 | fan-out-pattern | ✅ | ✅ | ✅ | ❌ | ⚠️ 75% |
 
 ...
-```
+````
 
 ### Use in CI/CD
 
-The coverage report is automatically generated and committed to `docs/internal/COVERAGE.md` on the main branch.
+The workflow uploads the generated report as a short-lived GitHub Actions artifact. It is not published with the site or committed by automation.
 
 ---
 
 ## Related Documentation
 
 - [Stage Type Reference](../src/components/DataPipelineExplorer/types.ts)
-- [Example Dashboard](../docs/internal/example-dashboard.mdx)
 - [Contributing Guide](../CONTRIBUTING.md)

@@ -20,9 +20,12 @@ jobs:
             HEAD="${{ github.event.pull_request.head.sha }}"
             RANGE="$BASE..$HEAD"
           else
-            # For pushes, if it's the first push of a new branch, before might be all zeros
+            # On a new branch, compare against the default branch instead of
+            # scanning the entire reachable history for pre-existing bot commits.
             if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
-              RANGE="${{ github.sha }}"
+              git fetch --no-tags origin "${{ github.event.repository.default_branch }}"
+              BASE=$(git merge-base "${{ github.sha }}" FETCH_HEAD)
+              RANGE="$BASE..${{ github.sha }}"
             else
               RANGE="${{ github.event.before }}..${{ github.sha }}"
             fi

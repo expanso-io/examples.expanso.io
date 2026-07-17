@@ -37,6 +37,41 @@ jobs:
       - name: Build website
         run: npm run build
 
+      - name: Scan public artifact for private content
+        run: |
+          set -euo pipefail
+
+          PRIVATE_PATHS=$(find build -type f \( -path '*/internal/*' -o -name '*.map' \) -print)
+          if [ -n "$PRIVATE_PATHS" ]; then
+            echo "Private paths or source maps found in the public artifact:"
+            echo "$PRIVATE_PATHS"
+            exit 1
+          fi
+
+          PRIVATE_REPO_MARKER='second'"-brain"
+          PRIVATE_WORK_MARKER='\\.codex'"-work"
+          INTERNAL_DOCS_MARKER='docs/'"internal"
+          LOCAL_HOME_MARKER='/'"Users/[[:alnum:]_.-]+/"
+          PRIVATE_MARKER_PATTERN="${PRIVATE_REPO_MARKER}|${PRIVATE_WORK_MARKER}|${INTERNAL_DOCS_MARKER}|${LOCAL_HOME_MARKER}"
+
+          PRIVATE_MARKERS=$(grep -RIlE \
+            --include='*.html' \
+            --include='*.js' \
+            --include='*.json' \
+            --include='*.xml' \
+            --include='*.txt' \
+            --include='*.yaml' \
+            --include='*.yml' \
+            "$PRIVATE_MARKER_PATTERN" \
+            build || true)
+          if [ -n "$PRIVATE_MARKERS" ]; then
+            echo "Private repository or local-path markers found in the public artifact:"
+            echo "$PRIVATE_MARKERS"
+            exit 1
+          fi
+
+          echo "Public artifact privacy scan passed"
+
       - name: Upload Build Artifact
         uses: actions/upload-pages-artifact@v3
         with:

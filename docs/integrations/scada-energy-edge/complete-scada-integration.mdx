@@ -2,7 +2,7 @@
 title: "Complete SCADA Edge Integration Pipeline"
 sidebar_label: "Complete Pipeline"
 sidebar_position: 8
-description: "Production-ready SCADA edge pipeline combining all 4 stages. Tested at 50,000 readings/minute with 99.9% volume reduction."
+description: "Combined SCADA reference pipeline for adapter-decoded records, filtering, classification, field removal, and routing."
 keywords: [scada, complete, production, pipeline, modbus, nerc-cip, edge-processing, fault-detection]
 ---
 
@@ -10,7 +10,7 @@ import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
 
 # Complete SCADA Edge Integration Pipeline
 
-This is the complete, production-ready pipeline combining all 4 stages. Use this as your starting point for real substation deployments.
+This reference combines all four tutorial stages. It accepts line-oriented records from a required protocol adapter; it does not decode Modbus. Benchmark, threat-model, and qualify the full integration before any operational deployment.
 
 <CopyPipelineButton yamlUrl="/pipelines/scada-edge-complete.yaml" />
 
@@ -20,9 +20,8 @@ This is the complete, production-ready pipeline combining all 4 stages. Use this
 # scada-edge-complete.yaml
 # Complete Expanso Edge pipeline for SCADA substation data processing
 #
-# Performance: tested at 50,000 readings/minute
-# Volume reduction: 99.9% (50,000 reads → ~12 KPI events/minute)
-# NERC CIP: topology fields stripped before egress
+# Performance and retained volume: measure with representative input
+# Governance: example fields are stripped before egress; classification is site-specific
 # Fault detection: VOLTAGE_DEVIATION, FREQUENCY_DRIFT, THERMAL_OVERLOAD, LINE_FAULT
 
 input:
@@ -67,8 +66,8 @@ pipeline:
 
     # ─────────────────────────────────────────────────────────────────────────
     # STAGE 2: Filter nominal readings
-    # Drops readings within NERC reliability bands — keeps only anomalies
-    # Threshold sources: NERC FAC-001, NERC BAL-003, IEEE C57.91
+    # Drops readings inside illustrative tutorial bands
+    # Thresholds require site-specific engineering approval
     # ─────────────────────────────────────────────────────────────────────────
     - mapping: |
         # Load thresholds from environment (allows per-site tuning)
@@ -132,9 +131,8 @@ pipeline:
         root.pipeline_version = "1.0.0"
 
     # ─────────────────────────────────────────────────────────────────────────
-    # STAGE 4 (pre-output): Strip NERC CIP-sensitive fields
-    # Topology data never crosses the electronic security perimeter
-    # Reference: NERC CIP-011-2 §R1.4
+    # STAGE 4 (pre-output): Strip fields classified by policy
+    # This sample list is not a NERC CIP determination
     # ─────────────────────────────────────────────────────────────────────────
     - mapping: |
         root = this.without(
@@ -153,7 +151,7 @@ pipeline:
 # OUTPUT: Multi-destination routing
 # Critical faults → SCADA historian + PagerDuty
 # KPI summaries   → Grafana Cloud
-# All events      → Local audit archive (NERC CIP compliance)
+# Selected events → Local evidence archive
 # ─────────────────────────────────────────────────────────────────────────────
 output:
   broker:
@@ -212,7 +210,7 @@ output:
                     count: 100
                     period: 5s
 
-      # Audit archive: all events stay local (NERC CIP §R1.4)
+      # Local evidence archive after filtering; retention is site-specific
       - file:
           path: "${LOCAL_AUDIT_PATH}/scada-audit-${!timestamp().format('2006-01-02')}.jsonl"
           codec: lines
@@ -225,7 +223,7 @@ output:
 export SUBSTATION_ID="SUB-CENTRAL-01"
 export GRID_REGION="WECC-SOUTHWEST"
 
-# Fault thresholds (NERC reliability standards — adjust per site)
+# Illustrative fault thresholds; replace with approved site values
 export VOLTAGE_MIN_KV="110.0"
 export VOLTAGE_MAX_KV="145.0"
 export FREQ_MIN_HZ="59.95"
@@ -337,11 +335,11 @@ tail -20 "${LOCAL_AUDIT_PATH}/scada-audit-$(date +%Y-%m-%d).jsonl" | \
 
 ---
 
-**You now have a complete, production-ready SCADA edge integration.** This pipeline:
+**This reference configuration demonstrates:**
 
-- ✅ Processes 50,000 Modbus reads/minute at the substation
-- ✅ Reduces outbound data by 99.9%
-- ✅ Classifies fault events before they reach the historian
-- ✅ Enforces NERC CIP data minimization at the pipeline level
-- ✅ Delivers critical fault alerts in under 50 ms
-- ✅ Maintains a complete local audit trail for compliance
+- Parsing adapter-decoded line records into structured fields
+- Filtering and classifying records before destination routing
+- Removing a configured list of fields before external outputs
+- Writing retained events to a local evidence file
+
+It does not establish throughput, reduction, alert-latency, reliability, audit-completeness, or NERC CIP compliance claims. Test each of those properties against an approved operating envelope.

@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useId, useState } from 'react';
+
+type CopyStatus = 'idle' | 'success' | 'error';
 
 interface CopyPipelineButtonProps {
   /** Raw pipeline string (from raw-loader import) */
@@ -14,88 +16,145 @@ export default function CopyPipelineButton({
   yamlUrl,
   label = 'Copy Full Pipeline',
 }: CopyPipelineButtonProps) {
-  const [copied, setCopied] = useState(false);
-  const [pipeline, setPipeline] = useState<string | null>(inlinePipeline || null);
+  const statusId = useId();
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>('idle');
+  const [loadError, setLoadError] = useState(false);
+  const [pipeline, setPipeline] = useState<string | null>(
+    inlinePipeline || null
+  );
 
   useEffect(() => {
-    if (!inlinePipeline && yamlUrl) {
-      fetch(yamlUrl)
-        .then((r) => (r.ok ? r.text() : Promise.reject()))
-        .then(setPipeline)
-        .catch(() => {});
+    if (inlinePipeline) {
+      setPipeline(inlinePipeline);
+      setLoadError(false);
+      return;
     }
+
+    if (!yamlUrl) {
+      setPipeline(null);
+      setLoadError(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setPipeline(null);
+    setLoadError(false);
+
+    fetch(yamlUrl, { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Pipeline request failed: ${response.status}`);
+        }
+        return response.text();
+      })
+      .then(setPipeline)
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          setLoadError(true);
+        }
+      });
+
+    return () => controller.abort();
   }, [inlinePipeline, yamlUrl]);
+
+  useEffect(() => {
+    if (copyStatus === 'idle') return;
+
+    const timeout = window.setTimeout(
+      () => setCopyStatus('idle'),
+      copyStatus === 'success' ? 2500 : 5000
+    );
+    return () => window.clearTimeout(timeout);
+  }, [copyStatus]);
+
+  const copyWithFallback = async (text: string) => {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        // The legacy fallback still works in contexts where Clipboard API
+        // permission is unavailable (for example, a non-secure local preview).
+      }
+    }
+
+    const previouslyFocusedElement =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+
+    try {
+      textarea.focus();
+      textarea.select();
+      return document.execCommand('copy');
+    } finally {
+      document.body.removeChild(textarea);
+      if (previouslyFocusedElement?.isConnected) {
+        previouslyFocusedElement.focus();
+      }
+    }
+  };
 
   const handleCopy = async () => {
     if (!pipeline) return;
+
     try {
-      await navigator.clipboard.writeText(pipeline.trim());
+      const copied = await copyWithFallback(pipeline.trim());
+      setCopyStatus(copied ? 'success' : 'error');
     } catch {
-      const ta = document.createElement('textarea');
-      ta.value = pipeline.trim();
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
+      setCopyStatus('error');
     }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
   };
 
   if (!pipeline && !yamlUrl) return null;
 
   return (
-    <div
-      style={{
-        margin: '1.5rem 0',
-        padding: '1rem 1.25rem',
-        borderRadius: '8px',
-        border: '2px solid var(--ifm-color-primary)',
-        background:
-          'linear-gradient(135deg, var(--ifm-color-primary-lightest, #f0f7ff) 0%, #fff 100%)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '1rem',
-        flexWrap: 'wrap',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <span style={{ fontSize: '1.4rem' }}>📋</span>
-        <div>
-          <div style={{ fontWeight: 600, fontSize: '1rem' }}>
-            Ready to deploy?
-          </div>
-          <div style={{ fontSize: '0.85rem', opacity: 0.75 }}>
-            Copy the complete pipeline YAML and paste it into Expanso Cloud.
+    <div className="copy-pipeline">
+      <div className="copy-pipeline__content">
+        <span className="copy-pipeline__icon" aria-hidden="true">
+          📋
+        </span>
+        <div className="copy-pipeline__text">
+          <div className="copy-pipeline__title">Copy pipeline YAML</div>
+          <div className="copy-pipeline__description">
+            Review it for your environment before you deploy.
           </div>
         </div>
       </div>
       <button
+        type="button"
         onClick={handleCopy}
         disabled={!pipeline}
-        style={{
-          padding: '0.6rem 1.5rem',
-          borderRadius: '6px',
-          border: 'none',
-          backgroundColor: copied
-            ? '#2e7d32'
-            : !pipeline
-              ? '#ccc'
-              : 'var(--ifm-color-primary)',
-          color: '#fff',
-          fontWeight: 600,
-          fontSize: '0.95rem',
-          cursor: pipeline ? 'pointer' : 'default',
-          whiteSpace: 'nowrap',
-          transition: 'background-color 0.2s',
-          boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-        }}
+        className={`copy-pipeline__button${copyStatus === 'success' ? ' copy-pipeline__button--success' : ''}`}
+        aria-describedby={statusId}
       >
-        {copied ? '✅ Copied!' : !pipeline ? 'Loading...' : label}
+        {copyStatus === 'success'
+          ? 'Copied'
+          : !pipeline && !loadError
+            ? 'Loading…'
+            : label}
       </button>
+      <div
+        id={statusId}
+        className={`copy-pipeline__status${copyStatus === 'error' || loadError ? ' copy-pipeline__status--error' : ''}`}
+        role={copyStatus === 'error' || loadError ? 'alert' : 'status'}
+        aria-live={copyStatus === 'error' || loadError ? 'assertive' : 'polite'}
+        aria-atomic="true"
+      >
+        {loadError
+          ? 'The pipeline could not be loaded. Refresh the page and try again.'
+          : copyStatus === 'success'
+            ? 'Pipeline YAML copied to the clipboard.'
+            : copyStatus === 'error'
+              ? 'The pipeline could not be copied. Select the YAML and copy it manually.'
+              : ''}
+      </div>
     </div>
   );
 }

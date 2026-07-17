@@ -2,7 +2,7 @@
 title: "Step 4: Route to SCADA Historian and Alerting"
 sidebar_label: "Step 4: Route Destinations"
 sidebar_position: 7
-description: "Route critical fault events to the SCADA historian and PagerDuty, KPI summaries to Grafana Cloud, and strip NERC CIP-sensitive topology fields before egress."
+description: "Route selected events to example destinations and remove policy-classified fields before egress."
 keywords: [scada, routing, historian, pagerduty, grafana, nerc-cip, bloblang, switch-output, broker]
 ---
 
@@ -14,15 +14,13 @@ You have classified fault events. Now send them where they need to go — and *o
 
 - **Critical fault events** → SCADA historian (permanent record) + PagerDuty (immediate alert to on-call operator)
 - **KPI summaries** → Grafana Cloud (real-time dashboard visible to grid operations center)
-- **Full raw archive** → local disk (NERC CIP §R1.4 compliance — complete audit trail stays at the substation)
+- **Selected local archive** → local disk according to the site's evidence and retention policy
 
 And critically: **strip sensitive topology fields before anything crosses the substation boundary.**
 
-## NERC CIP Compliance by Design
+## Policy-Based Field Removal
 
-NERC CIP §R1.4 requires that access to BES Cyber System Information — including network topology, protection relay configurations, and electronic security perimeter maps — be controlled and restricted.
-
-The naive approach sends everything and hopes the historian's access controls are sufficient. Expanso enforces this at the pipeline level: topology fields are deleted before the output stage runs. They never travel on the wire. They cannot be intercepted or accidentally exposed.
+The example removes named fields before its output stage. Security and compliance owners must supply the actual classification, destination policy, and evidence requirements; this field list does not establish NERC CIP compliance.
 
 ```yaml
 # Strip CIP-sensitive fields before any data leaves the substation
@@ -193,7 +191,7 @@ output:
             timeout: 15s
 
   # Fallback: local audit archive (all events, regardless of routing above)
-  # This satisfies NERC CIP audit trail requirement
+  # Local archive example; retention and evidence requirements are site-specific
   - output:
       file:
         path: "${LOCAL_AUDIT_PATH}/scada-audit-${!timestamp_unix()}.jsonl"
@@ -227,9 +225,9 @@ ls -la "${LOCAL_AUDIT_PATH}/"
 cat "${LOCAL_AUDIT_PATH}/scada-audit-*.jsonl" | jq '{ fault_type, severity, device_id, cip_fields_stripped }' | head -20
 ```
 
-## Audit Trail Compliance
+## Local Evidence Record
 
-The local file output captures every event — including ones filtered before routing — creating a complete audit trail. This satisfies NERC CIP requirements for event logging without shipping sensitive data to cloud systems.
+An output after the filter can capture only retained events. If policy requires pre-filter evidence, use a separately reviewed branch before deletion and test its durability, access controls, retention, and failure behavior. Neither pattern by itself establishes a complete audit trail or NERC CIP compliance.
 
 ```yaml
 # Separate audit pipeline running in parallel
@@ -249,19 +247,19 @@ output:
 RTU/PLC → [Modbus TCP]
   → Expanso Edge (at substation)
       → Parse registers           # V, A, Hz, °C, MW
-      → Filter nominal            # 99%+ dropped here
+      → Filter by policy          # retained fraction depends on input
       → Classify faults           # VOLTAGE_DEVIATION, FREQUENCY_DRIFT, etc.
       → Strip CIP fields          # topology stays local
       → Route:
           alert_required=true  → SCADA Historian + PagerDuty
           alert_required=false → Grafana Cloud
-          all events           → Local Audit Archive (NERC CIP)
+          selected events      → Local Evidence Archive
 ```
 
-**Result:** 50,000 reads/minute becomes 12 KPIs/minute + immediate fault alerts.
+**Result:** Selected records are routed by the configured policy. Measure input/output volume and delivery latency with representative data.
 
 ## What's Next?
 
-You've built the complete 4-stage pipeline. See the production-ready version with all stages combined:
+You've built the four-stage walkthrough. Review the combined reference configuration:
 
 → **Next Step:** [Complete SCADA Edge Integration Pipeline](/integrations/scada-energy-edge/complete-scada-integration)

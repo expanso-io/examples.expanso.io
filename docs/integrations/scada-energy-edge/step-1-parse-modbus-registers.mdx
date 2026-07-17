@@ -10,7 +10,7 @@ keywords: [modbus, scada, bloblang, register-mapping, parsing, voltage, frequenc
 
 ## The Goal
 
-RTUs and PLCs speak Modbus — a protocol that has been the language of industrial automation since 1979. When a relay polls your substation sensors, it returns raw register values like this:
+RTUs and PLCs may expose data through protocols such as Modbus. This tutorial assumes a separate protocol adapter has already decoded that traffic and emitted a synthetic line record like this:
 
 ```
 REG=40001;VAL=14823;UNIT=V_x100;TS=1708290845;DEVICE=RTU-07A;STATUS=0
@@ -21,7 +21,7 @@ What does `VAL=14823` mean? It means the voltage is 148.23 kV — but only if yo
 2. The unit is `V_x100`, so the value is divided by 100 to get kV
 3. 148.23 kV is on a 132 kV nominal transmission line (within operating range)
 
-None of that context exists in the raw Modbus frame. This step creates it.
+None of that engineering context exists in the adapter-emitted record. This step creates it; the pipeline does not decode a raw Modbus frame.
 
 ## Modbus Register Map
 
@@ -188,8 +188,8 @@ root.reactive_mvar = if reg == 40013 { val / 10.0 } else { deleted() }
 root.impedance_ohm = if reg == 40015 { val / 100.0 } else { deleted() }
 ```
 
-:::tip CIP-Sensitive Registers
-Some registers contain topology data that must not leave the substation under NERC CIP §R1.4. Mark these explicitly and handle deletion in the routing stage:
+:::tip Policy-Classified Fields
+Your security and compliance owners may classify some decoded fields as sensitive. Mark the fields they identify and handle deletion in the routing stage. The sample register below is illustrative, not a NERC CIP determination:
 
 ```yaml
 # Bus topology register — CIP sensitive, do not forward
@@ -210,6 +210,6 @@ root.cip_sensitive = if reg == 40099 { true } else { false }
 
 ## What's Next?
 
-You now have structured, human-readable JSON from raw Modbus frames. Next: filter out the 99%+ of nominal readings so only meaningful data crosses the OT/IT boundary.
+You now have structured JSON from adapter-decoded records. Next: apply an example selection policy and measure which records reach the output.
 
 → **Next Step:** [Step 2: Filter Nominal Readings at the Edge](/integrations/scada-energy-edge/step-2-filter-normalize-readings)
