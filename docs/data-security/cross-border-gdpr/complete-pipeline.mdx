@@ -2,7 +2,7 @@
 title: Complete Cross-Border GDPR Pipeline
 sidebar_label: Complete Pipeline
 sidebar_position: 9
-description: Production-ready GDPR-compliant cross-border data pipeline
+description: Reference cross-border pipeline demonstrating field removal, pseudonymization, generalization, and validation
 keywords: [complete, production, gdpr, cross-border, deployment]
 ---
 
@@ -11,16 +11,18 @@ import pipelineYaml from '!!raw-loader!../../../examples/data-security/cross-bor
 
 # Complete Pipeline
 
-This pipeline combines all 6 GDPR compliance steps for cross-border data transfer:
+This reference pipeline combines six technical data-protection steps for a cross-border transfer scenario:
 
 1. **Tag data origin** - Source region and extraction metadata
 2. **Create GDPR record** - Legal basis and PII field documentation
 3. **Delete high-risk fields** - Names, addresses, DOB → age bucket
 4. **Hash identifiers** - Customer ID, email, IBAN, IP
 5. **Generalize values** - Amount buckets, hour-level timestamps
-6. **Validate anonymization** - Compliance gate before transfer
+6. **Validate configured fields** - Technical gate before output
 
-**Result:** GDPR-compliant anonymized data for global analytics with full audit trail.
+:::caution Legal scope
+The configuration does not establish GDPR compliance or anonymous-data status. In particular, stable salted hashes are pseudonymous and can remain personal data. Use the output only after privacy and legal review of identifiability, transfer mechanisms, access, retention, and the surrounding system.
+:::
 
 ## Data Flow
 
@@ -66,7 +68,7 @@ echo '{
 }' | expanso-edge run --config cross-border-gdpr.yaml
 ```
 
-**Expected Output (anonymized):**
+**Expected Output (transformed and pseudonymized):**
 ```json
 {
   "transaction_id": "TXN-EU-2024-00001",
@@ -168,7 +170,7 @@ PARTITION BY DATE(transaction_hour)
 CLUSTER BY merchant_country, customer_age_bucket;
 ```
 
-## Compliance Verification
+## Transformation Verification
 
 ### Verify No PII in Global Dataset
 

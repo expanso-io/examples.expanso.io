@@ -2,7 +2,7 @@
 title: Complete DB2 to BigQuery Pipeline
 sidebar_label: Complete Pipeline
 sidebar_position: 9
-description: Production-ready pipeline combining all 6 transformation steps
+description: complete example pipeline combining all 6 transformation steps
 keywords: [complete, production, db2, bigquery, deployment]
 ---
 
@@ -20,7 +20,7 @@ This pipeline combines all 6 transformation steps for migrating DB2 transactions
 5. **Standardize schema** - Lowercase field names + partition field
 6. **Validate required fields** - Data quality gates before load
 
-**Result:** Production-ready, compliant data in BigQuery with complete lineage.
+**Result:** transformed example data in BigQuery with complete lineage.
 
 ## Full Configuration
 
@@ -153,8 +153,9 @@ CLUSTER BY transaction_category, customer_id;
 ### Check Pipeline Health
 
 ```bash
-# View recent logs
-expanso-cli job logs --tail 100 | grep db2-to-bigquery
+# Find failed executions, then inspect the reported execution ID
+expanso-cli job executions db2-to-bigquery-transactions --state failed --limit 5
+expanso-cli execution describe <failed-execution-id>
 
 # Check metrics
 curl http://localhost:4195/metrics | grep db2

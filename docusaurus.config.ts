@@ -5,7 +5,7 @@ import type {Options as RedirectOptions} from '@docusaurus/plugin-client-redirec
 
 const config: Config = {
   title: 'Expanso Examples',
-  tagline: 'Production-ready pipeline examples for Expanso Edge',
+  tagline: 'Pipeline patterns and examples for Expanso Edge',
   favicon: 'img/favicon.svg',
 
   // Future flags
@@ -20,10 +20,10 @@ const config: Config = {
   organizationName: 'expanso-io',
   projectName: 'examples.expanso.io',
 
-  onBrokenLinks: 'warn',
+  onBrokenLinks: 'throw',
 
-  // Ensure sitemap and pages use trailing slashes — matches Cloudflare Pages
-  // canonical URL behavior, eliminating 301 redirects that prevent indexing
+  // Emit directory-style routes that work with the repository's static
+  // GitHub Pages deployment and its index.html files.
   trailingSlash: true,
 
   markdown: {
@@ -43,6 +43,8 @@ const config: Config = {
           routeBasePath: '/', // Docs-only mode
           sidebarPath: './sidebars.ts',
           editUrl: 'https://github.com/expanso-io/examples.expanso.io/edit/main/',
+          // Maintainer reports are repository artifacts, not public content.
+          exclude: ['internal/**'],
         },
         blog: false,
         theme: {
@@ -66,7 +68,8 @@ const config: Config = {
     [
       '@docusaurus/plugin-client-redirects',
       {
-        // Redirect old paths that no longer exist to their closest matching pages
+        // The plugin emits static redirect pages into the build artifact. This
+        // is executable on GitHub Pages and does not depend on host rules.
         createRedirects(existingPath) {
           // Data Security: delete-payment-pii was renamed to remove-pii
           // Create redirects from old delete-payment-pii paths to remove-pii
@@ -197,8 +200,6 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: 'img/expanso-social.png',
-
     colorMode: {
       defaultMode: 'dark',
       disableSwitch: false,

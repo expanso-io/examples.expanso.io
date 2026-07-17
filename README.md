@@ -1,14 +1,14 @@
 # Expanso Examples
 
-Production-ready pipeline examples for [Expanso Edge](https://expanso.io).
+Pipeline patterns and runnable examples for [Expanso Edge](https://expanso.io).
 
 🌐 **Live Site:** [examples.expanso.io](https://examples.expanso.io)
 
 ## What's Inside
 
-This repository contains curated, production-ready examples of Expanso Edge pipelines with:
+This repository contains curated examples of Expanso Edge pipelines with:
 
-- 📥 **Downloadable YAML files** - Ready to deploy configurations
+- 📥 **Downloadable YAML files** - Configurations to adapt and validate for your environment
 - 📖 **Detailed documentation** - Step-by-step explanations
 - 🔗 **Component references** - Links to full documentation
 - ▶️ **Quick start commands** - Test examples locally
@@ -41,7 +41,9 @@ npm run serve
 
 ## Deployment
 
-The site automatically deploys to GitHub Pages when changes are pushed to the `main` branch.
+The executable deployment defined in this repository is GitHub Pages: `.github/workflows/deploy.yml` builds and deploys the site after changes land on `main`.
+
+Legacy URL redirects are defined in `docusaurus.config.ts`. Docusaurus emits them as static redirect pages, so they work on the GitHub Pages deployment without separate host rules. DNS, custom-domain, or any external proxy ownership is managed outside this repository and must be verified separately before changing hosts.
 
 ## Related
 

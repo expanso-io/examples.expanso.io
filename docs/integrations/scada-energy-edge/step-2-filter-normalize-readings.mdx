@@ -2,7 +2,7 @@
 title: "Step 2: Filter Nominal Readings at the Edge"
 sidebar_label: "Step 2: Filter Nominal"
 sidebar_position: 5
-description: "Drop readings within normal operating bands using NERC reliability standards. Filter 99%+ of substation telemetry at the edge before it crosses the OT/IT boundary."
+description: "Apply illustrative operating bands to adapter-decoded telemetry and measure which readings reach the output."
 keywords: [modbus, scada, filtering, nerc, reliability, bloblang, edge-processing, noise-reduction]
 ---
 
@@ -10,28 +10,20 @@ keywords: [modbus, scada, filtering, nerc, reliability, bloblang, edge-processin
 
 ## The Goal
 
-A 132 kV substation with 50 measurement points, polling every 100ms, generates:
+A high-frequency polling configuration can generate many repeated readings. This step demonstrates a policy that removes records inside configured bands before the example output. Measure the retained fraction with representative input; the tutorial does not claim a typical anomaly rate or reduction percentage.
 
-- **50 registers × 600 polls/minute = 30,000 readings/minute per substation**
-- **At 10 substations: 300,000 readings/minute**
-- **Monthly: ~13 billion data points**
+## Illustrative Operating Bands
 
-Of those 13 billion readings, how many are actionable? On a healthy grid operating within NERC reliability standards, **less than 0.1%**. The other 99.9% are "voltage is 148.23 kV — same as last reading."
-
-This step drops the noise at the edge. Normal readings never leave the substation.
-
-## NERC Reliability Standards
-
-The filtering thresholds are grounded in established grid reliability standards:
+The values below are tutorial inputs, not protection settings or authoritative interpretations of NERC or IEEE requirements:
 
 | **Parameter** | **Normal Band** | **Source** | **Why This Threshold** |
 |---|---|---|---|
-| Voltage (132 kV bus) | 110–145 kV | NERC FAC-001, ±10% of nominal | ±10% is standard transmission voltage tolerance |
-| Frequency | 59.95–60.05 Hz | NERC BAL-003, ±0.5% | Under-frequency load shed starts at 59.5 Hz; 59.95 gives early warning margin |
-| Transformer temp | ≤ 75°C | IEEE C57.91, 65°C rated + 10°C margin | Thermal aging accelerates exponentially above rated temperature |
+| Voltage (example bus) | 110–145 kV | Tutorial configuration | Demonstrates a bounded range |
+| Frequency | 59.95–60.05 Hz | Tutorial configuration | Demonstrates a narrow range |
+| Transformer temperature | ≤ 75°C | Tutorial configuration | Demonstrates an upper threshold |
 
 :::info Site-Specific Thresholds
-These thresholds are appropriate for typical 115–138 kV transmission. Your substation may have different nominal voltage, equipment ratings, or operating agreements. Adjust the Bloblang conditionals to match your operational requirements.
+Do not use these thresholds for control, protection, or compliance decisions. A qualified engineer must supply site-specific settings based on equipment, studies, operating agreements, and approved procedures.
 :::
 
 ## The `root = deleted()` Pattern
@@ -50,7 +42,7 @@ This is fundamentally different from filtering after transmission — the messag
 
 ## Before and After
 
-**Before** (1,000 readings/minute, all readings):
+**Before** (illustrative synthetic records):
 
 ```
 voltage_kv: 148.23  ← normal
@@ -58,10 +50,10 @@ voltage_kv: 148.21  ← normal
 voltage_kv: 148.25  ← normal
 voltage_kv: 104.50  ← UNDERVOLTAGE — keep!
 voltage_kv: 148.22  ← normal
-... 995 more normal readings ...
+... additional in-band readings ...
 ```
 
-**After** (fewer than 5 anomalies/minute shipped):
+**After** (one retained out-of-band record):
 
 ```json
 {
@@ -72,7 +64,7 @@ voltage_kv: 148.22  ← normal
 }
 ```
 
-**Volume reduction: 99.5%+**. Only anomalies cross the boundary.
+The reduction depends entirely on the input distribution and configured policy. Instrument both sides of the filter and retain enough data for operational, security, and investigative needs.
 
 ## Implementation
 
@@ -207,6 +199,6 @@ Even when readings are nominal, you may want to sample a small percentage for tr
 
 ## What's Next?
 
-You've reduced 50,000 readings/minute to a handful of anomalies. Next: classify each anomaly with its fault type so downstream systems know what they're dealing with before they receive it.
+You have configured a selection policy. Next: classify retained records so downstream systems receive a consistent event type.
 
 → **Next Step:** [Step 3: Classify Fault Types with Bloblang](/integrations/scada-energy-edge/step-3-classify-fault-events)

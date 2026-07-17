@@ -287,7 +287,7 @@ pipeline:
   },
   {
     id: 5,
-    title: "Production-Ready Multi-Level Analytics",
+    title: "Multi-Level Analytics Pattern",
     description: "Complete hierarchical aggregation with reliability features: sensor → location → global levels plus memory management, circuit breakers, and monitoring.",
     yamlFilename: 'step-4-production.yaml',
     yamlCode: `# Production multi-level aggregation with reliability

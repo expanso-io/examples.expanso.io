@@ -1,6 +1,14 @@
+---
+title: "Step 4: Batch and Encode to Parquet"
+sidebar_label: "Step 4: Batch to Parquet"
+sidebar_position: 6
+description: "Batch synthetic POS events and encode them as Parquet for the walkthrough."
+keywords: [retail, pos, batching, parquet, columnar-storage]
+---
+
 # Step 4: Batch and Encode to Parquet
 
-This is where the magic happens. Individual JSON transactions become compressed, columnar Parquet — 10-50x smaller, infinitely faster to query.
+Individual JSON transactions become compressed, columnar Parquet. Compression ratio and query performance depend on schema, values, row-group sizing, codecs, storage, and query shape; benchmark generated files before making performance claims.
 
 ## Batching Strategy
 
@@ -90,15 +98,9 @@ Parquet handles flat columns best. We serialize nested items as JSON strings —
         default_compression: zstd
 ```
 
-## Compression Results
+## Measure Compression
 
-| Format | Size per 1000 txns | Compression |
-|--------|-------------------|-------------|
-| Raw JSON | ~2.1 MB | 1x (baseline) |
-| Parquet (uncompressed) | ~280 KB | 7.5x |
-| Parquet (Zstandard) | ~85 KB | **25x** |
-
-That's 25x compression before the data even leaves the store. A retail chain doing 43M transactions/day goes from ~90GB of raw JSON to ~3.6GB of Parquet.
+Record raw JSON bytes, Parquet bytes, row count, schema, codec, row-group settings, and the exact generator seed for each run. The tutorial does not provide a verified compression ratio.
 
 ## Why Parquet + DuckLake?
 

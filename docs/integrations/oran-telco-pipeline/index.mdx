@@ -1,3 +1,11 @@
+---
+title: "O-RAN Edge Telemetry Pipeline"
+sidebar_label: "Overview"
+sidebar_position: 1
+description: "Transform sample O-RAN telemetry and route it to multiple example destinations from an edge pipeline."
+keywords: [oran, telecom, telemetry, edge-processing, kafka, parquet, grafana]
+---
+
 # O-RAN Edge Telemetry: Multi-Destination Data Pipeline
 
 Streamline O-RAN network observability with a single edge pipeline that collects telemetry from DU/RU/CU nodes and routes data simultaneously to multiple destinations: real-time dashboards, analytics platforms, and long-term storage.
@@ -12,9 +20,9 @@ Telco operators managing O-RAN networks face a complex observability challenge:
   - Long-term storage (Parquet) for capacity planning
   - Analytics platforms (Cloudera) for ML/AI insights
   - Compliance reporting for PTP timing requirements
-- **The edge gap**: Data needs to be collected, shaped, and enriched before it reaches your Cloudera/Kafka/Grafana backends — but there's no lightweight, Red Hat-integrated way to do it at the edge
+- **The edge gap**: Data may need to be collected, shaped, and enriched before it reaches Kafka, Grafana, or analytics backends
 
-The result: 3-5x network overhead from shipping raw data, inconsistent schemas across destinations, and no edge-native processing before data hits your backends.
+The result can be unnecessary network use and inconsistent schemas across destinations. Measure the effect with representative telemetry.
 
 ## The Solution
 
@@ -64,21 +72,21 @@ Your backend stays exactly as-is — Cloudera CDP, Kafka, Grafana, HDFS/Ozone. E
 Tower → Expanso Edge (collect, shape, augment) → Kafka / Cloudera / Grafana / S3
         ├── runs on OpenShift SNO                  (your existing backends, unchanged)
         ├── buffers locally during outages
-        └── managed via Red Hat-integrated operator
+        └── deployment mechanism must be verified for your OpenShift environment
 ```
 
 ### Key Benefits
 
 - **Edge-native processing**: Collect and transform at the source, not in the datacenter
-- **99% bandwidth reduction**: Only shaped, filtered data leaves the edge site
+- **Configurable bandwidth use**: Measure bytes before and after the selected transformations
 - **Zero data loss**: Local buffering handles burst traffic and connectivity drops
 - **Unified data model**: Every destination receives consistent, enriched schemas
 - **Multi-destination fan-out**: Same data to Kafka, Grafana, Parquet, and Cloudera simultaneously
-- **Red Hat integrated**: Runs as certified OpenShift operator on existing SNO infrastructure
+- **OpenShift deployment concept**: This tutorial does not establish operator certification or a supported Red Hat integration
 
 ## What You'll Build
 
-This guide walks through creating a production-ready O-RAN telemetry pipeline that:
+This guide walks through an illustrative O-RAN telemetry pipeline that:
 
 1. **Collects** PTP timing, CPU, PRB utilization, and RF metrics from DU nodes
 2. **Transforms** raw telemetry with Bloblang processing (compliance classification, enrichment)
@@ -118,4 +126,4 @@ Build the pipeline incrementally:
 5. [Parquet and Cloudera](/integrations/oran-telco-pipeline/step-5-parquet-and-cloudera)
 
 ### [Complete Pipeline](/integrations/oran-telco-pipeline/complete-oran-pipeline)
-Download the production-ready solution
+Review the combined reference configuration

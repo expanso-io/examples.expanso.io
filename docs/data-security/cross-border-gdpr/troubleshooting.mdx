@@ -14,8 +14,9 @@ keywords: [troubleshooting, debug, gdpr, compliance, errors]
 # Check pipeline status
 expanso-cli status
 
-# View recent errors
-expanso-cli job logs --tail 50 2>&1 | grep -i error
+# Find failed executions, then inspect the reported execution ID
+expanso-cli job executions eu-cross-border-compliance --state failed --limit 5
+expanso-cli execution describe <failed-execution-id>
 
 # Test EU database connectivity
 psql "postgres://${DB_USER}:${DB_PASSWORD}@${EU_DB_HOST}:5432/transactions_eu" \
@@ -248,11 +249,11 @@ expanso-cli node list
 
 ---
 
-## Compliance Verification
+## Transformation Verification
 
-### How to prove anonymization is complete?
+### How do I check whether the configured transformations ran?
 
-**Generate compliance report:**
+**Generate a technical check report:**
 
 ```sql
 -- Verify no PII in global dataset
@@ -263,6 +264,8 @@ SELECT
 FROM `global_analytics.anonymized_transactions`
 WHERE DATE(transaction_hour) = CURRENT_DATE();
 ```
+
+This query checks the example's own flag. It does not inspect every field, establish anonymous-data status, or prove that a transfer complies with GDPR.
 
 **Export audit trail:**
 
