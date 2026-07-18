@@ -9,6 +9,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sourcePath = path.join(root, 'static', 'llms.txt');
 const buildDir = path.join(root, 'build');
 const builtPath = path.join(buildDir, 'llms.txt');
+const showcasedJob = 'examples/getting-started/quickstart-complete.yaml';
+const showcasedJobPath = path.join(root, showcasedJob);
 
 assert.ok(fs.existsSync(sourcePath), 'static/llms.txt is missing');
 assert.ok(
@@ -16,6 +18,7 @@ assert.ok(
   'build/ is missing; run `npm run build` first'
 );
 assert.ok(fs.existsSync(builtPath), 'build/llms.txt is missing');
+assert.ok(fs.existsSync(showcasedJobPath), `${showcasedJob} is missing`);
 
 const source = fs.readFileSync(sourcePath, 'utf8');
 const built = fs.readFileSync(builtPath, 'utf8');
@@ -28,13 +31,18 @@ assert.match(
 );
 assert.match(
   source,
-  /expanso-cli job validate\s+\S+\s+--offline/,
-  'llms.txt must show offline job validation'
+  new RegExp(
+    `expanso-cli job validate\\s+${showcasedJob.replaceAll('.', '\\.')}` +
+      '\\s+--offline'
+  ),
+  `llms.txt must validate ${showcasedJob} offline`
 );
 assert.match(
   source,
-  /expanso-cli job deploy\s+\S+/,
-  'llms.txt must show the current job deploy command'
+  new RegExp(
+    `expanso-cli job deploy\\s+${showcasedJob.replaceAll('.', '\\.')}`
+  ),
+  `llms.txt must deploy ${showcasedJob}`
 );
 
 const forbidden = [
