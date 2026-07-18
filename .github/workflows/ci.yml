@@ -23,11 +23,34 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate showcased job with Expanso CLI v2.1.19
+        env:
+          EXPANSO_DISABLEANALYTICS: 'true'
+          EXPANSO_INSTALL_DIR: ${{ runner.temp }}/expanso-bin
+          USE_SUDO: 'false'
+        run: |
+          set -euo pipefail
+
+          INSTALLER="${RUNNER_TEMP}/install-expanso-cli.sh"
+          curl --fail --location --silent --show-error \
+            https://get.expanso.io/cli/install.sh \
+            --output "${INSTALLER}"
+          bash "${INSTALLER}" --version v2.1.19
+
+          CLI="${EXPANSO_INSTALL_DIR}/expanso-cli"
+          "${CLI}" version | grep -F 'v2.1.19'
+          "${CLI}" job validate \
+            examples/getting-started/quickstart-complete.yaml \
+            --offline
+
       - name: Type check
         run: npm run typecheck -- --noEmit
 
       - name: Build
         run: npm run build
+
+      - name: Validate llms.txt
+        run: node scripts/validate-llms.mjs
 
       - name: Scan public artifact for private content
         run: |
