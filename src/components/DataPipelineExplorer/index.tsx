@@ -143,7 +143,7 @@ const DataPipelineExplorer: React.FC<DataPipelineExplorerProps> = ({
 
               {/* Stage Indicators */}
               <div
-                className="data-pipeline-explorer__stage-rail flex min-w-0 gap-2 overflow-x-auto px-1 py-2"
+                className="data-pipeline-explorer__stage-rail flex min-w-0 gap-2 overflow-x-auto px-1 py-2 sm:justify-center"
                 role="group"
                 aria-label="Choose a pipeline stage"
               >
