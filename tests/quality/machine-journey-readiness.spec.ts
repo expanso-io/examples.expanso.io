@@ -2,7 +2,6 @@ import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
 
 const overview = '/data-security/remove-pii/';
-const explorer = '/data-security/remove-pii/explorer';
 
 test.describe('machine journey browser readiness', () => {
   test('finds the pilot from the public catalog without a route hint', async ({
@@ -23,25 +22,38 @@ test.describe('machine journey browser readiness', () => {
     ).toBeVisible();
   });
 
-  test('exposes the local and crossing flows as visible boundary evidence', async ({
+  test('keeps the problem, solution, and Explorer inline on the overview', async ({
     page,
   }) => {
     await page.goto(overview, { waitUntil: 'networkidle' });
-    const boundary = page.getByRole('figure', { name: 'System boundary' });
-    await expect(boundary).toBeVisible();
-    await expect(boundary.getByRole('list', { name: 'Systems' })).toBeVisible();
+    const main = page.locator('main');
     await expect(
-      boundary.getByRole('list', { name: 'Data flows' })
+      main.getByRole('heading', {
+        level: 2,
+        name: 'The problem',
+        exact: true,
+      })
     ).toBeVisible();
     await expect(
-      boundary.getByText(/Stays local|Crosses boundary/)
-    ).toHaveCount(2);
+      main.getByRole('heading', {
+        level: 2,
+        name: 'How Expanso solves it',
+        exact: true,
+      })
+    ).toBeVisible();
+    await expect(main.locator('[data-explorer-version="2"]')).toHaveAttribute(
+      'data-example-id',
+      'remove-pii'
+    );
+    await expect(
+      main.getByText('System boundary', { exact: true })
+    ).toHaveCount(0);
   });
 
   test('opens the shared Hash email stage and exposes its material change', async ({
     page,
   }) => {
-    await page.goto(`${explorer}?stage=hash-email`, {
+    await page.goto(`${overview}?stage=hash-email`, {
       waitUntil: 'networkidle',
     });
     const surface = page.locator('[data-explorer-version="2"]');
