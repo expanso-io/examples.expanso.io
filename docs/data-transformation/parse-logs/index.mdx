@@ -1,47 +1,80 @@
 ---
 title: Parse Structured Logs
-sidebar_label: Introduction
+sidebar_label: Overview
 sidebar_position: 1
-description: Extract structured data from JSON, CSV, syslog, and application logs using format-specific processors
-keywords: [log parsing, json logs, csv parsing, syslog, grok patterns, apache logs, nginx logs, structured data]
+description: Compare parsing paths for representative JSON, CSV, access-log, and syslog records.
+keywords: [log-parsing, json, csv, syslog, access-logs, structured-data]
+hide_title: true
+contentArchetype: overview
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+difficulty: intermediate
+verificationDate: '2026-07-18'
+expectedTime: 3 minutes
+localNavigation: true
+uniqueTasks: [inspect-parse-logs-overview]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Parse Structured Logs
+import {
+  ExampleHeader,
+  ExampleSurface,
+  SystemBoundary,
+} from '@site/src/components/ExamplePage';
 
-Transform raw log files into structured, queryable data streams.
+<ExampleHeader
+  exampleId="parse-logs"
+  title="Parse Structured Logs"
+  outcome="Compare format detection and field extraction for representative JSON, CSV, access-log, and syslog text."
+  primaryAction={{
+    href: '/data-transformation/parse-logs/explorer',
+    label: 'Inspect the parsers',
+  }}
+  secondaryAction={{
+    href: '/data-transformation/parse-logs/complete-parser',
+    label: 'Open the configuration',
+  }}
+  difficulty="intermediate"
+  executionStatus="architecture-only"
+  operationalEvidence="not-assessed"
+  expectedTime={{ inspectMinutes: 3 }}
+  verifiedAt="2026-07-18"
+/>
 
-## The Problem
+## Get started
 
-Log files come in dozens of formats making analysis difficult:
-- JSON, CSV, Apache/Nginx access logs, syslog messages
-- Each format requires different parsing logic
-- Difficult to build unified analytics and monitoring
-- No field-indexed queries
+[Use the Explorer](/data-transformation/parse-logs/explorer) to inspect the field shape produced by each authored parser. Choose a parser from known source metadata when possible; content guessing introduces ambiguous failure cases.
 
-## The Solution
+<ExampleSurface
+  kind="overview"
+  title="System boundary"
+  description="Synthetic log lines are parsed into curated records without leaving the remote site."
+>
+  <SystemBoundary exampleId="parse-logs" />
+</ExampleSurface>
 
-Learn 5 format-specific parsing techniques:
+## Pipeline
 
-1. **JSON Document Parsing** - `json_documents` processor with field mapping and timestamp normalization
-2. **CSV Column Parsing** - `csv` processor with named columns, type conversion, and validation
-3. **Web Access Log Parsing** - `grok` processor with Common Log Format patterns for traffic analytics
-4. **Syslog Message Parsing** - `syslog` processor with priority decomposition for system events
-5. **Multi-Format Detection** - Automatic format detection with conditional routing for mixed sources
+| Input      | Intended parser output                           |
+| ---------- | ------------------------------------------------ |
+| JSON       | Selected fields with normalized names and types. |
+| CSV        | Columns mapped by an explicit schema.            |
+| Access log | Fields extracted from one declared text pattern. |
+| Syslog     | Header, facility, severity, and message fields.  |
 
-## Get Started
+Route parse failures separately instead of silently treating them as valid structured events. Preserve enough source context to diagnose a bad parser or changing upstream format.
 
-Choose your path:
+## Limitations and assumptions
 
-### [Interactive Explorer](/data-transformation/parse-logs/explorer)
-See each parsing technique with side-by-side before/after views
+- The Explorer data and expected records are curated; no current machine gate executes the parsers.
+- Multiline records, escaping variants, malformed inputs, encoding, truncation, and parser-version differences are not assessed.
+- The included patterns are scoped to the shown fixtures.
 
-### [Step-by-Step Tutorial](/data-transformation/parse-logs/setup)
-Build the pipeline incrementally:
-1. [Parse JSON Logs](/data-transformation/parse-logs/step-1-parse-json-logs)
-2. [Parse CSV Data](/data-transformation/parse-logs/step-2-parse-csv-data)
-3. [Parse Syslog Messages](/data-transformation/parse-logs/step-3-parse-syslog-messages)
-4. [Multi-Format Detection](/data-transformation/parse-logs/step-4-multi-format-detection)
-5. [Advanced Patterns](/data-transformation/parse-logs/step-5-advanced-patterns)
+## Related examples
 
-### [Complete Pipeline](/data-transformation/parse-logs/complete-parser)
-Download the complete example
+- [Filter by severity](/log-processing/filter-severity)
+- [Enrich and export logs](/log-processing/enrich-export)
+- [Normalize timestamps](/data-transformation/normalize-timestamps)

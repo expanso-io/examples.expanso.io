@@ -1,0 +1,344 @@
+{
+  "$schema": "./schemas/quality-contract-v1.schema.json",
+  "contractId": "accessibility-v1",
+  "contractVersion": "1.0.0",
+  "contractSha256": "b5309aed7db60b1dd3c03d6b021e75eb471cdec01ffbe795a1d6843ede9c669a",
+  "digest": {
+    "algorithm": "sha256",
+    "canonicalization": "sorted-json-utf8-v1",
+    "selfFieldValue": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "commands": {
+    "validate": "npm run quality:contracts",
+    "run": "QUALITY_SUBJECT_SHA=<40-char-sha> npm run quality:accessibility"
+  },
+  "resultSchema": "tests/contracts/schemas/accessibility-result-v1.schema.json",
+  "reducerBehavior": {
+    "missingManifest": "FAIL",
+    "schemaInvalid": "FAIL",
+    "digestMismatch": "FAIL",
+    "requiredResultMissing": "UNKNOWN",
+    "contractMismatch": "FAIL",
+    "localFailure": "FAIL",
+    "optionalCapabilityUnavailable": "BLOCKED_CAPABILITY"
+  },
+  "tools": {
+    "node": "20.19.4",
+    "playwright": "1.55.1",
+    "chromium": "140.0.7339.186",
+    "axeCore": "4.10.2"
+  },
+  "routes": {
+    "inventory": {
+      "source": "build/sitemap.xml",
+      "required": true
+    },
+    "required": [
+      {
+        "id": "catalog",
+        "path": "/"
+      },
+      {
+        "id": "remove-pii-pilot",
+        "path": "/data-security/remove-pii/explorer"
+      },
+      {
+        "id": "scada-pilot",
+        "path": "/integrations/scada-energy-edge/explorer"
+      },
+      {
+        "id": "runtime-proof",
+        "path": "/__explorer-runtime-proof/"
+      }
+    ]
+  },
+  "fixtures": [
+    {
+      "id": "remove-pii-input",
+      "path": "examples/data-security/remove-pii/sample-data.json",
+      "sha256": "f27d41e0954e0501730fd1c718b4b4c885fb839ba73af7971ea0351732d5dab2"
+    }
+  ],
+  "standard": {
+    "name": "WCAG",
+    "version": "2.2",
+    "level": "AA",
+    "minimumTargetCssPixels": 44
+  },
+  "environments": [
+    {
+      "id": "desktop",
+      "width": 1440,
+      "height": 900,
+      "deviceScaleFactor": 1
+    },
+    {
+      "id": "tablet",
+      "width": 820,
+      "height": 1180,
+      "deviceScaleFactor": 1
+    },
+    {
+      "id": "mobile",
+      "width": 390,
+      "height": 844,
+      "deviceScaleFactor": 3
+    },
+    {
+      "id": "reflow-320",
+      "width": 320,
+      "height": 800,
+      "deviceScaleFactor": 1
+    }
+  ],
+  "themes": ["dark", "light"],
+  "interactionModes": ["transformation", "runtime"],
+  "unavailableInteractionModes": [],
+  "unavailableStates": [],
+  "cells": {
+    "localRequired": [
+      {
+        "id": "chromium-structural-scan",
+        "oracle": "axe-wcag22aa",
+        "requiredCoverage": {
+          "environments": ["desktop"],
+          "themes": ["dark", "light"],
+          "interactionModes": ["transformation"],
+          "routeCapability": "all"
+        }
+      },
+      {
+        "id": "accessibility-tree",
+        "oracle": "role-name-state",
+        "requiredCoverage": {
+          "environments": ["desktop"],
+          "themes": ["dark"],
+          "interactionModes": ["transformation"],
+          "routeCapability": "all"
+        }
+      },
+      {
+        "id": "keyboard-trace",
+        "oracle": "focus-order-and-local-arrow-keys",
+        "requiredCoverage": {
+          "environments": ["desktop"],
+          "themes": ["dark"],
+          "interactionModes": ["transformation"],
+          "routeCapability": "all"
+        }
+      },
+      {
+        "id": "forced-colors",
+        "oracle": "content-and-controls-remain-perceivable",
+        "requiredCoverage": {
+          "environments": ["desktop"],
+          "themes": ["dark", "light"],
+          "interactionModes": ["transformation"],
+          "routeCapability": "all"
+        }
+      },
+      {
+        "id": "text-spacing",
+        "oracle": "wcag-text-spacing-no-loss",
+        "requiredCoverage": {
+          "environments": ["desktop"],
+          "themes": ["dark", "light"],
+          "interactionModes": ["transformation"],
+          "routeCapability": "all"
+        }
+      },
+      {
+        "id": "orientation",
+        "oracle": "portrait-and-landscape-no-loss",
+        "requiredCoverage": {
+          "environments": ["mobile"],
+          "themes": ["dark"],
+          "interactionModes": ["transformation"],
+          "routeCapability": "all"
+        }
+      },
+      {
+        "id": "reflow-320",
+        "oracle": "zero-page-horizontal-overflow",
+        "requiredCoverage": {
+          "environments": ["reflow-320"],
+          "themes": ["dark", "light"],
+          "interactionModes": ["transformation"],
+          "routeCapability": "all"
+        }
+      },
+      {
+        "id": "zoom-200",
+        "oracle": "controls-and-content-reflow",
+        "requiredCoverage": {
+          "environments": ["desktop"],
+          "themes": ["dark"],
+          "interactionModes": ["transformation"],
+          "routeCapability": "all"
+        }
+      },
+      {
+        "id": "zoom-400",
+        "oracle": "controls-and-content-reflow",
+        "requiredCoverage": {
+          "environments": ["desktop"],
+          "themes": ["dark"],
+          "interactionModes": ["transformation"],
+          "routeCapability": "all"
+        }
+      },
+      {
+        "id": "reduced-motion",
+        "oracle": "complete-static-state",
+        "requiredCoverage": {
+          "environments": ["desktop"],
+          "themes": ["dark"],
+          "interactionModes": ["transformation"],
+          "routeCapability": "all"
+        }
+      },
+      {
+        "id": "clipboard-denial",
+        "oracle": "announced-recoverable-error",
+        "requiredCoverage": {
+          "environments": ["desktop"],
+          "themes": ["dark"],
+          "interactionModes": ["transformation"],
+          "routeCapability": "explorer-v2"
+        }
+      },
+      {
+        "id": "download-failure",
+        "oracle": "announced-recoverable-error",
+        "requiredCoverage": {
+          "environments": ["desktop"],
+          "themes": ["dark"],
+          "interactionModes": ["transformation"],
+          "routeCapability": "explorer-v2"
+        }
+      },
+      {
+        "id": "target-size",
+        "oracle": "minimum-44-css-pixels",
+        "requiredCoverage": {
+          "environments": ["desktop", "mobile"],
+          "themes": ["dark"],
+          "interactionModes": ["transformation"],
+          "routeCapability": "all"
+        }
+      },
+      {
+        "id": "dark-light-viewports",
+        "oracle": "axe-and-contrast-both-themes",
+        "requiredCoverage": {
+          "environments": ["desktop", "tablet", "mobile", "reflow-320"],
+          "themes": ["dark", "light"],
+          "interactionModes": ["transformation"],
+          "routeCapability": "all"
+        }
+      }
+    ],
+    "claimBoundRequired": [
+      {
+        "id": "voiceover-safari",
+        "claim": "VoiceOver/Safari",
+        "unavailable": "BLOCKED_CAPABILITY"
+      },
+      {
+        "id": "narrator-edge",
+        "claim": "Narrator/Edge",
+        "unavailable": "BLOCKED_CAPABILITY"
+      },
+      {
+        "id": "talkback-android-chrome",
+        "claim": "TalkBack/Android Chrome",
+        "unavailable": "BLOCKED_CAPABILITY"
+      },
+      {
+        "id": "physical-ios-safari",
+        "claim": "physical iOS Safari",
+        "unavailable": "BLOCKED_CAPABILITY"
+      },
+      {
+        "id": "physical-android-chrome",
+        "claim": "physical Android Chrome",
+        "unavailable": "BLOCKED_CAPABILITY"
+      }
+    ]
+  },
+  "materiallyDistinctStates": [
+    "default",
+    "stage-selected",
+    "changes-only",
+    "highlights-only",
+    "full-data",
+    "clipboard-error",
+    "download-error",
+    "missing-full-yaml",
+    "malformed-fixture",
+    "oversized-fixture",
+    "zero-stage",
+    "one-stage",
+    "long-stage-name",
+    "high-density"
+  ],
+  "harnessFiles": [
+    {
+      "path": "docusaurus.config.ts",
+      "sha256": "5646c094706122878002bc9b625a0373e7865596d1774fd33506ee6db6a6329c"
+    },
+    {
+      "path": "playwright.config.ts",
+      "sha256": "16761fb70eac61a34036bbd04691efd5ab3ac250c2d1c2f24c83d62a314edf43"
+    },
+    {
+      "path": "scripts/quality/accessibility-reporter.ts",
+      "sha256": "7b4cbfb21d3e00830823e62c56bfb0ef4aaff92f51ba10667c3c7353c98cc2f8"
+    },
+    {
+      "path": "scripts/quality/produce-accessibility-result.ts",
+      "sha256": "80deed6755338a09eba0f00443597f5a507d1b1429ef6699032672f76a3cde8f"
+    },
+    {
+      "path": "scripts/quality/reduce-accessibility.ts",
+      "sha256": "85aa01ab2e47467875925cf8e6eee8be7501edb47323386b8c6a26c5426cf362"
+    },
+    {
+      "path": "scripts/quality/accessibility-lib.ts",
+      "sha256": "a4fdcf2342d821dba88c2e54bd31be180439d9a670f03762ca598d35d3c6a0e0"
+    },
+    {
+      "path": "scripts/quality/validate-test-contracts.ts",
+      "sha256": "63eb167346c7a43c52b4eceef5c6d483f30811e3dbfcc8f93b4c4c13bc77d3c7"
+    },
+    {
+      "path": "src/components/ExplorerV2/runtime/RuntimeExplorer.tsx",
+      "sha256": "3f16f3f4d6bca5bb652dfee5f52c1fd01fbc602bd897fc58db5c7332deab0cdd"
+    },
+    {
+      "path": "tests/quality/explorer/RuntimeProofHarnessPage.tsx",
+      "sha256": "e25e84becd7ccc0e0f0016c2f3e447b6c1beae900212e945bce63eeb35384ccc"
+    },
+    {
+      "path": "tests/quality/accessibility/harness.spec.ts",
+      "sha256": "f2a6371b226e84d927d63f4cba448143f3bf525ebf56b3dc2a4247b9804b9548"
+    },
+    {
+      "path": "tests/quality/accessibility/site-accessibility.spec.ts",
+      "sha256": "b264f2e6eacf15cfbcec0e563115a740f3ae8e372e5166e04dcb45a31d54b285"
+    },
+    {
+      "path": "tests/quality/explorer/explorer.spec.ts",
+      "sha256": "32f3bd2b0d9e6fcc4a1bd5d7cf142a553e478f1a431d3bc2c6020e3573388f44"
+    },
+    {
+      "path": "tests/quality/explorer/runtime-proof.spec.ts",
+      "sha256": "87110edc38bc93566c0a87715fd21884aceba8f6479eabb6e4d1c31703be2e51"
+    }
+  ],
+  "harnessGate": {
+    "id": "accessibility-harness-v1",
+    "proves": ["pinned-runner", "oracles", "fixtures", "result-schema"],
+    "doesNotProve": "every-route-target-sha"
+  }
+}

@@ -1,9 +1,18 @@
 ---
-title: "Step 1: Split JSON Arrays"
-sidebar_label: "Step 1: Split JSON Arrays"
+title: 'Step 1: Split JSON Arrays'
+sidebar_label: 'Step 1: Split JSON Arrays'
 sidebar_position: 4
 description: Learn the fundamental pattern for splitting a JSON array into multiple messages.
 keywords: [json-arrays, unarchive, split, fan-out]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-content-splitting-step-1-split-json-arrays]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 1: Split JSON Arrays
@@ -19,8 +28,8 @@ You will transform a single input message like this:
   "device_id": "sensor-001",
   "location": "warehouse-a",
   "readings": [
-    {"sensor": "temp-1", "value": 72.5},
-    {"sensor": "temp-2", "value": 85.3}
+    { "sensor": "temp-1", "value": 72.5 },
+    { "sensor": "temp-2", "value": 85.3 }
   ]
 }
 ```
@@ -35,6 +44,7 @@ Into two separate output messages, each preserving the parent context:
   "location": "warehouse-a"
 }
 ```
+
 ```json title="Output Message 2"
 {
   "sensor": "temp-2",
@@ -46,7 +56,7 @@ Into two separate output messages, each preserving the parent context:
 
 ## The "Store -> Split -> Restore" Pattern
 
-The key to this transformation is a three-processor pattern that you must always follow in this exact order:
+This example uses a three-processor sequence; preserve its order when adapting this configuration:
 
 1.  **Store Context:** Save the parent fields (`device_id`, `location`) into metadata.
 2.  **Split Array:** Use the `unarchive` processor to split the `readings` array.
@@ -55,35 +65,36 @@ The key to this transformation is a three-processor pattern that you must always
 ## Implementation
 
 1.  **Start with the Foundation:** Copy the `content-splitting-foundation.yaml` file to a new file named `array-splitter.yaml`.
+
     ```bash
     cp examples/data-routing/content-splitting-foundation.yaml array-splitter.yaml
     ```
 
 2.  **Add the Splitting Logic:** Open `array-splitter.yaml` and replace the entire `pipeline` section with the three-processor block below.
 
-    ```yaml title="Insert this into array-splitter.yaml"
-pipeline:
-  processors:
-    # 1. STORE parent context into metadata
-    - mapping: |
-        meta device_id = this.device_id
-        meta location = this.location
-        root = this
+        ```yaml title="Insert this into array-splitter.yaml"
 
-    # 2. SPLIT the array into individual messages
-    - unarchive:
-        format: json_array
-        field: readings
+    pipeline:
+    processors: # 1. STORE parent context into metadata - mapping: |
+    meta device_id = this.device_id
+    meta location = this.location
+    root = this
 
-    # 3. RESTORE the context from metadata into each new message
-    - mapping: |
-        root = this
-        root.device_id = meta("device_id")
-        root.location = meta("location")
-    ```
-    This is the only change needed. The `input` and `output` remain the same.
+        # 2. SPLIT the array into individual messages
+        - unarchive:
+            format: json_array
+            field: readings
+
+        # 3. RESTORE the context from metadata into each new message
+        - mapping: |
+            root = this
+            root.device_id = meta("device_id")
+            root.location = meta("location")
+        ```
+        This is the processor change in this step. The `input` and `output` remain the same.
 
 3.  **Deploy and Test:**
+
     ```bash
     # Send the test message
     curl -X POST http://localhost:8080/sensors/bulk \

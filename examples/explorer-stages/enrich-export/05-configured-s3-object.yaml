@@ -1,0 +1,21 @@
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      - aws_s3:
+          bucket: ${S3_BUCKET_NAME}
+          path: logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/logs_${!timestamp_unix()}.jsonl.gz
+          batching:
+            count: ${BATCH_COUNT:-200}
+            period: ${BATCH_PERIOD:-2m}
+            byte_size: ${BATCH_SIZE:-5242880}
+            processors:
+              - compress:
+                  algorithm: gzip
+                  level: 6
+          content_type: application/x-ndjson
+          content_encoding: gzip
+          storage_class: ${S3_STORAGE_CLASS:-STANDARD_IA}
+          credentials:
+            profile: ${AWS_PROFILE}
+          region: ${AWS_REGION}

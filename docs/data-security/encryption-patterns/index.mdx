@@ -1,47 +1,80 @@
 ---
-title: Field-Level Encryption Patterns
-sidebar_label: Introduction
+title: Encryption Patterns
+sidebar_label: Overview
 sidebar_position: 1
-description: Master 6 essential field-level encryption patterns for compliance, security, and analytics at the edge
-keywords: [encryption, field-level, aes, patterns, pci-dss, hipaa, gdpr, compliance, security]
+description: Compare field-selection patterns for encrypting synthetic payment, identity, address, and date values.
+keywords: [encryption, payment-data, pii, addresses, dates, keys]
+hide_title: true
+contentArchetype: overview
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+difficulty: intermediate
+verificationDate: '2026-07-18'
+expectedTime: 5 minutes
+localNavigation: true
+uniqueTasks: [inspect-encryption-patterns-architecture]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Field-Level Encryption Patterns
+import {
+  ExampleHeader,
+  ExampleSurface,
+  Limitations,
+  SystemBoundary,
+} from '@site/src/components/ExamplePage';
 
-Master field-level encryption patterns that protects sensitive data while preserving analytics value.
+<ExampleHeader
+  exampleId="encryption-patterns"
+  title="Encryption Patterns"
+  outcome="Compare how one reference pipeline selects and encrypts fields across common synthetic record shapes."
+  primaryAction={{
+    href: '/data-security/encryption-patterns/explorer',
+    label: 'Compare the patterns',
+  }}
+  difficulty="intermediate"
+  executionStatus="architecture-only"
+  operationalEvidence="not-assessed"
+  expectedTime={{ inspectMinutes: 5 }}
+  verifiedAt="2026-07-18"
+/>
 
-## The Problem
+## Get started
 
-Data streams contain sensitive information requiring encryption:
-- Credit card numbers, CVV codes (PCI-DSS violations)
-- SSN, email, phone numbers (GDPR/CCPA violations)
-- Billing addresses (location privacy)
-- Naive encryption destroys analytics value
+Follow the primary action to inspect the reference pattern. The page describes an architecture; it does not promise a verified end-to-end run.
 
-## The Solution
+<ExampleSurface
+  kind="overview"
+  title="System boundary"
+  description="The pipeline owns field selection and processor configuration. The surrounding key system and access model are not included."
+>
+  <SystemBoundary exampleId="encryption-patterns" />
+</ExampleSurface>
 
-Learn five field-encryption stages:
+## Pipeline
 
-1. **Payment Card Encryption** - AES-256-GCM with last-4 preservation for PCI-DSS compliance
-2. **PII Data Encryption** - Multi-field encryption with domain/area code preservation
-3. **Address Encryption** - Street-level encryption with city/state/zip prefix preservation
-4. **Date Encryption** - Sensitive date encryption with year/age ranges preserved
-5. **Advanced Patterns** - Multi-key strategy, key rotation, and audit metadata
+| Stage    | Responsibility                                                 |
+| -------- | -------------------------------------------------------------- |
+| Payment  | Separate retained display fields from protected values.        |
+| Identity | Apply encryption to selected identity fields.                  |
+| Address  | Protect street-level values while retaining chosen geography.  |
+| Dates    | Protect source dates and derive explicitly configured cohorts. |
 
-## Get Started
+The stages are design patterns, not a comparative cryptographic evaluation.
 
-Choose your path:
+## Limitations and assumptions
 
-### [Interactive Explorer](/data-security/encryption-patterns/explorer)
-See each encryption pattern with side-by-side before/after views
+<Limitations>
 
-### [Step-by-Step Tutorial](/data-security/encryption-patterns/setup)
-Build the pipeline incrementally:
-1. [Payment Encryption](/data-security/encryption-patterns/step-1-encrypt-payment-data)
-2. [PII Encryption](/data-security/encryption-patterns/step-2-encrypt-pii-fields)
-3. [Address Encryption](/data-security/encryption-patterns/step-3-encrypt-addresses)
-4. [Date Encryption](/data-security/encryption-patterns/step-4-encrypt-dates)
-5. [Advanced Patterns](/data-security/encryption-patterns/step-5-advanced-patterns)
+- All records and keys are synthetic example inputs.
+- No maintained fixture currently executes the full reference pipeline.
+- The configuration does not include a key service, authorization model, rotation procedure, or recovery test.
+- Derived clear fields can remain sensitive and need independent review.
 
-### [Complete Pipeline](/data-security/encryption-patterns/complete-encryption-pipeline)
-Download the complete example
+</Limitations>
+
+## Related examples
+
+[Encrypt sensitive data](/data-security/encrypt-data) · [Remove PII](/data-security/remove-pii) · [Cross-border data minimization](/data-security/cross-border-gdpr)

@@ -1,43 +1,82 @@
 ---
 title: Content-Based Routing
-sidebar_label: Introduction
+sidebar_label: Overview
 sidebar_position: 1
-description: Route data to different destinations based on severity, region, event type, and priority
-keywords: [routing, switch, conditional, content-based, priority, geography, event-type]
+description: Route synthetic records by severity, region, event type, and priority.
+keywords: [content-routing, severity, region, event-type, routing]
+hide_title: true
+contentArchetype: overview
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+difficulty: intermediate
+verificationDate: '2026-07-18'
+expectedTime: 3 minutes
+localNavigation: true
+uniqueTasks: [inspect-content-routing-architecture]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Content-Based Routing
+import {
+  ExampleHeader,
+  ExampleSurface,
+  Limitations,
+  SystemBoundary,
+} from '@site/src/components/ExamplePage';
 
-Send the right data to the right place using conditional logic.
+<ExampleHeader
+  exampleId="content-routing"
+  title="Content-Based Routing"
+  outcome="Route synthetic records through explicit branches derived from fields in each message."
+  primaryAction={{
+    href: '/data-routing/content-routing/explorer',
+    label: 'Inspect the branches',
+  }}
+  difficulty="intermediate"
+  executionStatus="architecture-only"
+  operationalEvidence="not-assessed"
+  expectedTime={{ inspectMinutes: 3 }}
+  verifiedAt="2026-07-18"
+/>
 
-## The Problem
+## Get started
 
-Without intelligent routing, you either:
-- Send everything everywhere (wasting bandwidth, violating compliance)
-- Create separate pipelines for each data type (duplicating configuration)
+Follow the primary action to inspect the reference pattern. The page describes an architecture; it does not promise a verified end-to-end run.
 
-## The Solution
+<ExampleSurface
+  kind="overview"
+  title="System boundary"
+  description="The example evaluates message fields locally. Destination names are illustrative until connected to real outputs."
+>
+  <SystemBoundary exampleId="content-routing" />
+</ExampleSurface>
 
-Learn 4 routing techniques:
+## Pipeline
 
-1. **Severity Routing** - Critical alerts to PagerDuty, warnings to Slack, info to logs
-2. **Geographic Routing** - EU data stays in EU (GDPR compliance)
-3. **Event Type Routing** - Payments to fraud detection, auth to security systems
-4. **Priority Queues** - Premium users get expedited processing
+| Stage      | Responsibility                                         |
+| ---------- | ------------------------------------------------------ |
+| Severity   | Assign a route from the event severity.                |
+| Region     | Apply a region-specific branch before general routing. |
+| Event type | Select a destination from the event category.          |
+| Priority   | Combine fields into an explicit priority decision.     |
 
-## Get Started
+Branch precedence is part of the configuration. The example does not infer policy or validate a destination.
 
-Choose your path:
+## Limitations and assumptions
 
-### [→ Interactive Explorer](/data-routing/content-routing/explorer)
-See each routing technique with live examples
+<Limitations>
 
-### [→ Step-by-Step Tutorial](/data-routing/content-routing/setup)
-Build the pipeline incrementally:
-1. [Severity Routing](/data-routing/content-routing/step-1-route-by-severity)
-2. [Geographic Routing](/data-routing/content-routing/step-2-route-by-region)
-3. [Event Type Routing](/data-routing/content-routing/step-3-route-by-event-type)
-4. [Advanced Patterns](/data-routing/content-routing/step-4-advanced-patterns)
+- The input events and destination labels are synthetic.
+- Region fields are routing inputs, not evidence that a transfer meets legal or organizational obligations.
+- No destination service, credential, delivery retry, or dead-letter behavior is exercised by a current machine gate.
+- Review branch order when adding overlapping conditions.
 
-### [→ Complete Pipeline](/data-routing/content-routing/complete-content-routing)
-Download the complete example
+</Limitations>
+
+## Related examples
+
+- [Priority queues](/data-routing/priority-queues)
+- [Fan-out pattern](/data-routing/fan-out-pattern)
+- [Enforce schema](/data-security/enforce-schema)

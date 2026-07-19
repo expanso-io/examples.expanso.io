@@ -1,9 +1,18 @@
 ---
-title: "Step 1: Parse Multiple Timestamp Formats"
-sidebar_label: "Step 1: Parse Formats"
+title: 'Step 1: Parse Multiple Timestamp Formats'
+sidebar_label: 'Step 1: Parse Formats'
 sidebar_position: 3
 description: Detect and parse timestamps from various common formats like ISO8601 and Unix epochs.
 keywords: [timestamp, parsing, ISO8601, unix-epoch, normalization]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-normalize-timestamps-step-1-parse-formats]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 1: Parse Multiple Timestamp Formats
@@ -15,13 +24,15 @@ A common data transformation challenge is handling the variety of timestamp form
 You will build a pipeline that can correctly parse events with different timestamp formats, such as ISO8601 strings and Unix epoch numbers, into a standardized `normalized_timestamp` field.
 
 **Input 1 (ISO8601):**
+
 ```json
-{"event_id": "A", "timestamp": "2025-10-20T18:23:45.123Z"}
+{ "event_id": "A", "timestamp": "2025-10-20T18:23:45.123Z" }
 ```
 
 **Input 2 (Unix Seconds):**
+
 ```json
-{"event_id": "B", "timestamp": 1729450425}
+{ "event_id": "B", "timestamp": 1729450425 }
 ```
 
 **Desired Output (for both):**
@@ -30,6 +41,7 @@ A standardized object, where `normalized_timestamp` is the same instant in time.
 ## The "Detect -> Parse" Pattern
 
 This is implemented in a single `mapping` processor:
+
 1.  **Detect:** Use a `match` expression on the `type()` of the `timestamp` field to detect whether it's a `string` or a `number`.
 2.  **Parse:** Based on the type, call the appropriate parsing function (`.parse_timestamp()` for strings, `.ts_unix()` for numbers).
 
@@ -66,6 +78,7 @@ This is implemented in a single `mapping` processor:
     ```
 
 2.  **Deploy and Test:**
+
     ```bash
     # --- Test 1: Send ISO8601 String ---
     curl -X POST http://localhost:8080/ingest \
@@ -81,4 +94,4 @@ This is implemented in a single `mapping` processor:
 3.  **Verify:**
     Check your logs. You will see two output messages. Both will have a `normalized_timestamp` field. Although the original formats were different, the normalized versions will both represent the same point in time.
 
-You have now built a basic but robust timestamp normalization pipeline. This same "detect -> parse" pattern can be extended to handle many other formats.
+You have now built a basic timestamp normalization pipeline. This same "detect -> parse" pattern can be extended to handle other declared formats.

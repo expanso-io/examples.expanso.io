@@ -4,6 +4,15 @@ sidebar_label: Troubleshooting
 sidebar_position: 10
 description: Common log parsing issues and solutions
 keywords: [troubleshooting, debug, log-parsing, format-detection]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-parse-logs-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Troubleshooting
@@ -35,6 +44,7 @@ docker logs parse-logs --tail 20 2>&1 | grep -i "format\|parse"
 ```
 
 **Fix:** Add format detection fallback:
+
 ```yaml
 - mapping: |
     root = this.parse_json().catch({
@@ -51,6 +61,7 @@ docker logs parse-logs --tail 20 2>&1 | grep -i "format\|parse"
 **Cause:** Content-Type header missing or wrong
 
 **Fix:** Parse based on content, not header:
+
 ```yaml
 - mapping: |
     root = if content().has_prefix("{") {
@@ -67,6 +78,7 @@ docker logs parse-logs --tail 20 2>&1 | grep -i "format\|parse"
 **Cause:** Non-standard log format
 
 **Fix:** Make regex more flexible:
+
 ```yaml
 # Standard combined log format
 - mapping: |
@@ -83,6 +95,7 @@ docker logs parse-logs --tail 20 2>&1 | grep -i "format\|parse"
 **Cause:** RFC 3164 vs RFC 5424 format mismatch
 
 **Fix:** Support both formats:
+
 ```yaml
 - mapping: |
     root = if content().has_prefix("<") && content().contains(">1 ") {

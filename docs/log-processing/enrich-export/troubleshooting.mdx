@@ -4,6 +4,15 @@ sidebar_label: Troubleshooting
 sidebar_position: 10
 description: Common log enrichment and S3 export issues and solutions
 keywords: [troubleshooting, debug, enrichment, s3]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-enrich-export-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Troubleshooting
@@ -33,6 +42,7 @@ aws s3 ls s3://$BUCKET/logs/$(date +%Y/%m/%d)/ --max-items 5
 **Cause:** Mapping not executing or overwriting
 
 **Fix:** Ensure metadata is merged, not replaced:
+
 ```yaml
 - mapping: |
     root = this
@@ -52,6 +62,7 @@ aws s3 ls s3://$BUCKET/ --max-items 1
 ```
 
 **Fix:** Verify AWS credentials and bucket policy:
+
 ```yaml
 output:
   aws_s3:
@@ -69,6 +80,7 @@ output:
 **Cause:** Batching too aggressive
 
 **Fix:** Increase batch size and period:
+
 ```yaml
 batching:
   count: 10000
@@ -82,7 +94,8 @@ batching:
 
 **Cause:** Too many small objects
 
-**Fix:** Increase batch size, add compression:
+**Inspect:** Batch size, flush period, codec support, and representative payloads:
+
 ```yaml
 output:
   aws_s3:

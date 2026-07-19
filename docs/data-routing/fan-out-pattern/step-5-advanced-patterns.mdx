@@ -1,14 +1,23 @@
 ---
-title: "Advanced Fan-Out Patterns"
-sidebar_label: "Step 5: Advanced Patterns"
+title: 'Advanced Fan-Out Patterns'
+sidebar_label: 'Step 5: Advanced Patterns'
 sidebar_position: 8
 description: Explore advanced fan-out patterns like failover and conditional routing.
 keywords: [advanced-fan-out, failover, conditional-routing, broker]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-fan-out-pattern-step-5-advanced-patterns]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Advanced Fan-Out Patterns
 
-Once you have mastered the basic `fan_out` broker, you can implement more sophisticated routing logic for production scenarios.
+After reviewing the basic `fan_out` broker, use these variants as unverified adaptation sketches.
 
 ## Pattern 1: Failover with the `try` Broker
 
@@ -41,9 +50,9 @@ output:
 
 ## Pattern 2: Conditional Routing within a Fan-Out
 
-Sometimes, you want to send a message to *most* of your fan-out destinations, but only send it to a specific one if it meets certain criteria. This can be done by nesting a `switch` inside the `broker`.
+Sometimes a message should reach several branches while a conditional branch accepts a subset. Nest a `switch` inside the `broker` to express that selection.
 
-**Use Case:** You want to send all logs to Kafka and S3, but only send `ERROR` level logs to an alerting service.
+**Example:** Send the authored logs to Kafka and S3, and select `ERROR` records for the alerting-service branch.
 
 ```yaml title="Conditional Fan-Out Routing"
 output:
@@ -60,7 +69,7 @@ output:
           bucket: "my-log-archive"
           path: "logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz"
 
-      # Destination 3: Alerting Service (ONLY errors go here)
+      # Destination 3: Alerting Service (errors selected here)
       - switch:
           cases:
             - check: this.level == "ERROR"

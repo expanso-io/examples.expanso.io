@@ -1,68 +1,103 @@
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { glob } from 'glob';
-import { exec } from 'child_process';
-import util from 'util';
-import path from 'path';
-import fs from 'fs';
+import { LineCounter, parseDocument } from 'yaml';
 
-const execPromise = util.promisify(exec);
+export interface YamlValidationFinding {
+  file: string;
+  message: string;
+}
 
-// Configuration
-const EXAMPLES_DIR = 'examples';
+export interface YamlValidationResult {
+  filesChecked: number;
+  findings: YamlValidationFinding[];
+  status: 'PASS' | 'FAIL';
+}
 
-async function validateYamlFiles() {
-  console.log('🔍 Starting YAML validation...');
-
-  // Check if expanso CLI is available (and if it has a 'validate' command - which it doesn't)
-  let cliAvailable = false;
-  let cliHasValidateCommand = false;
-  try {
-    // Check if expanso CLI is executable and get its version
-    await execPromise('expanso-cli version'); 
-    cliAvailable = true;
-
-    // Since 'expanso-cli' does not have a 'validate' command, we explicitly set this to false.
-    // If a 'validate' command is ever added to expanso-cli, this logic would need to be updated.
-    console.warn('⚠️  The \'expanso-cli\' does not have a \'validate\' command.');
-    console.warn('   Therefore, full pipeline logic validation cannot be performed locally with expanso-cli.');
-    console.warn('   Validation will perform basic YAML syntax checks and verify file readability.');
-    console.log('--------------------------------------------------');
-
-  } catch (error: any) {
-    console.warn('⚠️  "expanso" CLI not found or not executable. Basic YAML syntax check only.');
-    console.warn('   Install Expanso CLI (https://docs.expanso.io/getting-started/quick-start) to enable basic CLI checks.');
-    console.log('--------------------------------------------------');
+export function validateYamlSource(
+  source: string,
+  file = 'inline.yaml'
+): YamlValidationFinding[] {
+  if (source.trim().length === 0) {
+    return [{ file, message: 'file is empty' }];
   }
 
-  const yamlFiles = await glob(`${EXAMPLES_DIR}/**/*.yaml`);
-  console.log(`Found ${yamlFiles.length} YAML files to validate.`);
+  const lineCounter = new LineCounter();
+  const document = parseDocument(source, {
+    lineCounter,
+    strict: true,
+    uniqueKeys: true,
+  });
+  const findings = [...document.errors, ...document.warnings].map((error) => ({
+    file,
+    message: error.message,
+  }));
 
-  let passed = 0;
-  let failed = 0;
+  if (document.contents === null && findings.length === 0) {
+    findings.push({ file, message: 'document has no YAML content' });
+  }
 
-  for (const file of yamlFiles) {
-    const relativePath = path.relative(process.cwd(), file);
-    
-    // Always perform a basic file readability and non-empty check
+  if (findings.length === 0) {
     try {
-      const content = fs.readFileSync(file, 'utf-8');
-      if (content.trim().length === 0) {
-          throw new Error("File is empty");
-      }
-      // If we reach here, basic syntax (readability and non-empty) is fine.
-      console.log(`✅ [READ OK] ${relativePath}`);
-      passed++;
-    } catch (e: any) {
-      console.error(`❌ [READ FAIL] ${relativePath}: ${e.message}`);
-      failed++;
+      document.toJS({ maxAliasCount: 100 });
+    } catch (error) {
+      findings.push({
+        file,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
-  console.log('--------------------------------------------------');
-  console.log(`Summary:`);
-  console.log(`Passed (basic syntax/readability): ${passed}`);
-  console.log(`Failed (read/empty):                 ${failed}`);
-  
-  if (failed > 0) process.exit(1);
+  return findings;
 }
 
-validateYamlFiles().catch(console.error);
+export async function validateYamlFiles(
+  files: readonly string[]
+): Promise<YamlValidationResult> {
+  const findings: YamlValidationFinding[] = [];
+
+  if (files.length === 0) {
+    findings.push({ file: 'examples', message: 'YAML inventory is empty' });
+  }
+
+  for (const file of [...files].sort()) {
+    try {
+      const source = await readFile(file, 'utf8');
+      findings.push(...validateYamlSource(source, file));
+    } catch (error) {
+      findings.push({
+        file,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return {
+    filesChecked: files.length,
+    findings,
+    status: findings.length === 0 ? 'PASS' : 'FAIL',
+  };
+}
+
+async function main() {
+  const files = await glob('examples/**/*.{yaml,yml}', { nodir: true });
+  const result = await validateYamlFiles(files);
+
+  for (const finding of result.findings) {
+    console.error(`YAML_INVALID ${finding.file}: ${finding.message}`);
+  }
+  console.log(
+    `YAML inventory ${result.status}: ${result.filesChecked} files / ${result.findings.length} findings.`
+  );
+
+  if (result.status === 'FAIL') process.exitCode = 1;
+}
+
+const invokedPath = process.argv[1] ? resolve(process.argv[1]) : '';
+if (invokedPath === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}

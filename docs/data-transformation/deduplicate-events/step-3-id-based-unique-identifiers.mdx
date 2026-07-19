@@ -1,24 +1,34 @@
 ---
-title: "Step 3: ID-Based Deduplication"
-sidebar_label: "Step 3: ID-Based Deduplication"
+title: 'Step 3: ID-Based Deduplication'
+sidebar_label: 'Step 3: ID-Based Deduplication'
 sidebar_position: 6
-description: "Optimize deduplication performance using unique event identifiers."
+description: 'Use unique event identifiers as the key for a deduplication pattern.'
 keywords: [deduplication, id-based, unique-identifiers, uuid]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-deduplicate-events-step-3-id-based-unique-identifiers]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 3: ID-Based Deduplication for Unique Identifiers
 
-If your events are guaranteed to have a unique identifier (like a UUID or a database sequence), you can use the simplest, fastest, and most efficient deduplication pattern: **ID-based deduplication**.
+When the producer contract defines a stable unique identifier, **ID-based deduplication** can use that value directly as the cache key.
 
 This pattern skips the need for hashing content and instead uses the event's own ID as the unique key.
 
 ## The Goal
 
-You will simplify your deduplication logic by using the `event_id` field directly as the key for the cache, which is much faster than calculating a hash.
+This configuration uses `event_id` directly rather than calculating a content hash.
 
 ## Implementation
 
 1.  **Start with the Previous Pipeline:** Copy the `fingerprint-dedup.yaml` from Step 2 to a new file named `id-dedup.yaml`.
+
     ```bash
     cp fingerprint-dedup.yaml id-dedup.yaml
     ```
@@ -32,6 +42,7 @@ You will simplify your deduplication logic by using the `event_id` field directl
         # The key for deduplication is now just the event's own ID.
         root.dedup_key = this.event_id
     ```
+
     You will also need to update the `cache` processor to use this new `dedup_key` field.
 
     ```yaml title="Update the 'cache' processor"
@@ -40,7 +51,9 @@ You will simplify your deduplication logic by using the `event_id` field directl
         operator: get
         key: ${! this.dedup_key } # Use the new key field
     ```
+
     Finally, update the last `mapping` processor to also use the `dedup_key`.
+
     ```yaml title="Update the last 'mapping' processor"
     - mapping: |
         let is_duplicate = meta("cache").exists()
@@ -54,6 +67,7 @@ You will simplify your deduplication logic by using the `event_id` field directl
     ```
 
 3.  **Deploy and Test:**
+
     ```bash
     # --- Send the SAME event twice ---
     curl -X POST http://localhost:8080/ingest \

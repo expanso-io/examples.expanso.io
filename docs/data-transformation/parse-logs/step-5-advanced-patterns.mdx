@@ -1,9 +1,18 @@
 ---
-title: "Advanced Parsing Patterns"
-sidebar_label: "Step 5: Advanced Patterns"
+title: 'Advanced Parsing Patterns'
+sidebar_label: 'Step 5: Advanced Patterns'
 sidebar_position: 8
 description: Explore advanced log parsing patterns like error handling and data enrichment.
 keywords: [log-parsing, advanced-patterns, error-handling, enrichment]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-parse-logs-step-5-advanced-patterns]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Advanced Log Parsing Patterns
@@ -12,13 +21,13 @@ Once you have mastered the basic parsing techniques for different formats, you c
 
 ## Pattern 1: Graceful Error Handling
 
-When a processor like `parse_json` or `grok` fails, it stops the processing of that message. For a robust pipeline, you should wrap parsing attempts in a `try/catch` block. This allows you to catch the error, route the malformed message to a Dead Letter Queue (DLQ), and continue processing other messages.
+When a processor like `parse_json` or `grok` fails, it stops processing that message. Wrap parsing attempts in a `try/catch` block to route malformed input to the configured Dead Letter Queue (DLQ) and continue processing other messages.
 
 ```yaml title="Add Error Handling to a Parser"
 - try:
     # Attempt to parse the log
     - grok:
-        expressions: [ '%{COMMONAPACHELOG}' ]
+        expressions: ['%{COMMONAPACHELOG}']
         named_captures_only: true
 
     # If it succeeds, add a success status
@@ -47,11 +56,11 @@ pipeline:
   processors:
     # 1. PARSE: Start with the grok processor from Step 3
     - grok:
-        expressions: [ '%{COMBINEDAPACHELOG}' ]
+        expressions: ['%{COMBINEDAPACHELOG}']
         named_captures_only: true
 
     # 2. ENRICH: Add processors to enrich the parsed data
-    
+
     # Enrich with GeoIP data
     - geoip:
         field: root.client_ip
@@ -67,4 +76,5 @@ pipeline:
         root = this
         root.request_type = if this.request.starts_with("/api/") { "api" } else { "web" }
 ```
+
 This multi-stage process of parsing and then enriching is a very common and powerful pattern in data processing pipelines.

@@ -1,46 +1,80 @@
 ---
 title: Aggregate Time Windows
-sidebar_label: Introduction
+sidebar_label: Overview
 sidebar_position: 1
-description: Calculate counts, averages, and statistics over tumbling, sliding, and session time windows
-keywords: [aggregation, time-windows, analytics, streaming, cache, groupby, windowing]
+description: Inspect tumbling, sliding, session, and hierarchical window patterns on synthetic events.
+keywords: [aggregation, time-windows, analytics, streaming, windowing]
+hide_title: true
+contentArchetype: overview
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+difficulty: intermediate
+verificationDate: '2026-07-18'
+expectedTime: 4 minutes
+localNavigation: true
+uniqueTasks: [inspect-aggregate-time-windows-overview]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Aggregate Time Windows
+import {
+  ExampleHeader,
+  ExampleSurface,
+  SystemBoundary,
+} from '@site/src/components/ExamplePage';
 
-Transform high-frequency event streams into meaningful analytics by grouping data into time buckets.
+<ExampleHeader
+  exampleId="aggregate-time-windows"
+  title="Aggregate Time Windows"
+  outcome="Inspect how synthetic readings can be grouped into tumbling, sliding, session, and hierarchical summaries."
+  primaryAction={{
+    href: '/data-transformation/aggregate-time-windows/explorer',
+    label: 'Inspect the windows',
+  }}
+  secondaryAction={{
+    href: '/data-transformation/aggregate-time-windows/complete-aggregation-pipeline',
+    label: 'Open the configuration',
+  }}
+  difficulty="intermediate"
+  executionStatus="architecture-only"
+  operationalEvidence="not-assessed"
+  expectedTime={{ inspectMinutes: 4 }}
+  verifiedAt="2026-07-18"
+/>
 
-## The Problem
+## Get started
 
-IoT devices and sensors generate continuous high-frequency events:
-- 60 events/minute per sensor creates overwhelming data volume
-- Raw streams generate 98% redundant data
-- No actionable insights from individual readings
-- Expensive cloud ingestion and storage costs
+[Use the Explorer](/data-transformation/aggregate-time-windows/explorer) to compare the authored input and output at each windowing stage. Treat the complete configuration as an adaptation reference.
 
-## The Solution
+<ExampleSurface
+  kind="overview"
+  title="System boundary"
+  description="The walkthrough keeps its synthetic records and curated outputs at the remote site."
+>
+  <SystemBoundary exampleId="aggregate-time-windows" />
+</ExampleSurface>
 
-Learn 5 time-windowed aggregation techniques:
+## Pipeline
 
-1. **Tumbling Windows** - Fixed-size, non-overlapping buckets with timestamp rounding
-2. **Sliding Windows** - Overlapping windows for smoothed moving averages and trending
-3. **Session Windows** - Dynamic windows based on activity gaps for behavioral analytics
-4. **Multi-Level Aggregation** - Simultaneous aggregation at sensor, location, and global levels
-5. **Production Buffering** - Memory management, late arrivals, and network outage handling
+| Stage        | Intended behavior                                                   |
+| ------------ | ------------------------------------------------------------------- |
+| Tumbling     | Assign an event to one fixed time bucket.                           |
+| Sliding      | Reuse events across overlapping lookback windows.                   |
+| Session      | Group activity until an inactivity threshold is reached.            |
+| Hierarchical | Produce summaries for configured sensor, location, and global keys. |
 
-## Get Started
+The diagrams and results are authored examples. They are useful for inspecting field shape and configuration intent, not for inferring measured reduction, load behavior, or event-time correctness.
 
-Choose your path:
+## Limitations and assumptions
 
-### [Interactive Explorer](/data-transformation/aggregate-time-windows/explorer)
-See each windowing technique with side-by-side before/after views
+- No maintained machine gate executes these window configurations.
+- Late arrival, watermark, clock-skew, cache eviction, restart, and multi-node behavior are not assessed.
+- The shown thresholds and aggregates are fixture choices, not recommended operating values.
 
-### [Step-by-Step Tutorial](/data-transformation/aggregate-time-windows/setup)
-Build the pipeline incrementally:
-1. [Tumbling Windows](/data-transformation/aggregate-time-windows/step-1-tumbling-windows)
-2. [Sliding Windows](/data-transformation/aggregate-time-windows/step-2-sliding-windows)
-3. [Session Windows](/data-transformation/aggregate-time-windows/step-3-session-windows)
-4. [Advanced Patterns](/data-transformation/aggregate-time-windows/step-4-advanced-patterns)
+## Related examples
 
-### [Complete Pipeline](/data-transformation/aggregate-time-windows/complete-aggregation-pipeline)
-Download the complete example
+- [Deduplicate events](/data-transformation/deduplicate-events)
+- [Normalize timestamps](/data-transformation/normalize-timestamps)
+- [Smart buffering](/data-routing/smart-buffering)

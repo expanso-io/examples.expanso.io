@@ -4,6 +4,15 @@ sidebar_label: Troubleshooting
 sidebar_position: 10
 description: Common fan-out pattern issues and solutions
 keywords: [troubleshooting, debug, fan-out, multi-destination]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-fan-out-pattern-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Troubleshooting
@@ -25,7 +34,7 @@ curl -X POST http://localhost:8080/events \
 
 ## Common Issues
 
-### Messages only reaching some destinations
+### Messages reaching some destinations but not others
 
 **Cause:** One destination failing, blocking others (if not using `fan_out`)
 
@@ -36,13 +45,14 @@ aws s3 ls s3://$BUCKET/ --max-items 1          # S3
 ```
 
 **Fix:** Use `broker` with `fan_out` pattern (not `fan_out_sequential`):
+
 ```yaml
 output:
   broker:
-    pattern: fan_out  # Parallel, not sequential
+    pattern: fan_out # Parallel, not sequential
     outputs:
-      - elasticsearch: {...}
-      - aws_s3: {...}
+      - elasticsearch: { ... }
+      - aws_s3: { ... }
 ```
 
 ---
@@ -52,12 +62,13 @@ output:
 **Cause:** Using sequential fan-out or shared batching
 
 **Fix:** Add independent batching per destination:
+
 ```yaml
 outputs:
   - elasticsearch:
-      batching: {count: 100, period: 5s}
+      batching: { count: 100, period: 5s }
   - aws_s3:
-      batching: {count: 1000, period: 60s}
+      batching: { count: 1000, period: 60s }
 ```
 
 ---
@@ -67,11 +78,12 @@ outputs:
 **Cause:** Retries without idempotency
 
 **Fix:** Add idempotent writes:
+
 ```yaml
 - kafka:
     idempotent_write: true
 - elasticsearch:
-    id: ${!json("event_id")}  # Dedupe by ID
+    id: ${!json("event_id")} # Dedupe by ID
 ```
 
 ---
@@ -85,6 +97,7 @@ docker stats fan-out-pattern --no-stream
 ```
 
 **Fix:** Add byte size limits to batching:
+
 ```yaml
 batching:
   count: 500

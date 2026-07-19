@@ -1,0 +1,13 @@
+pipeline:
+  processors:
+    - mapping: |
+        if this.adapter_status == 0 {
+          root = deleted()
+        }
+
+    - mapping: |
+        root.review_class = match {
+          this.adapter_status == 2 => "status-2"
+          this.adapter_status == 1 => "status-1"
+          _ => "unclassified-status"
+        }

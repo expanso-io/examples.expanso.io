@@ -1,134 +1,80 @@
 ---
-title: "MotherDuck Retail Analytics: Edge POS to Serverless Data Warehouse"
-sidebar_label: "Overview"
+title: MotherDuck Retail Analytics
+sidebar_label: Overview
 sidebar_position: 1
-description: "Transform synthetic point-of-sale events into partitioned Parquet on S3 and query the result with MotherDuck and DuckLake."
-keywords: [motherduck, ducklake, retail, pos, parquet, s3, edge-processing]
+description: Inspect an architecture for shaping synthetic POS events into partitioned Parquet for external analytics.
+keywords: [motherduck, ducklake, retail, parquet, s3, edge-processing]
+hide_title: true
+contentArchetype: overview
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+difficulty: advanced
+verificationDate: '2026-07-18'
+expectedTime: 6 minutes
+localNavigation: true
+uniqueTasks: [inspect-motherduck-retail-architecture]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# MotherDuck Retail Analytics: Edge POS to Serverless Data Warehouse
+import {
+  ExampleHeader,
+  ExampleSurface,
+  Limitations,
+  SystemBoundary,
+} from '@site/src/components/ExamplePage';
 
-Turn raw point-of-sale data from 50+ retail locations into query-ready Parquet on S3 — automatically indexed by MotherDuck's DuckLake for instant serverless analytics.
+<ExampleHeader
+  exampleId="motherduck-retail-analytics"
+  title="MotherDuck Retail Analytics"
+  outcome="Shape synthetic point-of-sale events into partitioned Parquet objects for an external MotherDuck or DuckLake query layer."
+  primaryAction={{
+    href: '/integrations/motherduck-retail-analytics/setup',
+    label: 'Review the run path',
+  }}
+  secondaryAction={{
+    href: '/integrations/motherduck-retail-analytics/complete-pipeline',
+    label: 'Open the reference',
+  }}
+  difficulty="advanced"
+  executionStatus="architecture-only"
+  operationalEvidence="not-assessed"
+  expectedTime={{ inspectMinutes: 6 }}
+  verifiedAt="2026-07-18"
+/>
 
-## The Problem
+## Get started
 
-Retail chains with dozens (or hundreds) of store locations generate massive volumes of POS transaction data:
+Review the [external prerequisites](/integrations/motherduck-retail-analytics/setup), then follow the retained steps from synthetic generation through SQL inspection.
 
-- **Every terminal, every store, every second** — basket-level transaction data with SKUs, quantities, prices, payment methods
-- **Raw data is messy** — different POS systems, inconsistent schemas, missing fields, local timestamps
-- **Central analytics needs clean data** — data science and merchandising teams want to query across all stores instantly
-- **Traditional ETL is slow** — nightly batch jobs mean yesterday's data, not today's insights
-- **The edge gap**: There's no lightweight way to transform and batch POS data at each store before shipping it to the warehouse
+<ExampleSurface
+  kind="overview"
+  title="System boundary"
+  description="Expanso prepares objects; storage and analytics remain external services."
+>
+  <SystemBoundary exampleId="motherduck-retail-analytics" />
+</ExampleSurface>
 
-The result: Terabytes of raw JSON/CSV landing in S3 that requires heavy ETL before anyone can query it.
+## Pipeline
 
-## The Solution
+| Stage        | Reference behavior                                                                           |
+| ------------ | -------------------------------------------------------------------------------------------- |
+| Prepare      | Generate synthetic POS events, add static store metadata, and apply the example field rules. |
+| Batch + ship | Group records, configure Parquet encoding, and write to S3-compatible storage.               |
+| Query        | Show external SQL for registering and inspecting the objects.                                |
 
-**Expanso Edge at every store, MotherDuck DuckLake in the cloud.** Expanso handles the messy edge — parsing, enriching, batching, and encoding to Parquet. MotherDuck handles the analytics — auto-indexing Parquet from S3 via DuckLake for instant serverless queries.
+## Limitations and assumptions
 
-<div style={{margin: '2rem 0', padding: '1.5rem', borderRadius: '12px', border: '2px solid var(--ifm-color-primary)', background: 'var(--ifm-background-surface-color)'}}>
-<div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem'}}>
+<Limitations>
 
-<div style={{display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'center'}}>
-{['Store #1 POS', 'Store #2 POS', 'Store #N POS'].map((s, i) => (
-  <div key={i} style={{padding: '0.5rem 1rem', borderRadius: '8px', background: 'var(--ifm-color-emphasis-200)', fontWeight: 500, fontSize: '0.85rem'}}>{s}</div>
-))}
-</div>
+- No POS connector is included, and the repository has not executed the full Expanso, S3, and MotherDuck path.
+- File discovery and table registration behavior depend on the selected analytics service and account configuration.
+- Batch size, compression, freshness, and query behavior are unmeasured; synthetic transactions do not establish data coverage or quality.
 
-<div style={{fontSize: '1.2rem'}}>↓</div>
+</Limitations>
 
-<div style={{padding: '0.75rem 2rem', borderRadius: '8px', background: 'var(--ifm-color-primary)', color: 'white', fontWeight: 600, fontSize: '1rem', boxShadow: '0 2px 8px rgba(107,70,193,0.3)'}}>Expanso Edge (per store)</div>
-<div style={{fontSize: '0.7rem', color: 'var(--ifm-color-primary)'}}>parse → enrich → validate → batch → Parquet encode</div>
+## Related examples
 
-<div style={{fontSize: '1.2rem'}}>↓</div>
-
-<div style={{padding: '0.6rem 2rem', borderRadius: '8px', background: '#16a34a', color: 'white', fontWeight: 600, fontSize: '0.95rem'}}>📦 S3 (Partitioned Parquet)</div>
-<div style={{fontSize: '0.7rem', color: 'var(--ifm-color-emphasis-600)'}}>s3://retail-data/store=42/date=2026-02-11/batch_001.parquet</div>
-
-<div style={{fontSize: '1.2rem'}}>↓</div>
-
-<div style={{padding: '0.75rem 2rem', borderRadius: '8px', background: '#f59e0b', color: 'white', fontWeight: 600, fontSize: '1rem'}}>🦆 MotherDuck DuckLake</div>
-<div style={{fontSize: '0.7rem', color: 'var(--ifm-color-emphasis-600)'}}>Auto-indexes new Parquet files → instant SQL queries</div>
-
-</div>
-</div>
-
-### Where Expanso Fits In Your Stack
-
-Your analytics backend stays exactly as-is — MotherDuck, DuckDB, your BI tools. Expanso handles what happens **at the edge** before data reaches S3:
-
-| Layer | What | How Expanso Helps |
-|-------|------|-------------------|
-| **Collect** | POS transactions from terminals (JSON, CSV, or API) | Single lightweight agent per store — no heavy ETL infrastructure at the edge |
-| **Enrich** | Add store metadata, region, format, calculated fields | Lookups and calculations happen at the store, not in the warehouse |
-| **Validate** | Schema enforcement, null checks, type coercion | Bad records caught at source — only clean data leaves the store |
-| **Batch** | Micro-batch transactions (1000 rows or 10s windows) | Optimal Parquet file sizes for DuckLake indexing |
-| **Encode** | Compress to Parquet with Zstandard compression | 10-50x smaller than raw JSON, columnar for fast analytics |
-| **Ship** | Write to S3 with Hive-style partitioning | DuckLake auto-discovers new partitions instantly |
-
-```
-Store POS → Expanso Edge (enrich, validate, batch, Parquet) → S3 → DuckLake → MotherDuck SQL
-```
-
-### Key Benefits
-
-- **Real-time-ish analytics**: Micro-batched data lands in S3 every 10 seconds, DuckLake indexes it automatically
-- **90%+ compression**: Raw JSON transactions → Zstandard-compressed Parquet (columnar, typed, compact)
-- **Zero ETL in the warehouse**: Data arrives schema-validated, enriched, and query-ready
-- **Edge resilience**: Local buffering at each store handles network outages — no data loss
-- **Serverless scale**: MotherDuck auto-scales queries across all stores, no cluster management
-- **Bring your own account**: Works with any MotherDuck account and S3 bucket
-
-## What You'll Build
-
-This guide walks through creating a retail POS pipeline example that:
-
-1. **Generates** realistic POS transactions with basket items, payment methods, and store metadata
-2. **Enriches** with store information (region, format, square footage) and calculated fields
-3. **Validates** schema integrity and flags anomalies (negative totals, empty baskets)
-4. **Batches** into optimal micro-batches for Parquet encoding
-5. **Encodes** to compressed, partitioned Parquet files
-6. **Ships** to S3 with Hive-style partitioning for DuckLake auto-indexing
-7. **Queries** in MotherDuck with instant SQL across all stores
-
-### Sample Transaction Schema
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `txn_id` | STRING | UUID for each transaction |
-| `store_id` | INT32 | Store identifier (1-50) |
-| `terminal_id` | INT32 | POS terminal within store (1-10) |
-| `timestamp` | INT64 | Unix microseconds |
-| `type` | STRING | sale, return, or exchange |
-| `payment_method` | STRING | card, cash, mobile, gift_card |
-| `items` | JSON | Array of basket items (SKU, qty, unit_price, category) |
-| `item_count` | INT32 | Total items in basket |
-| `subtotal` | DOUBLE | Pre-tax total |
-| `tax_amount` | DOUBLE | Calculated tax |
-| `total_amount` | DOUBLE | Final transaction amount |
-| `store_region` | STRING | Enriched: NW, SW, NE, SE, MW |
-| `store_format` | STRING | Enriched: flagship, standard, express, outlet |
-| `employee_id` | STRING | Cashier/associate ID |
-
-## Prerequisites
-
-- Expanso Edge installed ([installation guide](https://docs.expanso.io))
-- A [MotherDuck account](https://motherduck.com) (free tier works)
-- An S3-compatible bucket (AWS S3, MinIO, or Cloudflare R2)
-- AWS credentials configured for S3 writes
-
-## Get Started
-
-Choose your path:
-
-### [Step-by-Step Tutorial](/integrations/motherduck-retail-analytics/setup)
-Build the pipeline incrementally:
-1. [Generate POS Transactions](/integrations/motherduck-retail-analytics/step-1-generate-pos-data)
-2. [Enrich with Store Metadata](/integrations/motherduck-retail-analytics/step-2-enrich-store-metadata)
-3. [Validate and Flag Anomalies](/integrations/motherduck-retail-analytics/step-3-validate-transactions)
-4. [Batch and Encode to Parquet](/integrations/motherduck-retail-analytics/step-4-batch-parquet-encode)
-5. [Ship to S3 with Partitioning](/integrations/motherduck-retail-analytics/step-5-ship-to-s3)
-6. [Connect DuckLake and Query](/integrations/motherduck-retail-analytics/step-6-ducklake-query)
-
-### [Complete Pipeline](/integrations/motherduck-retail-analytics/complete-pipeline)
-Download the complete example with one-click copy
+[Transform formats](/data-transformation/transform-formats) · [Enforce a schema](/data-security/enforce-schema) · [Content splitting](/data-routing/content-splitting)

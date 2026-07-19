@@ -1,45 +1,82 @@
 ---
-title: Priority Queues for Message Routing
-sidebar_label: Introduction
+title: Priority Queues
+sidebar_label: Overview
 sidebar_position: 1
-description: Route messages to priority-based queues for differential processing and SLA management
-keywords: [routing, priority, queues, switch, sla, tiering, performance, latency]
+description: Classify synthetic events and route them to priority-specific outputs.
+keywords: [priority-queues, routing, scoring, severity, fairness]
+hide_title: true
+contentArchetype: overview
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+difficulty: intermediate
+verificationDate: '2026-07-18'
+expectedTime: 4 minutes
+localNavigation: true
+uniqueTasks: [inspect-priority-queues-architecture]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Priority Queues for Message Routing
+import {
+  ExampleHeader,
+  ExampleSurface,
+  Limitations,
+  SystemBoundary,
+} from '@site/src/components/ExamplePage';
 
-Transform message chaos into organized, SLA-compliant processing.
+<ExampleHeader
+  exampleId="priority-queues"
+  title="Priority Queues"
+  outcome="Derive a priority from message fields and route records to explicit queue labels."
+  primaryAction={{
+    href: '/data-routing/priority-queues/explorer',
+    label: 'Inspect the scoring',
+  }}
+  difficulty="intermediate"
+  executionStatus="architecture-only"
+  operationalEvidence="not-assessed"
+  expectedTime={{ inspectMinutes: 4 }}
+  verifiedAt="2026-07-18"
+/>
 
-## The Problem
+## Get started
 
-Without priority queuing, critical messages get stuck:
-- Critical alerts wait behind millions of INFO logs
-- Enterprise customers get same latency as free tier
-- Payment failures compete with bulk analytics
-- SLA violations and poor customer experience
+Follow the primary action to inspect the reference pattern. The page describes an architecture; it does not promise a verified end-to-end run.
 
-## The Solution
+<ExampleSurface
+  kind="overview"
+  title="System boundary"
+  description="The pipeline computes labels and routes locally. Real queue scheduling begins at the configured destination."
+>
+  <SystemBoundary exampleId="priority-queues" />
+</ExampleSurface>
 
-Learn 4 priority routing techniques:
+## Pipeline
 
-1. **Severity-Based Routing** - Map log levels (CRITICAL, ERROR, WARN, INFO) to priority queues
-2. **Customer Tier Routing** - Route enterprise/premium customers to dedicated high-priority queues
-3. **Multi-Criteria Scoring** - Combine customer tier, event type, and urgency with weighted scoring
-4. **Age-Based Escalation** - Time-based priority boost prevents low-priority message starvation
+| Stage          | Responsibility                                 |
+| -------------- | ---------------------------------------------- |
+| Severity       | Map severity values to a starting priority.    |
+| Customer tier  | Adjust the authored score from a second field. |
+| Combined score | Evaluate multiple criteria in a defined order. |
+| Age adjustment | Demonstrate an authored escalation rule.       |
 
-## Get Started
+This pattern labels and routes records; it does not implement a scheduler or prove processing fairness.
 
-Choose your path:
+## Limitations and assumptions
 
-### [Interactive Explorer](/data-routing/priority-queues/explorer)
-See each priority routing technique with side-by-side before/after views
+<Limitations>
 
-### [Step-by-Step Tutorial](/data-routing/priority-queues/setup)
-Build the pipeline incrementally:
-1. [Severity-Based Queues](/data-routing/priority-queues/step-1-severity-routing)
-2. [Customer Tier Queues](/data-routing/priority-queues/step-2-customer-tier-routing)
-3. [Multi-Criteria Scoring](/data-routing/priority-queues/step-3-multi-criteria-scoring)
-4. [Prevent Starvation](/data-routing/priority-queues/step-4-prevent-starvation)
+- Priorities, tiers, weights, and age thresholds are illustrative.
+- The example does not execute a queue broker or worker pool.
+- Starvation, service levels, capacity, admission control, and delivery behavior are not assessed.
+- Review scoring rules for bias and unintended precedence before adaptation.
 
-### [Complete Pipeline](/data-routing/priority-queues/complete-priority-pipeline)
-Download the complete example
+</Limitations>
+
+## Related examples
+
+- [Smart buffering](/data-routing/smart-buffering)
+- [Content-based routing](/data-routing/content-routing)
+- [Circuit breaker patterns](/data-routing/circuit-breakers)

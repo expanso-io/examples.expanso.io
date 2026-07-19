@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://examples.expanso.io/tests/contracts/schemas/machine-journey-scorer-output-v2.schema.json",
+  "title": "Expanso machine journey deterministic scorer output v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scorerOutputVersion",
+    "scorerVersion",
+    "scorerSchemaSha256",
+    "contractId",
+    "contractSha256",
+    "subjectSha",
+    "environmentId",
+    "trialId",
+    "taskId",
+    "execution",
+    "trace",
+    "traceSchemaSha256",
+    "oracleEvidence",
+    "assertions",
+    "status"
+  ],
+  "properties": {
+    "scorerOutputVersion": { "const": "2.0.0" },
+    "scorerVersion": { "const": "machine-journey-scorer@2.0.0" },
+    "scorerSchemaSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "contractId": { "const": "machine-journey-v1" },
+    "contractSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "subjectSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "environmentId": { "type": "string", "minLength": 3 },
+    "trialId": { "type": "string", "minLength": 1 },
+    "taskId": { "type": "string", "minLength": 1 },
+    "execution": { "$ref": "#/$defs/execution" },
+    "trace": { "$ref": "#/$defs/traceBindings" },
+    "traceSchemaSha256": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dom", "network", "commands"],
+      "properties": {
+        "dom": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "network": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "commands": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "oracleEvidence": { "$ref": "#/$defs/artifactEvidence" },
+    "assertions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assertionId",
+          "expectedSha256",
+          "actualSha256",
+          "outcome"
+        ],
+        "properties": {
+          "assertionId": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+          },
+          "expectedSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "actualSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "outcome": { "enum": ["PASS", "FAIL"] }
+        }
+      }
+    },
+    "status": { "enum": ["PASS", "FAIL"] }
+  },
+  "$defs": {
+    "artifactEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceVersion", "path", "sha256", "bytes"],
+      "properties": {
+        "evidenceVersion": { "const": "journey-artifact-v2" },
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "bytes": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "traceBindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dom", "network", "screenshot", "commands"],
+      "properties": {
+        "dom": { "$ref": "#/$defs/artifactEvidence" },
+        "network": { "$ref": "#/$defs/artifactEvidence" },
+        "screenshot": { "$ref": "#/$defs/artifactEvidence" },
+        "commands": { "$ref": "#/$defs/artifactEvidence" }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "toolVersions"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "toolVersions": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

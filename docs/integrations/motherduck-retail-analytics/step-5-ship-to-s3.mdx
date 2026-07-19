@@ -1,9 +1,19 @@
 ---
-title: "Step 5: Write Partitioned Parquet to S3"
-sidebar_label: "Step 5: Write to S3"
+title: 'Step 5: Write Partitioned Parquet to S3'
+sidebar_label: 'Step 5: Write to S3'
 sidebar_position: 7
-description: "Write Parquet output to example Hive-style S3 partitions."
+description: 'Write Parquet output to example Hive-style S3 partitions.'
 keywords: [retail, pos, s3, parquet, partitioning]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-integrations-motherduck-retail-analytics-step-5-ship-to-s3]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 5: Ship to S3 with Partitioning
@@ -22,14 +32,14 @@ s3://my-retail-data/transactions/
   ...
 ```
 
-This lets DuckLake skip entire partitions when filtering by region or date — massive query speedups on large datasets.
+This layout gives downstream engines partition metadata they may use when filtering by region or date. Measure the actual query plan and runtime with representative data.
 
 ## S3 Output
 
 ```yaml
 output:
   aws_s3:
-    bucket: "${S3_BUCKET}"
+    bucket: '${S3_BUCKET}'
     path: >-
       transactions/region=${! json("store_region") }/date=${! now().ts_format("2006-01-02") }/batch_${! timestamp_unix() }_${! count("s3_files") }.parquet
     content_type: application/octet-stream
@@ -62,7 +72,7 @@ output:
     outputs:
       # Primary: S3
       - aws_s3:
-          bucket: "${S3_BUCKET}"
+          bucket: '${S3_BUCKET}'
           path: >-
             transactions/region=${! json("store_region") }/date=${! now().ts_format("2006-01-02") }/batch_${! timestamp_unix() }_${! count("s3_files") }.parquet
           content_type: application/octet-stream

@@ -1,0 +1,311 @@
+{
+  "schemaVersion": "1.0.0",
+  "exampleId": "runtime-proof-disconnected-edge",
+  "scenarios": [
+    {
+      "scenarioId": "link-drop",
+      "checkpoints": [
+        {
+          "index": 0,
+          "eventId": null,
+          "state": {
+            "tick": 0,
+            "connection": "online",
+            "queue": [],
+            "delivered": [],
+            "processedEventIds": []
+          },
+          "assertions": [
+            {
+              "id": "initial-link",
+              "label": "Link starts online",
+              "path": "/connection",
+              "equals": "online"
+            },
+            {
+              "id": "initial-queue",
+              "label": "Queue starts empty",
+              "path": "/queue/ids",
+              "equals": []
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "eventId": "accept-normal-001",
+          "state": {
+            "tick": 1,
+            "connection": "online",
+            "queue": [],
+            "delivered": [
+              { "id": "normal-001", "priority": "normal", "via": "direct" }
+            ],
+            "processedEventIds": ["accept-normal-001"]
+          },
+          "assertions": [
+            {
+              "id": "direct-first",
+              "label": "First record uses direct delivery",
+              "path": "/delivered/ids",
+              "equals": ["normal-001"]
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "eventId": "link-offline",
+          "state": {
+            "tick": 2,
+            "connection": "offline",
+            "queue": [],
+            "delivered": [
+              { "id": "normal-001", "priority": "normal", "via": "direct" }
+            ],
+            "processedEventIds": ["accept-normal-001", "link-offline"]
+          },
+          "assertions": [
+            {
+              "id": "offline",
+              "label": "Modeled link is offline",
+              "path": "/connection",
+              "equals": "offline"
+            }
+          ]
+        },
+        {
+          "index": 3,
+          "eventId": "buffer-normal-002",
+          "state": {
+            "tick": 3,
+            "connection": "offline",
+            "queue": [{ "id": "normal-002", "priority": "normal" }],
+            "delivered": [
+              { "id": "normal-001", "priority": "normal", "via": "direct" }
+            ],
+            "processedEventIds": [
+              "accept-normal-001",
+              "link-offline",
+              "buffer-normal-002"
+            ]
+          },
+          "assertions": [
+            {
+              "id": "normal-buffered",
+              "label": "Normal record is buffered",
+              "path": "/queue/ids",
+              "equals": ["normal-002"]
+            }
+          ]
+        },
+        {
+          "index": 4,
+          "eventId": "buffer-critical-001",
+          "state": {
+            "tick": 4,
+            "connection": "offline",
+            "queue": [
+              { "id": "critical-001", "priority": "critical" },
+              { "id": "normal-002", "priority": "normal" }
+            ],
+            "delivered": [
+              { "id": "normal-001", "priority": "normal", "via": "direct" }
+            ],
+            "processedEventIds": [
+              "accept-normal-001",
+              "link-offline",
+              "buffer-normal-002",
+              "buffer-critical-001"
+            ]
+          },
+          "assertions": [
+            {
+              "id": "priority-order",
+              "label": "Critical record sorts before normal",
+              "path": "/queue/ids",
+              "equals": ["critical-001", "normal-002"]
+            }
+          ]
+        },
+        {
+          "index": 5,
+          "eventId": "link-online",
+          "state": {
+            "tick": 5,
+            "connection": "online",
+            "queue": [
+              { "id": "critical-001", "priority": "critical" },
+              { "id": "normal-002", "priority": "normal" }
+            ],
+            "delivered": [
+              { "id": "normal-001", "priority": "normal", "via": "direct" }
+            ],
+            "processedEventIds": [
+              "accept-normal-001",
+              "link-offline",
+              "buffer-normal-002",
+              "buffer-critical-001",
+              "link-online"
+            ]
+          },
+          "assertions": [
+            {
+              "id": "reconnected",
+              "label": "Modeled link is online",
+              "path": "/connection",
+              "equals": "online"
+            },
+            {
+              "id": "queue-retained",
+              "label": "Reconnect retains queue until replay",
+              "path": "/queue/ids",
+              "equals": ["critical-001", "normal-002"]
+            }
+          ]
+        },
+        {
+          "index": 6,
+          "eventId": "replay-buffer",
+          "state": {
+            "tick": 6,
+            "connection": "online",
+            "queue": [],
+            "delivered": [
+              { "id": "normal-001", "priority": "normal", "via": "direct" },
+              {
+                "id": "critical-001",
+                "priority": "critical",
+                "via": "buffer-replay"
+              },
+              {
+                "id": "normal-002",
+                "priority": "normal",
+                "via": "buffer-replay"
+              }
+            ],
+            "processedEventIds": [
+              "accept-normal-001",
+              "link-offline",
+              "buffer-normal-002",
+              "buffer-critical-001",
+              "link-online",
+              "replay-buffer"
+            ]
+          },
+          "assertions": [
+            {
+              "id": "queue-drained",
+              "label": "Replay drains the modeled queue",
+              "path": "/queue/ids",
+              "equals": []
+            },
+            {
+              "id": "replay-order",
+              "label": "Buffered records replay in priority order",
+              "path": "/delivered/ids",
+              "equals": ["normal-001", "critical-001", "normal-002"]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "scenarioId": "steady-link",
+      "checkpoints": [
+        {
+          "index": 0,
+          "eventId": null,
+          "state": {
+            "tick": 0,
+            "connection": "online",
+            "queue": [],
+            "delivered": [],
+            "processedEventIds": []
+          },
+          "assertions": [
+            {
+              "id": "steady-initial",
+              "label": "Link starts online",
+              "path": "/connection",
+              "equals": "online"
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "eventId": "accept-critical-002",
+          "state": {
+            "tick": 1,
+            "connection": "online",
+            "queue": [],
+            "delivered": [
+              { "id": "critical-002", "priority": "critical", "via": "direct" }
+            ],
+            "processedEventIds": ["accept-critical-002"]
+          },
+          "assertions": [
+            {
+              "id": "steady-critical",
+              "label": "Critical record uses direct delivery",
+              "path": "/delivered/ids",
+              "equals": ["critical-002"]
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "eventId": "accept-normal-003",
+          "state": {
+            "tick": 2,
+            "connection": "online",
+            "queue": [],
+            "delivered": [
+              { "id": "critical-002", "priority": "critical", "via": "direct" },
+              { "id": "normal-003", "priority": "normal", "via": "direct" }
+            ],
+            "processedEventIds": ["accept-critical-002", "accept-normal-003"]
+          },
+          "assertions": [
+            {
+              "id": "steady-direct-order",
+              "label": "Records retain event order",
+              "path": "/delivered/ids",
+              "equals": ["critical-002", "normal-003"]
+            }
+          ]
+        },
+        {
+          "index": 3,
+          "eventId": "replay-empty-buffer",
+          "state": {
+            "tick": 3,
+            "connection": "online",
+            "queue": [],
+            "delivered": [
+              { "id": "critical-002", "priority": "critical", "via": "direct" },
+              { "id": "normal-003", "priority": "normal", "via": "direct" }
+            ],
+            "processedEventIds": [
+              "accept-critical-002",
+              "accept-normal-003",
+              "replay-empty-buffer"
+            ]
+          },
+          "assertions": [
+            {
+              "id": "steady-empty-queue",
+              "label": "Replay finds no buffered records",
+              "path": "/queue/ids",
+              "equals": []
+            },
+            {
+              "id": "steady-delivered",
+              "label": "Delivered order remains unchanged",
+              "path": "/delivered/ids",
+              "equals": ["critical-002", "normal-003"]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

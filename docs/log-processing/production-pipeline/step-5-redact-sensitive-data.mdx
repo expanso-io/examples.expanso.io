@@ -4,13 +4,22 @@ sidebar_label: Step 5 - Redact Sensitive Data
 sidebar_position: 8
 description: Protect user privacy by detecting and redacting PII (emails, credit cards, IP addresses)
 keywords: [pii, redaction, gdpr, privacy, security, hashing]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-production-pipeline-step-5-redact-sensitive-data]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 import CodeBlock from '@theme/CodeBlock';
 
 # Redact Sensitive Data
 
-Compliance (GDPR, HIPAA, PCI-DSS) requires strict control over Personally Identifiable Information (PII). In this step, we'll implement processors to detect and redact sensitive data.
+This step deletes selected fixture fields, masks a card-like string, and adds configured hashes. These transformations do not establish a legal, privacy, or security outcome.
 
 ## Goal
 
@@ -25,20 +34,20 @@ Compliance (GDPR, HIPAA, PCI-DSS) requires strict control over Personally Identi
 We check for known sensitive fields (`email`, `ip`, `credit_card`) and apply transformations.
 
 ```yaml
-    - mapping: |
-        root = this
-        
-        # Hash Email (SHA256)
-        if this.exists("email") {
-           root.email_hash = this.email.hash("sha256")
-           root = this.without("email")
-        }
-        
-        # Hash IP with Salt
-        if this.exists("ip_address") {
-           root.ip_hash = (this.ip_address + env("IP_SALT")).hash("sha256")
-           root = this.without("ip_address")
-        }
+- mapping: |
+    root = this
+
+    # Hash Email (SHA256)
+    if this.exists("email") {
+       root.email_hash = this.email.hash("sha256")
+       root = this.without("email")
+    }
+
+    # Hash IP with Salt
+    if this.exists("ip_address") {
+       root.ip_hash = (this.ip_address + env("IP_SALT")).hash("sha256")
+       root = this.without("ip_address")
+    }
 ```
 
 ### 2. Pattern-Based Masking
@@ -46,13 +55,13 @@ We check for known sensitive fields (`email`, `ip`, `credit_card`) and apply tra
 Sometimes PII is inside the `message` string. We can use regex replacement (caution: this can be expensive).
 
 ```yaml
-    # Mask Credit Cards in message
-    - mapping: |
-        root = this
-        root.message = this.message.re_replace_all(
-          "\\b(?:\\d[ -]*?){13,16}\\b", 
-          "****-****-****-****"
-        )
+# Mask Credit Cards in message
+- mapping: |
+    root = this
+    root.message = this.message.re_replace_all(
+      "\\b(?:\\d[ -]*?){13,16}\\b",
+      "****-****-****-****"
+    )
 ```
 
 ## Complete Step 5 Configuration
@@ -60,13 +69,13 @@ Sometimes PII is inside the `message` string. We can use regex replacement (caut
 ```yaml title="production-pipeline-step-5.yaml"
 input:
   http_server:
-    address: "0.0.0.0:8080"
+    address: '0.0.0.0:8080'
     path: /logs/ingest
-    rate_limit: "1000/1s"
+    rate_limit: '1000/1s'
     auth:
       type: header
-      header: "X-API-Key"
-      required_value: "${LOG_API_KEY}"
+      header: 'X-API-Key'
+      required_value: '${LOG_API_KEY}'
 
 pipeline:
   processors:
@@ -76,18 +85,18 @@ pipeline:
     # Redaction
     - mapping: |
         root = this
-        
+
         # 1. Email Redaction
         if this.exists("email") {
            root.email_hash = this.email.hash("sha256")
            root = this.without("email")
         }
-        
+
         # 2. Credit Card Masking (Field)
         if this.exists("credit_card") {
            root.credit_card = "****-****-****-" + this.credit_card.slice(-4)
         }
-        
+
         # 3. Message Cleaning
         root.message = this.message.re_replace_all("\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b", "[EMAIL]")
 
@@ -101,25 +110,25 @@ output:
     ```bash
     curl -X POST http://localhost:8080/logs/ingest \
       -H "X-API-Key: $LOG_API_KEY" \
-      -d 
+      -d
       '{
         "message": "Contact support@example.com",
         "email": "user@example.com",
         "credit_card": "1234-5678-9012-3456"
       }'
     ```
-    *Result:*
+    _Result:_
     - `email` field removed, `email_hash` present.
     - `credit_card` masked to `****-****-****-3456`.
     - `message` changed to `Contact [EMAIL]`.
 
 ## Troubleshooting
 
-| Issue | Solution |
-|-------|----------|
-| Regex too slow | Use field-level checks before pattern matching |
-| PII still visible | Verify field names match your schema exactly |
-| Hash collisions | Add a salt via environment variable |
+| Issue             | Solution                                       |
+| ----------------- | ---------------------------------------------- |
+| Regex too slow    | Use field-level checks before pattern matching |
+| PII still visible | Verify field names match your schema exactly   |
+| Hash collisions   | Add a salt via environment variable            |
 
 ## Next Steps
 

@@ -1,112 +1,84 @@
 ---
 title: DB2 to BigQuery Migration
-sidebar_label: Introduction
+sidebar_label: Overview
 sidebar_position: 1
-description: Reimplement representative DataStage-style transformations in an edge pipeline from DB2 to BigQuery
-keywords: [db2, bigquery, datastage, etl, migration, gcp, enterprise, mainframe]
+description: Inspect a reference that maps representative DB2 transaction rows into a BigQuery-oriented schema.
+keywords: [db2, bigquery, migration, mapping, edge-processing]
+hide_title: true
+contentArchetype: overview
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+difficulty: advanced
+verificationDate: '2026-07-18'
+expectedTime: 6 minutes
+localNavigation: true
+uniqueTasks: [inspect-db2-bigquery-architecture]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# DB2 to BigQuery Migration
+import {
+  ExampleHeader,
+  ExampleSurface,
+  Limitations,
+  SystemBoundary,
+} from '@site/src/components/ExamplePage';
 
-Reimplement representative DataStage-style transformations with an edge pipeline that runs **on or near your data center**.
+<ExampleHeader
+  exampleId="db2-to-bigquery"
+  title="DB2 to BigQuery Migration"
+  outcome="Map representative DB2 transaction rows into a reduced, BigQuery-oriented schema before cloud delivery."
+  primaryAction={{
+    href: '/enterprise-migration/db2-to-bigquery/setup',
+    label: 'Review the run path',
+  }}
+  secondaryAction={{
+    href: '/enterprise-migration/db2-to-bigquery/complete-pipeline',
+    label: 'Open the reference',
+  }}
+  difficulty="advanced"
+  executionStatus="architecture-only"
+  operationalEvidence="not-assessed"
+  expectedTime={{ inspectMinutes: 6 }}
+  verifiedAt="2026-07-18"
+/>
 
-## The Problem
+## Get started
 
-Your organization has spent years building ETL pipelines in DataStage:
-- DB2 databases with decades of transaction data
-- Complex transformation logic embedded in proprietary stages
-- Nightly batch jobs moving data to cloud analytics
+Start with the [run path](/enterprise-migration/db2-to-bigquery/setup), then inspect the complete configuration. The six retained step routes explain individual mappings without repeating deployment guidance.
 
-**The challenge:** Moving a workload to BigQuery requires translating transformation logic, validating its behavior, and comparing the operational and commercial terms of the old and new systems.
+<ExampleSurface
+  kind="overview"
+  title="System boundary"
+  description="Expanso is shown between externally operated DB2 and BigQuery services."
+>
+  <SystemBoundary exampleId="db2-to-bigquery" />
+</ExampleSurface>
 
-## The Solution: 6 Edge-Native Transformations
+## Pipeline
 
-This pipeline shows how six familiar transformations can be expressed with Expanso processors at the edge. It is not an automated DataStage converter and does not cover every stage type or migration concern.
+| Stage     | Reference behavior                                                                  |
+| --------- | ----------------------------------------------------------------------------------- |
+| Extract   | Read selected columns through a DB2-compatible SQL driver.                          |
+| Annotate  | Add source and pipeline fields for downstream review.                               |
+| Transform | Apply authored currency rates, field reduction, category mapping, and schema names. |
+| Validate  | Reject records missing fields required by the reference.                            |
+| Deliver   | Write transformed records through a BigQuery output.                                |
 
-### 1. **Add Lineage Metadata** → Audit Trail
-- **DataStage:** Custom annotations or external logging
-- **Expanso:** Automatic lineage injection with source tracking
-- **Result:** Lineage fields that can support an audit trail
+The mapping is illustrative; it does not translate DataStage jobs automatically. Source queries, rate data, tokenization, schema contracts, reject handling, and destination idempotency remain implementation decisions.
 
-### 2. **Normalize Currency** → USD Conversion
-- **DataStage:** Lookup Stage + Transformer
-- **Expanso:** `branch` + `mapping` with inline rates
-- **Result:** All amounts in USD with originals preserved
+## Limitations and assumptions
 
-### 3. **Mask Account Numbers** → Data Minimization Pattern
-- **DataStage:** Transformer with custom routines
-- **Expanso:** `mapping` with slice/hash functions
-- **Result:** Last 4 digits visible, full number hashed for joins
+<Limitations>
 
-### 4. **Categorize Transactions** → MCC Mapping
-- **DataStage:** Switch/Case or lookup table
-- **Expanso:** `match` expression with pattern matching
-- **Result:** Human-readable categories for analytics
+- The repository has not executed this configuration against DB2 or BigQuery.
+- Rates and categories are authored constants; the account transformation establishes neither anonymization nor adherence to any regulatory standard.
+- Scheduling, retries, schema migration, reconciliation, and rollback are outside the reference.
 
-### 5. **Standardize Schema** → BigQuery Format
-- **DataStage:** Transformer with field mapping
-- **Expanso:** `mapping` with field assignment
-- **Result:** Clean, lowercase field names for BigQuery
+</Limitations>
 
-### 6. **Validate Before Load** → Data Quality
-- **DataStage:** Data Rules Stage
-- **Expanso:** `mapping` with conditional throw
-- **Result:** Reject bad records before they hit BigQuery
+## Related examples
 
-## Why Process at the Edge?
-
-**🔒 Data Sovereignty:** Transform data before it leaves your data center
-**⚡ Reduced Egress:** Send only clean, compressed data to GCP
-**📊 Real-time Audit:** Lineage metadata generated at extraction time
-**💰 Commercial comparison:** Model both products using your contracted pricing, infrastructure, support, migration, and operating costs
-
-## What You'll Learn
-
-By the end of this guide, you'll be able to:
-
-✅ **Reimplement representative lookup logic** with Expanso branch/mapping processors
-✅ **Add lineage metadata** that can support governance workflows
-✅ **Mask sensitive data** at the edge before cloud transmission
-✅ **Deploy to edge nodes** near your DB2 servers
-✅ **Sketch a scheduled migration and identify the error handling still required for your environment**
-
-## Get Started
-
-### Option 1: Step-by-Step Tutorial (Recommended)
-Build the pipeline incrementally, understanding each DataStage replacement:
-
-1. [**Setup Guide**](/enterprise-migration/db2-to-bigquery/setup) - Prerequisites and environment
-2. [**Step 1: Add Lineage**](/enterprise-migration/db2-to-bigquery/step-1-add-lineage-metadata) - Audit trail injection
-3. [**Step 2: Normalize Currency**](/enterprise-migration/db2-to-bigquery/step-2-normalize-currency) - Lookup replacement
-4. [**Step 3: Mask Accounts**](/enterprise-migration/db2-to-bigquery/step-3-mask-account-numbers) - Data-minimization pattern
-5. [**Step 4: Categorize**](/enterprise-migration/db2-to-bigquery/step-4-categorize-transactions) - MCC mapping
-6. [**Step 5: Standardize Schema**](/enterprise-migration/db2-to-bigquery/step-5-standardize-schema) - BigQuery format
-7. [**Step 6: Validate**](/enterprise-migration/db2-to-bigquery/step-6-validate-required-fields) - Data quality gates
-
-### Option 2: Jump to Complete Pipeline
-Review the complete reference configuration:
-
-[**→ Get Complete Pipeline**](/enterprise-migration/db2-to-bigquery/complete-pipeline)
-
-## Who This Guide Is For
-
-- **Data Engineers** replacing DataStage ETL jobs
-- **Cloud Architects** planning DB2 → BigQuery migrations
-- **Compliance Teams** needing audit trails for financial data
-- **Platform Teams** modernizing legacy ETL infrastructure
-
-## Prerequisites
-
-- DB2 database with ODBC connectivity
-- GCP project with BigQuery access
-- Expanso Edge installed on a node with DB2 network access
-- Basic familiarity with YAML and SQL
-
-## Time to Complete
-
-- **Step-by-Step Tutorial:** 45-60 minutes
-- **Quick Deploy:** 10 minutes
-
-## Evaluate in Your Environment
-
-Before choosing a migration approach, benchmark the representative workload and compare contracted license terms, infrastructure, support, migration effort, rollback, data correctness, recovery behavior, and ongoing operations. This example supplies transformation patterns; it does not establish cost savings or deployment-time improvements.
+[Nightly database backup](/enterprise-migration/nightly-backup) · [Enforce a schema](/data-security/enforce-schema) · [Remove PII](/data-security/remove-pii)

@@ -1,18 +1,28 @@
 ---
-title: "Step 2: Create GDPR Compliance Record"
-sidebar_label: "Step 2: GDPR Record"
+title: 'Step 2: Create a Transformation Record'
+sidebar_label: 'Step 2: GDPR Record'
 sidebar_position: 4
 description: Document legal basis and PII fields before anonymization
-keywords: [gdpr, compliance, legal-basis, documentation, audit]
+keywords: [gdpr, transformation, documentation, audit]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-cross-border-gdpr-step-2-create-gdpr-record]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Step 2: Create GDPR Compliance Record
+# Step 2: Create a Transformation Record
 
 Before transforming data, attach the example's declared processing purpose and list of personal-data fields. This metadata can support an audit trail, but a value written by the pipeline does not prove that the stated legal basis applies or that processing was lawful.
 
 ## The Goal
 
 Add a `_gdpr_compliance` object containing:
+
 - Legal basis for processing (GDPR Article 6)
 - List of original PII fields
 - Anonymization flag
@@ -21,7 +31,7 @@ Add a `_gdpr_compliance` object containing:
 
 ## Why This Matters
 
-**GDPR Article 5(2):** The controller must demonstrate compliance ("accountability principle").
+The record below documents the fields and operations selected by this example. It is technical metadata, not a legal determination.
 
 **Audit Context:** This record captures what the pipeline was configured to assert. Reviewers still need evidence for the declared purpose, lawful basis, notices, controls, and actual operation.
 
@@ -40,10 +50,10 @@ pipeline:
           "country": env("SOURCE_COUNTRY").or("DE"),
           "database": "transactions_eu",
           "extracted_at": now(),
-          "pipeline": "eu-cross-border-compliance"
+          "pipeline": "eu-cross-border-minimization"
         }
 
-    # Step 2: GDPR compliance record
+    # Step 2: example transformation record
     - mapping: |
         root = this
         root._gdpr_compliance = {
@@ -65,25 +75,25 @@ pipeline:
 
 ## Understanding the Code
 
-| Field | Purpose |
-|-------|---------|
-| `legal_basis` | GDPR Article 6 lawful basis (consent, contract, legitimate interest, etc.) |
-| `original_pii_fields` | Explicit list of personal data being processed |
-| `anonymization_applied` | Flag indicating data will be anonymized |
-| `transfer_type` | Description of the data transfer |
-| `gdpr_article` | Relevant GDPR provision |
+| Field                   | Purpose                                                                    |
+| ----------------------- | -------------------------------------------------------------------------- |
+| `legal_basis`           | GDPR Article 6 lawful basis (consent, contract, legitimate interest, etc.) |
+| `original_pii_fields`   | Explicit list of personal data being processed                             |
+| `anonymization_applied` | Flag indicating data will be anonymized                                    |
+| `transfer_type`         | Description of the data transfer                                           |
+| `gdpr_article`          | Relevant GDPR provision                                                    |
 
 ## Legal Basis Options
 
 Common lawful bases under GDPR Article 6:
 
-| Basis | Use When |
-|-------|----------|
-| `consent` | User explicitly agreed |
-| `contract` | Necessary for service delivery |
-| `legal_obligation` | Required by law |
-| `vital_interests` | Life/death situations |
-| `public_task` | Public authority functions |
+| Basis                 | Use When                                    |
+| --------------------- | ------------------------------------------- |
+| `consent`             | User explicitly agreed                      |
+| `contract`            | Necessary for service delivery              |
+| `legal_obligation`    | Required by law                             |
+| `vital_interests`     | Life/death situations                       |
+| `public_task`         | Public authority functions                  |
 | `legitimate_interest` | Business need, balanced against user rights |
 
 For analytics, `legitimate_interest` is common but requires a balancing test.
@@ -114,7 +124,7 @@ For analytics, `legitimate_interest` is common but requires a balancing test.
 }
 ```
 
-## Production Considerations
+## Adaptation checks
 
 ### Dynamic Legal Basis
 
@@ -122,10 +132,10 @@ Different processing purposes may have different bases:
 
 ```yaml
 root._gdpr_compliance.legal_basis = match this.processing_purpose {
-  "fraud_detection" => "legitimate_interest_security",
-  "marketing" => "consent",
-  "service_delivery" => "contract",
-  _ => "legitimate_interest_analytics"
+"fraud_detection" => "legitimate_interest_security",
+"marketing" => "consent",
+"service_delivery" => "contract",
+_ => "legitimate_interest_analytics"
 }
 ```
 
@@ -159,7 +169,10 @@ root._gdpr_compliance.retention = {
 ## Next Step
 
 <div className="margin-top--lg margin-bottom--lg">
-  <a href="./step-3-delete-high-risk-fields" className="button button--primary button--lg">
+  <a
+    href="../step-3-delete-high-risk-fields"
+    className="button button--primary button--lg"
+  >
     📖 Step 3: Delete High-Risk Fields →
   </a>
 </div>

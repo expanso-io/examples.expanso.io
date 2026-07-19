@@ -1,415 +1,84 @@
 ---
-title: 'Edge Processing for Splunk Environments'
-description: 'Prepare, filter, and route edge data to Splunk HEC with an independent technical example'
-tags: [splunk, edge-processing, log-management, data-quality, iot, ot, edge]
+title: Splunk Edge Processing
+sidebar_label: Overview
+sidebar_position: 1
+description: Inspect an independent architecture for parsing, filtering, and routing synthetic logs to a Splunk HEC boundary.
+keywords: [splunk, hec, logs, filtering, edge-processing]
+hide_title: true
+contentArchetype: overview
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+difficulty: advanced
+verificationDate: '2026-07-18'
+expectedTime: 6 minutes
+localNavigation: true
+uniqueTasks: [inspect-splunk-edge-architecture]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Edge Processing for Splunk Environments
+import {
+  ExampleHeader,
+  ExampleSurface,
+  Limitations,
+  SystemBoundary,
+} from '@site/src/components/ExamplePage';
 
-:::info Integration status
-This is an independent technical walkthrough, not a Splunk or Cisco partner announcement, certification claim, or product roadmap. Verify current Splunk capabilities, supported ingestion paths, licensing, and pricing with official documentation and your agreement.
-:::
-
-## The Blind Spot: Data Splunk Has Never Seen
-
-Splunk is a global brand with enormous reach. But every Splunk deployment is gated by a critical problem: **Splunk only sees data that someone already decided to send it.**
-
-Across every enterprise, there are thousands of endpoints generating data that never touches Splunk. Not because it isn't valuable — because there was never a practical way to collect it, structure it, and make it usable:
-
-- **A wind farm with 200 turbines** generating vibration and thermal data? That stays in a local historian.
-- **A hospital with 10,000 medical devices** producing telemetry? That lives on the device.
-- **A retail chain with 3,000 stores** running point-of-sale systems? Local logs, never aggregated.
-- **A manufacturing floor with hundreds of PLCs and SCADA systems?** The OT team guards that data like a dragon sitting on gold.
-
-None of this is in Splunk today. Not because Splunk can't handle it — but because there was never an intelligent way to get it there.
-
-**That's the opportunity.** Not "do the same thing for less." It's **"bring Splunk into places it's never been."**
-
-## Four Wins, One Pipeline
-
-Expanso Edge sits between your data sources and Splunk. It unlocks four things simultaneously:
-
-### Win #1: New Data Sources That Don't Exist in Splunk Today
-
-The Universal Forwarder is brilliant at what it does — collect logs from servers and ship them. But the world has moved way beyond servers.
-
-Many operational datasets originate outside traditional data centers, including:
-
-- **Industrial IoT:** Vibration sensors, temperature probes, pressure gauges, flow meters — each generating structured telemetry that's perfect for Splunk analytics but trapped on local PLCs
-- **Connected infrastructure:** Smart grid sensors, traffic systems, building management systems — each producing event streams that security and operations teams would love to correlate in ES
-- **Medical devices:** Patient monitors, infusion pumps, imaging systems — each generating data that compliance teams need centralized audit trails for
-- **Retail and logistics:** POS systems, RFID readers, fleet GPS, cold chain monitors — operational data that's been invisible to enterprise analytics
-
-The problem isn't that this data is unstructured. **It's that it's uncollected.** There's no Universal Forwarder for a wind turbine. There's no TA for a PLC.
-
-Expanso Edge solves this by sitting at the edge — on a gateway, an industrial PC, a Kubernetes node at a remote site — and doing the work of collecting, structuring, and preparing this data for Splunk:
-
-✅ **Adapter-mediated operational sources** — use an appropriate gateway or protocol adapter for OPC UA, Modbus, and proprietary historians, then send a supported stream such as structured records, files, HTTP, or MQTT into the pipeline
-✅ **Proprietary telemetry → reviewed event schemas** — map raw readings toward your chosen Splunk fields and validate any CIM claim against the applicable data model
-✅ **Smart filtering at source** — apply a reviewed policy to raw telemetry and send the measurements or summaries each use case requires
-✅ **OT/IT bridge** — the OT team keeps control of their network; Expanso filters and forwards only what's needed
-
-This isn't taking away anything Splunk already ingests. It's opening up entirely new categories of data that were previously invisible. For every customer, that's a net-new data source — which means net-new ingest, net-new TAs, net-new dashboards, net-new ES correlation rules. The whole ecosystem grows.
-
-### Win #2: Preparing Data for Analytics and ML
-
-Analytics and ML workflows benefit from consistent schemas, lineage, and quality checks before training or inference.
-
-Right now, the data that reaches Splunk arrives in whatever format the source decided to emit. Debug logs mixed with security events. Unstructured text blobs from legacy apps. Timestamps in fourteen different formats. PII scattered everywhere. No semantic context, no labeling, no lineage.
-
-This is the gap between "data in Splunk" and **"data that's actually useful for AI."**
-
-Expanso Edge transforms raw data into AI-ready data before it arrives:
-
-✅ **Semantic enrichment at the source** — attach reviewed source, business, classification, and jurisdiction metadata before routing; downstream ML readiness still requires validation
-✅ **Schema normalization across varied sources** — map source-specific fields into a reviewed common schema before events reach the index
-✅ **Continuous data quality checks** — enforce schemas, validate field types, and route failed records for review; these checks support but do not guarantee data quality
-
-**Training-data extraction pattern** — the upstream layer can fork a stream. One copy goes to Splunk for analytics. Another reviewed copy can go to a data lake in a format such as Parquet. Data minimization, labels, quality, lineage, and authorization still require workload-specific validation.
-
-The pitch to a customer isn't "Splunk costs less." It's **"Splunk is now your AI/ML data backbone.** Every event arrives enriched, normalized, and validated. Your data science team can train models on operational data that was previously inaccessible or unusable."
-
-### Architecture Concept: Querying Data at the Edge
-
-The following section is a conceptual extension, not a claim that Splunk Federated Search currently queries Expanso edge nodes. Implementing it would require a supported connector, identity and authorization model, query semantics, and operating envelope.
-
-Not everything needs to be ingested. Not everything needs to be in S3. Some data is most valuable _in situ_ — sitting on the device that generated it, queryable on demand.
-
-Think about what this means for an analyst running Federated Search:
-
-```spl
-| federated source=edge_fleet host="factory-floor-*" metric="vibration" earliest=-7d
-| join type=inner
-    [search index=iot_alerts severity=critical host="factory-floor-*"]
-| timechart span=1h avg(vibration_amplitude) by host
-```
-
-The analyst just queried vibration data from 200 factory floor sensors **without that data ever being ingested.** It stayed on the sensors. The upstream processing layer at each site handled the query, filtered it, and returned only the results. Splunk ran the analytics. The Machine Data Lake didn't need to store it. The ingest pipeline didn't need to carry it.
-
-The concept brings analytics closer to stored edge data while presenting a unified query surface. It is included for architectural discussion only; the tutorial does not implement that query surface.
-
-For customers, this unlocks a completely new tier of data:
-
-| **Data Tier**    | **Where It Lives**  | **How Splunk Accesses It**                                           |
-| ---------------- | ------------------- | -------------------------------------------------------------------- |
-| Hot              | Splunk Indexes      | Direct search (SPL)                                                  |
-| Warm             | Machine Data Lake   | Promoted search                                                      |
-| Cold             | S3 / Data Lake      | Federated Search (FS-S3)                                             |
-| **Edge concept** | **On the endpoint** | **Requires a supported connector; not implemented by this tutorial** |
-
-That fourth tier doesn't exist today. It's a new capability. It's a new SKU opportunity. And it positions Splunk as the only platform that can query from the index all the way down to the actual device.
-
-### Win #4: Better Existing Data
-
-For data you're _already_ sending to Splunk, Expanso can transform it before HEC ingestion. Measure quality, latency, volume, and cost in your environment:
-
-✅ **Pre-parsed fields** — may reduce search-time extraction work; benchmark representative searches
-✅ **Simpler management** — one pipeline config replaces `inputs.conf` + `props.conf` + `transforms.conf` across every forwarder  
-✅ **Better data quality** — normalize timestamps, enrich with metadata, deduplicate at the edge  
-✅ **Smarter routing** — security events to `security`, metrics to `metrics`, compliance data tagged and masked automatically
-
-## Architecture: Expanso + Splunk Integration
-
-<div style={{display: 'flex', gap: '2rem', flexWrap: 'wrap', margin: '2rem 0'}}>
-
-<div
-  style={{
-    flex: '1',
-    minWidth: '280px',
-    padding: '1.5rem',
-    borderRadius: '12px',
-    border: '1px solid var(--ifm-color-emphasis-300)',
-    background: 'var(--ifm-background-surface-color)',
+<ExampleHeader
+  exampleId="splunk-edge-processing"
+  title="Splunk Edge Processing"
+  outcome="Parse and filter synthetic application logs before routing retained events to an externally operated Splunk HEC endpoint."
+  primaryAction={{
+    href: '/integrations/splunk-edge-processing/explorer',
+    label: 'Explore the stages',
   }}
->
-  <div
-    style={{
-      fontSize: '0.75rem',
-      fontWeight: 600,
-      textTransform: 'uppercase',
-      letterSpacing: '0.05em',
-      color: 'var(--ifm-font-color-secondary)',
-      marginBottom: '1rem',
-    }}
-  >
-    Traditional Splunk
-  </div>
-  <div
-    style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      gap: '0.5rem',
-    }}
-  >
-    <div
-      style={{
-        padding: '0.6rem 1.5rem',
-        borderRadius: '8px',
-        background: 'var(--ifm-color-emphasis-200)',
-        fontWeight: 500,
-        textAlign: 'center',
-        width: '100%',
-      }}
-    >
-      Log Sources
-    </div>
-    <div style={{ fontSize: '1.2rem' }}>↓</div>
-    <div
-      style={{
-        padding: '0.6rem 1.5rem',
-        borderRadius: '8px',
-        background: 'var(--ifm-color-emphasis-200)',
-        fontWeight: 500,
-        textAlign: 'center',
-        width: '100%',
-      }}
-    >
-      Heavy Forwarder
-    </div>
-    <div
-      style={{ fontSize: '0.7rem', color: 'var(--ifm-font-color-secondary)' }}
-    >
-      raw, unparsed data
-    </div>
-    <div style={{ fontSize: '1.2rem' }}>↓ 100% noise + signal</div>
-    <div
-      style={{
-        padding: '0.6rem 1.5rem',
-        borderRadius: '8px',
-        background: 'var(--ifm-color-emphasis-300)',
-        fontWeight: 500,
-        textAlign: 'center',
-        width: '100%',
-      }}
-    >
-      Splunk Indexers
-    </div>
-    <div
-      style={{ fontSize: '0.7rem', color: 'var(--ifm-font-color-secondary)' }}
-    >
-      search-time field extraction
-    </div>
-    <div style={{ fontSize: '1.2rem' }}>↓</div>
-    <div
-      style={{
-        padding: '0.6rem 1.5rem',
-        borderRadius: '8px',
-        background: 'var(--ifm-color-emphasis-200)',
-        fontWeight: 500,
-        textAlign: 'center',
-        width: '100%',
-      }}
-    >
-      Slow Searches
-    </div>
-  </div>
-</div>
-
-<div
-  style={{
-    flex: '1',
-    minWidth: '280px',
-    padding: '1.5rem',
-    borderRadius: '12px',
-    border: '2px solid var(--ifm-color-primary)',
-    background: 'var(--ifm-background-surface-color)',
+  secondaryAction={{
+    href: '/integrations/splunk-edge-processing/complete-splunk-integration',
+    label: 'Open the reference',
   }}
+  difficulty="advanced"
+  executionStatus="architecture-only"
+  operationalEvidence="not-assessed"
+  expectedTime={{ inspectMinutes: 6 }}
+  verifiedAt="2026-07-18"
+/>
+
+## Get started
+
+Use the [interactive comparison](/integrations/splunk-edge-processing/explorer) to inspect the curated parse, filter, enrich, and routing stages.
+
+<ExampleSurface
+  kind="overview"
+  title="System boundary"
+  description="Expanso owns the configured local processing; Splunk HEC and object storage remain external."
 >
-  <div
-    style={{
-      fontSize: '0.75rem',
-      fontWeight: 600,
-      textTransform: 'uppercase',
-      letterSpacing: '0.05em',
-      color: 'var(--ifm-color-primary)',
-      marginBottom: '1rem',
-    }}
-  >
-    ✅ With Expanso Edge
-  </div>
-  <div
-    style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      gap: '0.5rem',
-    }}
-  >
-    <div
-      style={{
-        padding: '0.6rem 1.5rem',
-        borderRadius: '8px',
-        background: 'var(--ifm-color-emphasis-200)',
-        fontWeight: 500,
-        textAlign: 'center',
-        width: '100%',
-      }}
-    >
-      Log Sources
-    </div>
-    <div style={{ fontSize: '1.2rem' }}>↓</div>
-    <div
-      style={{
-        padding: '0.75rem 1.5rem',
-        borderRadius: '8px',
-        background: 'var(--ifm-color-primary)',
-        color: 'white',
-        fontWeight: 600,
-        textAlign: 'center',
-        width: '100%',
-        boxShadow: '0 2px 8px rgba(107,70,193,0.3)',
-      }}
-    >
-      Expanso Edge
-    </div>
-    <div style={{ fontSize: '0.7rem', color: 'var(--ifm-color-primary)' }}>
-      parse, enrich, dedupe, route
-    </div>
-    <div
-      style={{
-        display: 'flex',
-        gap: '1rem',
-        width: '100%',
-        justifyContent: 'center',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          flex: 1,
-        }}
-      >
-        <div style={{ fontSize: '1rem' }}>↓ clean data</div>
-        <div
-          style={{
-            padding: '0.5rem 0.75rem',
-            borderRadius: '8px',
-            background: '#16a34a',
-            color: 'white',
-            fontWeight: 600,
-            textAlign: 'center',
-            width: '100%',
-            fontSize: '0.85rem',
-          }}
-        >
-          Splunk HEC
-        </div>
-        <div style={{ fontSize: '1rem' }}>↓</div>
-        <div
-          style={{
-            padding: '0.5rem 0.75rem',
-            borderRadius: '8px',
-            background: 'var(--ifm-color-emphasis-200)',
-            fontWeight: 500,
-            textAlign: 'center',
-            width: '100%',
-            fontSize: '0.85rem',
-          }}
-        >
-          Fast Searches
-        </div>
-        <div style={{ fontSize: '0.7rem', color: '#16a34a' }}>
-          pre-parsed fields
-        </div>
-      </div>
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          flex: 1,
-        }}
-      >
-        <div style={{ fontSize: '1rem' }}>↓ archive</div>
-        <div
-          style={{
-            padding: '0.5rem 0.75rem',
-            borderRadius: '8px',
-            background: 'var(--ifm-color-emphasis-200)',
-            fontWeight: 500,
-            textAlign: 'center',
-            width: '100%',
-            fontSize: '0.85rem',
-          }}
-        >
-          S3 / Archive
-        </div>
-        <div
-          style={{
-            fontSize: '0.7rem',
-            color: 'var(--ifm-font-color-secondary)',
-          }}
-        >
-          full fidelity backup
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
+  <SystemBoundary exampleId="splunk-edge-processing" />
+</ExampleSurface>
 
-</div>
+## Pipeline
 
-**What changes:**
+| Stage           | Reference behavior                                                                           |
+| --------------- | -------------------------------------------------------------------------------------------- |
+| Collect + parse | Tail selected files and map authored JSON, syslog, or CEF-like samples into an event schema. |
+| Filter          | Delete or sample records according to an explicit policy.                                    |
+| Enrich          | Add configured source, host, and routing fields.                                             |
+| Deliver         | Wrap retained records for a Splunk HEC HTTP request.                                         |
 
-- **Search performance** — pre-extracted fields, no more search-time `rex` commands
-- **Data quality** — normalized timestamps, deduplicated events, enriched metadata
-- **Simpler ops** — one pipeline YAML replaces configs spread across every forwarder
-- **Multi-destination** — same data to Splunk + S3 + metrics systems, parsed once
+This independent technical reference does not assert a vendor relationship or feature parity with Splunk tooling. Source filtering permanently changes what reaches the destination.
 
-## If You Know Splunk, You Already Know Expanso
+## Limitations and assumptions
 
-Expanso uses familiar Splunk concepts — but simpler to manage:
+<Limitations>
 
-| **Splunk Concept**               | **Expanso Equivalent**           | **What's Better**                                  |
-| -------------------------------- | -------------------------------- | -------------------------------------------------- |
-| `inputs.conf`                    | Pipeline `input` section         | Real-time parsing, multiformat support             |
-| `props.conf` / `transforms.conf` | Pipeline `processors` + Bloblang | One file, not three. Side-by-side SPL translations |
-| `outputs.conf`                   | Pipeline `output` section        | Multi-destination routing built in                 |
-| Heavy Forwarder fleet            | Expanso Edge nodes               | Cloud-managed, no config drift                     |
-| SPL field extraction             | Bloblang mapping                 | Runs at ingest, not search time                    |
-| Deployment Server                | Expanso Cloud Console            | GitOps-driven, instant rollouts                    |
+- The repository has not executed the full file-to-HEC path.
+- The sample parser does not cover every valid syslog, CEF, or multiline format.
+- Retention, security, audit, and investigation requirements must determine what can be filtered.
+- Ingest, license, storage, and query outcomes depend on the Splunk product, contract, and workload; none are measured here.
 
-## What You'll Build
+</Limitations>
 
-In this tutorial, you'll create a complete Splunk integration that:
+## Related examples
 
-1. **Collects logs like inputs.conf** — file monitoring, multiline parsing
-2. **Parses data like props.conf** — field extraction, normalization at ingest time
-3. **Filters noise before indexing** — so your indexes only contain data people actually query
-4. **Routes to Splunk HEC** — proper index/sourcetype tagging, pre-parsed fields
-5. **Advanced patterns** — multi-destination, compliance masking, metrics extraction
-
-## Prerequisites
-
-- Expanso Edge installed ([quick start](https://docs.expanso.io/getting-started/quick-start/))
-- Splunk instance with HEC token configured
-- Basic familiarity with Splunk configuration files
-
-## Get Started
-
-Choose your path:
-
-### [Interactive Explorer](/integrations/splunk-edge-processing/explorer)
-
-See each Splunk integration technique with side-by-side transformations
-
-### [Step-by-Step Tutorial](/integrations/splunk-edge-processing/setup)
-
-Build the pipeline incrementally:
-
-1. [Collect Like inputs.conf](/integrations/splunk-edge-processing/step-1-collect-like-inputs-conf)
-2. [Parse Like props.conf](/integrations/splunk-edge-processing/step-2-parse-like-props-conf)
-3. [Filter Before Indexing](/integrations/splunk-edge-processing/step-3-filter-before-indexing)
-4. [Route to Splunk HEC](/integrations/splunk-edge-processing/step-4-route-to-splunk-hec)
-5. [Advanced Splunk Patterns](/integrations/splunk-edge-processing/step-5-advanced-splunk-patterns)
-
-### [Complete Pipeline](/integrations/splunk-edge-processing/complete-splunk-integration)
-
-Review the complete reference pipeline
-
----
-
-_Use this example to evaluate edge preparation and HEC routing against your own workload, controls, and commercial terms._
+[Production log pipeline](/log-processing/production-pipeline) · [Fan-out routing](/data-routing/fan-out-pattern) · [SCADA energy edge](/integrations/scada-energy-edge)

@@ -1,9 +1,18 @@
 ---
-title: "Step 1: Extract Multiple Tables"
-sidebar_label: "Step 1: Extract Tables"
+title: 'Step 1: Extract Multiple Tables'
+sidebar_label: 'Step 1: Extract Tables'
 sidebar_position: 3
 description: Use sequence input to extract multiple tables in one pipeline
 keywords: [extract, sequence, multi-table, sql, incremental]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-enterprise-migration-nightly-backup-step-1-extract-tables]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 1: Extract Multiple Tables
@@ -34,34 +43,34 @@ input:
       # Orders - incremental (last 24h)
       - sql_select:
           driver: postgres
-          dsn: "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}?sslmode=require"
+          dsn: 'postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}?sslmode=require'
           table: orders
-          columns: ["*"]
+          columns: ['*']
           where: "updated_at >= CURRENT_DATE - INTERVAL '1 day'"
         processors:
           - mapping: |
               root = this
               root._table = "orders"
               root._backup_type = "incremental"
-      
+
       # Inventory - full backup (smaller table)
       - sql_select:
           driver: postgres
-          dsn: "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}?sslmode=require"
+          dsn: 'postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}?sslmode=require'
           table: inventory
-          columns: ["*"]
+          columns: ['*']
         processors:
           - mapping: |
               root = this
               root._table = "inventory"
               root._backup_type = "full"
-      
+
       # Order items - incremental
       - sql_select:
           driver: postgres
-          dsn: "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}?sslmode=require"
+          dsn: 'postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}?sslmode=require'
           table: order_items
-          columns: ["*"]
+          columns: ['*']
           where: "created_at >= CURRENT_DATE - INTERVAL '1 day'"
         processors:
           - mapping: |
@@ -71,7 +80,7 @@ input:
 
 pipeline:
   processors:
-    - mapping: root = this  # Pass through for now
+    - mapping: root = this # Pass through for now
 
 output:
   stdout:
@@ -80,20 +89,20 @@ output:
 
 ## Understanding the Code
 
-| Component | Purpose |
-|-----------|---------|
-| `sequence.inputs` | Process each input in order |
-| `sql_select.where` | Incremental filter (last 24h) |
-| `processors` (per-input) | Tag records with source table |
-| `root._table` | Enables routing in output step |
-| `root._backup_type` | Documents backup strategy |
+| Component                | Purpose                        |
+| ------------------------ | ------------------------------ |
+| `sequence.inputs`        | Process each input in order    |
+| `sql_select.where`       | Incremental filter (last 24h)  |
+| `processors` (per-input) | Tag records with source table  |
+| `root._table`            | Enables routing in output step |
+| `root._backup_type`      | Documents backup strategy      |
 
 ## Incremental vs Full Backup
 
-| Strategy | Use When | Example |
-|----------|----------|---------|
-| **Incremental** | Large tables, frequent changes | orders, transactions |
-| **Full** | Small tables, need complete state | inventory, config |
+| Strategy        | Use When                          | Example              |
+| --------------- | --------------------------------- | -------------------- |
+| **Incremental** | Large tables, frequent changes    | orders, transactions |
+| **Full**        | Small tables, need complete state | inventory, config    |
 
 ### Incremental Filter Patterns
 
@@ -131,7 +140,7 @@ For large extracts, configure connection limits:
 ```yaml
 sql_select:
   driver: postgres
-  dsn: "...?pool_max_conns=5"
+  dsn: '...?pool_max_conns=5'
 ```
 
 ### Handling Large Tables
@@ -154,10 +163,10 @@ Extract from different databases in one pipeline:
 sequence:
   inputs:
     - sql_select:
-        dsn: "postgres://...@db1/ecommerce"
+        dsn: 'postgres://...@db1/ecommerce'
         table: orders
     - sql_select:
-        dsn: "postgres://...@db2/inventory"
+        dsn: 'postgres://...@db2/inventory'
         table: stock_levels
 ```
 
@@ -166,7 +175,10 @@ sequence:
 ## Next Step
 
 <div className="margin-top--lg margin-bottom--lg">
-  <a href="./step-2-add-metadata" className="button button--primary button--lg">
+  <a
+    href="../step-2-add-metadata"
+    className="button button--primary button--lg"
+  >
     📖 Step 2: Add Metadata →
   </a>
 </div>

@@ -1,45 +1,80 @@
 ---
 title: Deduplicate Events
-sidebar_label: Introduction
+sidebar_label: Overview
 sidebar_position: 1
-description: Prevent duplicate events using cache-based deduplication with fingerprinting strategies
-keywords: [deduplication, idempotency, cache, fingerprinting, exactly-once, at-least-once, distributed-systems]
+description: Compare exact-content, business-field, and identifier-based duplicate keys on synthetic events.
+keywords:
+  [deduplication, idempotency, cache, fingerprinting, distributed-systems]
+hide_title: true
+contentArchetype: overview
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+difficulty: intermediate
+verificationDate: '2026-07-18'
+expectedTime: 4 minutes
+localNavigation: true
+uniqueTasks: [inspect-deduplicate-events-overview]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Deduplicate Events
+import {
+  ExampleHeader,
+  ExampleSurface,
+  SystemBoundary,
+} from '@site/src/components/ExamplePage';
 
-Eliminate duplicate events from distributed systems with at-least-once delivery guarantees.
+<ExampleHeader
+  exampleId="deduplicate-events"
+  title="Deduplicate Events"
+  outcome="Compare exact-content, selected-field, and event-identifier keys before choosing a duplicate policy."
+  primaryAction={{
+    href: '/data-transformation/deduplicate-events/explorer',
+    label: 'Compare the strategies',
+  }}
+  secondaryAction={{
+    href: '/data-transformation/deduplicate-events/complete-deduplication-pipeline',
+    label: 'Open the configuration',
+  }}
+  difficulty="intermediate"
+  executionStatus="architecture-only"
+  operationalEvidence="not-assessed"
+  expectedTime={{ inspectMinutes: 4 }}
+  verifiedAt="2026-07-18"
+/>
 
-## The Problem
+## Get started
 
-At-least-once delivery creates inevitable duplicates:
-- Network retries create identical events
-- Load balancer failovers duplicate actions
-- Duplicates corrupt analytics, trigger redundant actions, waste processing
-- No exactly-once guarantee
+[Use the Explorer](/data-transformation/deduplicate-events/explorer) to inspect what each key includes. A match means the configured key has been seen in its cache window; it does not establish exactly-once delivery.
 
-## The Solution
+<ExampleSurface
+  kind="overview"
+  title="System boundary"
+  description="Candidate events, keys, and accepted outputs remain within the illustrated remote site."
+>
+  <SystemBoundary exampleId="deduplicate-events" />
+</ExampleSurface>
 
-Learn 4 deduplication strategies:
+## Pipeline
 
-1. **Hash-Based Deduplication** - SHA-256 content hashing with in-memory cache for exact duplicates
-2. **Fingerprint-Based Deduplication** - Hash business-critical fields for semantic duplicate detection
-3. **ID-Based Deduplication** - Cache event ID directly for systems with guaranteed unique IDs
-4. **Production Configuration** - Redis-backed cache with consistent hashing for multi-node deployments
+| Strategy      | Key material             | Main tradeoff                                      |
+| ------------- | ------------------------ | -------------------------------------------------- |
+| Exact content | The serialized event     | Changes in any included field produce a new key.   |
+| Fingerprint   | Selected business fields | Field selection defines what counts as equivalent. |
+| Identifier    | A supplied event ID      | Correctness depends on the producer's ID contract. |
 
-## Get Started
+Cache lifetime and key construction jointly define the comparison window. Keep the original event separate from generated comparison metadata unless downstream consumers explicitly need it.
 
-Choose your path:
+## Limitations and assumptions
 
-### [Interactive Explorer](/data-transformation/deduplicate-events/explorer)
-See each deduplication strategy with side-by-side before/after views
+- The cache examples have no maintained execution or restart evidence.
+- Serialization order, concurrency, eviction, replay, collision response, and multi-node coordination are not assessed.
+- Hashing creates comparison keys; it is not a privacy control for retained source fields.
 
-### [Step-by-Step Tutorial](/data-transformation/deduplicate-events/setup)
-Build the pipeline incrementally:
-1. [Hash-Based](/data-transformation/deduplicate-events/step-1-hash-based-exact-duplicates)
-2. [Fingerprint-Based](/data-transformation/deduplicate-events/step-2-fingerprint-semantic-duplicates)
-3. [ID-Based](/data-transformation/deduplicate-events/step-3-id-based-unique-identifiers)
-4. [Advanced Patterns](/data-transformation/deduplicate-events/step-4-advanced-patterns)
+## Related examples
 
-### [Complete Pipeline](/data-transformation/deduplicate-events/complete-deduplication-pipeline)
-Download the complete example
+- [Aggregate time windows](/data-transformation/aggregate-time-windows)
+- [Content-based routing](/data-routing/content-routing)
+- [Circuit breaker patterns](/data-routing/circuit-breakers)

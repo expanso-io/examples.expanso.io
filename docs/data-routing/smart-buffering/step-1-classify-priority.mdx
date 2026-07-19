@@ -4,6 +4,15 @@ sidebar_label: Step 1 - Classify Priority
 sidebar_position: 4
 description: Categorize messages into important, regular, and archive priority tiers.
 keywords: [priority, classification, tiers, important, regular, archive]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-smart-buffering-step-1-classify-priority]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 1: Classify Priority Tiers
@@ -13,6 +22,7 @@ The first step in smart buffering is classifying messages into priority tiers ba
 ## The Goal
 
 Categorize every message into one of three tiers:
+
 - **Important (Tier 1):** Critical alerts, payment failures, security events
 - **Regular (Tier 2):** Standard operations, user actions, API calls
 - **Archive (Tier 3):** Debug logs, analytics, audit trails
@@ -20,69 +30,70 @@ Categorize every message into one of three tiers:
 ## Implementation
 
 1. **Create a new pipeline file:**
-    ```bash
-    touch smart-buffer-classify.yaml
-    ```
+
+   ```bash
+   touch smart-buffer-classify.yaml
+   ```
 
 2. **Add the classification processor:**
 
-    ```yaml title="smart-buffer-classify.yaml"
-    name: smart-buffer-classify
-    description: Classify messages into priority tiers
+   ```yaml title="smart-buffer-classify.yaml"
+   name: smart-buffer-classify
+   description: Classify messages into priority tiers
 
-    config:
-      input:
-        http_server:
-          address: 0.0.0.0:8080
-          path: /events
-          timeout: 5s
+   config:
+     input:
+       http_server:
+         address: 0.0.0.0:8080
+         path: /events
+         timeout: 5s
 
-      pipeline:
-        processors:
-          - json_documents:
-              parts: []
+     pipeline:
+       processors:
+         - json_documents:
+             parts: []
 
-          - mapping: |
-              root = this
+         - mapping: |
+             root = this
 
-              let category = this.category.or("").string().lowercase()
-              let severity = this.severity.or("info").string().lowercase()
-              let event_type = this.event_type.or("").string().lowercase()
+             let category = this.category.or("").string().lowercase()
+             let severity = this.severity.or("info").string().lowercase()
+             let event_type = this.event_type.or("").string().lowercase()
 
-              # Important: critical alerts, payment failures, security events
-              let is_important = match {
-                category == "important" => true,
-                severity == "critical" => true,
-                event_type.has_prefix("payment.failed") => true,
-                event_type.has_prefix("security.") => true,
-                _ => false
-              }
+             # Important: critical alerts, payment failures, security events
+             let is_important = match {
+               category == "important" => true,
+               severity == "critical" => true,
+               event_type.has_prefix("payment.failed") => true,
+               event_type.has_prefix("security.") => true,
+               _ => false
+             }
 
-              # Archive: debug logs, analytics, audit trails
-              let is_archive = match {
-                category == "archive" => true,
-                severity == "debug" => true,
-                event_type.has_prefix("analytics.") => true,
-                _ => false
-              }
+             # Archive: debug logs, analytics, audit trails
+             let is_archive = match {
+               category == "archive" => true,
+               severity == "debug" => true,
+               event_type.has_prefix("analytics.") => true,
+               _ => false
+             }
 
-              # Assign priority tier (1=highest, 3=lowest)
-              root.priority_tier = match {
-                is_important => 1,
-                is_archive => 3,
-                _ => 2
-              }
+             # Assign priority tier (1=highest, 3=lowest)
+             root.priority_tier = match {
+               is_important => 1,
+               is_archive => 3,
+               _ => 2
+             }
 
-              root.priority_label = match root.priority_tier {
-                1 => "important",
-                2 => "regular",
-                3 => "archive"
-              }
+             root.priority_label = match root.priority_tier {
+               1 => "important",
+               2 => "regular",
+               3 => "archive"
+             }
 
-      output:
-        stdout:
-          codec: lines
-    ```
+     output:
+       stdout:
+         codec: lines
+   ```
 
 ## Test
 
@@ -114,8 +125,33 @@ Check the output shows each message with its assigned `priority_tier` and `prior
 
 ## Next Step
 
-<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
-  <a href="./step-2-priority-scoring" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+<div
+  style={{
+    display: 'flex',
+    gap: '1.5rem',
+    marginTop: '2rem',
+    marginBottom: '3rem',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
+  }}
+>
+  <a
+    href="../step-2-priority-scoring"
+    className="button button--primary button--lg"
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      textDecoration: 'none',
+      borderRadius: '8px',
+      padding: '1rem 2rem',
+      fontWeight: '600',
+      minWidth: '240px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    }}
+  >
     Step 2: Priority Scoring
   </a>
 </div>

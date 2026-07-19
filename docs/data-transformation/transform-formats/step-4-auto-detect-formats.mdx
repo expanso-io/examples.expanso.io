@@ -1,9 +1,18 @@
 ---
-title: "Step 4: Auto-Detect and Route Formats"
-sidebar_label: "Step 4: Auto-Detect Formats"
+title: 'Step 4: Auto-Detect and Route Formats'
+sidebar_label: 'Step 4: Auto-Detect Formats'
 sidebar_position: 6
 description: Automatically detect and route data to different transformation logic based on its format.
 keywords: [format-detection, content-type, routing, multi-format]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-transform-formats-step-4-auto-detect-formats]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 4: Auto-Detect and Route Formats
@@ -15,8 +24,9 @@ This step teaches you how to build a unified pipeline that detects the incoming 
 ## The Goal
 
 You will build a single pipeline that can:
--   Accept a JSON message and convert it to Protobuf.
--   Accept a Protobuf message and convert it back to JSON.
+
+- Accept a JSON message and convert it to Protobuf.
+- Accept a Protobuf message and convert it back to JSON.
 
 ## The "Detect by Header -> Route" Pattern
 
@@ -62,21 +72,20 @@ You will build a single pipeline that can:
                       }
                   # Convert to Protobuf
                   - to_protobuf:
-                      proto_path: "file://./sensor.proto"
-                      message: "SensorReading"
+                      proto_path: 'file://./sensor.proto'
+                      message: 'SensorReading'
 
               # CASE 2: Input is Protobuf, convert TO JSON
               - check: meta("format") == "protobuf"
                 processors:
                   # Convert from Protobuf back to a structured object
                   - from_protobuf:
-                      proto_path: "file://./sensor.proto"
-                      message: "SensorReading"
+                      proto_path: 'file://./sensor.proto'
+                      message: 'SensorReading'
                   # Convert the timestamp back to a human-readable string
                   - mapping: |
                       root = this
                       root.timestamp = this.timestamp_unix_ms.ts_unix_milli().ts_format_iso8601()
-
 
       output:
         # The output processor can dynamically set the Content-Type header
@@ -87,6 +96,7 @@ You will build a single pipeline that can:
     ```
 
 2.  **Deploy and Test:**
+
     ```bash
     # --- Test 1: Send JSON, expect Protobuf back ---
     curl -X POST http://localhost:8080/transform \

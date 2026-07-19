@@ -1,168 +1,52 @@
 ---
-title: Setup Environment for Field-Level Encryption
-sidebar_label: Setup
+title: Encryption Patterns Review
+sidebar_label: Configuration review
 sidebar_position: 3
-description: Configure encryption keys and environment variables for field-level encryption.
-keywords: [setup, encryption, environment, configuration, deployment]
+description: Review field-selection patterns and external key responsibilities across synthetic record shapes.
+keywords: [encryption, setup, payment, identity, addresses, dates]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-encryption-patterns-configuration]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Setup Environment for Field-Level Encryption
+import { ExampleSurface } from '@site/src/components/ExamplePage';
 
-Before building the comprehensive encryption pipeline, you'll set up encryption keys and environment variables.
+# Encryption Patterns Review
 
-## Prerequisites
+These patterns compare authored field selections. The repository does not execute a key service or the full reference configuration.
 
-This example requires the following services to be running:
+<ExampleSurface
+  kind="reference"
+  title="Before you adapt it"
+  description="Resolve the example boundary before changing processors or destinations."
+>
 
-*   **[Kafka](/getting-started/services/kafka)**
+- An Expanso environment for configuration inspection
+- Environment-managed keys and an authorization model
+- Synthetic examples that match the schemas you plan to adapt
 
-Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration. You will also need **OpenSSL** installed for key generation.
-## Step 1: Generate Encryption Keys
+</ExampleSurface>
 
-Field-level encryption requires multiple keys for different data sensitivity levels. Generate secure 256-bit keys for each data type.
+## Review path
 
-```bash
-# Generate PCI-DSS payment card encryption key (highest security)
-CARD_ENCRYPTION_KEY=$(openssl rand -hex 32)
-echo "Card key: $CARD_ENCRYPTION_KEY"
+1. [Payment fields](/data-security/encryption-patterns/step-1-encrypt-payment-data)
+2. [Identity fields](/data-security/encryption-patterns/step-2-encrypt-pii-fields)
+3. [Address fields](/data-security/encryption-patterns/step-3-encrypt-addresses)
+4. [Date fields](/data-security/encryption-patterns/step-4-encrypt-dates)
+5. [Advanced variants](/data-security/encryption-patterns/step-5-advanced-patterns)
 
-# Generate PII encryption key (high security) 
-PII_ENCRYPTION_KEY=$(openssl rand -hex 32)
-echo "PII key: $PII_ENCRYPTION_KEY"
+Then inspect the [Complete reference configuration](/data-security/encryption-patterns/complete-encryption-pipeline).
 
-# Generate address encryption key (medium security)
-ADDRESS_ENCRYPTION_KEY=$(openssl rand -hex 32)
-echo "Address key: $ADDRESS_ENCRYPTION_KEY"
+## Adaptation checks
 
-# Generate temporal data encryption key (medium security)
-TEMPORAL_ENCRYPTION_KEY=$(openssl rand -hex 32)
-echo "Temporal key: $TEMPORAL_ENCRYPTION_KEY"
+- Define field purpose before retaining clear derivatives.
+- Test unavailable keys, malformed values, rotation, and recovery.
+- Review the complete output against the target threat model.
 
-# Verify key lengths (should be 64 characters each)
-echo "Card key length: ${#CARD_ENCRYPTION_KEY}"
-echo "PII key length: ${#PII_ENCRYPTION_KEY}"
-echo "Address key length: ${#ADDRESS_ENCRYPTION_KEY}"
-echo "Temporal key length: ${#TEMPORAL_ENCRYPTION_KEY}"
-```
-
-## Step 2: Configure Environment Variables
-
-Set up environment variables for the encryption keys and operational metadata.
-
-```bash
-# Export encryption keys
-export CARD_ENCRYPTION_KEY=$CARD_ENCRYPTION_KEY
-export PII_ENCRYPTION_KEY=$PII_ENCRYPTION_KEY
-export ADDRESS_ENCRYPTION_KEY=$ADDRESS_ENCRYPTION_KEY
-export TEMPORAL_ENCRYPTION_KEY=$TEMPORAL_ENCRYPTION_KEY
-
-# Set key version for rotation tracking
-export KEY_VERSION="v1_20251115"
-
-# Set node identification for audit trails
-export NODE_ID="edge-node-$(hostname)"
-
-# Set service role for authorization (for decryption examples)
-export SERVICE_ROLE="encryption-service"
-
-# Verify environment variables are set
-echo "Environment configured:"
-echo "- CARD_ENCRYPTION_KEY: ${CARD_ENCRYPTION_KEY:0:8}..."
-echo "- PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY:0:8}..."
-echo "- ADDRESS_ENCRYPTION_KEY: ${ADDRESS_ENCRYPTION_KEY:0:8}..." 
-echo "- TEMPORAL_ENCRYPTION_KEY: ${TEMPORAL_ENCRYPTION_KEY:0:8}..."
-echo "- KEY_VERSION: $KEY_VERSION"
-echo "- NODE_ID: $NODE_ID"
-```
-
-## Step 3: Store Keys Securely (Production)
-
-In production, never use environment variables for encryption keys. Use a proper key management service.
-
-### AWS KMS Example
-
-```bash
-# Store keys in AWS KMS (production approach)
-aws kms create-key \
-  --description "Expanso Payment Card Encryption Key" \
-  --key-usage ENCRYPT_DECRYPT \
-  --key-spec SYMMETRIC_DEFAULT \
-  --tags TagKey=Service,TagValue=Expanso TagKey=DataType,TagValue=PaymentCard
-
-# Store key material in Parameter Store
-aws ssm put-parameter \
-  --name "/expanso/encryption/card-key" \
-  --value "$CARD_ENCRYPTION_KEY" \
-  --type "SecureString" \
-  --description "Payment card encryption key for PCI-DSS compliance"
-```
-
-### HashiCorp Vault Example
-
-```bash
-# Store keys in Vault (production approach)
-vault kv put secret/expanso/encryption \
-  card_key="$CARD_ENCRYPTION_KEY" \
-  pii_key="$PII_ENCRYPTION_KEY" \
-  address_key="$ADDRESS_ENCRYPTION_KEY" \
-  temporal_key="$TEMPORAL_ENCRYPTION_KEY" \
-  key_version="$KEY_VERSION" \
-  created_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-
-# Verify storage
-vault kv get secret/expanso/encryption
-```
-
-## Step 4: Create Sample Data
-
-Create test data containing various sensitive fields to verify encryption patterns.
-
-```bash
-# Create sample payment and customer data
-cat > sample-data.json << 'EOF'
-{
-  "transaction_id": "txn-12345",
-  "timestamp": "2025-01-15T10:00:00Z",
-  "amount": 49.99,
-  "currency": "USD",
-  "payment": {
-    "card_number": "4532123456789010",
-    "cvv": "123",
-    "expiry_month": 12,
-    "expiry_year": 2028,
-    "cardholder_name": "Sarah Johnson",
-    "card_brand": "visa"
-  },
-  "customer": {
-    "customer_id": "cust-789",
-    "first_name": "Sarah",
-    "last_name": "Johnson",
-    "email": "sarah.johnson@example.com",
-    "phone": "+1-415-555-0123",
-    "ssn": "123-45-6789",
-    "date_of_birth": "1985-03-15"
-  },
-  "billing_address": {
-    "street": "123 Main St, Apt 4B",
-    "city": "San Francisco",
-    "state": "CA",
-    "zip": "94102-1234",
-    "country": "US"
-  },
-  "shipping_address": {
-    "street": "456 Oak Ave",
-    "city": "Palo Alto", 
-    "state": "CA",
-    "zip": "94301-5678",
-    "country": "US"
-  }
-}
-EOF
-
-echo "Sample data created. Contents:"
-cat sample-data.json | jq '.'
-```
-
----
-
-**Next:** [Step 1: Encrypt Payment Data](/data-security/encryption-patterns/step-1-encrypt-payment-data) - Implement PCI-DSS compliant credit card encryption
+This route is a configuration review, not a verified execution guide.

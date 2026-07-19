@@ -1,18 +1,28 @@
 ---
-title: "Step 1: Tag Data Origin"
-sidebar_label: "Step 1: Tag Origin"
+title: 'Step 1: Tag Data Origin'
+sidebar_label: 'Step 1: Tag Origin'
 sidebar_position: 3
-description: Record source region and extraction metadata for compliance tracking
-keywords: [origin, lineage, tracking, compliance, metadata]
+description: Record authored source-region and extraction metadata for downstream review.
+keywords: [origin, lineage, tracking, metadata]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-cross-border-gdpr-step-1-tag-data-origin]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 1: Tag Data Origin
 
-Every record needs origin metadata for compliance audits and data lineage. This creates a chain of custody showing where data came from and when.
+This example adds origin metadata for downstream review. The fields record what the pipeline received from the synthetic source; they do not independently establish provenance or location.
 
 ## The Goal
 
 Add a `_data_origin` object containing:
+
 - Source region (EU)
 - Source country (DE, FR, etc.)
 - Source database identifier
@@ -39,22 +49,23 @@ pipeline:
           "country": env("SOURCE_COUNTRY").or("DE"),
           "database": "transactions_eu",
           "extracted_at": now(),
-          "pipeline": "eu-cross-border-compliance"
+          "pipeline": "eu-cross-border-minimization"
         }
 ```
 
 ## Understanding the Code
 
-| Expression | What It Does |
-|------------|--------------|
-| `root._data_origin = {...}` | Add nested metadata object |
-| `env("SOURCE_COUNTRY")` | Read from environment variable |
-| `.or("DE")` | Default to "DE" if not set |
-| `now()` | UTC timestamp of processing |
+| Expression                  | What It Does                   |
+| --------------------------- | ------------------------------ |
+| `root._data_origin = {...}` | Add nested metadata object     |
+| `env("SOURCE_COUNTRY")`     | Read from environment variable |
+| `.or("DE")`                 | Default to "DE" if not set     |
+| `now()`                     | UTC timestamp of processing    |
 
 ## Expected Output
 
 **Input:**
+
 ```json
 {
   "transaction_id": "TXN-EU-2024-00001",
@@ -64,6 +75,7 @@ pipeline:
 ```
 
 **Output:**
+
 ```json
 {
   "transaction_id": "TXN-EU-2024-00001",
@@ -74,12 +86,12 @@ pipeline:
     "country": "DE",
     "database": "transactions_eu",
     "extracted_at": "2024-01-15T02:00:00Z",
-    "pipeline": "eu-cross-border-compliance"
+    "pipeline": "eu-cross-border-minimization"
   }
 }
 ```
 
-## Production Considerations
+## Adaptation checks
 
 ### Dynamic Country Detection
 
@@ -87,11 +99,11 @@ For multi-country EU deployments:
 
 ```yaml
 root._data_origin.country = match this.iban.slice(0, 2) {
-  "DE" => "DE",
-  "FR" => "FR",
-  "NL" => "NL",
-  "ES" => "ES",
-  _ => env("SOURCE_COUNTRY").or("EU")
+"DE" => "DE",
+"FR" => "FR",
+"NL" => "NL",
+"ES" => "ES",
+_ => env("SOURCE_COUNTRY").or("EU")
 }
 ```
 
@@ -118,7 +130,10 @@ root._data_origin.config_hash = "a1b2c3d4"
 ## Next Step
 
 <div className="margin-top--lg margin-bottom--lg">
-  <a href="./step-2-create-gdpr-record" className="button button--primary button--lg">
+  <a
+    href="../step-2-create-gdpr-record"
+    className="button button--primary button--lg"
+  >
     📖 Step 2: Create GDPR Record →
   </a>
 </div>

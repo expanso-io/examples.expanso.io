@@ -1,0 +1,59 @@
+name: Visual Baseline Candidates
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 20.19.4
+
+jobs:
+  capture:
+    name: Capture Unapproved Candidates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout requested ref
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install pinned Playwright Chromium
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Capture candidate baselines
+        run: npm run quality:visual:update
+
+      - name: Check candidate determinism without approving it
+        run: npm run quality:visual
+
+      - name: Require a complete 30-cell baseline matrix
+        run: |
+          set -euo pipefail
+          SNAPSHOT_ROOT='tests/quality/visual-regression/visual-regression.spec.ts-snapshots'
+          COUNT=$(find "$SNAPSHOT_ROOT" -type f -name '*-linux.png' | wc -l | tr -d ' ')
+          if [ "$COUNT" -ne 30 ]; then
+            echo "Expected 30 Linux baseline candidates, found $COUNT."
+            exit 1
+          fi
+
+      - name: Upload unapproved baseline candidates
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-baseline-candidates-${{ github.sha }}
+          path: tests/quality/visual-regression/visual-regression.spec.ts-snapshots
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Report non-approval boundary
+        run: |
+          echo "Candidate PNGs were uploaded as an artifact only."
+          echo "This read-only workflow cannot commit, merge, or approve a baseline."

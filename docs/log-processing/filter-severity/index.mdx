@@ -1,43 +1,80 @@
 ---
-title: Log Severity Filtering
-sidebar_label: Introduction
+title: Filter Log Severity
+sidebar_label: Overview
 sidebar_position: 1
-description: Filter application logs by severity level, routing errors to files and warnings to stdout
-keywords: [log-processing, severity-filtering, error-routing, log-analysis, monitoring]
+description: Inspect parsing, severity normalization, selection, and local routing for synthetic logs.
+keywords: [log-processing, severity-filtering, routing, log-analysis]
+hide_title: true
+contentArchetype: overview
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+difficulty: intermediate
+verificationDate: '2026-07-18'
+expectedTime: 3 minutes
+localNavigation: true
+uniqueTasks: [inspect-filter-severity-overview]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Log Severity Filtering
+import {
+  ExampleHeader,
+  ExampleSurface,
+  SystemBoundary,
+} from '@site/src/components/ExamplePage';
 
-Transform noisy application logs into actionable intelligence by filtering on severity.
+<ExampleHeader
+  exampleId="filter-severity"
+  title="Filter Log Severity"
+  outcome="Inspect how mixed log lines can be parsed, normalized, selected by severity, and routed to local outputs."
+  primaryAction={{
+    href: '/log-processing/filter-severity/explorer',
+    label: 'Inspect the filter',
+  }}
+  secondaryAction={{
+    href: '/log-processing/filter-severity/complete-filter-severity',
+    label: 'Open the configuration',
+  }}
+  difficulty="intermediate"
+  executionStatus="architecture-only"
+  operationalEvidence="not-assessed"
+  expectedTime={{ inspectMinutes: 3 }}
+  verifiedAt="2026-07-18"
+/>
 
-## The Problem
+## Get started
 
-Application logs contain massive amounts of noise:
-- INFO and DEBUG entries drown out critical errors
-- Critical errors risk getting lost
-- 80-95% of log volume provides no actionable value
-- Expensive storage and transmission costs
+[Use the Explorer](/log-processing/filter-severity/explorer) to compare which synthetic records remain after the configured filter. Decide retention from your incident, audit, debugging, and legal requirements before dropping a level.
 
-## The Solution
+<ExampleSurface
+  kind="overview"
+  title="System boundary"
+  description="The walkthrough reads and writes synthetic records within the remote site."
+>
+  <SystemBoundary exampleId="filter-severity" />
+</ExampleSurface>
 
-Learn 3 log processing techniques:
+## Pipeline
 
-1. **JSON Parsing with Fallback** - Parse JSON where possible, preserve raw text when not
-2. **Severity-Based Filtering** - Filter pipeline to only ERROR and WARN levels for 80-95% volume reduction
-3. **Conditional Routing** - Switch output based on severity level (errors to files, warnings to monitoring)
+| Stage     | Intended change                                             |
+| --------- | ----------------------------------------------------------- |
+| Parse     | Attempt JSON parsing and preserve a fallback message.       |
+| Normalize | Map the source level to the configured severity vocabulary. |
+| Select    | Keep records that satisfy the explicit severity predicate.  |
+| Route     | Send retained records to the configured local outputs.      |
 
-## Get Started
+Filtering changes observability as well as volume. A severity label alone does not establish whether an event can be discarded safely.
 
-Choose your path:
+## Limitations and assumptions
 
-### [Interactive Explorer](/log-processing/filter-severity/explorer)
-See severity filtering with live before/after examples
+- The shown selection is curated and has no maintained execution evidence.
+- Source-specific level mappings, malformed lines, multiline logs, retention, and failure delivery are not assessed.
+- No storage, bandwidth, query, or cost reduction is measured.
 
-### [Step-by-Step Tutorial](/log-processing/filter-severity/setup)
-Build the pipeline incrementally:
-1. [Parse JSON & Add Metadata](/log-processing/filter-severity/step-1-parse-json-add-metadata)
-2. [Filter by Severity](/log-processing/filter-severity/step-2-filter-by-severity)
-3. [Advanced Filtering and Routing](/log-processing/filter-severity/step-4-advanced-patterns)
+## Related examples
 
-### [Complete Pipeline](/log-processing/filter-severity/complete-filter-severity)
-Download the complete example
+- [Parse structured logs](/data-transformation/parse-logs)
+- [Enrich and export logs](/log-processing/enrich-export)
+- [Content-based routing](/data-routing/content-routing)

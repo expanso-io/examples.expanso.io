@@ -2,46 +2,75 @@
 title: Remove PII from Data Streams
 sidebar_label: Introduction
 sidebar_position: 1
-description: Hash, anonymize, and remove personally identifiable information for GDPR/CCPA compliance
-keywords: [pii, gdpr, ccpa, pci-dss, compliance, privacy, anonymization, hashing, pseudonymization]
+description: Review field deletion, salted hashing, pseudonymization, and location generalization on synthetic data.
+keywords: [pii, privacy, data-minimization, hashing, pseudonymization]
+hide_title: true
+contentArchetype: overview
+executionStatus: offline-runnable
+operationalEvidence: not-assessed
+difficulty: intermediate
+verificationDate: '2026-07-18'
+expectedTime: 3 minutes
+localNavigation: true
+uniqueTasks: [choose-review-path]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Remove PII from Data Streams
+import {
+  ExampleHeader,
+  ExampleSurface,
+  SystemBoundary,
+} from '@site/src/components/ExamplePage';
 
-Achieve compliance while preserving analytics value.
+<ExampleHeader
+  exampleId="remove-pii"
+  primaryAction={{
+    href: '/data-security/remove-pii/explorer',
+    label: 'Inspect each stage',
+  }}
+  secondaryAction={{
+    href: '/data-security/remove-pii/complete-pipeline',
+    label: 'Open the configuration',
+  }}
+/>
 
-## The Problem
+Review how a synthetic purchase event can be reduced before it reaches an analytics destination.
 
-User events contain PII that creates compliance risk:
-- Credit cards (PCI-DSS violations)
-- Emails and IPs (GDPR/CCPA violations)
-- Precise locations (GDPR violations)
+<ExampleSurface
+  kind="overview"
+  title="System boundary"
+  description="The checked-in fixture and exact output remain local; adapting the configuration to an analytics destination creates a separate system boundary."
+>
+  <SystemBoundary exampleId="remove-pii" />
+</ExampleSurface>
 
-Without removal: massive fines, audit failures, data breaches.
+## Get started
 
-## The Solution
+- [Inspect each stage](/data-security/remove-pii/explorer) in the interactive Explorer.
+- [Review the inputs](/data-security/remove-pii/setup) used by the walkthrough.
+- [Open the canonical configuration](/data-security/remove-pii/complete-pipeline).
 
-Learn 4 PII removal techniques:
+## Pipeline
 
-1. **Delete** - Remove credit cards, precise coordinates (no analytics value)
-2. **Hash** - One-way transform IPs and emails (preserve uniqueness for counting)
-3. **Pseudonymize** - Replace names with IDs (preserve relationships)
-4. **Generalize** - Coordinates → city names (preserve regional trends)
+| Stage        | Intended change                                               |
+| ------------ | ------------------------------------------------------------- |
+| Payment data | Delete the full card number and expiry                        |
+| IP address   | Replace the source value with a salted hash                   |
+| Email        | Extract the domain, add a salted hash, and delete the address |
+| User name    | Replace the name with a shortened salted hash                 |
+| Location     | Delete latitude and longitude                                 |
 
-## Get Started
+The remaining fields can still identify or help link a person when combined with other data. Treat field selection, salts, retention, access, and downstream joins as separate design decisions.
 
-Choose your path:
+## Limitations and assumptions
 
-### [→ Interactive Explorer](/data-security/remove-pii/explorer)
-See each technique transform real PII data
+The repository machine gate runs the canonical HTTP-to-file configuration with one synthetic fixture, fixed test salts, a pinned Benthos image, and exact expected output. The Explorer stages are still curated. This narrow check does not establish production readiness, broader data coverage, privacy assurances, or an operating envelope.
 
-### [→ Step-by-Step Tutorial](/data-security/remove-pii/setup)
-Build the pipeline incrementally:
-1. [Delete Payment Data](/data-security/remove-pii/step-1-delete-payment-data)
-2. [Hash IP Addresses](/data-security/remove-pii/step-2-hash-ip-address)
-3. [Hash Email Addresses](/data-security/remove-pii/step-3-hash-email)
-4. [Pseudonymize Users](/data-security/remove-pii/step-4-pseudonymize-user)
-5. [Generalize Location](/data-security/remove-pii/step-5-generalize-location)
+## Related examples
 
-### [→ Complete Pipeline](/data-security/remove-pii/complete-pipeline)
-Download the complete example
+- [Encrypt selected fields](/data-security/encrypt-data)
+- [Enforce a schema](/data-security/enforce-schema)
+- [Inspect the cross-border pattern](/data-security/cross-border-gdpr)

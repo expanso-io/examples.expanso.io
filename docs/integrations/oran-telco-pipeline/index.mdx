@@ -1,129 +1,84 @@
 ---
-title: "O-RAN Edge Telemetry Pipeline"
-sidebar_label: "Overview"
+title: O-RAN Telemetry
+sidebar_label: Overview
 sidebar_position: 1
-description: "Transform sample O-RAN telemetry and route it to multiple example destinations from an edge pipeline."
-keywords: [oran, telecom, telemetry, edge-processing, kafka, parquet, grafana]
+description: Inspect an architecture for normalizing synthetic radio telemetry and routing selected metrics.
+keywords: [oran, telecom, telemetry, edge-processing, otlp, parquet]
+hide_title: true
+contentArchetype: overview
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+difficulty: advanced
+verificationDate: '2026-07-18'
+expectedTime: 6 minutes
+localNavigation: true
+uniqueTasks: [inspect-oran-telemetry-architecture]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# O-RAN Edge Telemetry: Multi-Destination Data Pipeline
+import {
+  ExampleHeader,
+  ExampleSurface,
+  Limitations,
+  SystemBoundary,
+} from '@site/src/components/ExamplePage';
 
-Streamline O-RAN network observability with a single edge pipeline that collects telemetry from DU/RU/CU nodes and routes data simultaneously to multiple destinations: real-time dashboards, analytics platforms, and long-term storage.
+<ExampleHeader
+  exampleId="oran-telco-pipeline"
+  title="O-RAN Telemetry"
+  outcome="Normalize authored radio telemetry records and inspect how selected fields could be fanned out to external observability, storage, and analytics systems."
+  primaryAction={{
+    href: '/integrations/oran-telco-pipeline/explorer',
+    label: 'Explore the stages',
+  }}
+  secondaryAction={{
+    href: '/integrations/oran-telco-pipeline/complete-oran-pipeline',
+    label: 'Open the reference',
+  }}
+  difficulty="advanced"
+  executionStatus="architecture-only"
+  operationalEvidence="not-assessed"
+  expectedTime={{ inspectMinutes: 6 }}
+  verifiedAt="2026-07-18"
+/>
 
-## The Problem
+## Get started
 
-Telco operators managing O-RAN networks face a complex observability challenge:
+Use the [interactive stage comparison](/integrations/oran-telco-pipeline/explorer) to inspect the authored transformation. Open a deep route when adapting its specific handoff.
 
-- **Thousands of distributed edge nodes** generate continuous telemetry (DU, RU, CU units)
-- **Multiple consumption patterns** require the same data:
-  - Real-time dashboards (Grafana) for NOC operations
-  - Long-term storage (Parquet) for capacity planning
-  - Analytics platforms (Cloudera) for ML/AI insights
-  - Compliance reporting for PTP timing requirements
-- **The edge gap**: Data may need to be collected, shaped, and enriched before it reaches Kafka, Grafana, or analytics backends
+<ExampleSurface
+  kind="overview"
+  title="System boundary"
+  description="A site-specific exporter supplies telemetry before Expanso receives it."
+>
+  <SystemBoundary exampleId="oran-telco-pipeline" />
+</ExampleSurface>
 
-The result can be unnecessary network use and inconsistent schemas across destinations. Measure the effect with representative telemetry.
+## Pipeline
 
-## The Solution
+| Stage     | Reference behavior                                                         |
+| --------- | -------------------------------------------------------------------------- |
+| Export    | A separate adapter or exporter emits files, HTTP payloads, or metrics.     |
+| Normalize | Parse authored fields and attach site metadata.                            |
+| Label     | Apply example thresholds as neutral review fields.                         |
+| Route     | Shape separate payloads for observability, storage, and analytics outputs. |
 
-**Single collection, multiple destinations**: Expanso Edge pipelines run on OpenShift Single Node OpenShift (SNO) directly alongside RAN workloads, collecting O-RAN telemetry once and routing to all destinations simultaneously.
+Expanso does not provide an O-RAN protocol collector in this example. OpenShift, OTLP, Prometheus, object storage, and Cloudera are external deployment and service boundaries.
 
-<div style={{margin: '2rem 0', padding: '1.5rem', borderRadius: '12px', border: '2px solid var(--ifm-color-primary)', background: 'var(--ifm-background-surface-color)'}}>
-<div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem'}}>
+## Limitations and assumptions
 
-<div style={{padding: '0.6rem 2rem', borderRadius: '8px', background: 'var(--ifm-color-emphasis-200)', fontWeight: 500, fontSize: '0.95rem'}}>DU Telemetry (PTP, CPU, PRB, RSRP)</div>
+<Limitations>
 
-<div style={{fontSize: '1.2rem'}}>↓</div>
+- All telemetry, thresholds, topology, and destination contracts are illustrative.
+- Timing, radio quality, and congestion labels are not validated engineering conclusions.
+- The repository has not exercised a RAN source, OpenShift deployment, destination, outage, or operating envelope.
+- Delivery consistency depends on each output's acknowledgement, retry, and buffering configuration.
 
-<div style={{padding: '0.75rem 2rem', borderRadius: '8px', background: 'var(--ifm-color-primary)', color: 'white', fontWeight: 600, fontSize: '1rem', boxShadow: '0 2px 8px rgba(107,70,193,0.3)'}}>Expanso Edge Pipeline</div>
-<div style={{fontSize: '0.7rem', color: 'var(--ifm-color-primary)'}}>parse, normalize, enrich, filter anomalies, fan-out</div>
+</Limitations>
 
-<div style={{display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center', marginTop: '0.5rem'}}>
-{[
-  {label: 'Grafana / Prometheus', color: '#7c3aed', icon: '📊'},
-  {label: 'Parquet Storage', color: '#16a34a', icon: '📦'},
-  {label: 'Cloudera CDP', color: '#ea580c', icon: '☁️'},
-  {label: 'Local Buffer', color: '#64748b', icon: '💾'},
-].map((dest, i) => (
-  <div key={i} style={{display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem'}}>
-    <div style={{fontSize: '1rem'}}>↓</div>
-    <div style={{padding: '0.5rem 1rem', borderRadius: '8px', background: dest.color, color: 'white', fontWeight: 600, fontSize: '0.8rem', textAlign: 'center', minWidth: '120px'}}>
-      {dest.icon} {dest.label}
-    </div>
-  </div>
-))}
-</div>
+## Related examples
 
-</div>
-</div>
-
-### Where Expanso Fits In Your Stack
-
-Your backend stays exactly as-is — Cloudera CDP, Kafka, Grafana, HDFS/Ozone. Expanso Edge handles what happens **before** data reaches those systems: collect, shape, augment, and deliver to multiple destinations simultaneously.
-
-| Layer | What | How Expanso Helps |
-|-------|------|-------------------|
-| **Collect** | MQTT, OPC-UA, syslog, file tailing from DU/RU/CU nodes | Single lightweight agent on OpenShift SNO — no NiFi deployment at the edge |
-| **Shape** | Parse messy telco logs, normalize schemas, filter noise | Bloblang processors run at the edge — only clean data leaves the site |
-| **Augment** | Enrich with cell site metadata, geo coordinates, compliance zones | Lookups and enrichment happen before transmission, not after |
-| **Deliver** | Fan-out to Kafka, Grafana, Parquet, Cloudera — all at once | One pipeline, multiple destinations. Your backends receive ready-to-use data |
-
-```
-Tower → Expanso Edge (collect, shape, augment) → Kafka / Cloudera / Grafana / S3
-        ├── runs on OpenShift SNO                  (your existing backends, unchanged)
-        ├── buffers locally during outages
-        └── deployment mechanism must be verified for your OpenShift environment
-```
-
-### Key Benefits
-
-- **Edge-native processing**: Collect and transform at the source, not in the datacenter
-- **Configurable bandwidth use**: Measure bytes before and after the selected transformations
-- **Zero data loss**: Local buffering handles burst traffic and connectivity drops
-- **Unified data model**: Every destination receives consistent, enriched schemas
-- **Multi-destination fan-out**: Same data to Kafka, Grafana, Parquet, and Cloudera simultaneously
-- **OpenShift deployment concept**: This tutorial does not establish operator certification or a supported Red Hat integration
-
-## What You'll Build
-
-This guide walks through an illustrative O-RAN telemetry pipeline that:
-
-1. **Collects** PTP timing, CPU, PRB utilization, and RF metrics from DU nodes
-2. **Transforms** raw telemetry with Bloblang processing (compliance classification, enrichment)
-3. **Routes** to multiple destinations using fan-out broker pattern
-4. **Monitors** pipeline health with built-in observability
-
-### Key Metrics Processed
-
-| Metric | Source | Purpose | Compliance Threshold |
-|--------|--------|---------|---------------------|
-| PTP4L Offset | DU Timing | 5G sync compliance | less than ±100ns (compliant), ±1000ns (critical) |
-| PRB DL/UL % | DU Scheduler | Resource utilization | greater than 90% (congested) |
-| CPU % | DU System | Performance monitoring | greater than 80% (alert) |
-| RSRP/SINR | UE Reports | RF quality | RSRP less than -120dBm (poor coverage) |
-
-## Prerequisites
-
-- Expanso Edge running on OpenShift SNO nodes
-- Access to DU telemetry endpoints or files
-- Grafana + OTEL Collector + Prometheus stack
-- Parquet writer capability
-- Cloudera Data Platform (CDP) or Kafka endpoint
-
-## Get Started
-
-Choose your path:
-
-### [Interactive Explorer](/integrations/oran-telco-pipeline/explorer)
-See each O-RAN telemetry processing technique with side-by-side transformations
-
-### [Step-by-Step Tutorial](/integrations/oran-telco-pipeline/setup)
-Build the pipeline incrementally:
-1. [Collect O-RAN Metrics](/integrations/oran-telco-pipeline/step-1-collect-oran-metrics)
-2. [Transform and Enrich](/integrations/oran-telco-pipeline/step-2-transform-and-enrich)
-3. [Multi-Destination Routing](/integrations/oran-telco-pipeline/step-3-multi-destination-routing)
-4. [Grafana Dashboards](/integrations/oran-telco-pipeline/step-4-grafana-dashboards)
-5. [Parquet and Cloudera](/integrations/oran-telco-pipeline/step-5-parquet-and-cloudera)
-
-### [Complete Pipeline](/integrations/oran-telco-pipeline/complete-oran-pipeline)
-Review the combined reference configuration
+[SCADA energy edge](/integrations/scada-energy-edge) · [Splunk edge processing](/integrations/splunk-edge-processing) · [Fan-out routing](/data-routing/fan-out-pattern)

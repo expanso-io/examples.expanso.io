@@ -4,6 +4,15 @@ sidebar_label: Troubleshooting
 sidebar_position: 7
 description: Common timestamp normalization issues and solutions
 keywords: [troubleshooting, debug, timestamps, timezone]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-normalize-timestamps-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Troubleshooting
@@ -35,6 +44,7 @@ docker logs normalize-timestamps --tail 20 2>&1 | grep timestamp
 ```
 
 **Fix:** Add format to detection list:
+
 ```yaml
 - mapping: |
     root.timestamp = this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00")
@@ -49,6 +59,7 @@ docker logs normalize-timestamps --tail 20 2>&1 | grep timestamp
 **Cause:** Input timezone not specified or detected
 
 **Fix:** Explicitly set timezone for known sources:
+
 ```yaml
 - mapping: |
     root.timestamp = this.timestamp
@@ -63,6 +74,7 @@ docker logs normalize-timestamps --tail 20 2>&1 | grep timestamp
 **Cause:** Milliseconds vs seconds confusion
 
 **Fix:** Handle both:
+
 ```yaml
 - mapping: |
     root.timestamp = if this.timestamp > 9999999999 {
@@ -79,6 +91,7 @@ docker logs normalize-timestamps --tail 20 2>&1 | grep timestamp
 **Cause:** No validation on timestamp range
 
 **Fix:** Add validation:
+
 ```yaml
 - mapping: |
     if this.timestamp.ts_unix() > now().ts_unix() + 300 {

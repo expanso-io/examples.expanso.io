@@ -1,43 +1,80 @@
 ---
-title: How to Enforce Data Schema Validation
-sidebar_label: Introduction
+title: Enforce Schema
+sidebar_label: Overview
 sidebar_position: 1
-description: Validate data structure with JSON Schema and route failures to dead letter queue
-keywords: [schema, validation, json schema, data quality, dead letter queue, edge processing]
+description: Validate synthetic JSON records and route rejected data to a separate path.
+keywords: [schema-validation, json-schema, dead-letter, data-quality, routing]
+hide_title: true
+contentArchetype: overview
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+difficulty: intermediate
+verificationDate: '2026-07-18'
+expectedTime: 3 minutes
+localNavigation: true
+uniqueTasks: [inspect-enforce-schema-architecture]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# How to Enforce Data Schema Validation
+import {
+  ExampleHeader,
+  ExampleSurface,
+  Limitations,
+  SystemBoundary,
+} from '@site/src/components/ExamplePage';
 
-Validate data structure at the edge before it corrupts your cloud analytics.
+<ExampleHeader
+  exampleId="enforce-schema"
+  title="Enforce Schema"
+  outcome="Validate synthetic JSON records against an authored schema and separate accepted from rejected data."
+  primaryAction={{
+    href: '/data-security/enforce-schema/explorer',
+    label: 'Inspect validation',
+  }}
+  difficulty="intermediate"
+  executionStatus="architecture-only"
+  operationalEvidence="not-assessed"
+  expectedTime={{ inspectMinutes: 3 }}
+  verifiedAt="2026-07-18"
+/>
 
-## The Problem
+## Get started
 
-Invalid or malformed data breaks downstream systems:
-- Wrong types corrupt analytics (string instead of number)
-- Missing required fields crash processing
-- Impossible values cause alert misconfigurations
-- Malicious payloads create security vulnerabilities
+Follow the primary action to inspect the reference pattern. The page describes an architecture; it does not promise a verified end-to-end run.
 
-## The Solution
+<ExampleSurface
+  kind="overview"
+  title="System boundary"
+  description="Expanso evaluates the configured schema and branch. Storage and remediation for rejected records are separate systems."
+>
+  <SystemBoundary exampleId="enforce-schema" />
+</ExampleSurface>
 
-Learn three schema-validation stages:
+## Pipeline
 
-1. **Define JSON Schema** - Comprehensive schemas with type checking, range validation, and security boundaries
-2. **Route Validation Failures** - Catch failed validation and send those records to a dead letter queue
-3. **Advanced Patterns** - Conditional validation and stricter schema boundaries
+| Stage    | Responsibility                                      |
+| -------- | --------------------------------------------------- |
+| Define   | Describe required fields and value constraints.     |
+| Validate | Apply the configured schema processor.              |
+| Route    | Select accepted or rejected output from the result. |
+| Adapt    | Extend the authored schema and failure metadata.    |
 
-## Get Started
+Validation checks the declared shape; it does not prove semantic correctness or destination durability.
 
-Choose your path:
+## Limitations and assumptions
 
-### [Interactive Explorer](/data-security/enforce-schema/explorer)
-See schema validation with live before/after examples
+<Limitations>
 
-### [Step-by-Step Tutorial](/data-security/enforce-schema/setup)
-Build the pipeline incrementally:
-1. [Define JSON Schema](/data-security/enforce-schema/step-1-define-json-schema)
-2. [Route Validation Failures](/data-security/enforce-schema/step-2-route-failures-dlq)
-3. [Advanced Patterns](/data-security/enforce-schema/step-3-advanced-patterns)
+- Schemas and records are synthetic fixtures.
+- No current machine gate executes the complete accepted and rejected paths.
+- Schema evolution, compatibility, replay, rejected-record access, and remediation are not assessed.
+- A matching shape can still contain incorrect or unsafe values.
 
-### [Complete Pipeline](/data-security/enforce-schema/complete-schema-validation)
-Download the complete example
+</Limitations>
+
+## Related examples
+
+[Content-based routing](/data-routing/content-routing) · [Content-based splitting](/data-routing/content-splitting) · [Remove PII](/data-security/remove-pii)

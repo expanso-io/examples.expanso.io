@@ -1,46 +1,80 @@
 ---
-title: Fan-Out Pattern for Multiple Destinations
-sidebar_label: Introduction
+title: Fan-Out Pattern
+sidebar_label: Overview
 sidebar_position: 1
-description: Send data to multiple destinations simultaneously with independent error handling
-keywords: [fan-out, broker, multiple outputs, kafka, s3, elasticsearch, data routing, edge computing]
+description: Inspect an architecture that sends each synthetic record to several independent destination branches.
+keywords: [fan-out, kafka, s3, elasticsearch, routing]
+hide_title: true
+contentArchetype: overview
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+difficulty: advanced
+verificationDate: '2026-07-18'
+expectedTime: 5 minutes
+localNavigation: true
+uniqueTasks: [inspect-fan-out-pattern-architecture]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Fan-Out Pattern for Multiple Destinations
+import {
+  ExampleHeader,
+  ExampleSurface,
+  Limitations,
+  SystemBoundary,
+} from '@site/src/components/ExamplePage';
 
-Send data to multiple destinations simultaneously without duplication overhead.
+<ExampleHeader
+  exampleId="fan-out-pattern"
+  title="Fan-Out Pattern"
+  outcome="Send each synthetic record to several destination branches with separate configuration and failure surfaces."
+  primaryAction={{
+    href: '/data-routing/fan-out-pattern/explorer',
+    label: 'Inspect the fan-out',
+  }}
+  difficulty="advanced"
+  executionStatus="architecture-only"
+  operationalEvidence="not-assessed"
+  expectedTime={{ inspectMinutes: 5 }}
+  verifiedAt="2026-07-18"
+/>
 
-## The Problem
+## Get started
 
-Edge processing needs to send the same data to multiple destinations:
-- Kafka for real-time streaming, S3 for archive, Elasticsearch for search
-- Each destination has different requirements and failure modes
-- One destination failure shouldn't block others
+Follow the primary action to inspect the reference pattern. The page describes an architecture; it does not promise a verified end-to-end run.
 
-## The Solution
+<ExampleSurface
+  kind="overview"
+  title="System boundary"
+  description="Expanso defines the branch topology. Kafka, object storage, and search remain separately operated integrations."
+>
+  <SystemBoundary exampleId="fan-out-pattern" />
+</ExampleSurface>
 
-Learn 5 fan-out routing techniques:
+## Pipeline
 
-1. **Concurrent Distribution** - Parallel delivery with broker output and fan_out pattern
-2. **Independent Retry Logic** - Per-destination retry and backoff configuration
-3. **Batching Optimization** - Destination-specific batching and compression tuning
-4. **Failure Isolation** - Independent error handling and circuit breakers per destination
-5. **Local Fallback Chains** - Local buffering with automatic cloud sync during outages
+| Stage          | Responsibility                               |
+| -------------- | -------------------------------------------- |
+| Broker         | Add the first configured output branch.      |
+| Kafka          | Attach a separate streaming destination.     |
+| Object storage | Add a batch-oriented storage branch.         |
+| Search         | Add an indexing branch with its own mapping. |
 
-## Get Started
+A successful branch does not prove that another branch accepted or retained the record.
 
-Choose your path:
+## Limitations and assumptions
 
-### [Interactive Explorer](/data-routing/fan-out-pattern/explorer)
-See each routing technique with side-by-side before/after views
+<Limitations>
 
-### [Step-by-Step Tutorial](/data-routing/fan-out-pattern/setup)
-Build the pipeline incrementally:
-1. [Configure Fan-Out](/data-routing/fan-out-pattern/step-1-configure-broker)
-2. [Add Kafka Integration](/data-routing/fan-out-pattern/step-2-add-kafka)
-3. [Add S3 Archive](/data-routing/fan-out-pattern/step-3-add-s3)
-4. [Add Elasticsearch](/data-routing/fan-out-pattern/step-4-add-elasticsearch)
-5. [Advanced Patterns and Fallbacks](/data-routing/fan-out-pattern/step-5-advanced-patterns)
+- The reference destinations require services, credentials, schemas, and access configuration.
+- No current gate executes the full multi-destination topology.
+- Cross-branch ordering, retry isolation, duplicate delivery, replay, and partial failure are not assessed.
+- Retention and access rules belong to each destination environment.
 
-### [Complete Pipeline](/data-routing/fan-out-pattern/complete-fan-out-pipeline)
-Download the complete example
+</Limitations>
+
+## Related examples
+
+[Content-based routing](/data-routing/content-routing) · [Circuit breaker patterns](/data-routing/circuit-breakers) · [Enrich and export](/log-processing/enrich-export)

@@ -1,25 +1,34 @@
 ---
-title: "Advanced Schema Patterns"
-sidebar_label: "Step 3: Advanced Patterns"
+title: 'Advanced Schema Patterns'
+sidebar_label: 'Step 3: Advanced Patterns'
 sidebar_position: 5
 description: Explore advanced schema validation patterns like conditional validation and security hardening.
 keywords: [json-schema, advanced-patterns, security, conditional-validation]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-enforce-schema-step-3-advanced-patterns]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Advanced Schema Validation Patterns
 
-Once you have mastered the basic "validate and route" pattern, you can enhance your schema and pipeline for more complex and secure scenarios.
+After reviewing the basic validate-and-route pattern, use these variants as adaptation sketches and test them against representative accepted and rejected records.
 
 ## Pattern 1: Security Hardening
 
-For production, your schema should be as strict as possible to prevent injection attacks or unexpected data. The `additionalProperties: false` keyword is critical for this. It ensures that if a message contains any property *not* explicitly defined in your schema, it will fail validation.
+Set `additionalProperties: false` when the intended contract rejects undeclared fields. This is a shape constraint, not a complete input-security control; the surrounding parser, size limits, value rules, and destination still need review.
 
-```json title="secure-sensor-schema.json"
+```json title="strict-sensor-schema.json"
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Secure Sensor Reading",
+  "title": "Strict Sensor Reading",
   "type": "object",
-  "required": [ "sensor_id", "timestamp", "reading" ],
+  "required": ["sensor_id", "timestamp", "reading"],
   "properties": {
     "sensor_id": { "type": "string" },
     "timestamp": { "type": "string", "format": "date-time" },
@@ -28,6 +37,7 @@ For production, your schema should be as strict as possible to prevent injection
   "additionalProperties": false
 }
 ```
+
 With this schema, a message like `{"sensor_id": "s-1", "timestamp": "...", "reading": 23.5, "extra_field": "injected"}` would be rejected, protecting your downstream systems.
 
 ## Pattern 2: Conditional Validation
@@ -76,14 +86,15 @@ output:
 
       # Output 2: Send metadata about EVERY message to a monitoring endpoint
       - processors:
-        - mapping: |
-            root = {
-              "status": meta("validation_status"),
-              "sensor_id": this.sensor_id,
-              "timestamp": now()
-            }
+          - mapping: |
+              root = {
+                "status": meta("validation_status"),
+                "sensor_id": this.sensor_id,
+                "timestamp": now()
+              }
         http_client:
-          url: "http://my-monitoring-service.com/validation-metrics"
-          verb: "POST"
+          url: 'http://my-monitoring-service.com/validation-metrics'
+          verb: 'POST'
 ```
+
 This pattern uses a `broker` with `fan_out` to send the message down two paths simultaneously: the primary data path (which splits good from bad) and a secondary monitoring path that observes the outcome.

@@ -1,9 +1,18 @@
 ---
-title: "Step 2: Convert Avro to Parquet"
-sidebar_label: "Step 2: Avro to Parquet"
+title: 'Step 2: Convert Avro to Parquet'
+sidebar_label: 'Step 2: Avro to Parquet'
 sidebar_position: 4
 description: Transform streaming Avro data to the columnar Parquet format for analytics.
 keywords: [avro-to-parquet, columnar-format, analytics-optimization, big-data]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-transform-formats-step-2-convert-avro-parquet]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 2: Convert Avro to Parquet
@@ -19,12 +28,14 @@ You will add processors to your pipeline to take the binary Avro data, convert i
 ## The "De-serialize -> Re-serialize" Pattern
 
 Converting between two binary formats is a two-step process:
+
 1.  **De-serialize from Avro:** Use the `from_avro` processor to convert the binary Avro data back into a temporary, structured JSON object.
 2.  **Re-serialize to Parquet:** Use the `to_parquet` processor to convert that JSON object into the binary Parquet format.
 
 ## Implementation
 
 1.  **Start with the Previous Pipeline:** Copy the `json-to-avro.yaml` from Step 1 to a new file named `avro-to-parquet.yaml`.
+
     ```bash
     cp json-to-avro.yaml avro-to-parquet.yaml
     ```
@@ -40,23 +51,23 @@ Converting between two binary formats is a two-step process:
     # 1. DE-SERIALIZE: Convert the Avro binary data back to a structured object.
     # We must use the same schema we used to encode it.
     - from_avro:
-        schema_path: "file://./sensor.avsc"
+        schema_path: 'file://./sensor.avsc'
 
     # 2. RE-SERIALIZE: Convert the structured object to the Parquet format.
     # Parquet also uses the Avro schema to understand the data structure.
     - to_parquet:
-        schema_path: "file://./sensor.avsc"
+        schema_path: 'file://./sensor.avsc'
         # For analytics, Snappy is a common and efficient compression choice.
         default_compression: snappy
-
     # --- END: New additions ---
     ```
-    *Note: The final output of this pipeline is now Parquet data, so you would typically change the `output` to write to a system that expects Parquet, like Amazon S3 or Google Cloud Storage.*
+
+    _Note: The final output of this pipeline is now Parquet data, so you would typically change the `output` to write to a system that expects Parquet, like Amazon S3 or Google Cloud Storage._
 
 3.  **Deploy and Observe:** Watch the logs. The final output will be another stream of garbled binary text, but this time it will be in the highly compressed, columnar Parquet format.
 
 ## Verification
 
-The binary output in your console confirms the conversion was successful. A data lake query engine like AWS Athena or Google BigQuery would be able to read this Parquet data and perform extremely fast analytical queries on it, because it would only need to read the columns relevant to the query, not the entire row.
+Unreadable console bytes do not verify a Parquet conversion. Decode the result with the intended schema and consumer before treating it as valid output.
 
-You have successfully transformed streaming data into a format optimized for big data analytics.
+This page records configuration intent, not a current executed result.

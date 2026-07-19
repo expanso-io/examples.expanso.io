@@ -1,45 +1,80 @@
 ---
-title: Field-Level Encryption for Sensitive Data
-sidebar_label: Introduction
+title: Encrypt Sensitive Data
+sidebar_label: Overview
 sidebar_position: 1
-description: Encrypt PII and PCI data at the edge with AES-256-GCM while preserving analytics utility
-keywords: [encryption, aes, field-level, security, key management, pci-dss, hipaa, compliance]
+description: Inspect field-level encryption configuration across several synthetic record fields.
+keywords: [encryption, field-level, sensitive-data, keys, security]
+hide_title: true
+contentArchetype: overview
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+difficulty: intermediate
+verificationDate: '2026-07-18'
+expectedTime: 4 minutes
+localNavigation: true
+uniqueTasks: [inspect-encrypt-data-architecture]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Field-Level Encryption for Sensitive Data
+import {
+  ExampleHeader,
+  ExampleSurface,
+  Limitations,
+  SystemBoundary,
+} from '@site/src/components/ExamplePage';
 
-Encrypt sensitive data at the edge before it leaves your network boundary.
+<ExampleHeader
+  exampleId="encrypt-data"
+  title="Encrypt Sensitive Data"
+  outcome="Encrypt selected values while retaining explicitly chosen fields for downstream analysis."
+  primaryAction={{
+    href: '/data-security/encrypt-data/explorer',
+    label: 'Inspect the fields',
+  }}
+  difficulty="intermediate"
+  executionStatus="architecture-only"
+  operationalEvidence="not-assessed"
+  expectedTime={{ inspectMinutes: 4 }}
+  verifiedAt="2026-07-18"
+/>
 
-## The Problem
+## Get started
 
-TLS protects data in transit but leaves it vulnerable at rest:
-- Credit card numbers exposed to cloud operators
-- SSNs visible in logs and backups
-- Email addresses accessible to compromised services
-- PII compliance violations
+Follow the primary action to inspect the reference pattern. The page describes an architecture; it does not promise a verified end-to-end run.
 
-## The Solution
+<ExampleSurface
+  kind="overview"
+  title="System boundary"
+  description="Expanso invokes configured encryption processors. Key generation, custody, distribution, and recovery remain external responsibilities."
+>
+  <SystemBoundary exampleId="encrypt-data" />
+</ExampleSurface>
 
-Learn four field-encryption stages:
+## Pipeline
 
-1. **Credit Card Encryption** - AES-256-GCM with partial preservation for PCI-DSS compliance
-2. **PII Data Encryption** - Multi-field encryption for SSN, email, phone with selective preservation
-3. **Address Data Encryption** - Street-level encryption while preserving geographic trends
-4. **Advanced Patterns** - Key versioning, selective decryption, and audit metadata patterns
+| Stage           | Responsibility                                        |
+| --------------- | ----------------------------------------------------- |
+| Payment fields  | Select values in the authored payment object.         |
+| Customer fields | Apply the same pattern to identity fields.            |
+| Location fields | Separate retained geography from protected values.    |
+| Metadata        | Attach fields needed to interpret the example output. |
 
-## Get Started
+The Explorer shows authored transformations; it does not test cryptographic key operations or a deployed threat model.
 
-Choose your path:
+## Limitations and assumptions
 
-### [Interactive Explorer](/data-security/encrypt-data/explorer)
-See each encryption technique with side-by-side before/after views
+<Limitations>
 
-### [Step-by-Step Tutorial](/data-security/encrypt-data/setup)
-Build the pipeline incrementally:
-1. [Encrypt Credit Card Data](/data-security/encrypt-data/step-1-encrypt-payment-data)
-2. [Encrypt PII Fields](/data-security/encrypt-data/step-2-encrypt-customer-data)
-3. [Encrypt Address Data](/data-security/encrypt-data/step-3-encrypt-location-data)
-4. [Advanced Patterns](/data-security/encrypt-data/step-4-advanced-patterns)
+- The records and keys shown in the example are synthetic.
+- No current machine gate executes encryption, decryption, key rotation, or recovery.
+- Algorithm choice, nonce handling, key scope, access, logging, and failure behavior require deployment-specific review.
+- This example does not establish a security or regulatory posture.
 
-### [Complete Pipeline](/data-security/encrypt-data/complete-pipeline)
-Download the complete example
+</Limitations>
+
+## Related examples
+
+[Encryption patterns](/data-security/encryption-patterns) · [Remove PII](/data-security/remove-pii) · [Cross-border data minimization](/data-security/cross-border-gdpr)

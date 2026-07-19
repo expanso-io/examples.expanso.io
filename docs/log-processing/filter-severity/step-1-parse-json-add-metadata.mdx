@@ -1,20 +1,30 @@
 ---
-title: "Step 1: Parse JSON with Fallback"
-sidebar_label: "Step 1: Parse JSON with Fallback"
+title: 'Step 1: Parse JSON with Fallback'
+sidebar_label: 'Step 1: Parse JSON with Fallback'
 sidebar_position: 3
 description: Handle log streams that contain a mix of JSON and plain-text formats.
 keywords: [log-parsing, json, fallback, mixed-formats]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-filter-severity-step-1-parse-json-add-metadata]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 1: Parse JSON Logs with a Fallback
 
-In the real world, log streams are often messy and contain a mix of formats. A robust pipeline needs to handle both structured (JSON) and unstructured (plain text) logs gracefully.
+Log streams can contain both structured JSON and plain text. This step configures a JSON parse attempt with a plain-text fallback.
 
 This step teaches you how to parse a log line as JSON if possible, and if not, to treat it as a plain text message without failing.
 
 ## The Goal
 
 You will build a pipeline that can process both of these incoming messages:
+
 ```json
 // Input 1 (JSON String)
 {"raw_log": "{\"level\":\"info\",\"message\":\"User logged in\"}"}
@@ -22,6 +32,7 @@ You will build a pipeline that can process both of these incoming messages:
 // Input 2 (Plain Text)
 {"raw_log": "web server started"}
 ```
+
 And turn them into a consistent format, identifying which was which.
 
 ## The `.parse_json().catch()` Pattern
@@ -76,4 +87,4 @@ The key to this pattern is the `.catch()` method. When `.parse_json()` fails on 
 
 ## Verification
 
-This pattern successfully handles a mixed-format log stream, converting the JSON logs to a structured format and wrapping the plain-text logs in a consistent way. This prevents your pipeline from crashing on unexpected data and is the first step to building a truly robust log processing system.
+For the authored sample, JSON logs become structured records and plain-text logs follow the configured fallback shape. The example does not test other malformed inputs or failure modes.
