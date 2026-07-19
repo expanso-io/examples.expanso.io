@@ -11,9 +11,32 @@ import {
 export const ACCESSIBILITY_RESULT_VERSION = '1.0.0';
 export const ACCESSIBILITY_OBSERVATION_VERSION = '1.0.0';
 export const ZERO_GIT_SHA = '0'.repeat(40);
+export const ACCESSIBILITY_INTERACTIVE_TARGET_SELECTOR = [
+  'button:visible',
+  'a[href]:visible',
+  'input:visible:not([type="hidden"])',
+  'select:visible',
+  'textarea:visible',
+  'summary:visible',
+  '[role="button"]:visible',
+  '[role="link"]:visible',
+].join(', ');
+
+export type AccessibilityInteractionMode =
+  | 'none'
+  | 'transformation'
+  | 'runtime';
 
 export interface AccessibilityContract extends QualityContract {
   contractId: 'accessibility-v1';
+  routes: {
+    inventory: { source: string; required: true };
+    required: Array<{
+      id: string;
+      path: string;
+      interactionMode: AccessibilityInteractionMode;
+    }>;
+  };
   environments: Array<{
     id: string;
     width: number;
@@ -40,7 +63,7 @@ export interface AccessibilityContract extends QualityContract {
       requiredCoverage: {
         environments: string[];
         themes: string[];
-        interactionModes: string[];
+        routeInteractionMode: true;
         routeCapability: 'all' | 'explorer-v2';
       };
     }>;
@@ -57,6 +80,7 @@ export interface InventoryRoute {
   path: string;
   capabilities: {
     explorerV2: boolean;
+    interactionMode: AccessibilityInteractionMode;
   };
 }
 
@@ -260,7 +284,6 @@ export function validateObservationManifest(
     const dimensions: Array<[string, unknown, ReadonlySet<string>]> = [
       ['environmentIds', entry.environmentIds, environmentIds],
       ['themes', entry.themes, themeIds],
-      ['interactionModes', entry.interactionModes, modeIds],
     ];
     for (const [field, fieldValue, allowed] of dimensions) {
       const ids = stringArray(fieldValue, `${location}.${field}`, errors);
@@ -271,6 +294,18 @@ export function validateObservationManifest(
         if (!allowed.has(id)) {
           errors.push(`${location}.${field} contains undeclared value ${id}`);
         }
+      }
+    }
+    const observedInteractionModes = stringArray(
+      entry.interactionModes,
+      `${location}.interactionModes`,
+      errors
+    );
+    for (const id of observedInteractionModes) {
+      if (!modeIds.has(id)) {
+        errors.push(
+          `${location}.interactionModes contains undeclared value ${id}`
+        );
       }
     }
     const observedStateIds = stringArray(
@@ -360,6 +395,25 @@ export function loadAccessibilityContract(): AccessibilityContract {
       `Expected accessibility-v1, received ${contract.contractId}`
     );
   }
+  const interactionModes = new Set<AccessibilityInteractionMode>([
+    'none',
+    'transformation',
+    'runtime',
+  ]);
+  for (const [index, route] of contract.routes.required.entries()) {
+    if (!interactionModes.has(route.interactionMode)) {
+      throw new Error(
+        `accessibility.routes.required[${index}].interactionMode is invalid`
+      );
+    }
+  }
+  for (const [index, cell] of contract.cells.localRequired.entries()) {
+    if (cell.requiredCoverage.routeInteractionMode !== true) {
+      throw new Error(
+        `accessibility.cells.localRequired[${index}].requiredCoverage.routeInteractionMode must be true`
+      );
+    }
+  }
   return contract;
 }
 
@@ -394,13 +448,17 @@ export function parseSitemapRoutes(path: string): InventoryRoute[] {
 
   return paths
     .sort((left, right) => left.localeCompare(right))
-    .map((routePath) => ({
-      id: accessibilityRouteId(routePath),
-      path: routePath,
-      capabilities: {
-        explorerV2: routeHasExplorerV2(path, routePath),
-      },
-    }));
+    .map((routePath) => {
+      const explorerV2 = routeHasExplorerV2(path, routePath);
+      return {
+        id: accessibilityRouteId(routePath),
+        path: routePath,
+        capabilities: {
+          explorerV2,
+          interactionMode: explorerV2 ? 'transformation' : 'none',
+        },
+      };
+    });
 }
 
 /**
@@ -420,7 +478,17 @@ export function parseAccessibilityRoutes(
 
   for (const requiredRoute of contract.routes.required) {
     const routePath = normalizeRoutePath(requiredRoute.path);
-    if (!routesByPath.has(routePath)) {
+    const existingRoute = routesByPath.get(routePath);
+    if (existingRoute) {
+      if (
+        existingRoute.capabilities.interactionMode !==
+        requiredRoute.interactionMode
+      ) {
+        throw new Error(
+          `Required route ${routePath} declares ${requiredRoute.interactionMode} but the build exposes ${existingRoute.capabilities.interactionMode}`
+        );
+      }
+    } else {
       routesByPath.set(routePath, {
         id: accessibilityRouteId(routePath),
         path: routePath,
@@ -430,6 +498,7 @@ export function parseAccessibilityRoutes(
           // test-only server, but they must not require a forbidden production
           // artifact merely to construct the route matrix.
           explorerV2: false,
+          interactionMode: requiredRoute.interactionMode,
         },
       });
     }
@@ -568,10 +637,39 @@ export function buildAccessibilityCells(
         ...coverage.themes.filter((cell) =>
           oracle.requiredCoverage.themes.includes(cell.id)
         ),
-        ...coverage.interactionModes.filter((cell) =>
-          oracle.requiredCoverage.interactionModes.includes(cell.id)
-        ),
+        ...(route.capabilities.interactionMode === 'none'
+          ? []
+          : coverage.interactionModes.filter(
+              (cell) => cell.id === route.capabilities.interactionMode
+            )),
       ];
+      const expectedInteractionModes =
+        route.capabilities.interactionMode === 'none'
+          ? []
+          : [route.capabilities.interactionMode];
+      const routeInteractionModeMatches = matches.every(
+        (observation) =>
+          observation.interactionModes.length ===
+            expectedInteractionModes.length &&
+          observation.interactionModes.every(
+            (mode, index) => mode === expectedInteractionModes[index]
+          )
+      );
+      const routeInteractionModeBinding: CoverageCell = {
+        id: `route-interaction-mode:${route.capabilities.interactionMode}`,
+        status:
+          matches.length > 0 && routeInteractionModeMatches
+            ? 'PASS'
+            : 'UNKNOWN',
+        reasons:
+          matches.length > 0 && routeInteractionModeMatches
+            ? []
+            : [
+                `Observations for ${oracleId} on ${route.path} do not match required route interaction mode ${route.capabilities.interactionMode}`,
+              ],
+        evidenceArtifactIds: matches.length > 0 ? [evidenceArtifactId] : [],
+      };
+      requiredCoverageCells.push(routeInteractionModeBinding);
       const status = applicable
         ? reduceStatuses(requiredCoverageCells.map((cell) => cell.status))
         : 'UNKNOWN';

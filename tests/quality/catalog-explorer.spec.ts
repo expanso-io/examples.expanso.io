@@ -1,5 +1,39 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { PUBLIC_CATALOG } from '../../src/catalog/registry';
+import { GOAL_FACETS } from '../../src/catalog/schema';
+
+function relativeLuminance(color: string): number {
+  const channels = color.startsWith('#')
+    ? color
+        .slice(1)
+        .match(/.{2}/g)
+        ?.map((channel) => Number.parseInt(channel, 16))
+    : color
+        .match(/[\d.]+/g)
+        ?.slice(0, 3)
+        .map(Number);
+  if (channels === undefined || channels.length !== 3) {
+    throw new Error(`Expected an rgb color, received ${color}`);
+  }
+
+  const [red, green, blue] = channels.map((channel) => {
+    const normalized = channel / 255;
+    return normalized <= 0.04045
+      ? normalized / 12.92
+      : ((normalized + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const luminances = [
+    relativeLuminance(foreground),
+    relativeLuminance(background),
+  ].sort((left, right) => right - left);
+  return (luminances[0] + 0.05) / (luminances[1] + 0.05);
+}
+
 async function openCatalogDisclosure(
   page: Page,
   label: 'Filters' | 'More filters'
@@ -16,6 +50,91 @@ async function openCatalogDisclosure(
 }
 
 test.describe('catalog explorer', () => {
+  test('uses specific example names throughout the sidebar', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    const mobileNavigation = page.getByRole('button', {
+      name: 'Toggle navigation bar',
+    });
+    if (await mobileNavigation.isVisible()) {
+      await mobileNavigation.click();
+    }
+
+    const menu = page.locator('.theme-doc-sidebar-menu');
+    for (const goal of GOAL_FACETS) {
+      const category = menu.getByRole('button', {
+        name: goal.label,
+        exact: true,
+      });
+      if ((await category.getAttribute('aria-expanded')) !== 'true') {
+        await category.click();
+      }
+    }
+
+    await expect(
+      menu.getByRole('link', { name: 'Overview', exact: true })
+    ).toHaveCount(0);
+
+    for (const record of PUBLIC_CATALOG.records.filter(
+      ({ status }) => status === 'published'
+    )) {
+      await expect(
+        menu.getByRole('link', { name: record.title, exact: true })
+      ).toHaveCount(1);
+    }
+  });
+
+  test('keeps featured entry points readable without link underlines in dark mode', async ({
+    page,
+  }) => {
+    await page.addInitScript(() =>
+      window.localStorage.setItem('theme', 'dark')
+    );
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    const featuredLinks = page
+      .getByRole('region', { name: 'Three useful entry points' })
+      .getByRole('link');
+    await expect(featuredLinks).toHaveCount(3);
+
+    const presentation = await featuredLinks.evaluateAll((links) =>
+      links.map((link) => {
+        const goal = link.querySelector('span');
+        const title = link.querySelector('strong');
+        const outcome = title?.nextElementSibling;
+        if (goal === null || title === null || outcome === null) {
+          throw new Error('Featured entry point is missing display text');
+        }
+        return {
+          background: getComputedStyle(document.documentElement)
+            .getPropertyValue('--ifm-background-color')
+            .trim(),
+          decoration: getComputedStyle(link).textDecorationLine,
+          goal: getComputedStyle(goal).color,
+          title: getComputedStyle(title).color,
+          outcome: getComputedStyle(outcome).color,
+        };
+      })
+    );
+
+    for (const entry of presentation) {
+      expect(entry.decoration).toBe('none');
+      expect(
+        contrastRatio(entry.goal, entry.background)
+      ).toBeGreaterThanOrEqual(7);
+      expect(
+        contrastRatio(entry.title, entry.background)
+      ).toBeGreaterThanOrEqual(7);
+      expect(
+        contrastRatio(entry.outcome, entry.background)
+      ).toBeGreaterThanOrEqual(7);
+    }
+  });
+
   test('restores normalized facets without putting search text in the URL', async ({
     page,
   }) => {

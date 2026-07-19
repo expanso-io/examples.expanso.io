@@ -49,7 +49,10 @@ export default defineConfig({
   webServer: process.env.QUALITY_BASE_URL
     ? undefined
     : {
-        command: `EXPLORER_RUNTIME_HARNESS=1 npm run start -- --host 127.0.0.1 --port ${port}`,
+        command:
+          process.env.QUALITY_STATIC_SERVER === '1'
+            ? `npm run serve -- --host 127.0.0.1 --port ${port}`
+            : `EXPLORER_RUNTIME_HARNESS=1 npm run start -- --host 127.0.0.1 --port ${port}`,
         url: baseURL,
         reuseExistingServer: false,
         timeout: 120_000,

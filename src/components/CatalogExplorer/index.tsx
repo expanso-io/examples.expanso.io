@@ -113,7 +113,10 @@ function FeaturedLink({
   record: ExampleRecord;
 }): React.JSX.Element {
   return (
-    <Link className={styles.featuredLink} to={record.routes.overview}>
+    <Link
+      className={`${styles.featuredLink} no-underline`}
+      to={record.routes.overview}
+    >
       <span className={styles.featuredGoal}>
         {goalsById.get(record.primaryGoal)}
       </span>
@@ -133,7 +136,9 @@ function Result({ record }: { record: ExampleRecord }): React.JSX.Element {
             {goalsById.get(record.primaryGoal)}
           </span>
           <h3>
-            <Link to={record.routes.overview}>{record.title}</Link>
+            <Link className="no-underline" to={record.routes.overview}>
+              {record.title}
+            </Link>
           </h3>
         </div>
         <p>{record.oneLineOutcome}</p>
@@ -157,7 +162,10 @@ function Result({ record }: { record: ExampleRecord }): React.JSX.Element {
           <dd>{interactionLabels[record.interaction]}</dd>
         </div>
       </dl>
-      <Link className={styles.resultAction} to={record.routes.overview}>
+      <Link
+        className={`${styles.resultAction} no-underline`}
+        to={record.routes.overview}
+      >
         Open example
         <ArrowRight aria-hidden="true" size={17} />
       </Link>
@@ -370,7 +378,10 @@ export default function CatalogExplorer({
         <p className={styles.eyebrow}>Expanso example library</p>
         <h1>{title}</h1>
         <p className={styles.heroCopy}>{description}</p>
-        <a className={styles.heroAction} href="#catalog-results">
+        <a
+          className={`${styles.heroAction} no-underline`}
+          href="#catalog-results"
+        >
           Find a pattern
           <ArrowRight aria-hidden="true" size={18} />
         </a>

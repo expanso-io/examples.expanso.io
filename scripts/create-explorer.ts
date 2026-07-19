@@ -47,7 +47,7 @@ export interface ExplorerDraftResult {
 }
 
 const CLAIMS_POLICY_DIGEST =
-  'sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281';
+  'sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab';
 
 const ALLOWED_ARGUMENTS = new Set([
   'name',

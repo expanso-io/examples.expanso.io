@@ -1,6 +1,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
+import { ACCESSIBILITY_INTERACTIVE_TARGET_SELECTOR } from '../../../scripts/quality/accessibility-lib';
+
 test.describe('accessibility harness oracles', () => {
   test('axe oracle detects a known accessible-name failure', async ({
     page,
@@ -32,21 +34,26 @@ test.describe('accessibility harness oracles', () => {
     page,
   }) => {
     await page.setContent(
-      '<main><h1>Fixture</h1><button style="width:36px;height:36px" aria-label="Undersized">X</button><button style="width:44px;height:44px" aria-label="Valid">Y</button></main>'
+      '<main><h1>Fixture</h1><button style="width:36px;height:36px" aria-label="Undersized button">X</button><a href="#target" style="display:inline-block;width:36px;height:36px" aria-label="Undersized link">L</a><button style="width:44px;height:44px" aria-label="Valid">Y</button></main>'
     );
-    const undersized = await page.locator('button').evaluateAll((controls) =>
-      controls
-        .map((control) => {
-          const bounds = control.getBoundingClientRect();
-          return {
-            name: control.getAttribute('aria-label'),
-            width: bounds.width,
-            height: bounds.height,
-          };
-        })
-        .filter(({ width, height }) => width < 44 || height < 44)
-    );
+    const undersized = await page
+      .locator(ACCESSIBILITY_INTERACTIVE_TARGET_SELECTOR)
+      .evaluateAll((controls) =>
+        controls
+          .map((control) => {
+            const bounds = control.getBoundingClientRect();
+            return {
+              name: control.getAttribute('aria-label'),
+              width: bounds.width,
+              height: bounds.height,
+            };
+          })
+          .filter(({ width, height }) => width < 44 || height < 44)
+      );
 
-    expect(undersized).toEqual([{ name: 'Undersized', width: 36, height: 36 }]);
+    expect(undersized).toEqual([
+      { name: 'Undersized button', width: 36, height: 36 },
+      { name: 'Undersized link', width: 36, height: 36 },
+    ]);
   });
 });

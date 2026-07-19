@@ -190,7 +190,7 @@ export const circuitBreakerStages: Stage[] = [
       { content: '✅ Result:', indent: 0, type: 'highlighted' },
       { content: 'data saved to: /var/buffer/', indent: 1 },
       { content: 'will retry when APIs recover', indent: 1 },
-      { content: 'zero data loss', indent: 1 },
+      { content: 'data buffered locally', indent: 1 },
       { content: 'pipeline continues processing', indent: 1 },
     ],
   },

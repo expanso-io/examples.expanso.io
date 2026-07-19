@@ -65,12 +65,20 @@ export interface JourneyVerifierTrust {
   publicKeySha256: string;
 }
 
+export interface JourneyAgentTrust {
+  protocolVersion: string;
+  agentId: string;
+  publicKeyPath: string;
+  publicKeySha256: string;
+}
+
 export interface JourneyReductionOptions {
   expectedSubjectSha: string;
   evidenceRoot: string;
   contractPath?: string;
   expectedEnvironmentId?: string;
   trustedVerifier?: JourneyVerifierTrust;
+  trustedAgent?: JourneyAgentTrust;
   now?: Date;
 }
 
@@ -878,6 +886,78 @@ function verifyAttestation(
   return true;
 }
 
+function verifyAgentTrust(
+  result: RecordValue,
+  options: JourneyReductionOptions,
+  context: ReductionContext
+): void {
+  if (!options.trustedAgent) return;
+  const trustedAgent = options.trustedAgent;
+  const retained = object(result.agentTrust, 'result.agentTrust');
+  const expected = {
+    protocolVersion: trustedAgent.protocolVersion,
+    agentId: trustedAgent.agentId,
+    publicKeyPath: trustedAgent.publicKeyPath,
+    publicKeySha256: trustedAgent.publicKeySha256,
+  };
+  if (canonicalJson(retained) !== canonicalJson(expected)) {
+    context.errors.push(
+      'result.agentTrust does not match the pinned browser-agent trust root'
+    );
+  }
+  if (
+    typeof trustedAgent.agentId !== 'string' ||
+    typeof trustedAgent.protocolVersion !== 'string' ||
+    typeof trustedAgent.publicKeyPath !== 'string' ||
+    !SHA256_PATTERN.test(trustedAgent.publicKeySha256)
+  ) {
+    context.errors.push('trustedAgent is invalid');
+    return;
+  }
+  if (result.producerId === trustedAgent.agentId) {
+    context.errors.push('producer and browser-agent identities must differ');
+  }
+  if (options.trustedVerifier) {
+    if (trustedAgent.agentId === options.trustedVerifier.verifierId) {
+      context.errors.push('browser-agent and verifier identities must differ');
+    }
+    if (
+      trustedAgent.publicKeySha256 === options.trustedVerifier.publicKeySha256
+    ) {
+      context.errors.push('browser-agent and verifier trust roots must differ');
+    }
+  }
+  const keyBinding: ArtifactBinding = {
+    evidenceVersion: 'journey-artifact-v2',
+    path: trustedAgent.publicKeyPath,
+    sha256: trustedAgent.publicKeySha256,
+    bytes: 1,
+  };
+  try {
+    const keyBytes = readFileSync(
+      resolve(context.root, trustedAgent.publicKeyPath)
+    );
+    keyBinding.bytes = keyBytes.byteLength;
+    const keySnapshot = snapshotArtifact(
+      keyBinding,
+      'trustedAgent.publicKeyPath',
+      context
+    );
+    if (keySnapshot) {
+      const publicKey = createPublicKey(keySnapshot.bytes);
+      if (publicKey.asymmetricKeyType !== 'ed25519') {
+        context.errors.push('pinned browser-agent public key is not Ed25519');
+      }
+    }
+  } catch (error) {
+    context.errors.push(
+      `trustedAgent.publicKeyPath cannot be read: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+}
+
 export function reduceMachineJourney(
   input: unknown,
   options: JourneyReductionOptions
@@ -1031,6 +1111,7 @@ export function reduceMachineJourney(
       usedInodes: new Set(),
       errors,
     };
+    verifyAgentTrust(result, options, context);
     const taskSuccesses = new Map<string, number>();
     const personaTaskSuccesses = new Map<string, number>();
     const expectedTrials = array(loadedContract.trials, 'contract.trials');
@@ -1270,7 +1351,13 @@ export function reduceMachineJourney(
     errors.push(error instanceof Error ? error.message : String(error));
   }
 
-  return reduction(contract, result, errors, !options.trustedVerifier, blocked);
+  return reduction(
+    contract,
+    result,
+    errors,
+    !options.trustedVerifier || !options.trustedAgent,
+    blocked
+  );
 }
 
 function commandLineArguments(argv: string[]): {
@@ -1320,6 +1407,22 @@ function trustedVerifierFromEnvironment(): JourneyVerifierTrust | undefined {
   return { verifierId, keyId, publicKeyPath, publicKeySha256 };
 }
 
+function trustedAgentFromEnvironment(): JourneyAgentTrust | undefined {
+  const protocolVersion = process.env.QUALITY_JOURNEY_AGENT_PROTOCOL_VERSION;
+  const agentId = process.env.QUALITY_JOURNEY_AGENT_ID;
+  const publicKeyPath = process.env.QUALITY_JOURNEY_AGENT_PUBLIC_KEY_PATH;
+  const publicKeySha256 = process.env.QUALITY_JOURNEY_AGENT_PUBLIC_KEY_SHA256;
+  if (!protocolVersion && !agentId && !publicKeyPath && !publicKeySha256) {
+    return undefined;
+  }
+  if (!protocolVersion || !agentId || !publicKeyPath || !publicKeySha256) {
+    throw new Error(
+      'all QUALITY_JOURNEY_AGENT_* trust pins are required together'
+    );
+  }
+  return { protocolVersion, agentId, publicKeyPath, publicKeySha256 };
+}
+
 function main(argv: string[]): void {
   let output: JourneyReduction;
   try {
@@ -1334,6 +1437,7 @@ function main(argv: string[]): void {
       expectedEnvironmentId:
         args.expectedEnvironmentId ?? process.env.QUALITY_ENVIRONMENT_ID,
       trustedVerifier: trustedVerifierFromEnvironment(),
+      trustedAgent: trustedAgentFromEnvironment(),
     });
   } catch (error) {
     output = {

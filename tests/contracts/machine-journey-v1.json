@@ -1,8 +1,8 @@
 {
   "$schema": "./schemas/quality-contract-v1.schema.json",
   "contractId": "machine-journey-v1",
-  "contractVersion": "3.0.0",
-  "contractSha256": "b45cad48e8ae9d8250141cc49c03783576665e7e70456b8bf766695b5dd4f956",
+  "contractVersion": "4.0.0",
+  "contractSha256": "a425572be42ef0a7d6924849b7ab86c94721d286c58e098e2db363e5976a169a",
   "digest": {
     "algorithm": "sha256",
     "canonicalization": "sorted-json-utf8-v1",
@@ -26,7 +26,7 @@
     "node": "20.19.4",
     "playwright": "1.55.1",
     "chromium": "140.0.7339.186",
-    "scorer": "machine-journey-scorer@1.0.0"
+    "scorer": "machine-journey-scorer@2.0.0"
   },
   "routes": {
     "inventory": {
@@ -101,17 +101,25 @@
     }
   },
   "sourceBindings": {
-    "scorer": {
+    "reducer": {
       "path": "scripts/quality/reduce-machine-journey.ts",
-      "sha256": "ff2caa66c4794a7a203fd76e47a3566b04ed82fd23f1b7de5ec81216e7b30930"
+      "sha256": "9b1b23a695bee3d52d59630095a41d58b57847b5a41c5b3c16d99730645f9247"
+    },
+    "producer": {
+      "path": "scripts/quality/produce-machine-journey.ts",
+      "sha256": "b324ae2e519939e9b8db60be0c94bb3749233c51ecab5f2d908f9ccfb828eb64"
     },
     "runner": {
       "path": "scripts/test-pipelines.ts",
       "sha256": "7c0cf7b5ed4da9a147a7646ef1e9ca08cdc4d70a08efc958a8ccb09defef0e4b"
     },
-    "harness": {
+    "reducerHarness": {
       "path": "tests/quality/machine-journey-reducer.test.ts",
-      "sha256": "75215db60c0d34f8a63b0c3312911b2c7c263a9da9ab489214b3c9d0c9d0c869"
+      "sha256": "f32653fb0c7960c05b4e24d883a2d127777df73b4281a299fe821f9ac97c2c64"
+    },
+    "producerHarness": {
+      "path": "tests/quality/machine-journey-producer.test.ts",
+      "sha256": "25f52143dfb897efed20c3beaa86c59782710327c4e2dfaff5d3d7d393878876"
     }
   },
   "capabilities": {
@@ -122,8 +130,28 @@
     },
     "journey-producer": {
       "status": "BLOCKED_CAPABILITY",
-      "reasonCode": "NO_RAW_BROWSER_EVIDENCE_PRODUCER",
-      "reason": "No automated producer currently captures signed DOM, network, screenshot, and command evidence for all 45 journey cells. Reducer tests are release-gated; journey execution cannot claim PASS until that producer exists."
+      "reasonCode": "NO_VERSIONED_UNCOACHED_BROWSER_AGENT_ADAPTER",
+      "reason": "The repository has deterministic Playwright smoke tests and a raw-evidence reducer, but no versioned adapter that runs the contract prompts as uncoached seeded persona browser agents. Scripted route actions cannot be signed as machine-journey PASS.",
+      "requiredEnvironment": [
+        "QUALITY_JOURNEY_BASE_URL",
+        "QUALITY_JOURNEY_AGENT_COMMAND",
+        "QUALITY_JOURNEY_AGENT_ID",
+        "QUALITY_JOURNEY_AGENT_PROTOCOL_VERSION",
+        "QUALITY_JOURNEY_AGENT_PUBLIC_KEY_PATH",
+        "QUALITY_JOURNEY_AGENT_PUBLIC_KEY_SHA256"
+      ]
+    },
+    "independent-verifier": {
+      "status": "BLOCKED_CAPABILITY",
+      "reasonCode": "EXTERNAL_ED25519_VERIFIER_UNAVAILABLE",
+      "reason": "PASS requires an external verifier command, identity, key id, public Ed25519 key, and pinned public-key digest. The producer never generates or receives the private key.",
+      "requiredEnvironment": [
+        "QUALITY_VERIFIER_COMMAND",
+        "QUALITY_VERIFIER_ID",
+        "QUALITY_VERIFIER_KEY_ID",
+        "QUALITY_VERIFIER_PUBLIC_KEY_PATH",
+        "QUALITY_VERIFIER_PUBLIC_KEY_SHA256"
+      ]
     }
   },
   "trials": [
@@ -146,20 +174,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -192,20 +219,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -238,20 +264,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -284,20 +309,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -330,20 +354,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -383,20 +406,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -429,20 +451,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -475,20 +496,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -521,20 +541,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -567,20 +586,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -620,20 +638,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -666,20 +683,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -712,20 +728,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -758,20 +773,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -804,20 +818,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -857,20 +870,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -903,20 +915,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -949,20 +960,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -995,20 +1005,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1041,20 +1050,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1094,20 +1102,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1140,20 +1147,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1186,20 +1192,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1232,20 +1237,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1278,20 +1282,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1331,20 +1334,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1377,20 +1379,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1423,20 +1424,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1469,20 +1469,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1515,20 +1514,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1568,20 +1566,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1614,20 +1611,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1660,20 +1656,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1706,20 +1701,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1752,20 +1746,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1805,20 +1798,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1851,20 +1843,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1897,20 +1888,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1943,20 +1933,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -1989,20 +1978,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -2042,20 +2030,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -2088,20 +2075,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -2134,20 +2120,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -2180,20 +2165,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",
@@ -2226,20 +2210,19 @@
           ],
           "boundaryOracle": {
             "local": [
-              "source fixture",
-              "deletion",
-              "hashing",
-              "pseudonymization",
-              "generalization"
+              "checked-in fixture",
+              "exact output",
+              "remain local",
+              "Stays local"
             ],
-            "remote": ["sanitized output"],
-            "product": ["Expanso pipeline runtime"],
-            "adapter": ["declared input and output components"]
+            "remote": ["analytics destination", "separate system boundary"],
+            "product": ["Expanso pipeline"],
+            "adapter": ["Local input", "Local output"]
           },
           "explorerOracle": {
             "stageId": "hash-email",
-            "semanticChange": "email is replaced by a deterministic hash",
-            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+            "semanticChange": "Replace the email with a keyed hash and retain its domain as a separate field.",
+            "sharedUrl": "/data-security/remove-pii/explorer/?stage=hash-email"
           },
           "pipelineOracle": {
             "path": "examples/data-security/remove-pii-complete.yaml",

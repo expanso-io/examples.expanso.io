@@ -114,6 +114,9 @@ jobs:
       - name: Enforce machine-journey raw-evidence reducer semantics
         run: npm run test-machine-journey-reducer
 
+      - name: Enforce release evidence manifest semantics
+        run: npm run test-release-evidence
+
       - name: Enforce honest browser capability classification
         run: npm run test-machine-journey-browser-runner
 
@@ -204,6 +207,36 @@ jobs:
           path: health-v2.json
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Record exact-SHA machine-journey capability state
+        env:
+          QUALITY_SUBJECT_SHA: ${{ github.sha }}
+          QUALITY_ENVIRONMENT_ID: github-actions-${{ github.run_id }}-${{ github.run_attempt }}
+          JOURNEY_ATTEMPT_ID: diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          JOURNEY_EVIDENCE_ROOT: test-results/quality/machine-journey-diagnostic
+        run: |
+          set -euo pipefail
+          set +e
+          npm run quality:journey:produce
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -ne 2 ]; then
+            echo "Expected unavailable external machine-journey adapters to produce BLOCKED_CAPABILITY (exit 2), received $STATUS" >&2
+            exit 1
+          fi
+          jq -e \
+            --arg sha "$GITHUB_SHA" \
+            '.status == "BLOCKED_CAPABILITY" and .subjectSha == $sha' \
+            test-results/quality/machine-journey-diagnostic/machine-journey-producer-manifest.json \
+            > /dev/null
+
+      - name: Upload machine-journey diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: machine-journey-diagnostic-${{ github.sha }}
+          path: test-results/quality/machine-journey-diagnostic/machine-journey-producer-manifest.json
+          if-no-files-found: error
+          retention-days: 90
 
   route-link-validation:
     name: Route & Link Validation
@@ -469,10 +502,64 @@ jobs:
             --project=chromium-desktop \
             --project=chromium-mobile
 
-      - name: Run machine-journey browser readiness cells
+      - name: Produce exact-SHA Explorer provenance projection
+        env:
+          EXPLORER_PRODUCER_AGENT_ID: github-actions/${{ github.repository }}/phase1-foundation/explorer-tests
+          EXPLORER_VERIFIER_AGENT_ID: github-actions/${{ github.repository }}/phase1-foundation/catalog-verifier
+        run: |
+          set -euo pipefail
+          STARTED_AT=$(date -u '+%Y-%m-%dT%H:%M:%S.000Z')
+          set +e
+          npm run validate-catalog
+          CATALOG_STATUS=$?
+          set -e
+          COMPLETED_AT=$(date -u '+%Y-%m-%dT%H:%M:%S.000Z')
+          mkdir -p test-results/quality/explorer-provenance
+          npm run quality:explorer:evidence -- produce \
+            --repository "$GITHUB_REPOSITORY" \
+            --subject-sha "$GITHUB_SHA" \
+            --foundation-run-id "$GITHUB_RUN_ID" \
+            --foundation-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --producer-agent-id "$EXPLORER_PRODUCER_AGENT_ID" \
+            --verifier-agent-id "$EXPLORER_VERIFIER_AGENT_ID" \
+            --command 'npm run validate-catalog' \
+            --exit-status "$CATALOG_STATUS" \
+            --started-at "$STARTED_AT" \
+            --completed-at "$COMPLETED_AT" \
+            --output test-results/quality/explorer-provenance/evidence-set-v1.json
+
+      - name: Run five-cell browser smoke readiness
         env:
           CI: 'true'
-        run: npm run quality:journey:browser
+        run: |
+          set -euo pipefail
+          npm run quality:journey:browser
+          mkdir -p test-results/quality/browser-smoke-readiness
+          node --input-type=module - <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          const result = {
+            resultVersion: 'browser-smoke-readiness-v1',
+            status: 'PASS',
+            scope: 'scripted-browser-smoke',
+            subjectSha: process.env.GITHUB_SHA,
+            workflowRunId: process.env.GITHUB_RUN_ID,
+            workflowRunAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+            browser: 'pinned-playwright-chromium',
+            cells: 5,
+          };
+          writeFileSync(
+            'test-results/quality/browser-smoke-readiness/browser-smoke-readiness-v1.json',
+            `${JSON.stringify(result, null, 2)}\n`
+          );
+          NODE
+
+      - name: Upload browser smoke readiness evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-smoke-readiness-${{ github.sha }}
+          path: test-results/quality/browser-smoke-readiness/browser-smoke-readiness-v1.json
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Upload Explorer failure evidence
         if: always()
@@ -482,6 +569,15 @@ jobs:
           path: test-results/quality
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Retain exact-SHA Explorer provenance projection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: explorer-provenance-${{ github.sha }}
+          path: test-results/quality/explorer-provenance/evidence-set-v1.json
+          if-no-files-found: error
+          retention-days: 90
 
   visual-regression:
     name: Visual Regression
@@ -516,6 +612,34 @@ jobs:
             echo "$CHANGES"
             exit 1
           fi
+
+      - name: Record visual regression PASS
+        run: |
+          node --input-type=module - <<'NODE'
+          import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+          const snapshotRoot = 'tests/quality/visual-regression/visual-regression.spec.ts-snapshots';
+          const result = {
+            resultVersion: 'visual-regression-result-v1',
+            status: 'PASS',
+            subjectSha: process.env.GITHUB_SHA,
+            workflowRunId: process.env.GITHUB_RUN_ID,
+            workflowRunAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+            snapshotCount: readdirSync(snapshotRoot).filter((name) => name.endsWith('.png')).length,
+          };
+          mkdirSync('test-results/quality/visual-regression', { recursive: true });
+          writeFileSync(
+            'test-results/quality/visual-regression/visual-regression-result-v1.json',
+            `${JSON.stringify(result, null, 2)}\n`
+          );
+          NODE
+
+      - name: Upload visual regression PASS result
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression-result-${{ github.sha }}
+          path: test-results/quality/visual-regression/visual-regression-result-v1.json
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Upload visual-regression evidence and candidate captures
         if: always()
@@ -556,12 +680,25 @@ jobs:
       - name: Run accessibility reducer negative tests
         run: npm run test-quality-reducers
 
+      - name: Build the test-only accessibility inventory
+        env:
+          EXPLORER_RUNTIME_HARNESS: '1'
+        run: npm run build
+
       - name: Produce and reduce the full accessibility evidence matrix
         env:
           QUALITY_SUBJECT_SHA: ${{ github.sha }}
           QUALITY_ENVIRONMENT_ID: github-actions-linux-x64
           QUALITY_SKIP_BUILD: '1'
-        run: npm run quality:accessibility
+        run: |
+          set -euo pipefail
+          npm run quality:accessibility
+          npm run quality:accessibility:reduce -- \
+            --input test-results/quality/accessibility/accessibility-result.json \
+            --subject-sha "$GITHUB_SHA" \
+            --environment-id github-actions-linux-x64 \
+            --evidence-root test-results/quality/accessibility \
+            > test-results/quality/accessibility/accessibility-reduction.json
 
       - name: Upload accessibility evidence
         if: always()
@@ -600,6 +737,48 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Download content estate evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: content-estate-${{ github.sha }}
+          path: evidence/content
+
+      - name: Download Health V2 evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: health-v2-${{ github.sha }}
+          path: evidence/health
+
+      - name: Download machine-journey diagnostic
+        uses: actions/download-artifact@v4
+        with:
+          name: machine-journey-diagnostic-${{ github.sha }}
+          path: evidence/machine-journey
+
+      - name: Download Explorer evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: explorer-provenance-${{ github.sha }}
+          path: evidence/explorer
+
+      - name: Download browser smoke evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: browser-smoke-readiness-${{ github.sha }}
+          path: evidence/browser-smoke
+
+      - name: Download visual regression evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: visual-regression-result-${{ github.sha }}
+          path: evidence/visual
+
+      - name: Download accessibility evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: browser-accessibility-evidence-${{ github.sha }}
+          path: evidence/accessibility
+
       - name: Build production artifact
         run: npm run build
 
@@ -620,6 +799,7 @@ jobs:
           LOCAL_HOME_MARKER='/'"Users/[[:alnum:]_.-]+/"
           PRIVATE_MARKER_PATTERN="${PRIVATE_REPO_MARKER}|${PRIVATE_WORK_MARKER}|${INTERNAL_DOCS_MARKER}|${LOCAL_HOME_MARKER}"
 
+          GREP_STATUS=0
           PRIVATE_MARKERS=$(grep -RIlE \
             --include='*.html' \
             --include='*.js' \
@@ -629,7 +809,11 @@ jobs:
             --include='*.yaml' \
             --include='*.yml' \
             "$PRIVATE_MARKER_PATTERN" \
-            build || true)
+            build) || GREP_STATUS=$?
+          if [ "$GREP_STATUS" -gt 1 ]; then
+            echo "Public artifact privacy scan could not complete (grep status $GREP_STATUS)" >&2
+            exit "$GREP_STATUS"
+          fi
           if [ -n "$PRIVATE_MARKERS" ]; then
             echo "Private repository or local-path markers found in the public artifact:"
             echo "$PRIVATE_MARKERS"
@@ -739,6 +923,54 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Assemble exact-run release evidence manifest
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/performance
+          cp \
+            test-results/performance/performance-result-v1.json \
+            evidence/performance/performance-result-v1.json
+          npm run quality:release-evidence -- \
+            --repository "$GITHUB_REPOSITORY" \
+            --subject-sha "$GITHUB_SHA" \
+            --foundation-run-id "$GITHUB_RUN_ID" \
+            --foundation-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --evidence-root evidence \
+            --output build/release-evidence.json
+
+      - name: Bind production canary routes to build bytes
+        run: |
+          node --input-type=module - <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { readFileSync, writeFileSync } from 'node:fs';
+
+          const routes = [
+            ['/', 'index.html'],
+            ['/data-security/remove-pii/', 'data-security/remove-pii/index.html'],
+            ['/data-security/remove-pii/explorer/', 'data-security/remove-pii/explorer/index.html'],
+            ['/data-routing/content-routing/explorer/', 'data-routing/content-routing/explorer/index.html'],
+            ['/sitemap.xml', 'sitemap.xml'],
+          ].map(([route, artifactPath]) => {
+            const bytes = readFileSync(`build/${artifactPath}`);
+            return {
+              route,
+              artifactPath,
+              bytes: bytes.byteLength,
+              sha256: createHash('sha256').update(bytes).digest('hex'),
+            };
+          });
+          const manifest = {
+            manifestVersion: 'release-canary-manifest-v1',
+            repository: process.env.GITHUB_REPOSITORY,
+            subjectSha: process.env.GITHUB_SHA,
+            routes,
+          };
+          writeFileSync(
+            'build/release-canary-manifest-v1.json',
+            `${JSON.stringify(manifest, null, 2)}\n`
+          );
+          NODE
+
       - name: Bind artifact to the exact checked commit
         run: |
           node --input-type=module - <<'NODE'
@@ -783,14 +1015,21 @@ jobs:
             throw new Error('Production artifact contains no files');
           }
 
+          const canaryManifestBytes = readFileSync(
+            'build/release-canary-manifest-v1.json'
+          );
           const subject = {
-            manifestVersion: '1.1.0',
+            manifestVersion: '1.2.0',
             repository: process.env.GITHUB_REPOSITORY,
             subjectSha: process.env.GITHUB_SHA,
             workflowRunId: process.env.GITHUB_RUN_ID,
             workflowRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
             artifactContentSha256: content.digest('hex'),
             artifactFileCount,
+            canaryManifestPath: 'release-canary-manifest-v1.json',
+            canaryManifestSha256: createHash('sha256')
+              .update(canaryManifestBytes)
+              .digest('hex'),
           };
           writeFileSync(
             'build/release-subject.json',
@@ -804,4 +1043,27 @@ jobs:
           name: production-build-${{ github.sha }}
           path: build
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90
+
+      - name: Create deterministic rollback archive
+        run: |
+          set -euo pipefail
+          ARCHIVE="production-build-${GITHUB_SHA}.tar.gz"
+          tar \
+            --sort=name \
+            --mtime='UTC 1970-01-01' \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            -czf "$ARCHIVE" \
+            -C build .
+          test -s "$ARCHIVE"
+          shasum -a 256 "$ARCHIVE"
+
+      - name: Upload exact-SHA rollback archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-rollback-bundle-${{ github.sha }}
+          path: production-build-${{ github.sha }}.tar.gz
+          if-no-files-found: error
+          retention-days: 90

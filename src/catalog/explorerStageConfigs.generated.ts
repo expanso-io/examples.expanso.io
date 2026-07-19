@@ -1263,7 +1263,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
     authoredStageModulePath:
       "docs/data-routing/circuit-breakers-full.stages.ts",
     authoredStageModuleSha256:
-      "sha256:2e7e35451659542f1b2a86db377ec0848a231e5dda5c51afb887753c80a4703e",
+      "sha256:49ac89a7747e33fb5477d9e92a6fb7b99e6679cc26a7cdbe7e41fda7be9c54f9",
     inputCheckpointPath:
       "examples/explorer-stages/circuit-breakers/01-no-circuit-breakers.yaml",
     inputCheckpointSha256:

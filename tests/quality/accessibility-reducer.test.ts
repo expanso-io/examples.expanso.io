@@ -91,7 +91,10 @@ describe('accessibility evidence producer and reducer', () => {
     );
 
     assert.ok(runtimeProof);
-    assert.deepEqual(runtimeProof.capabilities, { explorerV2: false });
+    assert.deepEqual(runtimeProof.capabilities, {
+      explorerV2: false,
+      interactionMode: 'runtime',
+    });
     assert.equal(
       existsSync('build/__explorer-runtime-proof/index.html'),
       false
@@ -150,7 +153,10 @@ describe('accessibility evidence producer and reducer', () => {
           status: 'PASS',
           environmentIds: oracle.requiredCoverage.environments,
           themes: oracle.requiredCoverage.themes,
-          interactionModes: oracle.requiredCoverage.interactionModes,
+          interactionModes:
+            route.capabilities.interactionMode === 'none'
+              ? []
+              : [route.capabilities.interactionMode],
           stateIds:
             explorerRoute?.id === route.id && index === 0
               ? contract.materiallyDistinctStates
@@ -200,6 +206,56 @@ describe('accessibility evidence producer and reducer', () => {
     assert.equal(reduction.resultStatus, 'PASS');
     assert.notEqual(reduction.coverageStatus, 'PASS');
     assert.equal(accessibilityGatePasses(reduction), true);
+
+    const passManifest = JSON.parse(readFileSync(passObservationPath, 'utf8'));
+    const runtimeRoute = routes.find(
+      (route) => route.capabilities.interactionMode === 'runtime'
+    );
+    const nonInteractiveRoute = routes.find(
+      (route) => route.capabilities.interactionMode === 'none'
+    );
+    assert.ok(runtimeRoute);
+    assert.ok(nonInteractiveRoute);
+    for (const [label, routePath, wrongMode] of [
+      ['runtime-as-transformation', runtimeRoute.path, 'transformation'],
+      ['transformation-as-runtime', explorerRoute?.path, 'runtime'],
+      ['none-as-transformation', nonInteractiveRoute.path, 'transformation'],
+    ] as const) {
+      assert.ok(routePath);
+      const swappedManifest = clone(passManifest);
+      const swappedObservation = swappedManifest.observations.find(
+        (observation: any) =>
+          observation.routePath === routePath &&
+          observation.oracleId === 'chromium-structural-scan'
+      );
+      assert.ok(swappedObservation);
+      swappedObservation.interactionModes = [wrongMode];
+      const swappedObservationPath = join(root, `${label}-observations.json`);
+      const swappedEvidenceRoot = join(root, `${label}-evidence`);
+      const swappedResultPath = join(
+        swappedEvidenceRoot,
+        'accessibility-result.json'
+      );
+      writeFileSync(
+        swappedObservationPath,
+        `${JSON.stringify(swappedManifest)}\n`
+      );
+      const swappedResult = produceAccessibilityResult({
+        subjectSha: SUBJECT_SHA,
+        environmentId: ENVIRONMENT_ID,
+        observationPath: swappedObservationPath,
+        evidenceRoot: swappedEvidenceRoot,
+        outputPath: swappedResultPath,
+      });
+      const swappedReduction = reduceAccessibility(swappedResult, {
+        expectedSubjectSha: SUBJECT_SHA,
+        expectedEnvironmentId: ENVIRONMENT_ID,
+        evidenceRoot: swappedEvidenceRoot,
+      });
+      assert.equal(swappedReduction.status, 'PASS');
+      assert.equal(swappedReduction.resultStatus, 'UNKNOWN');
+      assert.equal(accessibilityGatePasses(swappedReduction), false);
+    }
 
     const failingManifest = JSON.parse(
       readFileSync(passObservationPath, 'utf8')

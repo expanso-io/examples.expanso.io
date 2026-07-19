@@ -19,6 +19,7 @@ import { after, describe, it } from 'node:test';
 import {
   machineJourneyResultIdentitySha256,
   reduceMachineJourney,
+  type JourneyAgentTrust,
   type JourneyVerifierTrust,
 } from '../../scripts/quality/reduce-machine-journey';
 import {
@@ -110,6 +111,13 @@ const TRUST: JourneyVerifierTrust = {
   keyId: TRUSTED_SIGNER.keyId,
   publicKeyPath: TRUSTED_SIGNER.publicKeyPath,
   publicKeySha256: TRUSTED_SIGNER.publicKeySha256,
+};
+const AGENT_SIGNER = signerFixture('agent');
+const AGENT_TRUST: JourneyAgentTrust = {
+  protocolVersion: 'machine-journey-browser-agent-v1',
+  agentId: 'trusted-browser-agent-v1',
+  publicKeyPath: AGENT_SIGNER.publicKeyPath,
+  publicKeySha256: AGENT_SIGNER.publicKeySha256,
 };
 
 after(() => rmSync(evidenceRoot, { recursive: true, force: true }));
@@ -391,6 +399,7 @@ function validResult(): Record<string, any> {
     subjectSha: SUBJECT_SHA,
     environmentId: ENVIRONMENT_ID,
     producerId: 'journey-producer-v1',
+    agentTrust: AGENT_TRUST,
     execution: EXECUTION,
     startedAt: '2026-07-18T12:00:00.000Z',
     finishedAt: '2026-07-18T12:05:00.000Z',
@@ -418,6 +427,7 @@ function reduce(
     evidenceRoot,
     contractPath,
     trustedVerifier,
+    trustedAgent: AGENT_TRUST,
     now: NOW,
   });
 }
@@ -632,6 +642,41 @@ describe('machine journey evidence reducer', () => {
       reduce(selfVerified).errors.join('\n'),
       /producer and verifier identities must differ/
     );
+  });
+
+  it('rejects browser-agent and verifier identity or trust-root reuse', () => {
+    const sameIdentity = validResult();
+    sameIdentity.agentTrust.agentId = TRUST.verifierId;
+    attest(sameIdentity);
+    const identityResult = reduceMachineJourney(sameIdentity, {
+      expectedSubjectSha: SUBJECT_SHA,
+      expectedEnvironmentId: ENVIRONMENT_ID,
+      evidenceRoot,
+      contractPath,
+      trustedVerifier: TRUST,
+      trustedAgent: { ...AGENT_TRUST, agentId: TRUST.verifierId },
+      now: NOW,
+    });
+    assert.match(identityResult.errors.join('\n'), /identities must differ/);
+
+    const sameKey = validResult();
+    sameKey.agentTrust.publicKeyPath = TRUST.publicKeyPath;
+    sameKey.agentTrust.publicKeySha256 = TRUST.publicKeySha256;
+    attest(sameKey);
+    const keyResult = reduceMachineJourney(sameKey, {
+      expectedSubjectSha: SUBJECT_SHA,
+      expectedEnvironmentId: ENVIRONMENT_ID,
+      evidenceRoot,
+      contractPath,
+      trustedVerifier: TRUST,
+      trustedAgent: {
+        ...AGENT_TRUST,
+        publicKeyPath: TRUST.publicKeyPath,
+        publicKeySha256: TRUST.publicKeySha256,
+      },
+      now: NOW,
+    });
+    assert.match(keyResult.errors.join('\n'), /trust roots must differ/);
   });
 
   it('rejects symbolic-link evidence and artifact aliasing', () => {

@@ -360,6 +360,24 @@ async function main(): Promise<void> {
     ),
     'unqualified efficiency claim'
   );
+  for (const [claim, label] of [
+    ['Zero data loss during outages.', 'zero-data-loss claim'],
+    [
+      'This simulates 43 million transactions per day, a realistic volume for a mid-size chain.',
+      'realistic numeric-scale claim',
+    ],
+    [
+      'DEBUG logs consume 80% of storage while providing 1% of the value.',
+      'percentage allocation claim',
+    ],
+  ] as const) {
+    await expectRouteClaimFailure(
+      common,
+      routePath,
+      validRoute.replace('## Pipeline', `${claim}\n\n## Pipeline`),
+      label
+    );
+  }
   await expectRouteClaimPass(
     common,
     routePath,

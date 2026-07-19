@@ -339,6 +339,30 @@ function validatePerformance(contract: QualityContract): void {
 }
 
 function validateAccessibility(contract: QualityContract): void {
+  const requiredRouteModes = new Map([
+    ['catalog', 'none'],
+    ['remove-pii-pilot', 'transformation'],
+    ['scada-pilot', 'transformation'],
+    ['runtime-proof', 'runtime'],
+  ]);
+  if (contract.routes.required.length !== requiredRouteModes.size) {
+    throw new Error(
+      'accessibility.routes.required must contain each canonical route exactly once'
+    );
+  }
+  for (const [index, route] of contract.routes.required.entries()) {
+    const expectedMode = requiredRouteModes.get(route.id);
+    if (!expectedMode || route.interactionMode !== expectedMode) {
+      throw new Error(
+        `accessibility.routes.required[${index}] has an invalid interactionMode`
+      );
+    }
+    requiredRouteModes.delete(route.id);
+  }
+  if (requiredRouteModes.size !== 0) {
+    throw new Error('accessibility.routes.required is incomplete');
+  }
+
   const cells = objectAt(contract.cells, 'accessibility.cells');
   const local = arrayAt(
     cells.localRequired,
@@ -481,13 +505,6 @@ function validateAccessibility(contract: QualityContract): void {
       ),
       `accessibility.cells.localRequired[${index}].requiredCoverage.themes`
     );
-    const requiredModes = uniqueStrings(
-      arrayAt(
-        coverage.interactionModes,
-        `accessibility.cells.localRequired[${index}].requiredCoverage.interactionModes`
-      ),
-      `accessibility.cells.localRequired[${index}].requiredCoverage.interactionModes`
-    );
     if (
       requiredEnvironments.length === 0 ||
       requiredEnvironments.some((id) => !environmentIds.includes(id))
@@ -504,12 +521,9 @@ function validateAccessibility(contract: QualityContract): void {
         `accessibility.cells.localRequired[${index}] has invalid required themes`
       );
     }
-    if (
-      requiredModes.length === 0 ||
-      requiredModes.some((id) => !interactionModes.includes(id))
-    ) {
+    if (coverage.routeInteractionMode !== true) {
       throw new Error(
-        `accessibility.cells.localRequired[${index}] has invalid required interaction modes`
+        `accessibility.cells.localRequired[${index}] must require its route interaction mode`
       );
     }
     if (!['all', 'explorer-v2'].includes(String(coverage.routeCapability))) {
@@ -635,9 +649,12 @@ function validateMachineJourney(contract: QualityContract): void {
   const scorer = objectAt(contract.scorer, 'machineJourney.scorer');
   if (
     scorer.version !== 'machine-journey-scorer@2.0.0' ||
-    scorer.deterministic !== true
+    scorer.deterministic !== true ||
+    contract.tools.scorer !== 'machine-journey-scorer@2.0.0'
   ) {
-    throw new Error('machineJourney.scorer.deterministic must be true');
+    throw new Error(
+      'machineJourney must pin the deterministic v2 scorer implementation'
+    );
   }
   const outputSchema = objectAt(
     scorer.outputSchema,
@@ -701,15 +718,19 @@ function validateMachineJourney(contract: QualityContract): void {
     'machineJourney.sourceBindings'
   );
   const expectedSources = {
-    scorer: 'scripts/quality/reduce-machine-journey.ts',
+    reducer: 'scripts/quality/reduce-machine-journey.ts',
+    producer: 'scripts/quality/produce-machine-journey.ts',
     runner: 'scripts/test-pipelines.ts',
-    harness: 'tests/quality/machine-journey-reducer.test.ts',
+    reducerHarness: 'tests/quality/machine-journey-reducer.test.ts',
+    producerHarness: 'tests/quality/machine-journey-producer.test.ts',
   } as const;
   if (
     JSON.stringify(Object.keys(sourceBindings).sort()) !==
     JSON.stringify(Object.keys(expectedSources).sort())
   ) {
-    throw new Error('machineJourney must bind scorer, runner, and harness');
+    throw new Error(
+      'machineJourney must bind producer, reducer, runner, and harness sources'
+    );
   }
   for (const [role, path] of Object.entries(expectedSources)) {
     const binding = objectAt(
@@ -745,12 +766,58 @@ function validateMachineJourney(contract: QualityContract): void {
     capabilities['journey-producer'],
     'machineJourney.capabilities.journey-producer'
   );
+  const agentEnvironment = uniqueStrings(
+    arrayAt(
+      producerCapability.requiredEnvironment,
+      'machineJourney.capabilities.journey-producer.requiredEnvironment'
+    ),
+    'machineJourney.capabilities.journey-producer.requiredEnvironment'
+  );
+  const expectedAgentEnvironment = [
+    'QUALITY_JOURNEY_BASE_URL',
+    'QUALITY_JOURNEY_AGENT_COMMAND',
+    'QUALITY_JOURNEY_AGENT_ID',
+    'QUALITY_JOURNEY_AGENT_PROTOCOL_VERSION',
+    'QUALITY_JOURNEY_AGENT_PUBLIC_KEY_PATH',
+    'QUALITY_JOURNEY_AGENT_PUBLIC_KEY_SHA256',
+  ];
   if (
     producerCapability.status !== 'BLOCKED_CAPABILITY' ||
-    producerCapability.reasonCode !== 'NO_RAW_BROWSER_EVIDENCE_PRODUCER'
+    producerCapability.reasonCode !==
+      'NO_VERSIONED_UNCOACHED_BROWSER_AGENT_ADAPTER' ||
+    JSON.stringify([...agentEnvironment].sort()) !==
+      JSON.stringify(expectedAgentEnvironment.sort())
   ) {
     throw new Error(
-      'machineJourney producer must remain blocked until raw browser evidence is automated'
+      'machineJourney producer must remain blocked on the complete uncoached browser-agent interface'
+    );
+  }
+  const verifierCapability = objectAt(
+    capabilities['independent-verifier'],
+    'machineJourney.capabilities.independent-verifier'
+  );
+  const verifierEnvironment = uniqueStrings(
+    arrayAt(
+      verifierCapability.requiredEnvironment,
+      'machineJourney.capabilities.independent-verifier.requiredEnvironment'
+    ),
+    'machineJourney.capabilities.independent-verifier.requiredEnvironment'
+  );
+  const expectedVerifierEnvironment = [
+    'QUALITY_VERIFIER_COMMAND',
+    'QUALITY_VERIFIER_ID',
+    'QUALITY_VERIFIER_KEY_ID',
+    'QUALITY_VERIFIER_PUBLIC_KEY_PATH',
+    'QUALITY_VERIFIER_PUBLIC_KEY_SHA256',
+  ];
+  if (
+    verifierCapability.status !== 'BLOCKED_CAPABILITY' ||
+    verifierCapability.reasonCode !== 'EXTERNAL_ED25519_VERIFIER_UNAVAILABLE' ||
+    JSON.stringify([...verifierEnvironment].sort()) !==
+      JSON.stringify(expectedVerifierEnvironment.sort())
+  ) {
+    throw new Error(
+      'machineJourney verifier must fail closed on the complete external Ed25519 interface'
     );
   }
 

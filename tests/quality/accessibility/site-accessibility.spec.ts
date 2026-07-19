@@ -9,6 +9,7 @@ import {
 
 import {
   ACCESSIBILITY_OBSERVATION_VERSION,
+  ACCESSIBILITY_INTERACTIVE_TARGET_SELECTOR,
   loadAccessibilityContract,
   parseAccessibilityRoutes,
   type AccessibilityObservation,
@@ -81,7 +82,7 @@ async function recordUnavailableObservation(
     status: 'UNKNOWN',
     environmentIds: ['desktop'],
     themes: ['dark'],
-    interactionModes: ['transformation'],
+    interactionModes: [],
     stateIds: [],
     browserVersion: browser.version(),
     projectName: testInfo.project.name,
@@ -179,9 +180,9 @@ test.describe('accessibility-v1 inventory matrix', () => {
           ...scope,
           interactionModes:
             scope.interactionModes ??
-            (route.path === explorerProofRoute
-              ? ['runtime']
-              : ['transformation']),
+            (route.capabilities.interactionMode === 'none'
+              ? []
+              : [route.capabilities.interactionMode]),
         };
         const failure = await recordObservation(
           testInfo,
@@ -509,9 +510,7 @@ test.describe('accessibility-v1 inventory matrix', () => {
           ]) {
             await visit(page, route.path, viewport);
             const undersized = await page
-              .locator(
-                'button:visible, input:visible:not([type="hidden"]), select:visible, textarea:visible, [role="button"]:visible'
-              )
+              .locator(ACCESSIBILITY_INTERACTIVE_TARGET_SELECTOR)
               .evaluateAll((controls) =>
                 controls
                   .map((control) => {
@@ -605,7 +604,7 @@ test('Explorer proof route emits recoverable edge-state evidence', async ({
       {
         environmentIds,
         themes: ['dark'],
-        interactionModes: ['transformation'],
+        interactionModes: ['runtime'],
         stateIds,
       },
       async () => {
