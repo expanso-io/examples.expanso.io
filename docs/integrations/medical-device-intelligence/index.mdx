@@ -19,12 +19,7 @@ claimsVerifiedAt: '2026-07-18'
 claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-import {
-  ExampleHeader,
-  ExampleSurface,
-  Limitations,
-  SystemBoundary,
-} from '@site/src/components/ExamplePage';
+import { ExampleHeader } from '@site/src/components/ExamplePage';
 
 <ExampleHeader
   exampleId="medical-device-intelligence"
@@ -40,40 +35,6 @@ import {
   expectedTime={{ inspectMinutes: 7 }}
   verifiedAt="2026-07-18"
 />
-
-## Get started
-
-Review the boundary before the configuration. This is a non-Explorer architecture example; it does not promise a verified local or end-to-end run.
-
-<ExampleSurface
-  kind="overview"
-  title="System boundary"
-  description="Expanso handles configured ingestion and routing. Custom Python owns fixture loading, model access, and candidate review generation."
->
-  <SystemBoundary exampleId="medical-device-intelligence" />
-</ExampleSurface>
-
-## Product boundary
-
-- **Expanso:** reads configured inputs, invokes the command processor, shapes its response, and fans out output.
-- **Custom boundary:** Python loads synthetic fixture files, calls Claude or emits mock JSON, and forwards candidates to an external endpoint. No medical-device protocol adapter is included.
-
-## Pipeline
-
-Inspect the canonical [`pipeline.yaml`](https://github.com/expanso-io/examples.expanso.io/blob/main/docs/integrations/medical-device-intelligence/pipeline.yaml). Its first mapping tags messages; the custom analyzer independently loads all three fixtures.
-
-- `scripts/analyze_reports.py` loads fixtures, optionally calls Claude, and emits candidate review items without diagnostic conclusions.
-- `scripts/mock_receiver.py` accepts local JSON; `scripts/test-pipeline.sh` validates fixtures, YAML, mock shape, and the receiver without executing Expanso or assessing model output.
-
-## Limitations and assumptions
-
-<Limitations>
-
-- All records and outputs are synthetic. The mock groups evidence without diagnoses, severity, confidence, or recommended action; never use it for clinical, safety, maintenance, or purchasing decisions.
-- With an API key, the custom analyzer sends the full fixture batch to Claude. Data minimization, retention, access control, residency, and vendor configuration are not assessed here.
-- No current machine gate executes the full YAML, command, fan-out, retry, or failure path. This architecture establishes no legal, regulatory, security, or quality-system requirement.
-
-</Limitations>
 
 ## Related examples
 

@@ -137,7 +137,7 @@ for (const theme of themes) {
 
     await expect(root).toHaveAttribute('data-comparison-mode', 'highlights');
     await expect(root.getByLabel('Highlights only')).not.toBeChecked();
-    await expect(root).toContainText('Architecture only');
+    await expect(root).not.toContainText('Architecture only');
     await expectExplorerCentered(root);
     await expect(root).toHaveScreenshot(
       `explorer-architecture-full-${theme}.png`,

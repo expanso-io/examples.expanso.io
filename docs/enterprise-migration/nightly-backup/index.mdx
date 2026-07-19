@@ -18,12 +18,7 @@ claimsVerifiedAt: '2026-07-18'
 claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-import {
-  ExampleHeader,
-  ExampleSurface,
-  Limitations,
-  SystemBoundary,
-} from '@site/src/components/ExamplePage';
+import { ExampleHeader } from '@site/src/components/ExamplePage';
 
 <ExampleHeader
   exampleId="nightly-backup"
@@ -43,40 +38,6 @@ import {
   expectedTime={{ inspectMinutes: 6 }}
   verifiedAt="2026-07-18"
 />
-
-## Get started
-
-Use the [run path](/enterprise-migration/nightly-backup/setup) to identify required credentials and dependencies. Then review the combined configuration and recovery caveats.
-
-<ExampleSurface
-  kind="overview"
-  title="System boundary"
-  description="The database and object store remain externally operated systems."
->
-  <SystemBoundary exampleId="nightly-backup" />
-</ExampleSurface>
-
-## Pipeline
-
-| Stage             | Reference behavior                                                                         |
-| ----------------- | ------------------------------------------------------------------------------------------ |
-| Select + annotate | Read the configured snapshots and add source, table, timestamp, pipeline, and node fields. |
-| Checksum          | Hash a serialized row for later comparison.                                                |
-| Route             | Choose an object path by table and date.                                                   |
-| Encode            | Configure destination-side Parquet objects.                                                |
-
-A successful write is not a successful recovery. Treat snapshot consistency, transaction boundaries, retention, key management, restore ordering, and restore tests as separate controls.
-
-## Limitations and assumptions
-
-<Limitations>
-
-- No repository evidence executes the full database-to-storage path.
-- The row checksum does not prove object completeness, ordering, or restorability.
-- The incremental query can miss late or changed rows without a reviewed watermark strategy.
-- Storage class, retention, encryption, recovery point, and recovery time are environment-specific.
-
-</Limitations>
 
 ## Related examples
 

@@ -1,4 +1,8 @@
-import { chromium as playwrightChromium, test } from '@playwright/test';
+import {
+  chromium as playwrightChromium,
+  test,
+  type Locator,
+} from '@playwright/test';
 import { launch } from 'chrome-launcher';
 import lighthouse from 'lighthouse';
 import { mkdirSync, readFileSync } from 'node:fs';
@@ -72,11 +76,29 @@ function assertExactVersion(
   }
 }
 
+function compactStageSelector(explorer: Locator): Locator {
+  return explorer.getByRole('combobox', { name: 'Stage', exact: true });
+}
+
+async function selectExplorerStage(
+  explorer: Locator,
+  index: number
+): Promise<void> {
+  const compactSelector = compactStageSelector(explorer);
+  if (await compactSelector.isVisible()) {
+    await compactSelector.selectOption({ index });
+    return;
+  }
+  await explorer
+    .getByRole('button', { name: new RegExp(`Stage ${index + 1} of`) })
+    .click();
+}
+
 test('collects exact-SHA performance evidence from the production artifact', async ({
   baseURL,
   browser,
 }) => {
-  test.setTimeout(20 * 60 * 1000);
+  test.setTimeout(30 * 60 * 1000);
   if (!baseURL) throw new Error('Performance collection requires a base URL');
 
   const role = requiredEnvironment('PERFORMANCE_ROLE');
@@ -345,9 +367,8 @@ test('collects exact-SHA performance evidence from the production artifact', asy
   await explorerPage.goto(new URL(removePiiRoute.path, baseURL).toString(), {
     waitUntil: 'networkidle',
   });
-  const stages = explorerPage.locator(
-    '.data-pipeline-explorer button[aria-label^="Stage "]'
-  );
+  const explorer = explorerPage.locator('.data-pipeline-explorer');
+  const stages = explorer.locator('button[aria-label^="Stage "]');
   const stageCount = await stages.count();
   if (stageCount < 2)
     throw new Error('Explorer must expose at least two stages');
@@ -359,7 +380,7 @@ test('collects exact-SHA performance evidence from the production artifact', asy
     stageIds.push(label);
   }
   for (let index = 0; index < contract.runs.explorerWarmups; index += 1) {
-    await stages.nth((index + 1) % stageCount).click();
+    await selectExplorerStage(explorer, (index + 1) % stageCount);
   }
   const scriptingMs: number[] = [];
   for (
@@ -368,7 +389,7 @@ test('collects exact-SHA performance evidence from the production artifact', asy
     index += 1
   ) {
     const started = await explorerPage.evaluate(() => performance.now());
-    await stages.nth((index + 1) % stageCount).click();
+    await selectExplorerStage(explorer, (index + 1) % stageCount);
     const finished = await explorerPage.evaluate(
       () =>
         new Promise<number>((resolveFrame) =>

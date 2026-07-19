@@ -1,4 +1,4 @@
-export type MobilePanelName = 'input' | 'output' | 'yaml';
+export type MobilePanelName = 'input' | 'output';
 
 export const mobilePanelTabs: ReadonlyArray<{
   id: MobilePanelName;
@@ -6,7 +6,6 @@ export const mobilePanelTabs: ReadonlyArray<{
 }> = [
   { id: 'input', label: 'Input' },
   { id: 'output', label: 'Output' },
-  { id: 'yaml', label: 'Configuration' },
 ];
 
 export function nextMobilePanel(

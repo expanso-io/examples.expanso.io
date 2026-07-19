@@ -1,7 +1,9 @@
-import { useId, type ReactNode } from 'react';
-import clsx from 'clsx';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import styles from './styles.module.css';
 import { getCatalogOverviewProjection } from '../../catalog/overviewProjection';
+import { GENERATED_EXPLORER_STAGE_CONFIGS } from '../../catalog/explorerStageConfigs.generated';
+import DataPipelineExplorer from '../DataPipelineExplorer';
+import type { Stage } from '../DataPipelineExplorer/types';
 import type {
   BoundaryFlow,
   BoundaryNode,
@@ -9,21 +11,10 @@ import type {
   ExamplePageMeta,
 } from './types';
 
-const executionLabels: Record<ExamplePageMeta['executionStatus'], string> = {
-  'offline-runnable': 'Offline runnable',
-  'requires-integration': 'Requires integration',
-  'architecture-only': 'Architecture only',
-};
-
-const evidenceLabels: Record<ExamplePageMeta['operationalEvidence'], string> = {
-  'not-assessed': 'Not assessed',
-  'component-tested': 'Component tested',
-  'operating-envelope-tested': 'Operating envelope tested',
-};
-
 interface DirectExampleHeaderProps extends ExamplePageMeta {
   eyebrow?: string;
   outcome: string;
+  problem: string;
   primaryAction: ExampleAction;
   secondaryAction?: ExampleAction;
   title: string;
@@ -38,7 +29,133 @@ type ExampleHeaderProps = DirectExampleHeaderProps | CatalogExampleHeaderProps;
 
 interface ExampleHeaderProjection extends ExamplePageMeta {
   outcome: string;
+  problem: string;
   title: string;
+}
+
+type ExplorerStageLoader = () => Promise<readonly Stage[]>;
+
+const explorerStageLoaders: Readonly<Record<string, ExplorerStageLoader>> = {
+  'circuit-breakers': () =>
+    import('@site/docs/data-routing/circuit-breakers-full.stages').then(
+      (module) => module.circuitBreakerStages
+    ),
+  'content-routing': () =>
+    import('@site/docs/data-routing/content-routing-full.stages').then(
+      (module) => module.contentRoutingStages
+    ),
+  'content-splitting': () =>
+    import('@site/docs/data-routing/content-splitting-full.stages').then(
+      (module) => module.contentSplittingStages
+    ),
+  'fan-out-pattern': () =>
+    import('@site/docs/data-routing/fan-out-pattern-full.stages').then(
+      (module) => module.fanOutPatternStages
+    ),
+  'priority-queues': () =>
+    import('@site/docs/data-routing/priority-queues-full.stages').then(
+      (module) => module.priorityQueuesStages
+    ),
+  'smart-buffering': () =>
+    import('@site/docs/data-routing/smart-buffering-full.stages').then(
+      (module) => module.smartBufferingStages
+    ),
+  'encrypt-data': () =>
+    import('@site/docs/data-security/encrypt-data-full.stages').then(
+      (module) => module.encryptDataStages
+    ),
+  'encryption-patterns': () =>
+    import('@site/docs/data-security/encryption-patterns-full.stages').then(
+      (module) => module.encryptionPatternsStages
+    ),
+  'enforce-schema': () =>
+    import('@site/docs/data-security/enforce-schema-full.stages').then(
+      (module) => module.enforceSchemaStages
+    ),
+  'remove-pii': () =>
+    import('@site/docs/data-security/remove-pii-full.stages').then(
+      (module) => module.removePiiFullStages
+    ),
+  'aggregate-time-windows': () =>
+    import(
+      '@site/docs/data-transformation/aggregate-time-windows-full.stages'
+    ).then((module) => module.aggregateTimeWindowsStages),
+  'deduplicate-events': () =>
+    import(
+      '@site/docs/data-transformation/deduplicate-events-full.stages'
+    ).then((module) => module.deduplicateEventsStages),
+  'normalize-timestamps': () =>
+    import(
+      '@site/docs/data-transformation/normalize-timestamps-full.stages'
+    ).then((module) => module.normalizeTimestampsStages),
+  'parse-logs': () =>
+    import('@site/docs/data-transformation/parse-logs-full.stages').then(
+      (module) => module.parseLogsStages
+    ),
+  'transform-formats': () =>
+    import('@site/docs/data-transformation/transform-formats-full.stages').then(
+      (module) => module.transformFormatsStages
+    ),
+  'oran-telco-pipeline': () =>
+    import('@site/docs/integrations/oran-telco-pipeline-full.stages').then(
+      (module) => module.oranTelcoPipelineStages
+    ),
+  'scada-energy-edge': () =>
+    import('@site/docs/integrations/scada-energy-edge/stages').then(
+      (module) => module.scadaEnergyEdgeStages
+    ),
+  'splunk-edge-processing': () =>
+    import('@site/docs/integrations/splunk-edge-processing-full.stages').then(
+      (module) => module.splunkEdgeProcessingStages
+    ),
+  'enrich-export': () =>
+    import('@site/docs/log-processing/enrich-export-full.stages').then(
+      (module) => module.enrichExportStages
+    ),
+  'filter-severity': () =>
+    import('@site/docs/log-processing/filter-severity-full.stages').then(
+      (module) => module.filterSeverityStages
+    ),
+  'production-pipeline': () =>
+    import('@site/docs/log-processing/production-pipeline-full.stages').then(
+      (module) => module.productionPipelineStages
+    ),
+};
+
+function InlineExplorer({
+  exampleId,
+  title,
+}: {
+  exampleId: string;
+  title: string;
+}) {
+  const [stages, setStages] = useState<readonly Stage[] | null>(null);
+  const loader = explorerStageLoaders[exampleId];
+  const generated = GENERATED_EXPLORER_STAGE_CONFIGS[exampleId];
+
+  useEffect(() => {
+    if (!loader || !generated) return;
+    let active = true;
+    void loader().then((loadedStages) => {
+      if (active) setStages(loadedStages);
+    });
+    return () => {
+      active = false;
+    };
+  }, [generated, loader]);
+
+  if (!loader || !generated || !stages) return null;
+
+  return (
+    <DataPipelineExplorer
+      exampleId={exampleId}
+      stages={stages}
+      fullYaml={generated.fullYaml}
+      fullYamlFilename={generated.fullYamlFilename}
+      title={`${title} pipeline`}
+      subtitle=""
+    />
+  );
 }
 
 export function resolveExampleHeaderProjection(
@@ -52,68 +169,30 @@ export function resolveExampleHeaderProjection(
 }
 
 export function ExampleHeader(props: ExampleHeaderProps) {
-  const {
-    difficulty,
-    executionStatus,
-    expectedTime,
-    operationalEvidence,
-    outcome,
-    title,
-    verifiedAt,
-  } = resolveExampleHeaderProjection(props);
+  const { outcome, problem, title } = resolveExampleHeaderProjection(props);
   const eyebrow = props.eyebrow ?? 'Expanso example';
-  const { primaryAction, secondaryAction } = props;
-  const time =
-    expectedTime.runMinutes !== undefined
-      ? `${expectedTime.inspectMinutes} min inspect / ${expectedTime.runMinutes} min run`
-      : `${expectedTime.inspectMinutes} min inspect`;
+  const exampleId = 'exampleId' in props ? props.exampleId : null;
 
   return (
-    <header className={styles.header} data-example-surface="overview">
-      <p className={styles.eyebrow}>{eyebrow}</p>
-      <h1 className={styles.title}>{title}</h1>
-      <p className={styles.outcome}>{outcome}</p>
-      <div className={styles.actions}>
-        <a
-          className={clsx('button button--primary', styles.action)}
-          href={primaryAction.href}
-        >
-          {primaryAction.label}
-        </a>
-        {secondaryAction ? (
-          <a
-            className={clsx('button button--secondary', styles.action)}
-            href={secondaryAction.href}
-          >
-            {secondaryAction.label}
-          </a>
-        ) : null}
-      </div>
-      <dl className={styles.meta} aria-label="Example status">
-        <div>
-          <dt>Execution</dt>
-          <dd>{executionLabels[executionStatus]}</dd>
+    <>
+      <header className={styles.header} data-example-surface="overview">
+        <p className={styles.eyebrow}>{eyebrow}</p>
+        <h1 className={styles.title}>{title}</h1>
+        <div className={styles.intro}>
+          <section>
+            <h2>The problem</h2>
+            <p>{problem}</p>
+          </section>
+          <section>
+            <h2>How Expanso solves it</h2>
+            <p>{outcome}</p>
+          </section>
         </div>
-        <div>
-          <dt>Evidence</dt>
-          <dd>{evidenceLabels[operationalEvidence]}</dd>
-        </div>
-        <div>
-          <dt>Difficulty</dt>
-          <dd>{difficulty}</dd>
-        </div>
-        <div>
-          <dt>Time</dt>
-          <dd>{time}</dd>
-        </div>
-        <div>
-          <dt>Verified</dt>
-          <dd>
-            <time dateTime={verifiedAt}>{verifiedAt}</time>
-          </dd>
-        </div>
-      </dl>
-    </header>
+      </header>
+      {exampleId ? (
+        <InlineExplorer exampleId={exampleId} title={title} />
+      ) : null}
+    </>
   );
 }
 
@@ -130,6 +209,8 @@ export function ExampleSurface({
   kind,
   title,
 }: ExampleSurfaceProps) {
+  if (title?.toLowerCase() === 'system boundary') return null;
+
   return (
     <section className={styles.surface} data-example-surface={kind}>
       {title ? <h2>{title}</h2> : null}
@@ -224,17 +305,10 @@ interface LimitationsProps {
 }
 
 export function Limitations({
-  children,
-  title = 'Limitations and assumptions',
+  children: _children,
+  title: _title = 'Limitations and assumptions',
 }: LimitationsProps) {
-  const titleId = useId();
-
-  return (
-    <aside className={styles.limitations} aria-labelledby={titleId}>
-      <h2 id={titleId}>{title}</h2>
-      {children}
-    </aside>
-  );
+  return null;
 }
 
 export type {

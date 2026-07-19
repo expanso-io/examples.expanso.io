@@ -63,9 +63,11 @@ test('stage controls expose names and a single current stage', async ({
   await expect(explorer.locator('[aria-current="step"]')).toHaveCount(1);
   await expectCurrentStage(explorer, 0);
   await expect(
-    explorer.getByRole('button', { name: 'Previous' })
+    explorer.getByRole('button', { name: 'Previous stage' })
   ).toBeDisabled();
-  await expect(explorer.getByRole('button', { name: 'Next' })).toBeEnabled();
+  await expect(
+    explorer.getByRole('button', { name: 'Next stage' })
+  ).toBeEnabled();
 });
 
 test('arrow keys are scoped to the stage rail', async ({ page }) => {
@@ -127,16 +129,9 @@ test('pipeline and payload actions have explicit scope', async ({ page }) => {
   const outputCopy = explorer.getByRole('button', {
     name: /Copy output JSON for Original Input/,
   });
-  const tablist = explorer.getByRole('tablist', { name: 'Explorer panel' });
-
   await expect(outputCopy).toBeVisible();
-  if ((await tablist.count()) > 0) {
-    await tablist.getByRole('tab', { name: 'Input', exact: true }).click();
-  }
   await expect(inputCopy).toBeVisible();
-  if ((await tablist.count()) === 0) {
-    await expect(outputCopy).toBeVisible();
-  }
+  await expect(outputCopy).toBeVisible();
 
   await explorer.getByText('Copy & download').click();
   await expect(
@@ -150,15 +145,46 @@ test('pipeline and payload actions have explicit scope', async ({ page }) => {
   ).toBeVisible();
 });
 
+test('semantic colors and the final complete pipeline stay explicit', async ({
+  page,
+}) => {
+  const explorer = page.locator('[data-explorer-version="2"]');
+  const fullYaml = await readFile(
+    'examples/data-security/remove-pii-complete.yaml',
+    'utf8'
+  );
+
+  await selectStage(explorer, 1);
+  await expect(explorer.getByText('Updated', { exact: true })).toHaveCSS(
+    'color',
+    'rgb(74, 222, 128)'
+  );
+  await expect(explorer.getByText('Removed', { exact: true })).toHaveCSS(
+    'color',
+    'rgb(248, 113, 113)'
+  );
+
+  const stageCount = await explorer
+    .locator('button[aria-label^="Stage "]')
+    .count();
+  expect(stageCount).toBeGreaterThan(1);
+  await selectStage(explorer, stageCount - 1);
+
+  const yamlPanel = explorer.locator('[id$="-yaml-panel"]');
+  await expect(
+    yamlPanel.getByText('Complete pipeline', { exact: true })
+  ).toBeVisible();
+  await expect(yamlPanel.getByText('remove-pii-complete.yaml')).toBeVisible();
+  expect(await yamlPanel.locator('pre code').textContent()).toBe(fullYaml);
+});
+
 test('copy, share, and download actions preserve exact bytes and announce success', async ({
   page,
 }) => {
   const explorer = page.locator('[data-explorer-version="2"]');
   await selectStage(explorer, 1);
   await explorer.getByLabel('Changes only').check();
-  const yamlPanel = explorer.locator('details').filter({
-    hasText: 'Stage configuration',
-  });
+  const yamlPanel = explorer.locator('[id$="-yaml-panel"]');
   const stageYaml = (await yamlPanel.locator('pre code').textContent()) ?? '';
   const fullYaml = await readFile(
     'examples/data-security/remove-pii-complete.yaml',
@@ -320,74 +346,30 @@ test('Explorer analytics uses only the versioned privacy-safe schema', async ({
   expect(serialized).not.toContain('http_server');
 });
 
-test('the mobile selector implements automatic tabs without page overflow', async ({
+test('mobile keeps both payloads and YAML visible without internal vertical scrolling', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 320, height: 800 });
   const explorer = page.locator('[data-explorer-version="2"]');
   await expect(stageSelector(explorer)).toBeVisible();
-  const tablist = explorer.getByRole('tablist', { name: 'Explorer panel' });
-  const tabs = tablist.getByRole('tab');
-  const inputTab = tablist.getByRole('tab', {
-    name: 'Input',
-    exact: true,
-  });
-  const outputTab = tablist.getByRole('tab', {
-    name: 'Output',
-    exact: true,
-  });
-  const configurationTab = tablist.getByRole('tab', {
-    name: 'Configuration',
-    exact: true,
-  });
-
-  await expect(tablist).toHaveAttribute('aria-orientation', 'horizontal');
-  await expect(tabs).toHaveCount(3);
-  await expect(outputTab).toHaveAttribute('aria-selected', 'true');
-  await expect(outputTab).toHaveAttribute('tabindex', '0');
-  await expect(inputTab).toHaveAttribute('aria-selected', 'false');
-  await expect(inputTab).toHaveAttribute('tabindex', '-1');
-  await expect(tablist.locator('[role="tab"][tabindex="0"]')).toHaveCount(1);
-
-  for (const tab of [inputTab, outputTab, configurationTab]) {
-    const panelId = await tab.getAttribute('aria-controls');
-    expect(panelId).toBeTruthy();
-    await expect(explorer.locator(`[id="${panelId}"]`)).toHaveAttribute(
-      'aria-labelledby',
-      await tab.getAttribute('id')
-    );
-    await expect(explorer.locator(`[id="${panelId}"]`)).toHaveAttribute(
-      'role',
-      'tabpanel'
-    );
-  }
-
-  await inputTab.click();
-  await expect(inputTab).toHaveAttribute('aria-selected', 'true');
-  await expect(explorer.getByRole('tabpanel', { name: 'Input' })).toBeVisible();
   await expect(
-    explorer.locator('[role="tabpanel"][aria-labelledby$="-output-tab"]')
-  ).toBeHidden();
+    explorer.getByRole('button', { name: 'Previous stage' })
+  ).toBeVisible();
+  await expect(
+    explorer.getByRole('button', { name: 'Next stage' })
+  ).toBeVisible();
+  await expect(explorer.locator('[id$="-input-panel"]')).toBeVisible();
+  await expect(explorer.locator('[id$="-output-panel"]')).toBeVisible();
+  await expect(explorer.locator('[id$="-yaml-panel"] pre code')).toBeVisible();
 
-  await inputTab.focus();
-  await page.keyboard.press('End');
-  await expect(configurationTab).toBeFocused();
-  await expect(configurationTab).toHaveAttribute('aria-selected', 'true');
-  const yamlTabPanel = explorer.getByRole('tabpanel', {
-    name: 'Configuration',
-  });
-  await expect(yamlTabPanel).toBeVisible();
-  await expect(yamlTabPanel.locator('details')).toHaveAttribute('open', '');
-  await expect(yamlTabPanel.locator('pre code')).toBeVisible();
-
-  await page.keyboard.press('ArrowRight');
-  await expect(inputTab).toBeFocused();
-  await expect(inputTab).toHaveAttribute('aria-selected', 'true');
-  await page.keyboard.press('ArrowLeft');
-  await expect(configurationTab).toBeFocused();
-  await page.keyboard.press('Home');
-  await expect(inputTab).toBeFocused();
-  await expect(tablist.locator('[role="tab"][tabindex="0"]')).toHaveCount(1);
+  const verticallyScrollablePanels = await explorer
+    .locator('[class*="dataScroll"], [id$="-yaml-panel"] pre')
+    .evaluateAll(
+      (panels) =>
+        panels.filter((panel) => panel.scrollHeight > panel.clientHeight + 1)
+          .length
+    );
+  expect(verticallyScrollablePanels).toBe(0);
 
   const pageOverflow = await page.evaluate(
     () =>
@@ -397,7 +379,7 @@ test('the mobile selector implements automatic tabs without page overflow', asyn
   expect(pageOverflow).toBeLessThanOrEqual(0);
 });
 
-test('desktop comparison does not expose tabs owned by hidden controls', async ({
+test('payloads and YAML remain visible across the responsive breakpoint', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1024, height: 900 });
@@ -409,11 +391,11 @@ test('desktop comparison does not expose tabs owned by hidden controls', async (
   await expect(explorer.locator('[id$="-output-panel"]')).toBeVisible();
 
   await page.setViewportSize({ width: 1023, height: 900 });
-  await expect(
-    explorer.getByRole('tablist', { name: 'Explorer panel' })
-  ).toBeVisible();
-  await expect(explorer.getByRole('tab')).toHaveCount(3);
-  await expect(explorer.locator('[role="tabpanel"]')).toHaveCount(3);
+  await expect(explorer.getByRole('tablist')).toHaveCount(0);
+  await expect(explorer.locator('[role="tabpanel"]')).toHaveCount(0);
+  await expect(explorer.locator('[id$="-input-panel"]')).toBeVisible();
+  await expect(explorer.locator('[id$="-output-panel"]')).toBeVisible();
+  await expect(explorer.locator('[id$="-yaml-panel"] pre code')).toBeVisible();
 });
 
 test('Explorer interface text stays at or above the 14px floor', async ({
@@ -474,10 +456,8 @@ test.describe('architecture Explorer rollout', () => {
       );
 
       await expect(explorer).toBeVisible();
-      await expect(explorer).toContainText('Curated explanation');
-      await expect(explorer).toContainText('Architecture only');
-      await expect(explorer).toContainText('Not assessed');
-      await expect(explorer.locator('dd').last()).toContainText(/\.yaml$/);
+      await expect(explorer).not.toContainText('Architecture only');
+      await expect(explorer).not.toContainText('Not assessed');
       await expect(explorer).toContainText(
         'Authored emphasis only—not a computed diff.'
       );

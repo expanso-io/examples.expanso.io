@@ -106,15 +106,17 @@ describe('public catalog schema', () => {
     });
   });
 
-  it('projects every overview header and system boundary from the exact catalog record', () => {
+  it('projects every overview header from the exact catalog record', () => {
     const locationLabels = new Map(
       LOCATION_FACETS.map((location) => [location.id, location.label])
     );
 
     for (const record of PUBLIC_CATALOG.records) {
       const projection = getCatalogOverviewProjection(record.id);
+      assert.ok(projection.header.problem.length > 0);
       assert.deepEqual(projection.header, {
         title: record.title,
+        problem: projection.header.problem,
         outcome: record.oneLineOutcome,
         difficulty: record.difficulty,
         executionStatus: record.executionStatus,
@@ -152,28 +154,18 @@ describe('public catalog schema', () => {
       const overviewPath = join(overviewRoot, 'index.mdx');
       const source = readFileSync(overviewPath, 'utf8');
       const headerTags = source.match(/<ExampleHeader\b[\s\S]*?\/>/g) ?? [];
-      const boundaryTags = source.match(/<SystemBoundary\b[\s\S]*?\/>/g) ?? [];
       assert.equal(
         headerTags.length,
         1,
         `${record.id} must render one ExampleHeader`
-      );
-      assert.equal(
-        boundaryTags.length,
-        1,
-        `${record.id} must render one SystemBoundary`
       );
       assert.match(
         headerTags[0],
         new RegExp(`\\bexampleId=["']${record.id}["']`),
         `${record.id} header must bind its catalog record`
       );
-      assert.match(
-        boundaryTags[0],
-        new RegExp(`\\bexampleId=["']${record.id}["']`),
-        `${record.id} boundary must bind its catalog record`
-      );
-      assert.doesNotMatch(boundaryTags[0], /\b(?:nodes|flows)=/);
+      assert.doesNotMatch(source, /<SystemBoundary\b/);
+      assert.doesNotMatch(source, /^## Limitations/m);
       assert.equal(
         existsSync(join(overviewRoot, 'boundary.ts')),
         false,

@@ -6,7 +6,7 @@ import {
   readFileSync,
   statSync,
 } from 'node:fs';
-import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { basename, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { PUBLIC_CATALOG } from '../src/catalog/registry';
@@ -118,7 +118,6 @@ function verifyOverviewPageBinding(
   const source = readFileSync(mdxPath, 'utf8');
   const relativePath = relative(repositoryRoot, mdxPath);
   const headerTags = source.match(/<ExampleHeader\b[\s\S]*?\/>/g) ?? [];
-  const boundaryTags = source.match(/<SystemBoundary\b[\s\S]*?\/>/g) ?? [];
 
   if (headerTags.length !== 1) {
     errors.push(
@@ -134,32 +133,11 @@ function verifyOverviewPageBinding(
     );
   }
 
-  if (boundaryTags.length !== 1) {
-    errors.push(
-      `${relativePath} must render exactly one catalog-bound SystemBoundary; found ${boundaryTags.length}`
-    );
-  } else {
-    if (
-      !new RegExp(`\\bexampleId=["']${escapeRegExp(record.id)}["']`).test(
-        boundaryTags[0]
-      )
-    ) {
-      errors.push(
-        `${relativePath} SystemBoundary does not bind catalog id ${record.id}`
-      );
-    }
-    if (/\b(?:nodes|flows)=/.test(boundaryTags[0])) {
-      errors.push(
-        `${relativePath} SystemBoundary must not accept freehand nodes or flows`
-      );
-    }
+  if (/<SystemBoundary\b/.test(source)) {
+    errors.push(`${relativePath} must not render the retired SystemBoundary`);
   }
-
-  const duplicateBoundaryPath = join(dirname(mdxPath), 'boundary.ts');
-  if (existsSync(duplicateBoundaryPath)) {
-    errors.push(
-      `${relative(repositoryRoot, duplicateBoundaryPath)} duplicates canonical catalog topology`
-    );
+  if (/^## Limitations/m.test(source)) {
+    errors.push(`${relativePath} must not render a limitations section`);
   }
 }
 

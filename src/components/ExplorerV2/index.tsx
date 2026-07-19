@@ -14,11 +14,6 @@ import {
 } from '../../analytics/events';
 import { REMOVE_PII_EXPLORER_EVIDENCE } from '../../catalog/schema';
 import { normalizeExplorerStages } from './normalize';
-import {
-  mobilePanelTabs,
-  nextMobilePanel,
-  type MobilePanelName,
-} from './panelTabs';
 import styles from './styles.module.css';
 import type {
   ExplorerDiffState,
@@ -33,7 +28,7 @@ import type {
 const diffLabels: Record<ExplorerDiffState, string> = {
   added: 'Added',
   removed: 'Removed',
-  changed: 'Changed',
+  changed: 'Updated',
   unchanged: 'Unchanged',
 };
 
@@ -49,18 +44,6 @@ const provenanceLabels: Record<ExplorerProvenanceKind, string> = {
   'deterministic-simulation': 'Deterministic simulation',
   'curated-explanation': 'Curated explanation',
 };
-
-const executionLabels = {
-  'offline-runnable': 'Offline runnable',
-  'requires-integration': 'Requires integration',
-  'architecture-only': 'Architecture only',
-} as const;
-
-const operationalEvidenceLabels = {
-  'not-assessed': 'Not assessed',
-  'component-tested': 'Component tested',
-  'operating-envelope-tested': 'Operating envelope tested',
-} as const;
 
 const payloadFormatLabels: Record<ExplorerPayloadFormat, string> = {
   json: 'JSON',
@@ -190,9 +173,6 @@ export default function ExplorerV2({
     operationalEvidence: evidence!.operationalEvidence,
     fixtureLabel: evidence!.fixturePath.split('/').at(-1) ?? 'Fixture',
   };
-  const executionStatus = executionLabels[explorerPresentation.executionStatus];
-  const operationalEvidence =
-    operationalEvidenceLabels[explorerPresentation.operationalEvidence];
   const normalized = useMemo(() => {
     try {
       const serialized = JSON.stringify(rawStages);
@@ -233,16 +213,10 @@ export default function ExplorerV2({
     query.get('view') ===
       (comparisonMode === 'highlights' ? 'highlights' : 'changes')
   );
-  const [usesTabbedPanels, setUsesTabbedPanels] = useState(false);
-  const [mobilePanel, setMobilePanel] = useState<MobilePanelName>('output');
   const [status, setStatus] = useState('');
   const [statusKind, setStatusKind] = useState<'success' | 'error'>('success');
   const activeStageRef = useRef<HTMLButtonElement | null>(null);
   const stageRailRef = useRef<HTMLDivElement | null>(null);
-  const yamlPanelRef = useRef<HTMLDetailsElement | null>(null);
-  const mobileTabRefs = useRef<
-    Partial<Record<MobilePanelName, HTMLButtonElement | null>>
-  >({});
   const focusStageAfterChangeRef = useRef(false);
   const normalizedInvalidStageRef = useRef<string | null>(null);
 
@@ -255,6 +229,12 @@ export default function ExplorerV2({
     currentStage.rawInput ?? serializeLines(currentStage.inputLines);
   const rawOutput =
     currentStage.rawOutput ?? serializeLines(currentStage.outputLines);
+  const isFinalStage = currentIndex === stages.length - 1;
+  const visibleYaml =
+    isFinalStage && fullYaml ? fullYaml : currentStage.yamlCode;
+  const visibleYamlFilename =
+    isFinalStage && fullYaml ? fullYamlFilename : currentStage.yamlFilename;
+  const visibleYamlScope = isFinalStage && fullYaml ? 'full' : 'stage';
   const changeCounts = useMemo(
     () => ({
       added: currentStage.outputLines.filter((line) => line.state === 'added')
@@ -315,7 +295,9 @@ export default function ExplorerV2({
     const rail = stageRailRef.current;
     if (button && rail) {
       const targetLeft =
-        button.offsetLeft - (rail.clientWidth - button.offsetWidth) / 2;
+        button.offsetLeft -
+        rail.offsetLeft -
+        (rail.clientWidth - button.offsetWidth) / 2;
       rail.scrollTo({ left: Math.max(0, targetLeft), behavior: 'auto' });
     }
     if (focusStageAfterChangeRef.current) {
@@ -323,14 +305,6 @@ export default function ExplorerV2({
       focusStageAfterChangeRef.current = false;
     }
   }, [currentIndex, explorerIssue]);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(max-width: 1023px)');
-    const updatePanelSemantics = () => setUsesTabbedPanels(mediaQuery.matches);
-    updatePanelSemantics();
-    mediaQuery.addEventListener('change', updatePanelSemantics);
-    return () => mediaQuery.removeEventListener('change', updatePanelSemantics);
-  }, []);
 
   function selectStage(
     index: number,
@@ -371,22 +345,6 @@ export default function ExplorerV2({
     selectStage(nextIndex, 'keyboard', true);
   }
 
-  function handleCompactStageKeyDown(
-    event: React.KeyboardEvent<HTMLSelectElement>
-  ) {
-    let nextIndex = currentIndex;
-    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp')
-      nextIndex = Math.max(0, currentIndex - 1);
-    else if (event.key === 'ArrowRight' || event.key === 'ArrowDown')
-      nextIndex = Math.min(stages.length - 1, currentIndex + 1);
-    else if (event.key === 'Home') nextIndex = 0;
-    else if (event.key === 'End') nextIndex = stages.length - 1;
-    else return;
-
-    event.preventDefault();
-    selectStage(nextIndex, 'keyboard');
-  }
-
   function updateChangesOnly(nextValue: boolean) {
     setChangesOnly(nextValue);
     setStatus('');
@@ -404,30 +362,6 @@ export default function ExplorerV2({
         nextValue ? filteredView : 'full'
       )
     );
-  }
-
-  function selectMobilePanel(panel: MobilePanelName, focusTab = false) {
-    setMobilePanel(panel);
-    if (focusTab || panel === 'yaml') {
-      window.requestAnimationFrame(() => {
-        if (focusTab) mobileTabRefs.current[panel]?.focus();
-        if (panel === 'yaml' && yamlPanelRef.current) {
-          yamlPanelRef.current.open = true;
-        }
-      });
-    }
-  }
-
-  function handleMobileTabKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-    const focusedPanel = (event.target as HTMLButtonElement).dataset.panel as
-      | MobilePanelName
-      | undefined;
-    if (!focusedPanel) return;
-    const nextPanel = nextMobilePanel(focusedPanel, event.key);
-    if (!nextPanel) return;
-
-    event.preventDefault();
-    selectMobilePanel(nextPanel, true);
   }
 
   async function copyText(
@@ -532,73 +466,75 @@ export default function ExplorerV2({
           <h2 id={`${explorerId}-title`}>{title}</h2>
           {subtitle ? <p className={styles.subtitle}>{subtitle}</p> : null}
         </div>
-        <div className={styles.identityMeta}>
-          <span className={styles.provenance}>
-            {explorerPresentation.label}
-          </span>
-          <dl>
-            <div>
-              <dt>Execution</dt>
-              <dd>{executionStatus}</dd>
-            </div>
-            <div>
-              <dt>Evidence</dt>
-              <dd>{operationalEvidence}</dd>
-            </div>
-            <div>
-              <dt>Evidence source</dt>
-              <dd>{explorerPresentation.fixtureLabel}</dd>
-            </div>
-          </dl>
-        </div>
       </header>
 
-      <div className={styles.mobileStage}>
-        <label htmlFor={`${explorerId}-stage`}>Stage</label>
-        <select
-          id={`${explorerId}-stage`}
-          value={currentStage.slug}
-          onKeyDown={handleCompactStageKeyDown}
-          onChange={(event) =>
-            selectStage(
-              stages.findIndex((stage) => stage.slug === event.target.value),
-              'select'
-            )
-          }
+      <div className={styles.stageNavigator}>
+        <button
+          type="button"
+          className={styles.stageArrow}
+          aria-label="Previous stage"
+          disabled={currentIndex === 0}
+          onClick={() => selectStage(currentIndex - 1, 'previous')}
         >
-          {stages.map((stage, index) => (
-            <option value={stage.slug} key={stage.slug}>
-              {index + 1}. {stage.title}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div
-        className={clsx(styles.stageRail, 'data-pipeline-explorer__stage-rail')}
-        aria-label="Pipeline stages"
-        onKeyDown={handleStageKeyDown}
-        ref={stageRailRef}
-      >
-        {stages.map((stage, index) => {
-          const isCurrent = index === currentIndex;
-          return (
-            <button
-              type="button"
-              className={styles.stageButton}
-              ref={isCurrent ? activeStageRef : undefined}
-              aria-current={isCurrent ? 'step' : undefined}
-              aria-controls={`${explorerId}-stage-panel`}
-              aria-label={`Stage ${index + 1} of ${stages.length}: ${stage.title}${isCurrent ? ', current stage' : ''}`}
-              tabIndex={isCurrent ? 0 : -1}
-              onClick={() => selectStage(index, 'click')}
-              key={stage.slug}
-            >
-              <span>{index + 1}</span>
-              <strong>{stage.title}</strong>
-            </button>
-          );
-        })}
+          <span aria-hidden="true">←</span>
+        </button>
+        <div className={styles.mobileStage}>
+          <label htmlFor={`${explorerId}-stage`}>Stage</label>
+          <select
+            id={`${explorerId}-stage`}
+            value={currentStage.slug}
+            onChange={(event) =>
+              selectStage(
+                stages.findIndex((stage) => stage.slug === event.target.value),
+                'select'
+              )
+            }
+          >
+            {stages.map((stage, index) => (
+              <option value={stage.slug} key={stage.slug}>
+                {index + 1}. {stage.title}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div
+          className={clsx(
+            styles.stageRail,
+            'data-pipeline-explorer__stage-rail'
+          )}
+          aria-label="Pipeline stages"
+          onKeyDown={handleStageKeyDown}
+          ref={stageRailRef}
+        >
+          {stages.map((stage, index) => {
+            const isCurrent = index === currentIndex;
+            return (
+              <button
+                type="button"
+                className={styles.stageButton}
+                ref={isCurrent ? activeStageRef : undefined}
+                aria-current={isCurrent ? 'step' : undefined}
+                aria-controls={`${explorerId}-stage-panel`}
+                aria-label={`Stage ${index + 1} of ${stages.length}: ${stage.title}${isCurrent ? ', current stage' : ''}`}
+                tabIndex={isCurrent ? 0 : -1}
+                onClick={() => selectStage(index, 'click')}
+                key={stage.slug}
+              >
+                <span>{index + 1}</span>
+                <strong>{stage.title}</strong>
+              </button>
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          className={styles.stageArrow}
+          aria-label="Next stage"
+          disabled={currentIndex === stages.length - 1}
+          onClick={() => selectStage(currentIndex + 1, 'next')}
+        >
+          <span aria-hidden="true">→</span>
+        </button>
       </div>
 
       <div
@@ -626,11 +562,11 @@ export default function ExplorerV2({
               <strong>{changeCounts.added}</strong>
               <span>Added</span>
             </li>
-            <li>
+            <li data-change="updated">
               <strong>{changeCounts.changed}</strong>
-              <span>Changed</span>
+              <span>Updated</span>
             </li>
-            <li>
+            <li data-change="removed">
               <strong>{changeCounts.removed}</strong>
               <span>Removed</span>
             </li>
@@ -639,22 +575,6 @@ export default function ExplorerV2({
       </div>
 
       <div className={styles.controlBar}>
-        <div className={styles.stageActions} aria-label="Stage navigation">
-          <button
-            type="button"
-            disabled={currentIndex === 0}
-            onClick={() => selectStage(currentIndex - 1, 'previous')}
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            disabled={currentIndex === stages.length - 1}
-            onClick={() => selectStage(currentIndex + 1, 'next')}
-          >
-            Next
-          </button>
-        </div>
         <label className={styles.toggle}>
           <input
             type="checkbox"
@@ -720,41 +640,7 @@ export default function ExplorerV2({
       </div>
 
       <div
-        className={styles.mobileTabs}
-        role={usesTabbedPanels ? 'tablist' : undefined}
-        aria-label={usesTabbedPanels ? 'Explorer panel' : undefined}
-        aria-orientation={usesTabbedPanels ? 'horizontal' : undefined}
-        onKeyDown={usesTabbedPanels ? handleMobileTabKeyDown : undefined}
-      >
-        {mobilePanelTabs.map((panel) => (
-          <button
-            type="button"
-            role={usesTabbedPanels ? 'tab' : undefined}
-            id={`${explorerId}-${panel.id}-tab`}
-            aria-selected={
-              usesTabbedPanels ? mobilePanel === panel.id : undefined
-            }
-            aria-controls={
-              usesTabbedPanels ? `${explorerId}-${panel.id}-panel` : undefined
-            }
-            data-panel={panel.id}
-            tabIndex={
-              usesTabbedPanels ? (mobilePanel === panel.id ? 0 : -1) : undefined
-            }
-            ref={(element) => {
-              mobileTabRefs.current[panel.id] = element;
-            }}
-            onClick={() => selectMobilePanel(panel.id)}
-            key={panel.id}
-          >
-            {panel.label}
-          </button>
-        ))}
-      </div>
-
-      <div
         className={styles.inspection}
-        data-mobile-panel={mobilePanel}
         data-filtered={changesOnly ? 'true' : 'false'}
       >
         <div className={styles.dataGrid}>
@@ -774,17 +660,6 @@ export default function ExplorerV2({
                   isInput ? styles.inputPanel : styles.outputPanel
                 )}
                 id={`${explorerId}-${panel}-panel`}
-                role={usesTabbedPanels ? 'tabpanel' : undefined}
-                aria-labelledby={
-                  usesTabbedPanels ? `${explorerId}-${panel}-tab` : undefined
-                }
-                tabIndex={
-                  usesTabbedPanels
-                    ? mobilePanel === panel
-                      ? 0
-                      : -1
-                    : undefined
-                }
                 key={panel}
               >
                 <div className={styles.panelHeader}>
@@ -826,23 +701,32 @@ export default function ExplorerV2({
         <section
           className={styles.yamlTabPanel}
           id={`${explorerId}-yaml-panel`}
-          role={usesTabbedPanels ? 'tabpanel' : undefined}
-          aria-labelledby={
-            usesTabbedPanels ? `${explorerId}-yaml-tab` : undefined
-          }
-          tabIndex={
-            usesTabbedPanels ? (mobilePanel === 'yaml' ? 0 : -1) : undefined
-          }
         >
-          <details className={styles.yamlPanel} ref={yamlPanelRef}>
-            <summary>
-              <span>Stage configuration</span>
-              <code>{currentStage.yamlFilename}</code>
-            </summary>
+          <div className={styles.yamlPanel}>
+            <div className={styles.yamlHeader}>
+              <span>
+                {isFinalStage && fullYaml
+                  ? 'Complete pipeline'
+                  : 'Stage configuration'}
+              </span>
+              <code>{visibleYamlFilename}</code>
+              <button
+                type="button"
+                onClick={() =>
+                  copyText(
+                    visibleYaml,
+                    visibleYamlScope === 'full' ? 'Full YAML' : 'Stage YAML',
+                    visibleYamlScope
+                  )
+                }
+              >
+                Copy YAML
+              </button>
+            </div>
             <pre tabIndex={0}>
-              <code>{currentStage.yamlCode}</code>
+              <code>{visibleYaml}</code>
             </pre>
-          </details>
+          </div>
         </section>
       </div>
 

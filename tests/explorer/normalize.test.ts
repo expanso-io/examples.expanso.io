@@ -124,15 +124,14 @@ describe('Explorer V2 stage normalization', () => {
 
 describe('Explorer V2 mobile tab navigation', () => {
   it('wraps horizontal arrow navigation across all panels', () => {
-    assert.equal(nextMobilePanel('input', 'ArrowLeft'), 'yaml');
+    assert.equal(nextMobilePanel('input', 'ArrowLeft'), 'output');
     assert.equal(nextMobilePanel('input', 'ArrowRight'), 'output');
-    assert.equal(nextMobilePanel('output', 'ArrowRight'), 'yaml');
-    assert.equal(nextMobilePanel('yaml', 'ArrowRight'), 'input');
+    assert.equal(nextMobilePanel('output', 'ArrowRight'), 'input');
   });
 
   it('supports Home and End without intercepting unrelated keys', () => {
     assert.equal(nextMobilePanel('output', 'Home'), 'input');
-    assert.equal(nextMobilePanel('input', 'End'), 'yaml');
+    assert.equal(nextMobilePanel('input', 'End'), 'output');
     assert.equal(nextMobilePanel('output', 'Tab'), null);
     assert.equal(nextMobilePanel('output', 'ArrowDown'), null);
   });

@@ -1,5 +1,7 @@
 .explorer {
   --explorer-ui-font-min: max(0.875rem, 14px);
+  --explorer-removed: #f87171;
+  --explorer-updated: #4ade80;
 
   width: min(calc(100% - 2rem), 76rem);
   min-width: 0;
@@ -137,6 +139,13 @@
   font-weight: 650;
 }
 
+.stageNavigator {
+  display: grid;
+  grid-template-columns: 3.5rem minmax(0, 1fr) 3.5rem;
+  align-items: stretch;
+  border-bottom: 1px solid var(--example-border);
+}
+
 .stageRail {
   display: grid;
   grid-auto-columns: minmax(8rem, 1fr);
@@ -144,10 +153,39 @@
   min-width: 0;
   padding-inline: 1.5rem;
   overflow-x: auto;
-  border-bottom: 1px solid var(--example-border);
   overscroll-behavior-x: contain;
   scrollbar-width: thin;
   scroll-snap-type: x proximity;
+}
+
+.stageArrow {
+  display: grid;
+  min-width: 44px;
+  min-height: 4.25rem;
+  place-items: center;
+  color: var(--ifm-font-color-base);
+  font-size: 1.35rem;
+  background: var(--example-surface);
+  border: 0;
+  border-radius: 0;
+}
+
+.stageArrow:first-child {
+  border-right: 1px solid var(--example-border);
+}
+
+.stageArrow:last-child {
+  border-left: 1px solid var(--example-border);
+}
+
+.stageArrow:hover:not(:disabled) {
+  color: var(--example-accent-on-strong);
+  background: var(--example-accent-strong);
+}
+
+.stageArrow:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
 }
 
 .stageButton {
@@ -199,8 +237,7 @@
   background: var(--example-surface);
 }
 
-.mobileStage,
-.mobileTabs {
+.mobileStage {
   display: none;
 }
 
@@ -294,6 +331,16 @@
   line-height: 1.1;
 }
 
+.changeSummary li[data-change='updated'] strong,
+.changeSummary li[data-change='updated'] span {
+  color: var(--explorer-updated);
+}
+
+.changeSummary li[data-change='removed'] strong,
+.changeSummary li[data-change='removed'] span {
+  color: var(--explorer-removed);
+}
+
 .changeSummary span {
   color: var(--example-text-muted);
   font-size: var(--explorer-ui-font-min);
@@ -311,8 +358,7 @@
   border-bottom: 1px solid var(--example-border);
 }
 
-.toggle,
-.stageActions {
+.toggle {
   display: inline-flex;
   gap: 0.45rem;
   align-items: center;
@@ -330,10 +376,8 @@
   accent-color: var(--ifm-color-primary);
 }
 
-.stageActions button,
 .actionMenu summary,
 .actionMenu button,
-.mobileTabs button,
 .panelHeader button {
   min-height: 44px;
   padding: 0.5rem 0.75rem;
@@ -345,17 +389,10 @@
   border-radius: var(--example-radius-sm);
 }
 
-.stageActions button:hover,
 .actionMenu summary:hover,
 .actionMenu button:hover,
-.mobileTabs button:hover,
 .panelHeader button:hover {
   border-color: var(--ifm-color-primary-lightest);
-}
-
-.stageActions button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
 }
 
 .actionMenu {
@@ -441,8 +478,9 @@
 
 .dataScroll {
   max-width: 100%;
-  height: clamp(19rem, 40vw, 29rem);
-  overflow: auto;
+  height: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
   background: #15111e;
 }
 
@@ -479,13 +517,13 @@
 
 .codeLine[data-diff='added'],
 .codeLine[data-diff='changed'] {
-  background: color-mix(in srgb, var(--example-success) 13%, transparent);
-  border-left-color: var(--example-success);
+  background: color-mix(in srgb, var(--explorer-updated) 13%, transparent);
+  border-left-color: var(--explorer-updated);
 }
 
 .codeLine[data-diff='removed'] {
-  background: color-mix(in srgb, var(--example-danger) 12%, transparent);
-  border-left-color: var(--example-danger);
+  background: color-mix(in srgb, var(--explorer-removed) 12%, transparent);
+  border-left-color: var(--explorer-removed);
 }
 
 .codeLine[data-diff='removed'] > span:last-child {
@@ -501,11 +539,11 @@
 
 .codeLine[data-diff='added'] .diffMark,
 .codeLine[data-diff='changed'] .diffMark {
-  color: #8be59c;
+  color: var(--explorer-updated);
 }
 
 .codeLine[data-diff='removed'] .diffMark {
-  color: #ffb4b4;
+  color: var(--explorer-removed);
 }
 
 .empty {
@@ -519,32 +557,45 @@
   border-bottom: 1px solid var(--example-border);
 }
 
-.yamlPanel summary {
+.yamlHeader {
   display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
   align-items: center;
   justify-content: space-between;
   min-height: 3.5rem;
   padding: 0.7rem 1.5rem;
-  cursor: pointer;
+  border-bottom: 1px solid var(--example-border);
 }
 
-.yamlPanel summary span {
+.yamlHeader span {
   font-size: var(--explorer-ui-font-min);
   font-weight: 700;
 }
 
-.yamlPanel summary code {
+.yamlHeader code {
+  flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--example-text-muted);
   font-size: var(--explorer-ui-font-min);
 }
 
+.yamlHeader button {
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  color: var(--ifm-font-color-base);
+  font-size: var(--explorer-ui-font-min);
+  font-weight: 650;
+  background: var(--example-surface);
+  border: 1px solid var(--example-border-strong);
+  border-radius: var(--example-radius-sm);
+}
+
 .yamlPanel pre {
-  max-height: 28rem;
   margin: 0;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
   font-size: var(--explorer-ui-font-min);
   border-radius: 0;
 }
@@ -565,11 +616,14 @@
     display: none;
   }
 
+  .stageNavigator {
+    grid-template-columns: 3.5rem minmax(0, 1fr) 3.5rem;
+  }
+
   .mobileStage {
     display: grid;
     gap: 0.35rem;
     padding: 0.85rem 1rem;
-    border-bottom: 1px solid var(--example-border);
   }
 
   .mobileStage label {
@@ -608,37 +662,12 @@
     border-left: 0;
   }
 
-  .mobileTabs {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.4rem;
-    padding: 0.6rem 1rem;
-    border-bottom: 1px solid var(--example-border);
-  }
-
-  .mobileTabs button[aria-selected='true'] {
-    color: var(--example-accent-on-strong);
-    background: var(--example-accent-strong);
-    border-color: var(--example-accent-strong);
-  }
-
   .dataGrid {
     display: block;
   }
 
   .dataPanel + .dataPanel {
     border-left: 0;
-  }
-
-  .inspection[data-mobile-panel='input'] .outputPanel,
-  .inspection[data-mobile-panel='output'] .inputPanel,
-  .inspection[data-mobile-panel='yaml'] .dataGrid,
-  .inspection:not([data-mobile-panel='yaml']) .yamlTabPanel {
-    display: none;
-  }
-
-  .inspection[data-mobile-panel='yaml'] .yamlTabPanel {
-    display: block;
   }
 }
 
@@ -682,11 +711,6 @@
     padding: 0.75rem 1rem;
   }
 
-  .stageActions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-  }
-
   .toggle {
     width: fit-content;
   }
@@ -701,25 +725,7 @@
     margin-top: 0.4rem;
   }
 
-  .mobileTabs {
-    padding-inline: 1rem;
-  }
-
-  .mobileTabs button {
-    min-width: 0;
-    padding-inline: 0.25rem;
-    font-size: var(--explorer-ui-font-min);
-  }
-
-  .dataScroll {
-    height: clamp(14rem, 38vh, 22rem);
-  }
-
-  .inspection[data-filtered='true'] .dataScroll {
-    height: clamp(10rem, 25vh, 14rem);
-  }
-
-  .yamlPanel summary,
+  .yamlHeader,
   .status {
     padding-inline: 1rem;
   }
@@ -729,10 +735,5 @@
   .stageButton[aria-current='step'],
   .codeLine[data-diff] {
     border-color: Highlight;
-  }
-
-  .mobileTabs button[aria-selected='true'] {
-    color: HighlightText;
-    background: Highlight;
   }
 }
