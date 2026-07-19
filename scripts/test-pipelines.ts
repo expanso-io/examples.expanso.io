@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -511,10 +512,12 @@ async function executeRemovePii(
     const config = extractBenthosConfig(pipelineBytes);
 
     runtimeRoot = mkdtempSync(join(repositoryRoot, '.pipeline-fixture-'));
+    chmodSync(runtimeRoot, 0o755);
     const outputDirectory = join(runtimeRoot, 'output');
     mkdirSync(outputDirectory);
+    chmodSync(outputDirectory, 0o777);
     const configPath = join(runtimeRoot, 'benthos.yaml');
-    writeFileSync(configPath, config, { encoding: 'utf8', mode: 0o600 });
+    writeFileSync(configPath, config, { encoding: 'utf8', mode: 0o444 });
 
     await runDocker(
       ['pull', fixture.image],
