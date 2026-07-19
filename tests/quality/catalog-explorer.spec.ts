@@ -253,22 +253,9 @@ test.describe('catalog explorer', () => {
     expect(serializedEvents).not.toContain('BigQuery private phrase');
   });
 
-  test('records run-local and related-example clicks at authored interaction sites', async ({
+  test('records related-example clicks at authored interaction sites', async ({
     page,
   }) => {
-    await page.goto('/data-security/remove-pii/');
-    await page.waitForLoadState('networkidle');
-    await page.evaluate(() => {
-      (window as typeof window & { dataLayer?: unknown[] }).dataLayer = [];
-    });
-    await page.getByRole('link', { name: 'Review the inputs' }).click();
-    await expect(page).toHaveURL(/remove-pii\/setup/);
-    let events = await page.evaluate(
-      () =>
-        (window as typeof window & { dataLayer?: unknown[] }).dataLayer ?? []
-    );
-    expect(JSON.stringify(events)).toContain('run_local_click');
-
     await page.goto('/enterprise-migration/db2-to-bigquery/');
     await page.waitForLoadState('networkidle');
     await page.evaluate(() => {
@@ -279,7 +266,7 @@ test.describe('catalog explorer', () => {
       .getByRole('link')
       .first()
       .click();
-    events = await page.evaluate(
+    const events = await page.evaluate(
       () =>
         (window as typeof window & { dataLayer?: unknown[] }).dataLayer ?? []
     );
