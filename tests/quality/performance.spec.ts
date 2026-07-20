@@ -117,10 +117,11 @@ async function measureExplorerStageTransition(
     } else {
       target.click();
     }
+    // Measure synchronous event and render work only. The frame settles the UI
+    // for the next transition and is deliberately outside the metric.
+    const scriptingMs = performance.now() - started;
     return new Promise<number>((resolveFrame) =>
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => resolveFrame(performance.now() - started))
-      )
+      requestAnimationFrame(() => resolveFrame(scriptingMs))
     );
   }, index);
 }

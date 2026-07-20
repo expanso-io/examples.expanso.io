@@ -44,6 +44,30 @@ const config: Config = {
 
   headTags: [
     {
+      tagName: 'link',
+      attributes: {
+        rel: 'preload',
+        href: '/fonts/figtree-latin-400-700.woff2',
+        as: 'font',
+        type: 'font/woff2',
+        crossorigin: 'anonymous',
+        fetchpriority: 'high',
+      },
+    },
+    {
+      tagName: 'style',
+      attributes: {},
+      innerHTML: `
+        @font-face {
+          font-family: 'Figtree';
+          font-style: normal;
+          font-weight: 400 700;
+          font-display: swap;
+          src: url('/fonts/figtree-latin-400-700.woff2') format('woff2');
+        }
+      `,
+    },
+    {
       tagName: 'script',
       attributes: {},
       innerHTML: `
