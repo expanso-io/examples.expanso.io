@@ -2,10 +2,24 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   getAnalyticsConsent,
+  PRIVACY_SAFE_CAPTURE_OPTIONS,
   readCookie,
   sanitizeAnalyticsEvent,
   sanitizeAnalyticsUrl,
 } from './analytics';
+
+test('explicitly disables every implicit capture surface', () => {
+  assert.deepEqual(PRIVACY_SAFE_CAPTURE_OPTIONS, {
+    autocapture: false,
+    capture_dead_clicks: false,
+    capture_exceptions: false,
+    capture_heatmaps: false,
+    capture_pageleave: false,
+    capture_pageview: false,
+    capture_performance: false,
+    disable_session_recording: true,
+  });
+});
 
 test('reads only the exact consent cookie', () => {
   const cookies = 'unrelated=true; expanso-cookie-consent=false; other=1';

@@ -2,6 +2,16 @@ import type { BeforeSendFn, PostHogInterface, Properties } from 'posthog-js';
 
 export const ANALYTICS_SITE_HOST = 'examples.expanso.io';
 export const CONSENT_COOKIE_NAME = 'expanso-cookie-consent';
+export const PRIVACY_SAFE_CAPTURE_OPTIONS = {
+  autocapture: false,
+  capture_dead_clicks: false,
+  capture_exceptions: false,
+  capture_heatmaps: false,
+  capture_pageleave: false,
+  capture_pageview: false,
+  capture_performance: false,
+  disable_session_recording: true,
+} as const;
 
 const POSTHOG_API_HOST = 'https://ph.expanso.io';
 const POSTHOG_PROJECT_KEY = 'phc_f467hBf7ZUEc5HDT3xFcbhZ4tL7wUYJH0COw9Y2bzSK';
@@ -98,11 +108,7 @@ export async function initializeAnalytics(): Promise<PostHogInterface> {
           defaults: '2026-01-30',
           persistence:
             currentConsent() === 'granted' ? 'localStorage+cookie' : 'memory',
-          autocapture: false,
-          capture_pageview: false,
-          capture_pageleave: false,
-          capture_heatmaps: false,
-          disable_session_recording: true,
+          ...PRIVACY_SAFE_CAPTURE_OPTIONS,
           advanced_disable_feature_flags: true,
           advanced_disable_toolbar_metrics: true,
           disable_capture_url_hashes: true,
