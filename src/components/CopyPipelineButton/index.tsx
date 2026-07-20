@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useState } from 'react';
+import { captureExampleEvent } from '@site/src/lib/analytics';
 
 type CopyStatus = 'idle' | 'success' | 'error';
 
@@ -107,6 +108,12 @@ export default function CopyPipelineButton({
     try {
       const copied = await copyWithFallback(pipeline.trim());
       setCopyStatus(copied ? 'success' : 'error');
+      if (copied) {
+        captureExampleEvent('example_pipeline_copied', {
+          pipeline_source: yamlUrl ? 'static_yaml' : 'inline',
+          yaml_path: yamlUrl?.split(/[?#]/, 1)[0],
+        });
+      }
     } catch {
       setCopyStatus('error');
     }

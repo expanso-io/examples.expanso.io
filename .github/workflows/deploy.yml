@@ -67,6 +67,11 @@ jobs:
             echo "sha=$SUBJECT_SHA"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Checkout release verification scripts
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.subject.outputs.sha }}
+
       - name: Verify successful main-branch foundation run
         id: foundation
         env:
@@ -219,6 +224,9 @@ jobs:
           }
           appendFileSync(process.env.GITHUB_OUTPUT, `content_sha256=${contentSha256}\n`);
           NODE
+
+      - name: Verify built IndexNow key
+        run: npm run verify:indexnow -- --build-dir build
 
       - name: Scan public artifact for private content
         run: |
@@ -393,3 +401,11 @@ jobs:
             canary
           if-no-files-found: error
           retention-days: 90
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.publish-artifact.outputs.subject_sha }}
+
+      - name: Verify production IndexNow key
+        run: npm run verify:indexnow -- --production https://examples.expanso.io

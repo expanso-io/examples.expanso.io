@@ -131,11 +131,14 @@ describe('analytics event schema v1', () => {
     );
   });
 
-  it('keeps the dataLayer push centralized in the privacy boundary', () => {
+  it('keeps dataLayer writes centralized in analytics privacy boundaries', () => {
     const files = globSync('src/**/*.{ts,tsx}', { nodir: true }).sort();
     const writers = files.filter((path) =>
       /dataLayer\??\.push\(/.test(readFileSync(path, 'utf8'))
     );
-    assert.deepEqual(writers, ['src/analytics/events.ts']);
+    assert.deepEqual(writers, [
+      'src/analytics/events.ts',
+      'src/lib/analytics.ts',
+    ]);
   });
 });

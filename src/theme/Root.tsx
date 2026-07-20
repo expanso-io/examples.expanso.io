@@ -1,4 +1,4 @@
-import React, { useEffect, type ReactNode } from 'react';
+import React, { useEffect, useState, type ReactNode } from 'react';
 import { useLocation } from '@docusaurus/router';
 
 import {
@@ -10,6 +10,12 @@ import {
   recordAnalyticsEvent,
 } from '../analytics/events';
 import { PUBLIC_CATALOG } from '../catalog/registry';
+import {
+  CONSENT_COOKIE_NAME,
+  getAnalyticsConsent,
+  setAnalyticsConsent,
+  updateGtmConsent,
+} from '../lib/analytics';
 
 interface RootProps {
   children: ReactNode;
@@ -32,6 +38,15 @@ function relatedExamplesBlock(anchor: HTMLAnchorElement): boolean {
  */
 export default function Root({ children }: RootProps): React.JSX.Element {
   const location = useLocation();
+  const [showConsent, setShowConsent] = useState(false);
+
+  useEffect(() => {
+    const consent = getAnalyticsConsent(document.cookie, CONSENT_COOKIE_NAME);
+    setShowConsent(consent === 'unset');
+    if (consent !== 'unset') {
+      updateGtmConsent(consent === 'granted');
+    }
+  }, []);
 
   useEffect(() => {
     const pathname = `/${location.pathname.split('/').filter(Boolean).join('/')}/`;
@@ -90,5 +105,40 @@ export default function Root({ children }: RootProps): React.JSX.Element {
     return () => document.removeEventListener('click', handleClick, true);
   }, []);
 
-  return <>{children}</>;
+  const chooseConsent = (granted: boolean) => {
+    setShowConsent(false);
+    updateGtmConsent(granted);
+    void setAnalyticsConsent(granted);
+  };
+
+  return (
+    <>
+      {children}
+      {showConsent && (
+        <aside
+          className="analytics-consent"
+          aria-label="Cookie consent"
+          role="dialog"
+        >
+          <p>
+            We use cookies to remember your analytics choice and understand how
+            people use these examples.{' '}
+            <a href="https://expanso.io/privacy">Learn more</a>
+          </p>
+          <div className="analytics-consent__actions">
+            <button type="button" onClick={() => chooseConsent(false)}>
+              Decline
+            </button>
+            <button
+              type="button"
+              className="button button--primary"
+              onClick={() => chooseConsent(true)}
+            >
+              Accept
+            </button>
+          </div>
+        </aside>
+      )}
+    </>
+  );
 }

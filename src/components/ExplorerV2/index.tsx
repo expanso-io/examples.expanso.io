@@ -13,6 +13,7 @@ import {
   type ExplorerNavigationMethod,
 } from '../../analytics/events';
 import { REMOVE_PII_EXPLORER_EVIDENCE } from '../../catalog/schema';
+import { captureExampleEvent } from '../../lib/analytics';
 import { normalizeExplorerStages } from './normalize';
 import styles from './styles.module.css';
 import type {
@@ -219,6 +220,7 @@ export default function ExplorerV2({
   const stageRailRef = useRef<HTMLDivElement | null>(null);
   const focusStageAfterChangeRef = useRef(false);
   const normalizedInvalidStageRef = useRef<string | null>(null);
+  const hasCapturedEngagementRef = useRef(false);
 
   const currentStage = stages[currentIndex];
   if (!currentStage) throw new Error('Explorer requires at least one stage');
@@ -330,6 +332,14 @@ export default function ExplorerV2({
     recordAnalyticsEvent(
       createExplorerStageChangeEvent(exampleId, slug, method)
     );
+    if (!hasCapturedEngagementRef.current) {
+      hasCapturedEngagementRef.current = true;
+      captureExampleEvent('example_explorer_engaged', {
+        control: method,
+        destination_stage: index + 1,
+        stage_count: stages.length,
+      });
+    }
   }
 
   function handleStageKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
