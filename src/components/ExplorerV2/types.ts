@@ -75,6 +75,6 @@ export interface ExplorerV2Props {
   subtitle?: string;
   fullYaml?: string;
   fullYamlFilename?: string;
-  presentation?: ExplorerPresentation;
+  presentation: ExplorerPresentation;
   comparisonMode?: 'diff' | 'highlights';
 }

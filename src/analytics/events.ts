@@ -57,6 +57,43 @@ export const EXAMPLE_OPERATIONAL_EVIDENCE = [
 export type ExampleOperationalEvidence =
   (typeof EXAMPLE_OPERATIONAL_EVIDENCE)[number];
 
+export const PUBLIC_EXAMPLE_IDS = [
+  'circuit-breakers',
+  'content-routing',
+  'content-splitting',
+  'fan-out-pattern',
+  'priority-queues',
+  'smart-buffering',
+  'cross-border-gdpr',
+  'encrypt-data',
+  'encryption-patterns',
+  'enforce-schema',
+  'remove-pii',
+  'aggregate-time-windows',
+  'deduplicate-events',
+  'normalize-timestamps',
+  'parse-logs',
+  'transform-formats',
+  'db2-to-bigquery',
+  'nightly-backup',
+  'medical-device-intelligence',
+  'motherduck-retail-analytics',
+  'oran-telco-pipeline',
+  'scada-energy-edge',
+  'splunk-edge-processing',
+  'enrich-export',
+  'filter-severity',
+  'production-pipeline',
+] as const;
+
+const PUBLIC_EXAMPLE_ID_SET = new Set<string>(PUBLIC_EXAMPLE_IDS);
+
+export interface ExampleAnalyticsClassification {
+  exampleId: string;
+  executionStatus: ExampleExecutionStatus;
+  operationalEvidence: ExampleOperationalEvidence;
+}
+
 interface AnalyticsEventBase {
   event_schema_version: typeof ANALYTICS_EVENT_SCHEMA_VERSION;
 }
@@ -516,7 +553,20 @@ export function exampleIdFromCatalogPath(pathname: string): string | null {
   const segments = pathname.split('/').filter(Boolean);
   if (segments.length < 2) return null;
   const candidate = segments[1];
-  return candidate && NORMALIZED_ID_PATTERN.test(candidate) ? candidate : null;
+  return candidate && PUBLIC_EXAMPLE_ID_SET.has(candidate) ? candidate : null;
+}
+
+export function exampleAnalyticsClassification(
+  pathname: string
+): ExampleAnalyticsClassification | null {
+  const exampleId = exampleIdFromCatalogPath(pathname);
+  if (exampleId === null) return null;
+  return {
+    exampleId,
+    executionStatus:
+      exampleId === 'remove-pii' ? 'offline-runnable' : 'architecture-only',
+    operationalEvidence: 'not-assessed',
+  };
 }
 
 export function isRunLocalPath(pathname: string): boolean {

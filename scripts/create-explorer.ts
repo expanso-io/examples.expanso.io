@@ -228,16 +228,13 @@ claimsPolicyDigest: ${CLAIMS_POLICY_DIGEST}
 }
 
 function overviewPage(config: ExplorerConfig): string {
-  const executionLimit =
-    config.executionStatus === 'requires-integration'
-      ? `- This generated route requires ${config.integration}; no maintained-environment evidence is bound.`
-      : '- This generated route is architecture-only and has no runtime evidence.';
   return `${frontmatter(config, 'overview')}
 
-import { ExampleHeader, Limitations } from '@site/src/components/ExamplePage';
+import { ExampleHeader } from '@site/src/components/ExamplePage';
 
 <ExampleHeader
   title="${config.title}"
+  problem="Replace this sentence with the customer problem."
   outcome="Replace this sentence with one bounded, inspectable outcome."
   primaryAction={{ href: './explorer', label: 'Inspect the pipeline' }}
   difficulty="advanced"
@@ -246,19 +243,6 @@ import { ExampleHeader, Limitations } from '@site/src/components/ExamplePage';
   expectedTime={{ inspectMinutes: 5 }}
   verifiedAt="2026-07-18"
 />
-
-## System boundary
-
-Define native, adapter, custom-code, and external nodes in the typed catalog before publishing.
-
-## Limitations
-
-<Limitations>
-
-${executionLimit}
-- Replace placeholder content with machine-verified fixture, topology, and claim records.
-
-</Limitations>
 `;
 }
 
@@ -280,6 +264,13 @@ This unpublished ${config.payloadFormat} payload draft must be bound to canonica
   subtitle="Draft evidence surface"
   fullYaml={fullYaml}
   fullYamlFilename="pipeline.yaml"
+  presentation={{
+    kind: 'curated-explanation',
+    label: 'Curated explanation',
+    executionStatus: '${config.executionStatus}',
+    operationalEvidence: 'not-assessed',
+    fixtureLabel: 'Replace with fixture name',
+  }}
 />
 `;
 }

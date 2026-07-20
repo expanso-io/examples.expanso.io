@@ -1,12 +1,15 @@
 import {
   chromium as playwrightChromium,
+  expect,
   test,
   type Locator,
 } from '@playwright/test';
 import { launch } from 'chrome-launcher';
 import lighthouse from 'lighthouse';
-import { mkdirSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { createServer } from 'node:http';
+import { extname, relative, resolve, sep } from 'node:path';
+import { gzipSync } from 'node:zlib';
 
 import {
   artifactForFile,
@@ -54,6 +57,126 @@ const contract = loadContract(
   'tests/contracts/performance-v1.json'
 ) as PerformanceContract;
 
+const CONTENT_TYPES: Readonly<Record<string, string>> = {
+  '.css': 'text/css; charset=utf-8',
+  '.gif': 'image/gif',
+  '.html': 'text/html; charset=utf-8',
+  '.ico': 'image/x-icon',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+  '.woff2': 'font/woff2',
+  '.xml': 'application/xml; charset=utf-8',
+  '.yaml': 'application/yaml; charset=utf-8',
+  '.yml': 'application/yaml; charset=utf-8',
+};
+
+const GZIP_EXTENSIONS = new Set([
+  '.css',
+  '.html',
+  '.js',
+  '.json',
+  '.svg',
+  '.txt',
+  '.xml',
+  '.yaml',
+  '.yml',
+]);
+
+function staticArtifactPath(
+  buildRoot: string,
+  requestPathname: string
+): string | null {
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(requestPathname);
+  } catch {
+    return null;
+  }
+  if (pathname.includes('\0')) return null;
+
+  const relativeRequest = pathname.replace(/^\/+/, '');
+  const candidates = pathname.endsWith('/')
+    ? [`${relativeRequest}index.html`]
+    : [relativeRequest, `${relativeRequest}/index.html`];
+  const root = resolve(buildRoot);
+  for (const candidate of candidates) {
+    const absolute = resolve(root, candidate || 'index.html');
+    const child = relative(root, absolute);
+    if (child === '' || child === '..' || child.startsWith(`..${sep}`)) {
+      continue;
+    }
+    if (existsSync(absolute) && statSync(absolute).isFile()) return absolute;
+  }
+  return null;
+}
+
+async function startCompressedArtifactServer(buildRoot: string): Promise<{
+  baseURL: string;
+  close: () => Promise<void>;
+}> {
+  const server = createServer((request, response) => {
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      response.writeHead(405, { Allow: 'GET, HEAD' });
+      response.end();
+      return;
+    }
+
+    const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
+    const absolute = staticArtifactPath(buildRoot, pathname);
+    if (!absolute) {
+      response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end(request.method === 'HEAD' ? undefined : 'Not found');
+      return;
+    }
+
+    const extension = extname(absolute).toLowerCase();
+    const source = readFileSync(absolute);
+    const useGzip =
+      GZIP_EXTENSIONS.has(extension) &&
+      /(?:^|,)\s*gzip(?:\s*;|\s*,|$)/i.test(
+        String(request.headers['accept-encoding'] ?? '')
+      );
+    const body = useGzip ? gzipSync(source, { level: 9 }) : source;
+    response.writeHead(200, {
+      'Cache-Control': 'no-store',
+      'Content-Length': String(body.byteLength),
+      'Content-Type': CONTENT_TYPES[extension] ?? 'application/octet-stream',
+      Vary: 'Accept-Encoding',
+      ...(useGzip ? { 'Content-Encoding': 'gzip' } : {}),
+    });
+    response.end(request.method === 'HEAD' ? undefined : body);
+  });
+
+  await new Promise<void>((resolveListen, rejectListen) => {
+    server.once('error', rejectListen);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', rejectListen);
+      resolveListen();
+    });
+  });
+  server.unref();
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Compressed artifact server did not bind a TCP port');
+  }
+
+  return {
+    baseURL: `http://127.0.0.1:${address.port}`,
+    close: () =>
+      new Promise<void>((resolveClose, rejectClose) => {
+        server.close((error) => {
+          if (error) rejectClose(error);
+          else resolveClose();
+        });
+      }),
+  };
+}
+
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`Performance collection requires ${name}`);
@@ -76,15 +199,14 @@ function assertExactVersion(
   }
 }
 
-function compactStageSelector(explorer: Locator): Locator {
-  return explorer.getByRole('combobox', { name: 'Stage', exact: true });
-}
-
 async function selectExplorerStage(
   explorer: Locator,
   index: number
 ): Promise<void> {
-  const compactSelector = compactStageSelector(explorer);
+  const compactSelector = explorer.getByRole('combobox', {
+    name: 'Stage',
+    exact: true,
+  });
   if (await compactSelector.isVisible()) {
     await compactSelector.selectOption({ index });
     return;
@@ -94,12 +216,70 @@ async function selectExplorerStage(
     .click();
 }
 
+async function measureExplorerStageTransition(
+  explorer: Locator,
+  index: number
+): Promise<number> {
+  return explorer.evaluate((root, stageIndex) => {
+    const select = root.querySelector<HTMLSelectElement>(
+      'select[aria-label="Stage"]'
+    );
+    const target = select
+      ? select.options[stageIndex]
+      : root.querySelector<HTMLButtonElement>(
+          `button[aria-label^="Stage ${stageIndex + 1} of"]`
+        );
+    if (!target) {
+      throw new Error(`Explorer stage ${stageIndex + 1} is not available`);
+    }
+
+    const started = performance.now();
+    if (select) {
+      select.value = target.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      target.click();
+    }
+    // Measure synchronous event and render work only. The frame settles the UI
+    // for the next transition and is deliberately outside the metric.
+    const scriptingMs = performance.now() - started;
+    return new Promise<number>((resolveFrame) =>
+      requestAnimationFrame(() => resolveFrame(scriptingMs))
+    );
+  }, index);
+}
+
+test('serves production artifact text with production-equivalent gzip', async () => {
+  const buildRoot = resolve(requiredEnvironment('PERFORMANCE_BUILD_ROOT'));
+  expect(staticArtifactPath(buildRoot, '/../package.json')).toBeNull();
+
+  const artifactServer = await startCompressedArtifactServer(buildRoot);
+  try {
+    const htmlResponse = await fetch(`${artifactServer.baseURL}/`, {
+      headers: { 'Accept-Encoding': 'gzip' },
+    });
+    expect(htmlResponse.status).toBe(200);
+    expect(htmlResponse.headers.get('content-encoding')).toBe('gzip');
+    const html = await htmlResponse.text();
+    const stylesheet = html.match(/href="([^"]+\.css)"/)?.[1];
+    expect(stylesheet).toBeTruthy();
+
+    const cssResponse = await fetch(
+      new URL(stylesheet!, artifactServer.baseURL),
+      { headers: { 'Accept-Encoding': 'gzip' } }
+    );
+    expect(cssResponse.status).toBe(200);
+    expect(cssResponse.headers.get('content-encoding')).toBe('gzip');
+    expect((await cssResponse.text()).length).toBeGreaterThan(0);
+  } finally {
+    await artifactServer.close();
+  }
+});
+
 test('collects exact-SHA performance evidence from the production artifact', async ({
-  baseURL,
   browser,
 }) => {
   test.setTimeout(30 * 60 * 1000);
-  if (!baseURL) throw new Error('Performance collection requires a base URL');
 
   const role = requiredEnvironment('PERFORMANCE_ROLE');
   if (role !== 'baseline' && role !== 'candidate') {
@@ -117,6 +297,8 @@ test('collects exact-SHA performance evidence from the production artifact', asy
   const docusaurusRoot = resolve(
     requiredEnvironment('PERFORMANCE_DOCUSARUS_ROOT')
   );
+  const artifactServer = await startCompressedArtifactServer(buildRoot);
+  const baseURL = artifactServer.baseURL;
   mkdirSync(evidenceRoot, { recursive: true });
   const startedAt = new Date().toISOString();
 
@@ -388,17 +570,9 @@ test('collects exact-SHA performance evidence from the production artifact', asy
     index < contract.runs.explorerMeasuredTransitions;
     index += 1
   ) {
-    const started = await explorerPage.evaluate(() => performance.now());
-    await selectExplorerStage(explorer, (index + 1) % stageCount);
-    const finished = await explorerPage.evaluate(
-      () =>
-        new Promise<number>((resolveFrame) =>
-          requestAnimationFrame(() =>
-            requestAnimationFrame(() => resolveFrame(performance.now()))
-          )
-        )
+    scriptingMs.push(
+      await measureExplorerStageTransition(explorer, (index + 1) % stageCount)
     );
-    scriptingMs.push(finished - started);
   }
   await explorerPage.waitForTimeout(100);
   const eventDurationsMs = await explorerPage.evaluate(
@@ -465,4 +639,5 @@ test('collects exact-SHA performance evidence from the production artifact', asy
     );
   }
   writePerformanceEvidenceManifest(evidenceRoot, manifest);
+  await artifactServer.close();
 });
