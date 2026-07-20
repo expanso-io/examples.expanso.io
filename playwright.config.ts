@@ -2,6 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 const port = Number(process.env.QUALITY_PORT ?? 4173);
 const baseURL = process.env.QUALITY_BASE_URL ?? `http://127.0.0.1:${port}`;
+const testURL = new URL(baseURL);
 
 export default defineConfig({
   testDir: './tests/quality',
@@ -23,6 +24,21 @@ export default defineConfig({
     browserName: 'chromium',
     colorScheme: 'dark',
     reducedMotion: 'no-preference',
+    storageState: {
+      cookies: [
+        {
+          name: 'expanso-cookie-consent',
+          value: 'false',
+          domain: testURL.hostname,
+          path: '/',
+          expires: -1,
+          httpOnly: false,
+          secure: testURL.protocol === 'https:',
+          sameSite: 'Lax',
+        },
+      ],
+      origins: [],
+    },
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
     video: 'retain-on-failure',
