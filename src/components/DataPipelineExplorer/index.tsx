@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { DataPipelineExplorerProps, JsonLine } from './types';
 import { transformStages } from './stageTransformer';
+import { captureExampleEvent } from '@site/src/lib/analytics';
 
 const DataPipelineExplorer: React.FC<DataPipelineExplorerProps> = ({
   stages: rawStages,
@@ -16,6 +17,19 @@ const DataPipelineExplorer: React.FC<DataPipelineExplorerProps> = ({
 
   const [currentStage, setCurrentStage] = useState(1);
   const activeStageButtonRef = useRef<HTMLButtonElement | null>(null);
+  const hasCapturedEngagement = useRef(false);
+
+  const setStageWithAnalytics = (stageId: number, control: string) => {
+    setCurrentStage(stageId);
+    if (!hasCapturedEngagement.current) {
+      hasCapturedEngagement.current = true;
+      captureExampleEvent('example_explorer_engaged', {
+        control,
+        destination_stage: stageId,
+        stage_count: stages.length,
+      });
+    }
+  };
 
   useEffect(() => {
     activeStageButtonRef.current?.scrollIntoView({
@@ -41,18 +55,18 @@ const DataPipelineExplorer: React.FC<DataPipelineExplorerProps> = ({
 
   const handlePrevious = () => {
     if (currentStage > 1) {
-      setCurrentStage(currentStage - 1);
+      setStageWithAnalytics(currentStage - 1, 'previous');
     }
   };
 
   const handleNext = () => {
     if (currentStage < stages.length) {
-      setCurrentStage(currentStage + 1);
+      setStageWithAnalytics(currentStage + 1, 'next');
     }
   };
 
   const handleStageClick = (stageId: number) => {
-    setCurrentStage(stageId);
+    setStageWithAnalytics(stageId, 'stage_button');
   };
 
   const currentStageData = stages.find((s) => s.id === currentStage);
