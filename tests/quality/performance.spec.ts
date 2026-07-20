@@ -76,15 +76,14 @@ function assertExactVersion(
   }
 }
 
-function compactStageSelector(explorer: Locator): Locator {
-  return explorer.getByRole('combobox', { name: 'Stage', exact: true });
-}
-
 async function selectExplorerStage(
   explorer: Locator,
   index: number
 ): Promise<void> {
-  const compactSelector = compactStageSelector(explorer);
+  const compactSelector = explorer.getByRole('combobox', {
+    name: 'Stage',
+    exact: true,
+  });
   if (await compactSelector.isVisible()) {
     await compactSelector.selectOption({ index });
     return;
@@ -92,6 +91,38 @@ async function selectExplorerStage(
   await explorer
     .getByRole('button', { name: new RegExp(`Stage ${index + 1} of`) })
     .click();
+}
+
+async function measureExplorerStageTransition(
+  explorer: Locator,
+  index: number
+): Promise<number> {
+  return explorer.evaluate((root, stageIndex) => {
+    const select = root.querySelector<HTMLSelectElement>(
+      'select[aria-label="Stage"]'
+    );
+    const target = select
+      ? select.options[stageIndex]
+      : root.querySelector<HTMLButtonElement>(
+          `button[aria-label^="Stage ${stageIndex + 1} of"]`
+        );
+    if (!target) {
+      throw new Error(`Explorer stage ${stageIndex + 1} is not available`);
+    }
+
+    const started = performance.now();
+    if (select) {
+      select.value = target.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      target.click();
+    }
+    return new Promise<number>((resolveFrame) =>
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => resolveFrame(performance.now() - started))
+      )
+    );
+  }, index);
 }
 
 test('collects exact-SHA performance evidence from the production artifact', async ({
@@ -388,17 +419,9 @@ test('collects exact-SHA performance evidence from the production artifact', asy
     index < contract.runs.explorerMeasuredTransitions;
     index += 1
   ) {
-    const started = await explorerPage.evaluate(() => performance.now());
-    await selectExplorerStage(explorer, (index + 1) % stageCount);
-    const finished = await explorerPage.evaluate(
-      () =>
-        new Promise<number>((resolveFrame) =>
-          requestAnimationFrame(() =>
-            requestAnimationFrame(() => resolveFrame(performance.now()))
-          )
-        )
+    scriptingMs.push(
+      await measureExplorerStageTransition(explorer, (index + 1) % stageCount)
     );
-    scriptingMs.push(finished - started);
   }
   await explorerPage.waitForTimeout(100);
   const eventDurationsMs = await explorerPage.evaluate(

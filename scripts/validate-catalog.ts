@@ -6,7 +6,7 @@ import {
   readFileSync,
   statSync,
 } from 'node:fs';
-import { basename, join, relative, resolve, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { PUBLIC_CATALOG } from '../src/catalog/registry';
@@ -76,36 +76,64 @@ function verifyExplorerPageBinding(
     errors.push(`record ${record.id} Explorer has no completePipelinePath`);
     return;
   }
-  const rawSpecifier = `!!raw-loader!@site/${pipelinePath}`;
+  const familyTarget = join(
+    repositoryRoot,
+    'src/catalog/explorerStageFamilies.generated',
+    record.id
+  );
+  const familyRelative = relative(dirname(mdxPath), familyTarget).replaceAll(
+    sep,
+    '/'
+  );
+  const familySpecifier = familyRelative.startsWith('.')
+    ? familyRelative
+    : `./${familyRelative}`;
   const importMatch = source.match(
     new RegExp(
-      `import\\s+([A-Za-z_$][\\w$]*)\\s+from\\s+["']${escapeRegExp(rawSpecifier)}["'];?`
+      `import\\s+\\{\\s*GENERATED_EXPLORER_STAGE_FAMILY\\s+as\\s+([A-Za-z_$][\\w$]*)\\s*\\}\\s+from\\s+["']${escapeRegExp(familySpecifier)}["'];?`
     )
   );
   if (!importMatch) {
     errors.push(
-      `${relativePath} does not import canonical Explorer pipeline ${pipelinePath}`
+      `${relativePath} does not import generated Explorer family ${record.id}`
     );
     return;
   }
-  const yamlIdentifier = importMatch[1];
+  const familyIdentifier = importMatch[1];
+  const stagesImportMatch = source.match(
+    new RegExp(
+      `import\\s+\\{\\s*GENERATED_EXPLORER_STAGES\\s+as\\s+([A-Za-z_$][\\w$]*)\\s*\\}\\s+from\\s+["']${escapeRegExp(familySpecifier)}["'];?`
+    )
+  );
+  if (!stagesImportMatch) {
+    errors.push(
+      `${relativePath} does not import generated Explorer stages ${record.id}`
+    );
+    return;
+  }
+  const stagesIdentifier = stagesImportMatch[1];
   if (
-    !new RegExp(`\\bfullYaml=\\{${escapeRegExp(yamlIdentifier)}\\}`).test(
+    !new RegExp(
+      `\\bgeneratedFamily=\\{${escapeRegExp(familyIdentifier)}\\}`
+    ).test(component[1]) ||
+    !new RegExp(`\\bstages=\\{${escapeRegExp(stagesIdentifier)}\\}`).test(
       component[1]
     )
   ) {
     errors.push(
-      `${relativePath} does not expose the canonical pipeline as fullYaml`
+      `${relativePath} does not bind the generated family and stages`
     );
   }
-  const expectedFilename = basename(pipelinePath);
   if (
     !new RegExp(
-      `\\bfullYamlFilename=["']${escapeRegExp(expectedFilename)}["']`
+      `\\bfullYaml=\\{${escapeRegExp(familyIdentifier)}\\.fullYaml\\}`
+    ).test(component[1]) ||
+    !new RegExp(
+      `\\bfullYamlFilename=\\{${escapeRegExp(familyIdentifier)}\\.fullYamlFilename\\}`
     ).test(component[1])
   ) {
     errors.push(
-      `${relativePath} does not bind canonical fullYamlFilename ${expectedFilename}`
+      `${relativePath} does not expose the generated canonical pipeline`
     );
   }
 }

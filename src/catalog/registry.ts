@@ -10,7 +10,7 @@ import {
   type TopologyNode,
   type TopologyNodeKind,
 } from './schema';
-import { GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE } from './explorerStageConfigs.generated';
+import { GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE } from './explorerEvidence.generated';
 
 const REVIEW_DATE = '2026-07-18';
 const INSPECT_ASSUMPTIONS =

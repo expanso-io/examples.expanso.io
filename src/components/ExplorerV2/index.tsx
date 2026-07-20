@@ -12,7 +12,6 @@ import {
   type ExplorerCopyScope,
   type ExplorerNavigationMethod,
 } from '../../analytics/events';
-import { REMOVE_PII_EXPLORER_EVIDENCE } from '../../catalog/schema';
 import { captureExampleEvent } from '../../lib/analytics';
 import { normalizeExplorerStages } from './normalize';
 import styles from './styles.module.css';
@@ -20,9 +19,6 @@ import type {
   ExplorerDiffState,
   ExplorerLine,
   ExplorerPayloadFormat,
-  ExplorerPresentation,
-  ExplorerProvenance,
-  ExplorerProvenanceKind,
   ExplorerV2Props,
 } from './types';
 
@@ -40,24 +36,12 @@ const diffMarks: Record<ExplorerDiffState, string> = {
   unchanged: ' ',
 };
 
-const provenanceLabels: Record<ExplorerProvenanceKind, string> = {
-  'executed-pipeline': 'Executed pipeline',
-  'deterministic-simulation': 'Deterministic simulation',
-  'curated-explanation': 'Curated explanation',
-};
-
 const payloadFormatLabels: Record<ExplorerPayloadFormat, string> = {
   json: 'JSON',
   text: 'text',
   binary: 'binary data',
   tabular: 'table',
   route: 'route map',
-};
-
-const explorerEvidenceByExampleId: Readonly<
-  Record<string, ExplorerProvenance>
-> = {
-  [REMOVE_PII_EXPLORER_EVIDENCE.exampleId]: REMOVE_PII_EXPLORER_EVIDENCE,
 };
 
 type DataPanelName = 'input' | 'output';
@@ -158,22 +142,7 @@ export default function ExplorerV2({
   const history = useHistory();
   const location = useLocation();
   const explorerId = useId();
-  const evidence = explorerEvidenceByExampleId[exampleId];
-  if (!evidence && !presentation) {
-    throw new Error(
-      `Explorer evidence is absent from the catalog: ${exampleId}`
-    );
-  }
-  if (evidence && evidence.exampleId !== exampleId) {
-    throw new Error(`Explorer evidence id does not match: ${exampleId}`);
-  }
-  const explorerPresentation: ExplorerPresentation = presentation ?? {
-    kind: evidence!.kind,
-    label: provenanceLabels[evidence!.kind],
-    executionStatus: evidence!.executionStatus,
-    operationalEvidence: evidence!.operationalEvidence,
-    fixtureLabel: evidence!.fixturePath.split('/').at(-1) ?? 'Fixture',
-  };
+  const explorerPresentation = presentation;
   const normalized = useMemo(() => {
     try {
       const serialized = JSON.stringify(rawStages);
@@ -468,7 +437,6 @@ export default function ExplorerV2({
       data-example-id={exampleId}
       data-provenance={explorerPresentation.kind}
       data-comparison-mode={comparisonMode}
-      data-verification-id={evidence?.verificationId}
     >
       <header className={styles.identity}>
         <div className={styles.identityCopy}>

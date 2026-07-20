@@ -166,10 +166,8 @@ describe('create-explorer draft generator', () => {
 
     assert.match(files.overview, /executionStatus: architecture-only/);
     assert.match(files.overview, /executionStatus="architecture-only"/);
-    assert.match(
-      files.overview,
-      /architecture-only and has no runtime evidence/
-    );
+    assert.match(files.overview, /problem="Replace this sentence/);
+    assert.doesNotMatch(files.overview, /System boundary|Limitations/);
   });
 
   it('generates an explicit canonical Explorer identity and full-pipeline binding', () => {
@@ -200,7 +198,7 @@ describe('create-explorer draft generator', () => {
 
     assert.match(files.overview, /executionStatus: requires-integration/);
     assert.match(files.overview, /executionStatus="requires-integration"/);
-    assert.match(files.overview, /requires Example object store/);
+    assert.doesNotMatch(files.overview, /System boundary|Limitations/);
     assert.match(files.reference, /result for Example object store/);
   });
 

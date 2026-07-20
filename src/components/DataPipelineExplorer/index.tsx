@@ -1,5 +1,4 @@
 import React, { useMemo } from 'react';
-import { resolveCatalogExplorerBinding } from '../../catalog/explorerBinding';
 import { bindCanonicalExplorerStages } from '../../catalog/explorerStageBinding';
 import ExplorerV2 from '../ExplorerV2';
 import type { ExplorerPresentation } from '../ExplorerV2';
@@ -14,24 +13,30 @@ const provenanceLabels: Record<ExplorerPresentation['kind'], string> = {
 const DataPipelineExplorer: React.FC<DataPipelineExplorerProps> = ({
   exampleId,
   stages: rawStages,
+  generatedFamily,
   fullYaml,
   fullYamlFilename,
   title = 'DATA PIPELINE',
   subtitle = 'Curated configuration walkthrough',
 }) => {
-  const binding = useMemo(
-    () => resolveCatalogExplorerBinding(exampleId),
-    [exampleId]
-  );
+  const binding = useMemo(() => {
+    if (generatedFamily.binding.exampleId !== exampleId) {
+      throw new Error(
+        `Explorer generated family does not match route: ${exampleId}`
+      );
+    }
+    return generatedFamily.binding;
+  }, [exampleId, generatedFamily]);
   const stages = useMemo(
     () =>
       bindCanonicalExplorerStages(
         binding,
         rawStages,
         fullYaml,
-        fullYamlFilename
+        fullYamlFilename,
+        generatedFamily
       ),
-    [binding, fullYaml, fullYamlFilename, rawStages]
+    [binding, fullYaml, fullYamlFilename, generatedFamily, rawStages]
   );
   const presentation: ExplorerPresentation = {
     kind: binding.provenance,
