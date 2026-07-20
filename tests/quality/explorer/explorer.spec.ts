@@ -164,13 +164,27 @@ test('semantic colors and the final complete pipeline stay explicit', async ({
     'rgb(248, 113, 113)'
   );
 
-  const stageCount = await explorer
+  await page.evaluate(() => window.localStorage.setItem('theme', 'light'));
+  await page.reload({ waitUntil: 'networkidle' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  const lightExplorer = page.locator('[data-explorer-version="2"]');
+  await selectStage(lightExplorer, 1);
+  await expect(lightExplorer.getByText('Updated', { exact: true })).toHaveCSS(
+    'color',
+    'rgb(4, 120, 87)'
+  );
+  await expect(lightExplorer.getByText('Removed', { exact: true })).toHaveCSS(
+    'color',
+    'rgb(185, 28, 28)'
+  );
+
+  const stageCount = await lightExplorer
     .locator('button[aria-label^="Stage "]')
     .count();
   expect(stageCount).toBeGreaterThan(1);
-  await selectStage(explorer, stageCount - 1);
+  await selectStage(lightExplorer, stageCount - 1);
 
-  const yamlPanel = explorer.locator('[id$="-yaml-panel"]');
+  const yamlPanel = lightExplorer.locator('[id$="-yaml-panel"]');
   await expect(
     yamlPanel.getByText('Complete pipeline', { exact: true })
   ).toBeVisible();
