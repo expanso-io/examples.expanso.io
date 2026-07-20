@@ -8,6 +8,7 @@ const snapshotStyle = join(
 const transformationRoute = '/data-security/remove-pii/explorer';
 const architectureRoute = '/data-routing/content-routing/explorer';
 const themes = ['light', 'dark'] as const;
+const analyticsConsentCookie = 'expanso-cookie-consent';
 
 const screenshotOptions = {
   animations: 'disabled' as const,
@@ -23,6 +24,16 @@ async function visitStable(
   route: string,
   theme: (typeof themes)[number]
 ): Promise<void> {
+  const testOrigin =
+    process.env.QUALITY_BASE_URL ??
+    `http://127.0.0.1:${process.env.QUALITY_PORT ?? '4173'}`;
+  await page.context().addCookies([
+    {
+      name: analyticsConsentCookie,
+      value: 'false',
+      url: testOrigin,
+    },
+  ]);
   await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
   await page.addInitScript(
     (nextTheme) => window.localStorage.setItem('theme', nextTheme),
