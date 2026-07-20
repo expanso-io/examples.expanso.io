@@ -1,14 +1,23 @@
 ---
-title: "Advanced Encryption Patterns"
-sidebar_label: "Step 5: Advanced Patterns"
+title: 'Advanced Encryption Patterns'
+sidebar_label: 'Step 5: Advanced Patterns'
 sidebar_position: 8
-description: Explore advanced encryption patterns like multi-key strategy and compliance monitoring.
-keywords: [encryption, advanced-patterns, multi-key, compliance, gdpr, hipaa]
+description: Review unverified variants for multiple keys, audit metadata, and key versions.
+keywords: [encryption, advanced-patterns, multi-key, audit]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-encryption-patterns-step-5-advanced-patterns]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Advanced Encryption Patterns
 
-The patterns you've learned—encrypting payment, personal, and location data—form the foundation of a strong data protection strategy. This section briefly covers more advanced concepts for production environments.
+The earlier patterns illustrate field selection. These advanced sketches add key-version and transformation metadata; they still require an external key system, access model, and execution tests.
 
 For a more detailed guide on these topics, please see the **[Advanced Encryption Patterns in the Encrypting Data tutorial](/data-security/encrypt-data/step-4-advanced-patterns)**.
 
@@ -23,9 +32,9 @@ Using a single encryption key for all data is risky. A better pattern is to use 
 
 This strategy limits the "blast radius" if a single key is ever compromised. You implement this by simply calling the `encrypt_aes` function with the appropriate key environment variable for each field, as demonstrated in the previous steps.
 
-## Pattern 2: Compliance Audit Logging
+## Pattern 2: Transformation audit metadata
 
-For regulations like HIPAA and GDPR, you must maintain an audit trail of how and why data was encrypted. This can be done by adding a final processor to your pipeline that sends an audit log to a secure endpoint.
+The following processor emits authored metadata about which transformation ran and why. A real audit design needs an independently protected destination, access rules, retention, and tested failure handling.
 
 ```yaml title="Add an Audit Log Processor"
 - mapping: |
@@ -43,7 +52,7 @@ For regulations like HIPAA and GDPR, you must maintain an audit trail of how and
       "pipeline_id": "encrypt-production-v3"
     }
 
-    # Send the audit log to a secure endpoint (fire-and-forget)
+    # Send metadata to a separately managed audit endpoint
     _ = http_client(
       env("AUDIT_ENDPOINT_URL"),
       {"verb": "POST", "timeout": "2s"},
@@ -63,4 +72,4 @@ To handle key rotation, the version of the key used for encryption should be sto
     )
 ```
 
-A corresponding decryption service would then parse the version, retrieve the correct key (`CARD_ENCRYPTION_KEY_V2`), and perform the decryption. This ensures you can always decrypt historical data even after keys have been rotated.
+A corresponding decryption service would parse the version and retrieve the referenced key. Historical decryption still depends on retained keys, authorization, metadata integrity, and tested recovery procedures.

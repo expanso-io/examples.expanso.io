@@ -1,0 +1,163 @@
+{
+  "$schema": "./schemas/quality-contract-v1.schema.json",
+  "contractId": "performance-v1",
+  "contractVersion": "1.0.0",
+  "contractSha256": "5ebd53134803fa98c72cdd398a5dfc1c95e542ba933c106e615eba05b9d00a04",
+  "digest": {
+    "algorithm": "sha256",
+    "canonicalization": "sorted-json-utf8-v1",
+    "selfFieldValue": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "commands": {
+    "validate": "npm run quality:contracts",
+    "run": "npm run quality:performance -- --baseline <baseline-manifest> --candidate <candidate-manifest> --baseline-sha <sha> --candidate-sha <sha> --environment-id <id> --output <result>"
+  },
+  "resultSchema": "tests/contracts/schemas/performance-result-v1.schema.json",
+  "evidenceSchema": "tests/contracts/schemas/performance-evidence-v1.schema.json",
+  "schemaBindings": {
+    "evidence": {
+      "path": "tests/contracts/schemas/performance-evidence-v1.schema.json",
+      "sha256": "9336d8d1ab4bdd9e2a7c3660cd87a9e18b03abbf65ada3dcfef821ea1ff5238d"
+    },
+    "result": {
+      "path": "tests/contracts/schemas/performance-result-v1.schema.json",
+      "sha256": "9e95686bbff43570ce58d94a97e0b5f4b672a20369d68b7bb243d2bebb49de14"
+    }
+  },
+  "harnessBindings": {
+    "collector": {
+      "path": "tests/quality/performance.spec.ts",
+      "sha256": "80083904b030334dc02d682d2ac627c6b3ba960da9a34aba4901fb87c366848e"
+    },
+    "reducer": {
+      "path": "scripts/quality/reduce-performance.ts",
+      "sha256": "9a8a5cab901190c4cfcb329d3a30551ac73f557c07e8f8942c46ed447503e28a"
+    },
+    "evidence": {
+      "path": "scripts/quality/performance-evidence.ts",
+      "sha256": "624642faf4d84fe24b3db5c49d7d1f3dbdbf06175eb7ac0a80442a78701b44e6"
+    }
+  },
+  "reducerBehavior": {
+    "missingManifest": "FAIL",
+    "schemaInvalid": "FAIL",
+    "digestMismatch": "FAIL",
+    "requiredResultMissing": "UNKNOWN",
+    "contractMismatch": "FAIL",
+    "localFailure": "FAIL",
+    "optionalCapabilityUnavailable": "BLOCKED_CAPABILITY"
+  },
+  "tools": {
+    "node": "20.19.4",
+    "playwright": "1.55.1",
+    "chromium": "140.0.7339.186",
+    "lighthouse": "12.8.2"
+  },
+  "routes": {
+    "inventory": {
+      "source": "build/sitemap.xml",
+      "required": true
+    },
+    "required": [
+      {
+        "id": "catalog",
+        "path": "/"
+      },
+      {
+        "id": "remove-pii-pilot",
+        "path": "/data-security/remove-pii/explorer"
+      },
+      {
+        "id": "scada-pilot",
+        "path": "/integrations/scada-energy-edge/explorer"
+      },
+      {
+        "id": "runtime-proof",
+        "path": "/data-routing/disconnected-edge/explorer",
+        "availableWhen": "W5"
+      }
+    ]
+  },
+  "fixtures": [
+    {
+      "id": "remove-pii-input",
+      "path": "examples/data-security/remove-pii/sample-data.json",
+      "sha256": "f27d41e0954e0501730fd1c718b4b4c885fb839ba73af7971ea0351732d5dab2"
+    },
+    {
+      "id": "scada-input",
+      "path": "examples/integrations/scada-energy-edge/input.txt",
+      "sha256": "f33c4590a9407613b38d7f4ced67bcf601d46aa3bafb8e309a22407013b5898c"
+    }
+  ],
+  "profiles": {
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "deviceScaleFactor": 3,
+      "cpuSlowdown": 4,
+      "latencyMs": 150,
+      "downloadKbps": 1600,
+      "uploadKbps": 750
+    },
+    "desktop": {
+      "width": 1440,
+      "height": 900,
+      "deviceScaleFactor": 1,
+      "cpuSlowdown": 1,
+      "latencyMs": 40,
+      "downloadKbps": 10000,
+      "uploadKbps": 10000
+    }
+  },
+  "themes": ["dark", "light"],
+  "cacheModes": ["cold-page-load", "warm-explorer-interaction"],
+  "runs": {
+    "pageLoadsPerCell": 7,
+    "discardOutliers": false,
+    "explorerWarmups": 3,
+    "explorerMeasuredTransitions": 30
+  },
+  "aggregation": {
+    "pageLoad": "p75",
+    "transferredGzipBytes": "max",
+    "explorerScripting": "p95"
+  },
+  "requiredEvidence": [
+    "baselineSha",
+    "candidateSha",
+    "fixtureIds",
+    "stageIds",
+    "toolVersions",
+    "timestamps",
+    "rawTraces",
+    "environmentId"
+  ],
+  "evidenceFreshness": {
+    "maxAgeMinutes": 120,
+    "maxFutureSkewMinutes": 5,
+    "sameEnvironmentRequired": true
+  },
+  "assetAttribution": {
+    "source": "docusaurus-production-chunk-manifest-v1",
+    "shared": "entrypoint-assets",
+    "explorer": "route-assets-excluding-shared",
+    "compression": "gzip-level-9"
+  },
+  "thresholds": {
+    "sharedJavaScriptGzipBytes": 184320,
+    "explorerIncrementGzipBytes": 25600,
+    "globalCssGzipBytes": 25600,
+    "mobileLcpMsP75": 2500,
+    "mobileClsP75Exclusive": 0.1,
+    "mobileInpMsP75": 200,
+    "explorerScriptingMsP95Exclusive": 100,
+    "pageOverflowCssPixels": 0
+  },
+  "comparison": {
+    "baselineRequired": true,
+    "candidateRequired": true,
+    "contractDigestMustMatch": true,
+    "missingFieldData": "UNKNOWN"
+  }
+}

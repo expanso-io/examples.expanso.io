@@ -4,6 +4,15 @@ sidebar_label: Step 3 - Add S3
 sidebar_position: 6
 description: Add AWS S3 as a long-term archive destination to your fan-out pipeline.
 keywords: [s3, archive, storage, aws, broker, fan-out]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-fan-out-pattern-step-3-add-s3]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 3: Add S3 for Long-Term Archive
@@ -56,9 +65,11 @@ You will modify your `fan-out.yaml` file to send messages to a local file, a Kaf
                 count: 10
                 period: 10s
     ```
-    Note that we've added a small `batching` configuration. S3 works best with larger files rather than many small ones, so even for a simple example, batching is important.
+
+    The example adds a small `batching` configuration. Choose real batch thresholds from measured object size, arrival rate, upload behavior, and downstream query needs.
 
 3.  **Configure AWS Credentials:** Ensure your environment is configured with AWS credentials. The simplest way for local development is to set the following environment variables:
+
     ```bash
     export AWS_ACCESS_KEY_ID="YOUR_KEY_ID"
     export AWS_SECRET_ACCESS_KEY="YOUR_SECRET_KEY"
@@ -67,6 +78,7 @@ You will modify your `fan-out.yaml` file to send messages to a local file, a Kaf
     ```
 
 4.  **Deploy and Test:**
+
     ```bash
     # Send a test event
     curl -X POST http://localhost:8080/events \
@@ -75,8 +87,8 @@ You will modify your `fan-out.yaml` file to send messages to a local file, a Kaf
     ```
 
 5.  **Verify:**
-    *   Check the local file `/tmp/events.jsonl`.
-    *   Check the `sensor-events` Kafka topic.
-    *   Check your S3 bucket. After the batch period (10 seconds), you should see a new file in the `events/` directory.
+    - Check the local file `/tmp/events.jsonl`.
+    - Check the `sensor-events` Kafka topic.
+    - Check your S3 bucket. After the batch period (10 seconds), you should see a new file in the `events/` directory.
 
 You have now built a pipeline that concurrently routes data to three different types of systems: local file, a message queue, and object storage.

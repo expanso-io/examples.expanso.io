@@ -11,17 +11,31 @@ on:
       - main
     paths:
       - 'docs/**/*-full.stages.ts'
+      - 'docs/**/stages.ts'
       - 'docs/**/*.mdx'
-      - 'scripts/validate-stages.ts'
+      - 'examples/explorer-stages/**/*.yaml'
+      - 'content/explorer-stage-bindings-v1.json'
+      - 'src/catalog/explorerStageConfigs.generated.ts'
+      - 'src/catalog/explorerStageBinding.ts'
+      - 'src/catalog/explorerBinding.ts'
+      - 'src/catalog/registry.ts'
+      - 'src/catalog/schema.ts'
+      - 'scripts/generate-explorer-stage-configs.ts'
+      - 'scripts/quality/verify-explorer-provenance.ts'
+      - 'scripts/validate-catalog.ts'
+      - 'tests/catalog/catalog.test.ts'
+      - 'tests/explorer/catalogBinding.test.ts'
+      - 'tests/explorer/stageConfigGenerator.test.ts'
       - 'scripts/validate-cli-commands.ts'
       - 'scripts/setup-binaries.ts'
-      - 'scripts/sync-stages.ts'
       - 'scripts/run-with-expanso.ts'
       - 'scripts/test-pipelines.ts'
       - 'scripts/validate-yaml.ts'
       - 'examples/**/*.yaml'
       - 'docker-compose.yml'
       - '.github/workflows/validate-stages.yml'
+      - 'package.json'
+      - 'package-lock.json'
 
 jobs:
   validate:
@@ -45,7 +59,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate canonical Explorer stage ownership
+        run: npm run stages:canonical
 
+      - name: Run canonical stage generator negative tests
+        run: npm run test-stage-configs
+
+      - name: Run strict YAML validator negative tests
+        run: npm run test-yaml-validator
 
       - name: Docker login (for pulling images, optional but recommended)
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin || true
@@ -55,9 +76,6 @@ jobs:
 
       - name: Validate CLI Commands in Docs
         run: npm run validate-cli
-
-      - name: Run stage validation (TS files)
-        run: npm run validate-stages
 
       - name: Run YAML validation (Expanso CLI)
         run: npm run validate-yaml
@@ -74,5 +92,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '❌ **Validation failed**\n\nPlease run these commands locally to see errors:\n- `npm run setup-binaries` - Download CLI binaries\n- `npm run validate-cli` - Validate CLI commands in docs\n- `npm run validate-stages` - Validate stage files\n- `npm run sync-stages` - Sync stage YAMLs\n- `npm run validate-yaml` - Validate YAML files\n- `npm run test-pipelines` - Test pipelines'
+              body: '❌ **Validation failed**\n\nPlease run these commands locally to see errors:\n- `npm run stages:canonical` - Validate canonical Explorer stage ownership\n- `npm run setup-binaries` - Download CLI binaries\n- `npm run validate-cli` - Validate CLI commands in docs\n- `npm run validate-yaml` - Validate YAML files\n- `npm run test-pipelines` - Test pipelines'
             })

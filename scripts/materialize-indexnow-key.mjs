@@ -28,4 +28,3 @@ await writeFile(path.join(targetRoot, `${key}.txt`), key, {
   mode: 0o644,
 });
 console.log('IndexNow protocol verification file materialized.');
-

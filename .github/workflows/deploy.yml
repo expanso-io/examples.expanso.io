@@ -1,41 +1,229 @@
 name: Deploy to GitHub Pages
 
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows: ['Phase 1 Foundation']
+    types: [completed]
   workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Phase 1 Foundation workflow run id
+        required: true
+        type: string
+      subject_sha:
+        description: Exact 40-character commit SHA bound to that run
+        required: true
+        type: string
 
 permissions:
+  actions: read
   contents: read
   pages: write
   id-token: write
 
 concurrency:
-  group: "pages"
+  group: pages
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build Docusaurus
+  publish-artifact:
+    name: Publish verified artifact
+    if: >-
+      ${{
+        (github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.head_branch == 'main') ||
+        github.event_name == 'workflow_dispatch'
+      }}
     runs-on: ubuntu-latest
+    outputs:
+      subject_sha: ${{ steps.subject.outputs.sha }}
+      foundation_run_id: ${{ steps.subject.outputs.run_id }}
+      foundation_run_attempt: ${{ steps.foundation.outputs.run_attempt }}
+      artifact_content_sha256: ${{ steps.artifact.outputs.content_sha256 }}
     steps:
-      - name: Checkout repository
+      - name: Resolve release subject
+        id: subject
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          AUTOMATIC_RUN_ID: ${{ github.event.workflow_run.id }}
+          AUTOMATIC_SUBJECT_SHA: ${{ github.event.workflow_run.head_sha }}
+          MANUAL_RUN_ID: ${{ inputs.run_id }}
+          MANUAL_SUBJECT_SHA: ${{ inputs.subject_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            RUN_ID="$AUTOMATIC_RUN_ID"
+            SUBJECT_SHA="$AUTOMATIC_SUBJECT_SHA"
+          else
+            RUN_ID="$MANUAL_RUN_ID"
+            SUBJECT_SHA="$MANUAL_SUBJECT_SHA"
+          fi
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$SUBJECT_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ ! "$SUBJECT_SHA" =~ ^0+$ ]]
+          {
+            echo "run_id=$RUN_ID"
+            echo "sha=$SUBJECT_SHA"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release verification scripts
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: ${{ steps.subject.outputs.sha }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Verify successful main-branch foundation run
+        id: foundation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_RUN_ID: ${{ steps.subject.outputs.run_id }}
+          EXPECTED_SUBJECT_SHA: ${{ steps.subject.outputs.sha }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${EXPECTED_REPOSITORY}/actions/runs/${EXPECTED_RUN_ID}" > "$RUNNER_TEMP/foundation.json"
+          node --input-type=module - <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          const run = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/foundation.json`, 'utf8'));
+          const path = String(run.path ?? '').split('@')[0];
+          const valid =
+            String(run.id) === process.env.EXPECTED_RUN_ID &&
+            run.name === 'Phase 1 Foundation' &&
+            path === '.github/workflows/phase1-foundation.yml' &&
+            run.status === 'completed' &&
+            run.conclusion === 'success' &&
+            run.head_branch === 'main' &&
+            run.head_sha === process.env.EXPECTED_SUBJECT_SHA &&
+            run.head_repository?.full_name === process.env.EXPECTED_REPOSITORY &&
+            Number.isInteger(run.run_attempt) &&
+            run.run_attempt >= 1;
+          if (!valid) throw new Error('Foundation run is not an exact successful main-branch subject');
+          appendFileSync(process.env.GITHUB_OUTPUT, `run_attempt=${run.run_attempt}\n`);
+          NODE
+
+      - name: Download exact-SHA production artifact
+        uses: actions/download-artifact@v4
         with:
-          node-version: '20.x'
-          cache: 'npm'
+          name: production-build-${{ steps.subject.outputs.sha }}
+          path: build
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ steps.subject.outputs.run_id }}
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Verify immutable artifact and all-gates evidence
+        id: artifact
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_RUN_ID: ${{ steps.subject.outputs.run_id }}
+          EXPECTED_RUN_ATTEMPT: ${{ steps.foundation.outputs.run_attempt }}
+          EXPECTED_SUBJECT_SHA: ${{ steps.subject.outputs.sha }}
+        run: |
+          node --input-type=module - <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { appendFileSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
+          import { join, relative, sep } from 'node:path';
 
-      - name: Build website
-        run: npm run build
+          const subject = JSON.parse(readFileSync('build/release-subject.json', 'utf8'));
+          const evidence = JSON.parse(readFileSync('build/release-evidence.json', 'utf8'));
+          for (const value of [subject, evidence]) {
+            if (value.repository !== process.env.EXPECTED_REPOSITORY) throw new Error('repository mismatch');
+            if (value.subjectSha !== process.env.EXPECTED_SUBJECT_SHA) throw new Error('subject SHA mismatch');
+            if (value.foundationRunId && value.foundationRunId !== process.env.EXPECTED_RUN_ID) throw new Error('foundation run mismatch');
+            if (value.foundationRunAttempt && String(value.foundationRunAttempt) !== process.env.EXPECTED_RUN_ATTEMPT) throw new Error('foundation attempt mismatch');
+          }
+          if (subject.manifestVersion !== '1.2.0') throw new Error('unsupported release subject manifest');
+          if (subject.workflowRunId !== process.env.EXPECTED_RUN_ID) throw new Error('artifact workflow run mismatch');
+          if (subject.workflowRunAttempt !== process.env.EXPECTED_RUN_ATTEMPT) throw new Error('artifact workflow attempt mismatch');
+          if (
+            evidence.manifestVersion !== 'site-refresh-release-evidence-v1' ||
+            evidence.releaseScope !== 'viewer-facing-site-refresh' ||
+            evidence.status !== 'PASS'
+          ) {
+            throw new Error('release evidence is not literal PASS');
+          }
+          if (!Array.isArray(evidence.artifacts) || evidence.artifacts.length !== 6 || evidence.artifacts.some((entry) => entry.status !== 'PASS')) {
+            throw new Error('release evidence is incomplete or not PASS');
+          }
+          if (
+            !Array.isArray(evidence.diagnostics) ||
+            evidence.diagnostics.length !== 2 ||
+            evidence.diagnostics.some(
+              (entry) =>
+                entry.releaseBlocking !== false ||
+                !['PASS', 'FAIL', 'UNKNOWN', 'BLOCKED_CAPABILITY'].includes(entry.status)
+            )
+          ) {
+            throw new Error('release diagnostics are missing or were promoted into release gates');
+          }
+
+          const canaryManifestBytes = readFileSync(
+            `build/${subject.canaryManifestPath}`
+          );
+          const canaryManifestSha256 = createHash('sha256')
+            .update(canaryManifestBytes)
+            .digest('hex');
+          if (canaryManifestSha256 !== subject.canaryManifestSha256) {
+            throw new Error('canary manifest digest mismatch');
+          }
+          const canaryManifest = JSON.parse(canaryManifestBytes.toString('utf8'));
+          const expectedRoutes = new Map([
+            ['/', 'index.html'],
+            ['/data-security/remove-pii/', 'data-security/remove-pii/index.html'],
+            ['/data-security/remove-pii/explorer/', 'data-security/remove-pii/explorer/index.html'],
+            ['/data-routing/content-routing/explorer/', 'data-routing/content-routing/explorer/index.html'],
+            ['/sitemap.xml', 'sitemap.xml'],
+          ]);
+          if (
+            canaryManifest.manifestVersion !== 'release-canary-manifest-v1' ||
+            canaryManifest.repository !== process.env.EXPECTED_REPOSITORY ||
+            canaryManifest.subjectSha !== process.env.EXPECTED_SUBJECT_SHA ||
+            !Array.isArray(canaryManifest.routes) ||
+            canaryManifest.routes.length !== expectedRoutes.size
+          ) {
+            throw new Error('canary manifest identity or coverage mismatch');
+          }
+          for (const entry of canaryManifest.routes) {
+            if (expectedRoutes.get(entry.route) !== entry.artifactPath) {
+              throw new Error(`unexpected canary route binding: ${entry.route}`);
+            }
+            const bytes = readFileSync(`build/${entry.artifactPath}`);
+            const digest = createHash('sha256').update(bytes).digest('hex');
+            if (entry.bytes !== bytes.byteLength || entry.sha256 !== digest) {
+              throw new Error(`canary artifact byte mismatch: ${entry.route}`);
+            }
+            expectedRoutes.delete(entry.route);
+          }
+          if (expectedRoutes.size !== 0) throw new Error('canary routes are incomplete');
+
+          const files = [];
+          function visit(directory) {
+            for (const entry of readdirSync(directory, { withFileTypes: true })) {
+              const absolute = join(directory, entry.name);
+              const metadata = lstatSync(absolute);
+              if (metadata.isSymbolicLink()) throw new Error(`artifact symlink: ${absolute}`);
+              if (metadata.isDirectory()) visit(absolute);
+              else if (metadata.isFile()) files.push(absolute);
+              else throw new Error(`artifact special file: ${absolute}`);
+            }
+          }
+          visit('build');
+          const digest = createHash('sha256');
+          let count = 0;
+          for (const absolute of files.sort()) {
+            const path = relative('build', absolute).split(sep).join('/');
+            if (path === 'release-subject.json') continue;
+            const fileSha = createHash('sha256').update(readFileSync(absolute)).digest('hex');
+            digest.update(path);
+            digest.update('\0');
+            digest.update(fileSha);
+            digest.update('\n');
+            count += 1;
+          }
+          const contentSha256 = digest.digest('hex');
+          if (subject.artifactFileCount !== count || subject.artifactContentSha256 !== contentSha256) {
+            throw new Error('artifact content binding mismatch');
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `content_sha256=${contentSha256}\n`);
+          NODE
 
       - name: Verify built IndexNow key
         run: npm run verify:indexnow -- --build-dir build
@@ -43,58 +231,181 @@ jobs:
       - name: Scan public artifact for private content
         run: |
           set -euo pipefail
-
-          PRIVATE_PATHS=$(find build -type f \( -path '*/internal/*' -o -name '*.map' \) -print)
-          if [ -n "$PRIVATE_PATHS" ]; then
-            echo "Private paths or source maps found in the public artifact:"
-            echo "$PRIVATE_PATHS"
-            exit 1
-          fi
-
+          test -z "$(find build -type f \( -path '*/internal/*' -o -name '*.map' \) -print)"
           PRIVATE_REPO_MARKER='second'"-brain"
           PRIVATE_WORK_MARKER='\\.codex'"-work"
           INTERNAL_DOCS_MARKER='docs/'"internal"
           LOCAL_HOME_MARKER='/'"Users/[[:alnum:]_.-]+/"
           PRIVATE_MARKER_PATTERN="${PRIVATE_REPO_MARKER}|${PRIVATE_WORK_MARKER}|${INTERNAL_DOCS_MARKER}|${LOCAL_HOME_MARKER}"
-
+          GREP_STATUS=0
           PRIVATE_MARKERS=$(grep -RIlE \
-            --include='*.html' \
-            --include='*.js' \
-            --include='*.json' \
-            --include='*.xml' \
-            --include='*.txt' \
-            --include='*.yaml' \
-            --include='*.yml' \
-            "$PRIVATE_MARKER_PATTERN" \
-            build || true)
-          if [ -n "$PRIVATE_MARKERS" ]; then
-            echo "Private repository or local-path markers found in the public artifact:"
-            echo "$PRIVATE_MARKERS"
-            exit 1
-          fi
+            --include='*.html' --include='*.js' --include='*.json' \
+            --include='*.xml' --include='*.txt' --include='*.yaml' --include='*.yml' \
+            "$PRIVATE_MARKER_PATTERN" build) || GREP_STATUS=$?
+          [ "$GREP_STATUS" -le 1 ]
+          test -z "$PRIVATE_MARKERS"
 
-          echo "Public artifact privacy scan passed"
-
-      - name: Upload Build Artifact
+      - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: build
 
   deploy:
     name: Deploy to GitHub Pages
-    needs: build
+    needs: publish-artifact
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy to GitHub Pages
+      - name: Deploy verified artifact
         id: deployment
         uses: actions/deploy-pages@v4
 
+  verify-production:
+    name: Verify production canaries
+    needs: [publish-artifact, deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify release subject and public routes
+        env:
+          BASE_URL: https://examples.expanso.io
+          SUBJECT_SHA: ${{ needs.publish-artifact.outputs.subject_sha }}
+          FOUNDATION_RUN_ID: ${{ needs.publish-artifact.outputs.foundation_run_id }}
+          FOUNDATION_RUN_ATTEMPT: ${{ needs.publish-artifact.outputs.foundation_run_attempt }}
+          ARTIFACT_CONTENT_SHA256: ${{ needs.publish-artifact.outputs.artifact_content_sha256 }}
+        run: |
+          set -euo pipefail
+          mkdir -p canary
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error --location \
+              "$BASE_URL/release-subject.json?sha=$SUBJECT_SHA&attempt=$attempt" \
+              -o canary/release-subject.json && \
+              jq -e --arg sha "$SUBJECT_SHA" --arg digest "$ARTIFACT_CONTENT_SHA256" \
+                '.subjectSha == $sha and .artifactContentSha256 == $digest' \
+                canary/release-subject.json > /dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "Production never served the expected release subject" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+
+          curl --fail --silent --show-error --location \
+            --header 'Cache-Control: no-cache' --header 'Accept-Encoding: identity' \
+            "$BASE_URL/release-canary-manifest-v1.json?release=$SUBJECT_SHA" \
+            -o canary/release-canary-manifest-v1.json
+          curl --fail --silent --show-error --location \
+            --header 'Cache-Control: no-cache' --header 'Accept-Encoding: identity' \
+            "$BASE_URL/?release=$SUBJECT_SHA" -o canary/home.html
+          curl --fail --silent --show-error --location \
+            --header 'Cache-Control: no-cache' --header 'Accept-Encoding: identity' \
+            "$BASE_URL/data-security/remove-pii/?release=$SUBJECT_SHA" -o canary/remove-pii.html
+          curl --fail --silent --show-error --location \
+            --header 'Cache-Control: no-cache' --header 'Accept-Encoding: identity' \
+            "$BASE_URL/data-security/remove-pii/explorer/?release=$SUBJECT_SHA" -o canary/remove-pii-explorer.html
+          curl --fail --silent --show-error --location \
+            --header 'Cache-Control: no-cache' --header 'Accept-Encoding: identity' \
+            "$BASE_URL/data-routing/content-routing/explorer/?release=$SUBJECT_SHA" -o canary/content-routing-explorer.html
+          curl --fail --silent --show-error --location \
+            --header 'Cache-Control: no-cache' --header 'Accept-Encoding: identity' \
+            "$BASE_URL/sitemap.xml?release=$SUBJECT_SHA" -o canary/sitemap.xml
+
+          grep -Fq 'Find the shortest path from data to outcome.' canary/home.html
+          grep -Fq 'Remove PII' canary/remove-pii.html
+          grep -Fq 'Inspect PII removal' canary/remove-pii-explorer.html
+          grep -Fq 'Inspect content routing' canary/content-routing-explorer.html
+          grep -Fq 'data-security/remove-pii' canary/sitemap.xml
+
+          node --input-type=module - <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { readFileSync, writeFileSync } from 'node:fs';
+
+          const subjectBytes = readFileSync('canary/release-subject.json');
+          const subject = JSON.parse(subjectBytes.toString('utf8'));
+          const expectedManifestBytes = readFileSync(
+            'canary/release-canary-manifest-v1.json'
+          );
+          const expectedManifestSha256 = createHash('sha256')
+            .update(expectedManifestBytes)
+            .digest('hex');
+          if (expectedManifestSha256 !== subject.canaryManifestSha256) {
+            throw new Error('deployed canary manifest is not bound to the admitted subject');
+          }
+          const expectedManifest = JSON.parse(expectedManifestBytes.toString('utf8'));
+          if (
+            expectedManifest.manifestVersion !== 'release-canary-manifest-v1' ||
+            expectedManifest.repository !== process.env.GITHUB_REPOSITORY ||
+            expectedManifest.subjectSha !== process.env.SUBJECT_SHA ||
+            !Array.isArray(expectedManifest.routes)
+          ) {
+            throw new Error('deployed canary manifest identity mismatch');
+          }
+          const observedPaths = new Map([
+            ['/', 'home.html'],
+            ['/data-security/remove-pii/', 'remove-pii.html'],
+            ['/data-security/remove-pii/explorer/', 'remove-pii-explorer.html'],
+            ['/data-routing/content-routing/explorer/', 'content-routing-explorer.html'],
+            ['/sitemap.xml', 'sitemap.xml'],
+          ]);
+          const files = expectedManifest.routes.map((expected) => {
+            const observedPath = observedPaths.get(expected.route);
+            if (!observedPath) throw new Error(`unexpected canary route: ${expected.route}`);
+            const bytes = readFileSync(`canary/${observedPath}`);
+            const observed = {
+              route: expected.route,
+              artifactPath: expected.artifactPath,
+              observedPath,
+              bytes: bytes.byteLength,
+              sha256: createHash('sha256').update(bytes).digest('hex'),
+              expectedBytes: expected.bytes,
+              expectedSha256: expected.sha256,
+            };
+            if (
+              observed.bytes !== expected.bytes ||
+              observed.sha256 !== expected.sha256
+            ) {
+              throw new Error(`production bytes do not match admitted artifact: ${expected.route}`);
+            }
+            observedPaths.delete(expected.route);
+            return observed;
+          });
+          if (observedPaths.size !== 0) throw new Error('production canary routes are incomplete');
+          const result = {
+            resultVersion: 'production-canary-v1',
+            status: 'PASS',
+            releaseScope: 'viewer-facing-site-refresh',
+            repository: process.env.GITHUB_REPOSITORY,
+            subjectSha: process.env.SUBJECT_SHA,
+            foundationRunId: process.env.FOUNDATION_RUN_ID,
+            foundationRunAttempt: Number(process.env.FOUNDATION_RUN_ATTEMPT),
+            releaseRunId: process.env.GITHUB_RUN_ID,
+            releaseRunAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+            baseUrl: process.env.BASE_URL,
+            expectedManifestSha256,
+            files,
+          };
+          writeFileSync('production-canary-v1.json', `${JSON.stringify(result, null, 2)}\n`);
+          NODE
+
+      - name: Upload production canary evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-canary-${{ needs.publish-artifact.outputs.subject_sha }}
+          path: |
+            production-canary-v1.json
+            canary
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.publish-artifact.outputs.subject_sha }}
 
       - name: Verify production IndexNow key
         run: npm run verify:indexnow -- --production https://examples.expanso.io

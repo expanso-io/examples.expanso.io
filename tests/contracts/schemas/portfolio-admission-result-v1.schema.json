@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://examples.expanso.io/tests/contracts/schemas/portfolio-admission-result-v1.schema.json",
+  "title": "Portfolio admission result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "resultVersion",
+    "resultSha256",
+    "admissionResultId",
+    "contractId",
+    "contractSha256",
+    "candidateId",
+    "disposition",
+    "rationale",
+    "verifiedAt",
+    "answers",
+    "publicMarketEvidence",
+    "artifactBindings",
+    "valueOracle",
+    "offlineReproduction",
+    "configuredReviewLanes",
+    "decisionSignals",
+    "publicationGuard"
+  ],
+  "properties": {
+    "resultVersion": { "const": "1.0.0" },
+    "resultSha256": { "$ref": "#/$defs/digest" },
+    "admissionResultId": {
+      "const": "industrial-vision-media-ai-spine-admission-v1"
+    },
+    "contractId": { "const": "portfolio-admission-v1" },
+    "contractSha256": { "$ref": "#/$defs/digest" },
+    "candidateId": { "const": "industrial-vision-media-ai-spine-v1" },
+    "disposition": {
+      "enum": ["prototype", "defer", "reframe-current-example", "reject"]
+    },
+    "rationale": { "type": "string", "minLength": 1 },
+    "verifiedAt": { "type": "string", "format": "date-time" },
+    "answers": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "items": { "$ref": "#/$defs/answer" }
+    },
+    "publicMarketEvidence": { "$ref": "#/$defs/publicMarketEvidence" },
+    "artifactBindings": { "$ref": "#/$defs/artifactBindings" },
+    "valueOracle": { "$ref": "#/$defs/valueOracle" },
+    "offlineReproduction": { "$ref": "#/$defs/offlineReproduction" },
+    "configuredReviewLanes": { "$ref": "#/$defs/configuredReviewLanes" },
+    "decisionSignals": { "$ref": "#/$defs/decisionSignals" },
+    "publicationGuard": { "$ref": "#/$defs/publicationGuard" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "prefixedDigest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "answer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["questionId", "outcome", "answer", "evidenceRefs"],
+      "properties": {
+        "questionId": {
+          "enum": [
+            "Q1",
+            "Q2",
+            "Q3",
+            "Q4",
+            "Q5",
+            "Q6",
+            "Q7",
+            "Q8",
+            "Q9",
+            "Q10",
+            "Q11",
+            "Q12"
+          ]
+        },
+        "outcome": { "enum": ["PASS", "FAIL", "DEFER"] },
+        "answer": { "type": "string", "minLength": 1 },
+        "evidenceRefs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "publicMarketEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidenceId",
+        "gateId",
+        "recordDigest",
+        "subjectInputDigest",
+        "verificationPolicyDigest",
+        "reproductionDigest",
+        "rerunVerdict",
+        "validUntil",
+        "admissionScope"
+      ],
+      "properties": {
+        "evidenceId": { "type": "string", "minLength": 1 },
+        "gateId": { "const": "public-market-hypothesis-packet" },
+        "recordDigest": { "$ref": "#/$defs/prefixedDigest" },
+        "subjectInputDigest": { "$ref": "#/$defs/prefixedDigest" },
+        "verificationPolicyDigest": {
+          "$ref": "#/$defs/prefixedDigest"
+        },
+        "reproductionDigest": { "$ref": "#/$defs/prefixedDigest" },
+        "rerunVerdict": { "const": "PASS" },
+        "validUntil": { "type": "string", "format": "date-time" },
+        "admissionScope": { "const": "hypothesis-only" }
+      }
+    },
+    "artifactBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/prefixedDigest" }
+      }
+    },
+    "artifactBindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "checkpoints", "dataRights", "generator"],
+      "properties": {
+        "source": { "$ref": "#/$defs/artifactBinding" },
+        "checkpoints": { "$ref": "#/$defs/artifactBinding" },
+        "dataRights": { "$ref": "#/$defs/artifactBinding" },
+        "generator": { "$ref": "#/$defs/artifactBinding" }
+      }
+    },
+    "valueOracle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxSeconds", "summary", "inspectableFields"],
+      "properties": {
+        "maxSeconds": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 220 },
+        "inspectableFields": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "offlineReproduction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "credentialsRequired", "networkRequired"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "credentialsRequired": { "const": false },
+        "networkRequired": { "const": false }
+      }
+    },
+    "lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "evidenceScopes"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "evidenceScopes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["technical", "editorial"] }
+        }
+      }
+    },
+    "configuredReviewLanes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["producer", "verifier"],
+      "properties": {
+        "producer": { "$ref": "#/$defs/lane" },
+        "verifier": { "$ref": "#/$defs/lane" }
+      }
+    },
+    "decisionSignals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rejectReasons", "reframeCurrentExample"],
+      "properties": {
+        "rejectReasons": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "reframeCurrentExample": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "publicationGuard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "publicRoute",
+        "catalogRecord",
+        "marketPriorityClaim",
+        "state"
+      ],
+      "properties": {
+        "publicRoute": { "const": false },
+        "catalogRecord": { "const": false },
+        "marketPriorityClaim": { "const": false },
+        "state": { "const": "test-only" }
+      }
+    }
+  }
+}

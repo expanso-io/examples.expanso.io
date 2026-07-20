@@ -1,14 +1,23 @@
 ---
-title: "Advanced Encryption Patterns"
-sidebar_label: "Step 4: Advanced Patterns"
+title: 'Advanced Encryption Patterns'
+sidebar_label: 'Step 4: Advanced Patterns'
 sidebar_position: 7
-description: Explore advanced encryption patterns like key rotation, selective decryption, and compliance monitoring.
-keywords: [encryption, key-rotation, decryption, compliance, hipaa, gdpr]
+description: Review unverified variants for key versions, selective decryption, and audit metadata.
+keywords: [encryption, key-rotation, decryption, audit]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-encrypt-data-step-4-advanced-patterns]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Step 4: Advanced Encryption Patterns & Compliance
+# Step 4: Advanced Encryption Patterns
 
-Once you've mastered the basic pattern of encrypting fields, you can implement more sophisticated, production-grade features for key management, selective decryption, and compliance.
+These variants illustrate key-version, selective-decryption, and audit-metadata ideas. They are not executed by a current machine gate.
 
 ## Pattern 1: Key Versioning & Rotation
 
@@ -41,14 +50,14 @@ Not all services should be able to decrypt all data. You can build a decryption 
     let service_name = meta("http_headers.X-Service-ID")
     root = this
 
-    # Decrypt email ONLY for the 'fraud-service'
+    # Select email decryption for the authored 'fraud-service' identity
     if service_name == "fraud-service" && this.customer.email_encrypted.exists() {
       root.customer.email = this.customer.email_encrypted.decrypt_aes(
         "gcm", env("PII_ENCRYPTION_KEY")
       )
     }
 
-    # Decrypt SSN ONLY for the 'identity-verification' service
+    # Select SSN decryption for the authored 'identity-verification' identity
     if service_name == "identity-verification" && this.customer.ssn_encrypted.exists() {
       root.customer.ssn = this.customer.ssn_encrypted.decrypt_aes(
         "gcm", env("PII_ENCRYPTION_KEY")
@@ -56,9 +65,9 @@ Not all services should be able to decrypt all data. You can build a decryption 
     }
 ```
 
-## Pattern 3: Compliance and Audit Logging
+## Pattern 3: Transformation audit metadata
 
-For compliance standards like HIPAA and GDPR, you need detailed audit logs of when data was encrypted and why.
+This example records when and why a configured transformation was selected. A real audit design needs an independently protected event destination, access model, retention policy, and failure handling.
 
 ```yaml title="HIPAA/GDPR Audit Logging"
 - mapping: |
@@ -78,7 +87,7 @@ For compliance standards like HIPAA and GDPR, you need detailed audit logs of wh
       "node_id": env("NODE_ID")
     }
 
-    # Send the audit log to a secure endpoint (fire-and-forget)
+    # Send metadata to a separately managed audit endpoint
     _ = http_client(
       env("AUDIT_ENDPOINT_URL"),
       {"verb": "POST", "timeout": "2s"},

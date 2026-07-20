@@ -4,6 +4,15 @@ sidebar_label: Troubleshooting
 sidebar_position: 9
 description: Common priority queue issues and solutions
 keywords: [troubleshooting, debug, priority-queues, routing]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-priority-queues-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Troubleshooting
@@ -35,8 +44,9 @@ docker logs priority-queues --tail 20 2>&1 | grep priority
 ```
 
 **Fix:** Verify severity values match expected format (`CRITICAL`, `ERROR`, not `critical`):
+
 ```yaml
-root.severity = this.severity.uppercase()  # Normalize first
+root.severity = this.severity.uppercase() # Normalize first
 ```
 
 ---
@@ -46,20 +56,22 @@ root.severity = this.severity.uppercase()  # Normalize first
 **Cause:** Switch condition not matching or default fallthrough
 
 **Fix:** Add explicit priority ranges in switch:
+
 ```yaml
 - check: this.priority_score >= 200
-  output: {kafka: {topic: critical-queue}}
+  output: { kafka: { topic: critical-queue } }
 - check: this.priority_score >= 100
-  output: {kafka: {topic: high-queue}}
+  output: { kafka: { topic: high-queue } }
 ```
 
 ---
 
 ### Low-priority events never processed (starvation)
 
-**Cause:** High-priority queue always has messages
+**Cause:** High-priority queue remains continuously populated
 
 **Fix:** Add age-based escalation:
+
 ```yaml
 - mapping: |
     if this.age_seconds > 3600 {
@@ -74,6 +86,7 @@ root.severity = this.severity.uppercase()  # Normalize first
 **Cause:** Missing fields or wrong field names in scoring
 
 **Fix:** Add defaults for missing fields:
+
 ```yaml
 root.severity = this.severity.or("INFO")
 root.user_tier = this.user_tier.or("free")

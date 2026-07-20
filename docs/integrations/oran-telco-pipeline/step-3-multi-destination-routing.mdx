@@ -1,9 +1,19 @@
 ---
-title: "Step 3: Route O-RAN Telemetry to Multiple Destinations"
-sidebar_label: "Step 3: Route Outputs"
+title: 'Step 3: Route O-RAN Telemetry to Multiple Destinations'
+sidebar_label: 'Step 3: Route Outputs'
 sidebar_position: 6
-description: "Fan out transformed telemetry to example dashboard, storage, analytics, and buffering destinations."
+description: 'Fan out transformed telemetry to example dashboard, storage, analytics, and buffering destinations.'
 keywords: [oran, telecom, telemetry, routing, fan-out, kafka, parquet]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-integrations-oran-telco-pipeline-step-3-multi-destination-routing]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 3: Multi-Destination Routing
@@ -21,9 +31,9 @@ graph TD
     B --> D[File → Parquet Storage]
     B --> E[Kafka → Cloudera CDP]
     B --> F[Local Buffer → Edge Resilience]
-    
+
     style B fill:#e1f5fe
-    style C fill:#f3e5f5  
+    style C fill:#f3e5f5
     style D fill:#e8f5e8
     style E fill:#fff3e0
     style F fill:#fce4ec
@@ -32,29 +42,29 @@ graph TD
 ### Benefits of This Approach
 
 - **Single collection point**: One agent, one set of credentials
-- **Guaranteed consistency**: All destinations get identical data
+- **Shared source mapping**: Each destination begins from the same mapped record
 - **Reduced network load**: Process once at edge, not in each destination
 - **Independent scaling**: Each output can have different throughput/retry policies
-- **Zero data loss**: Local buffering continues during outages
+- **Outage buffering**: The example keeps a local buffer available during interruptions
 
 ## Core Broker Configuration
 
 ```yaml
 output:
   broker:
-    pattern: fan_out  # Send to ALL outputs simultaneously
+    pattern: fan_out # Send to ALL outputs simultaneously
     outputs:
       # Output 1: Real-time observability
-      - label: "grafana_otel"
-        
-      # Output 2: Long-term analytics storage  
-      - label: "parquet_storage"
-        
+      - label: 'grafana_otel'
+
+      # Output 2: Long-term analytics storage
+      - label: 'parquet_storage'
+
       # Output 3: Analytics platform
-      - label: "cloudera_kafka"
-        
+      - label: 'cloudera_kafka'
+
       # Output 4: Edge resilience buffer
-      - label: "local_buffer"
+      - label: 'local_buffer'
 ```
 
 ## Output 1: Real-Time Dashboards (Grafana via OTEL)
@@ -63,14 +73,14 @@ Route to Grafana for NOC real-time monitoring:
 
 ```yaml
 # Output 1: OTEL Collector → Prometheus → Grafana
-- label: "grafana_otel"
+- label: 'grafana_otel'
   http_client:
-    url: "${OTEL_ENDPOINT}/v1/metrics"
+    url: '${OTEL_ENDPOINT}/v1/metrics'
     verb: POST
     headers:
-      Content-Type: "application/json"
-      Authorization: "Bearer ${OTEL_TOKEN}"
-    
+      Content-Type: 'application/json'
+      Authorization: 'Bearer ${OTEL_TOKEN}'
+
     # Transform to OpenTelemetry Protocol (OTLP) format
     processors:
       - mapping: |
@@ -82,7 +92,7 @@ Route to Grafana for NOC real-time monitoring:
                   {"key": "cell_id", "value": {"stringValue": this.cell_id}},
                   {"key": "gnb_id", "value": {"stringValue": this.gnb_id}},
                   {"key": "region", "value": {"stringValue": this.region}},
-                  {"key": "ptp_compliance", "value": {"stringValue": this.ptp_compliance}}
+                  {"key": "ptp_review", "value": {"stringValue": this.ptp_review}}
                 ]
               },
               "scopeMetrics": [{
@@ -100,8 +110,8 @@ Route to Grafana for NOC real-time monitoring:
                     }
                   },
                   {
-                    "name": "oran_ptp_compliance_score", 
-                    "description": "PTP compliance score (0-100)",
+                    "name": "oran_ptp_review_score",
+                    "description": "PTP review score (0-100)",
                     "unit": "1",
                     "gauge": {
                       "dataPoints": [{
@@ -155,14 +165,14 @@ Route to Grafana for NOC real-time monitoring:
               }]
             }]
           }
-    
+
     # Retry and error handling
     retry_until_success: false
     max_retries: 3
     backoff:
-      initial_interval: "1s"
-      max_interval: "30s"
-      max_elapsed_time: "5m"
+      initial_interval: '1s'
+      max_interval: '30s'
+      max_elapsed_time: '5m'
 ```
 
 ## Output 2: Parquet Storage (Long-Term Analytics)
@@ -175,7 +185,7 @@ Store data in columnar Parquet format for efficient analytics:
   file:
     path: "/data/oran-telemetry/${!this.timestamp_ns.ts_format(\"2006-01-02\")}/du-metrics-${!uuid_v4()}.jsonl"
     codec: lines
-    
+
     # Processors to optimize for Parquet ingestion
     processors:
       - mapping: |
@@ -184,7 +194,7 @@ Store data in columnar Parquet format for efficient analytics:
             "timestamp_ns": this.timestamp_ns,
             "date": this.timestamp_ns.ts_format("2006-01-02"),
             "hour": this.timestamp_ns.ts_format("15"),
-            
+
             # Identifiers
             "du_id": this.du_id,
             "cell_id": this.cell_id,
@@ -192,42 +202,42 @@ Store data in columnar Parquet format for efficient analytics:
             "region": this.region,
             "sector": this.sector,
             "site_type": this.site_type,
-            
+
             # PTP metrics
             "ptp_offset_ns": this.ptp4l_offset_ns,
-            "ptp_compliance": this.ptp_compliance,
+            "ptp_review": this.ptp_review,
             "ptp_score": this.ptp_score,
-            
+
             # Resource utilization
             "prb_dl_pct": this.prb_dl_pct,
             "prb_ul_pct": this.prb_ul_pct,
             "prb_efficiency": this.prb_efficiency,
             "congestion_level": this.congestion_level,
             "capacity_headroom_pct": this.capacity_headroom_pct,
-            
+
             # System performance
             "cpu_pct": this.cpu_pct,
             "memory_pct": this.memory_pct,
             "disk_pct": this.disk_pct,
-            
+
             # RF metrics
             "rsrp_dbm": this.rsrp_dbm,
             "sinr_db": this.sinr_db,
             "rsrp_quality": this.rsrp_quality,
             "sinr_quality": this.sinr_quality,
             "rf_health_score": this.rf_health_score,
-            
+
             # Derived metrics
             "spectral_efficiency_dl": this.spectral_efficiency_dl,
             "estimated_coverage_radius_m": this.estimated_coverage_radius_m,
             "time_to_congestion_min": this.time_to_congestion_min
           }
-    
+
     # File rotation and compression
     batching:
       count: 1000        # Batch for efficiency
       period: "5m"       # Force flush every 5 minutes
-      
+
     # Auto-compress completed files
     processors:
       - archive:
@@ -249,8 +259,8 @@ import glob
 
 def convert_jsonl_to_parquet(input_pattern, output_path):
     """Convert JSON Lines files to Parquet with optimal schema"""
-    
-    # Define schema for better compression and query performance
+
+# Define the schema fields used by this example
     schema = pa.schema([
         ('timestamp_ns', pa.int64()),
         ('date', pa.string()),
@@ -260,7 +270,7 @@ def convert_jsonl_to_parquet(input_pattern, output_path):
         ('gnb_id', pa.string()),
         ('region', pa.string()),
         ('ptp_offset_ns', pa.int32()),
-        ('ptp_compliance', pa.string()),
+        ('ptp_review', pa.string()),
         ('ptp_score', pa.int8()),
         ('prb_dl_pct', pa.int8()),
         ('prb_ul_pct', pa.int8()),
@@ -269,19 +279,19 @@ def convert_jsonl_to_parquet(input_pattern, output_path):
         ('sinr_db', pa.int8()),
         ('rf_health_score', pa.int8())
     ])
-    
+
     # Process files in batches
     for file_path in glob.glob(input_pattern):
         df = pd.read_json(file_path, lines=True)
         table = pa.Table.from_pandas(df, schema=schema)
-        
-        # Write with partitioning for query efficiency  
+
+        # Write with partitioning for query efficiency
         pq.write_to_dataset(
-            table, 
+            table,
             root_path=output_path,
             partition_cols=['date', 'region', 'gnb_id'],
             compression='snappy',
-            use_dictionary=['du_id', 'cell_id', 'ptp_compliance']
+            use_dictionary=['du_id', 'cell_id', 'ptp_review']
         )
 ```
 
@@ -291,28 +301,28 @@ Route to Cloudera Data Platform via Kafka:
 
 ```yaml
 # Output 3: Cloudera Data Platform via Kafka
-- label: "cloudera_kafka"
+- label: 'cloudera_kafka'
   kafka:
-    addresses: ["${KAFKA_BOOTSTRAP_SERVERS}"]
-    topic: "oran-telemetry-raw"
-    client_id: "expanso-edge-oran-pipeline"
-    
+    addresses: ['${KAFKA_BOOTSTRAP_SERVERS}']
+    topic: 'oran-telemetry-raw'
+    client_id: 'expanso-edge-oran-pipeline'
+
     # Kafka producer configuration
     producer:
-      max_message_bytes: 10485760  # 10MB
+      max_message_bytes: 10485760 # 10MB
       compression: snappy
       idempotent: true
       acks: all
-    
+
     # Authentication
     sasl:
-      mechanism: "PLAIN"
-      user: "${KAFKA_USERNAME}"
-      password: "${KAFKA_PASSWORD}"
+      mechanism: 'PLAIN'
+      user: '${KAFKA_USERNAME}'
+      password: '${KAFKA_PASSWORD}'
     tls:
       enabled: true
       skip_cert_verify: false
-    
+
     # Message formatting for Cloudera
     processors:
       - mapping: |
@@ -337,8 +347,8 @@ Route to Cloudera Data Platform via Kafka:
             "measurements": {
               "timing": {
                 "ptp_offset_ns": this.ptp4l_offset_ns,
-                "compliance_status": this.ptp_compliance,
-                "compliance_score": this.ptp_score,
+                "review_status": this.ptp_review,
+                "review_score": this.ptp_score,
                 "alert_level": this.ptp_alert_level
               },
               "resources": {
@@ -367,16 +377,16 @@ Route to Cloudera Data Platform via Kafka:
               "congestion_prediction_minutes": this.time_to_congestion_min
             }
           }
-    
+
     # Message key for partitioning
-    key: "${!this.gnb_id}-${!this.cell_id}"
-    
+    key: '${!this.gnb_id}-${!this.cell_id}'
+
     # Retry configuration
     retry_until_success: false
     max_retries: 5
     backoff:
-      initial_interval: "2s"
-      max_interval: "60s"
+      initial_interval: '2s'
+      max_interval: '60s'
 ```
 
 ## Output 4: Local Buffer (Edge Resilience)
@@ -389,7 +399,7 @@ Maintain local buffer for network resilience:
   file:
     path: "/data/buffer/oran-${!count(\"buffer\")}.jsonl"
     codec: lines
-    
+
     # Buffer management
     processors:
       - mapping: |
@@ -401,12 +411,12 @@ Maintain local buffer for network resilience:
             "buffer_reason": "edge_resilience",
             "original_timestamp": this.timestamp_iso
           }
-    
+
     # File rotation based on size and time
     batching:
       count: 10000      # 10k records per file
       period: "1h"      # Or hourly rotation
-      
+
     # Automatic cleanup of old buffer files
     processors:
       - workflow:
@@ -433,22 +443,22 @@ name: oran-buffer-replay
 config:
   input:
     file:
-      paths: ["/data/buffer/oran-*.jsonl"]
+      paths: ['/data/buffer/oran-*.jsonl']
       scanner:
         lines: {}
-      
+
   pipeline:
     processors:
       - mapping: |
           # Check if original destinations are reachable
           root = this
           root.replay_timestamp = now()
-          
+
       # Test connectivity before replay
       - http:
-          url: "${OTEL_ENDPOINT}/health"
-          verb: "GET"
-          timeout: "5s"
+          url: '${OTEL_ENDPOINT}/health'
+          verb: 'GET'
+          timeout: '5s'
           processors:
             - mapping: |
                 # Only proceed if health check passes
@@ -457,14 +467,14 @@ config:
                 } else { 
                   deleted() 
                 }
-  
+
   output:
     # Replay to same destinations (without buffer)
     broker:
       pattern: fan_out
       outputs:
-        - label: "grafana_otel_replay"
-        - label: "cloudera_kafka_replay"
+        - label: 'grafana_otel_replay'
+        - label: 'cloudera_kafka_replay'
         # Skip parquet and buffer to avoid duplicates
 ```
 
@@ -476,25 +486,25 @@ Handle failures gracefully with error routing:
 # Add error handling to each output
 output:
   broker:
-    pattern: fan_out_sequential  # Continue on individual failures
+    pattern: fan_out_sequential # Continue on individual failures
     outputs:
       # Wrap each output with error handling
       - try:
-        - label: "grafana_otel"
-          # ... grafana config ...
+          - label: 'grafana_otel'
+            # ... grafana config ...
         catch:
-        - label: "error_queue"
-          file:
-            path: "/data/errors/grafana-errors-${!now().ts_format(\"2006-01-02\")}.jsonl" 
-            processors:
-              - mapping: |
-                  root = {
-                    "original_message": this,
-                    "error_timestamp": now(),
-                    "error_destination": "grafana_otel",
-                    "error_details": error()
-                  }
-      
+          - label: 'error_queue'
+            file:
+              path: '/data/errors/grafana-errors-${!now().ts_format("2006-01-02")}.jsonl'
+              processors:
+                - mapping: |
+                    root = {
+                      "original_message": this,
+                      "error_timestamp": now(),
+                      "error_destination": "grafana_otel",
+                      "error_details": error()
+                    }
+
       # Similar try/catch for other outputs...
 ```
 
@@ -508,15 +518,15 @@ pipeline:
   processors:
     - metric:
         type: counter
-        name: "oran_messages_processed"
+        name: 'oran_messages_processed'
         labels:
-          pipeline_id: "oran-edge-telemetry"
-          
+          pipeline_id: 'oran-edge-telemetry'
+
     - metric:
-        type: histogram  
-        name: "oran_processing_duration_ms"
+        type: histogram
+        name: 'oran_processing_duration_ms'
         buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000]
-        
+
 output:
   broker:
     outputs:
@@ -524,9 +534,9 @@ output:
       - processors:
           - metric:
               type: counter
-              name: "oran_output_success"
+              name: 'oran_output_success'
               labels:
-                destination: "grafana"
+                destination: 'grafana'
         # ... output config ...
 ```
 

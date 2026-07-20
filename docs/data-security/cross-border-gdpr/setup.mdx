@@ -1,229 +1,53 @@
 ---
-title: Setup Environment for GDPR Pipeline
-sidebar_label: Setup
-sidebar_position: 2
-description: Configure EU database connectivity, GCP credentials, and example data-protection settings
-keywords: [setup, gdpr, postgres, bigquery, environment, compliance]
+title: Cross-Border Minimization Review
+sidebar_label: Configuration review
+sidebar_position: 3
+description: Review synthetic data, field transformations, and the external analytics boundary.
+keywords: [gdpr, data-minimization, pseudonymization, setup]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-cross-border-gdpr-configuration]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Setup Environment for GDPR Pipeline
+import { ExampleSurface } from '@site/src/components/ExamplePage';
 
-Before building the cross-border example, configure your EU database connection, GCP destinations, and pseudonymization settings.
+# Cross-Border Minimization Review
 
-## Prerequisites
+The example removes, generalizes, and pseudonymizes selected fields before an external output. It does not determine whether the resulting record is identifiable or suitable for a transfer.
 
-- **EU PostgreSQL Database:** Contains transaction data, located in EU region
-- **GCP Project:** BigQuery for global analytics, Cloud Storage for EU archive
-- **Expanso Edge:** Installed on EU-located infrastructure
-- **Pseudonymization Salt:** Secret value used for salted hashing
+<ExampleSurface
+  kind="reference"
+  title="Before you adapt it"
+  description="Resolve the example boundary before changing processors or destinations."
+>
 
-## Step 1: Configure EU Database Connection
+- An Expanso environment for configuration inspection
+- A field inventory and documented purpose for retained data
+- Privacy and legal review of the complete source-to-destination flow
 
-Set environment variables for your EU PostgreSQL database:
+</ExampleSurface>
 
-```bash
-# EU database connection
-export EU_DB_HOST=postgres.eu-west-1.internal
-export DB_USER=analytics_reader
-export DB_PASSWORD=<your-password>
-export SOURCE_COUNTRY=DE  # Country code for origin tracking
-```
+## Review path
 
-:::danger Data Residency
-This walkthrough assumes an EU/EEA source for illustration. Location alone does not determine compliance, and the transformations in this example do not establish that output is anonymous. Confirm the real source, destination, transfer mechanism, and safeguards with your privacy and legal owners.
-:::
+1. [Origin tag](/data-security/cross-border-gdpr/step-1-tag-data-origin)
+2. [Transformation record](/data-security/cross-border-gdpr/step-2-create-gdpr-record)
+3. [Field deletion](/data-security/cross-border-gdpr/step-3-delete-high-risk-fields)
+4. [Identifier pseudonymization](/data-security/cross-border-gdpr/step-4-hash-identifiers)
+5. [Value generalization](/data-security/cross-border-gdpr/step-5-generalize-values)
+6. [Technical checks](/data-security/cross-border-gdpr/step-6-validate-anonymization)
 
-### Verify Database Connectivity
+Then inspect the [Complete reference configuration](/data-security/cross-border-gdpr/complete-pipeline).
 
-```bash
-# Test connection
-psql "postgres://${DB_USER}:${DB_PASSWORD}@${EU_DB_HOST}:5432/transactions_eu" \
-  -c "SELECT COUNT(*) FROM customer_transactions LIMIT 1;"
-```
+## Adaptation checks
 
-## Step 2: Configure Anonymization Salt
+- Replace demonstration salts with environment-managed secrets.
+- Assess linkability across retained and external datasets.
+- Review purpose, access, retention, deletion, destination, and transfer context.
 
-The salt ensures hashed values cannot be reversed with rainbow tables:
-
-```bash
-# Generate a secure random salt (32 bytes)
-export ANONYMIZATION_SALT=$(openssl rand -hex 32)
-
-# Verify salt was generated
-echo "Salt length: ${#ANONYMIZATION_SALT}"  # Should print 64
-```
-
-:::danger Protect Your Salt
-This salt is a **cryptographic secret**. If compromised, attackers could potentially reverse-engineer customer IDs.
-
-**Best practices:**
-- Store in a secrets manager (HashiCorp Vault, AWS Secrets Manager)
-- Never commit to version control
-- Use different salts per environment
-- Document salt rotation procedures
-:::
-
-### Persist Salt Securely
-
-```bash
-# For development only - use secrets manager in production
-cat >> ~/.gdpr-pipeline-secrets <<EOF
-export ANONYMIZATION_SALT="$ANONYMIZATION_SALT"
-EOF
-chmod 600 ~/.gdpr-pipeline-secrets
-```
-
-## Step 3: Configure GCP Destinations
-
-Set up both global analytics and EU archive destinations:
-
-```bash
-# Global analytics (BigQuery - any region)
-export GCP_GLOBAL_PROJECT=global-analytics-prod
-
-# EU archive (must be EU-region bucket)
-export EU_ARCHIVE_BUCKET=eu-west-1-transaction-archive
-
-# Verify GCP authentication
-gcloud auth application-default login
-```
-
-### Create BigQuery Dataset
-
-```bash
-# Create global analytics dataset
-bq mk --dataset ${GCP_GLOBAL_PROJECT}:global_analytics
-
-# Verify access
-bq ls ${GCP_GLOBAL_PROJECT}:global_analytics
-```
-
-### Create EU Archive Bucket
-
-```bash
-# Create EU-region bucket (CRITICAL: must be EU location)
-gsutil mb -l EU gs://${EU_ARCHIVE_BUCKET}
-
-# Verify location
-gsutil ls -L -b gs://${EU_ARCHIVE_BUCKET} | grep "Location"
-```
-
-:::warning Bucket Location
-The example keeps its source archive in an EU region to demonstrate location-aware routing. Your approved storage regions and transfer controls must come from your organization's data-governance policy.
-:::
-
-## Step 4: Download Sample Data
-
-For local testing:
-
-```bash
-# Create working directory
-mkdir -p ~/gdpr-pipeline-tutorial
-cd ~/gdpr-pipeline-tutorial
-
-# Create sample EU transaction from the tutorial payload below
-cat > sample-input.json <<'EOF'
-{
-  "transaction_id": "TXN-EU-2024-00001",
-  "customer_id": "CUST-DE-12345",
-  "customer_name": "Hans Schmidt",
-  "customer_email": "hans.schmidt@example.de",
-  "customer_phone": "+49-30-12345678",
-  "customer_address": "Friedrichstraße 123, 10117 Berlin, Germany",
-  "customer_postal_code": "10117",
-  "transaction_amount_eur": 249.99,
-  "merchant_name": "Berlin Electronics GmbH",
-  "merchant_category": "electronics",
-  "payment_method": "credit_card",
-  "card_last_four": "4567",
-  "device_ip": "85.214.132.117",
-  "country_code": "DE",
-  "gdpr_region": "eu-central",
-  "transaction_timestamp": "2024-03-15T14:30:45Z"
-}
-EOF
-
-# View sample data
-cat sample-input.json | jq .
-```
-
-**Sample Input (EU Transaction):**
-```json
-{
-  "transaction_id": "TXN-EU-2024-00001",
-  "customer_id": "CUST-DE-12345",
-  "customer_name": "Hans Schmidt",
-  "customer_email": "hans.schmidt@example.de",
-  "customer_dob": "1985-03-15",
-  "customer_address": "Hauptstraße 42, 10115 Berlin, Germany",
-  "iban": "DE89370400440532013000",
-  "transaction_amount": 249.99,
-  "transaction_currency": "EUR",
-  "merchant_name": "Tech Store GmbH",
-  "merchant_country": "DE",
-  "transaction_timestamp": "2024-01-15T14:32:17Z",
-  "ip_address": "91.64.42.17"
-}
-```
-
-## Step 5: Create Foundation Pipeline
-
-Start with a minimal pipeline for testing:
-
-```yaml title="gdpr-foundation.yaml"
-name: gdpr-foundation
-
-input:
-  file:
-    paths: ["./sample-input.json"]
-    codec: json_documents
-
-pipeline:
-  processors:
-    - mapping: |
-        root = this
-
-output:
-  stdout:
-    codec: json_pretty
-```
-
-```bash
-# Test foundation
-expanso-edge run --config gdpr-foundation.yaml
-```
-
-## Step 6: Verify Environment
-
-Run this checklist:
-
-```bash
-echo "=== GDPR Pipeline Environment Check ==="
-echo "EU_DB_HOST: ${EU_DB_HOST:-NOT SET}"
-echo "SOURCE_COUNTRY: ${SOURCE_COUNTRY:-NOT SET}"
-echo "ANONYMIZATION_SALT set: $([ -n \"$ANONYMIZATION_SALT\" ] && echo 'YES' || echo 'NO')"
-echo "GCP_GLOBAL_PROJECT: ${GCP_GLOBAL_PROJECT:-NOT SET}"
-echo "EU_ARCHIVE_BUCKET: ${EU_ARCHIVE_BUCKET:-NOT SET}"
-
-# Check Expanso
-expanso-edge --version
-```
-
----
-
-## Next Steps
-
-Environment ready! Now build the compliance pipeline:
-
-<div className="margin-top--lg margin-bottom--lg">
-  <a href="./step-1-tag-data-origin" className="button button--primary button--lg">
-    📖 Step 1: Tag Data Origin →
-  </a>
-</div>
-
-Or jump to a specific step:
-- [**Step 2: Create GDPR Record**](/data-security/cross-border-gdpr/step-2-create-gdpr-record)
-- [**Step 3: Delete High-Risk Fields**](/data-security/cross-border-gdpr/step-3-delete-high-risk-fields)
-- [**Step 4: Hash Identifiers**](/data-security/cross-border-gdpr/step-4-hash-identifiers)
-- [**Step 5: Generalize Values**](/data-security/cross-border-gdpr/step-5-generalize-values)
-- [**Step 6: Validate Anonymization**](/data-security/cross-border-gdpr/step-6-validate-anonymization)
+This route is a configuration review, not a verified execution guide.

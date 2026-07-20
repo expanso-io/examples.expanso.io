@@ -1,53 +1,33 @@
 ---
-title: "Step 3: Hash Email and Extract Domain"
-sidebar_label: "Step 3: Hash Email"
+title: 'Step 3: Transform the email address'
+sidebar_label: 'Step 3: Transform email'
 sidebar_position: 6
-description: Hash email addresses for user counting while extracting domains for organizational analytics.
-keywords: [pii-removal, hashing, gdpr, email]
+description: Extract an email domain, add a salted hash, and remove the source address.
+keywords: [pii-removal, hashing, email, mapping]
+contentArchetype: step
+executionStatus: offline-runnable
+operationalEvidence: not-assessed
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Technique 3: Hashing with Metadata Extraction
+# Step 3: Transform the email address
 
-This technique extends hashing. Instead of just replacing a field with its hash, you can also extract and preserve a non-sensitive piece of metadata from it before deletion. This is perfect for fields like email addresses, where the unique identifier is sensitive but the domain is useful for analytics.
+Extract the domain while the source value is available, remove the address, then add the derived fields.
 
-## The Goal
-
-You will hash the full `email` address for user counting, extract the `email_domain` for organizational analytics, and delete the original `email`.
-
-## Implementation
-
-1.  **Start with the Previous Pipeline:** Copy the `hash-ip.yaml` from Step 2 to a new file named `hash-email.yaml`.
-    ```bash
-    cp hash-ip.yaml hash-email.yaml
-    ```
-    *Note: Remember to set the `EMAIL_SALT` environment variable as described in the setup guide.*
-
-2.  **Add the Email Hashing Logic:** Open `hash-email.yaml` and add the email logic to the bottom of the existing `mapping` processor.
-
-    ```yaml title="Add this to your 'mapping' processor in hash-email.yaml"
-    # --- Logic from previous steps ---
-    # (The existing logic for payment deletion and IP hashing remains here)
-
-    # --- START: New additions for Email Hashing ---
-
-    # Hash the full email address for unique user tracking
-    root.email_hash = this.email.hash("sha256", env("EMAIL_SALT"))
-
-    # Extract the domain for organizational analytics
-    root.email_domain = this.email.split("@").index(1)
-
-    # Delete the original email address field
+```yaml title="Email mapping"
+- mapping: |
     root = this.without("email")
 
-    # --- END: New additions ---
-    ```
+    root.email_hash = this.email.hash(
+      "hmac_sha256",
+      env("EMAIL_SALT")
+    ).encode("hex")
+    root.email_domain = this.email.split("@").index(1)
+```
 
-3.  **Deploy and Test:**
-    ```bash
-    # Send the sample event data
-    curl -X POST http://localhost:8080/events/ingest \
-      -H "Content-Type: application/json" \
-      -d @~/expanso-remove-pii/sample-event.json
-    ```
+Validate missing and malformed addresses before adapting this fragment. A domain or stable hash may still be sensitive in a particular dataset.
 
-4.  **Verify:** Check your logs. The `email` field will be gone, replaced by `email_hash` and `email_domain`. This allows you to count unique users with `COUNT(DISTINCT email_hash)` and analyze user organizations with `GROUP BY email_domain`, all while remaining GDPR compliant.
+[Next: replace the user name](/data-security/remove-pii/step-4-pseudonymize-user).

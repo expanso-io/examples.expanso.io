@@ -124,9 +124,23 @@ export default function CopyPipelineButton({
   return (
     <div className="copy-pipeline">
       <div className="copy-pipeline__content">
-        <span className="copy-pipeline__icon" aria-hidden="true">
-          📋
-        </span>
+        <svg
+          className="copy-pipeline__icon"
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          fill="none"
+        >
+          <path
+            d="M9 5.75h8.25A1.75 1.75 0 0 1 19 7.5v10.75A1.75 1.75 0 0 1 17.25 20H9a1.75 1.75 0 0 1-1.75-1.75V7.5A1.75 1.75 0 0 1 9 5.75Z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          />
+          <path
+            d="M15.5 5.75V5A1.75 1.75 0 0 0 13.75 3.25H6A1.75 1.75 0 0 0 4.25 5v10.75A1.75 1.75 0 0 0 6 17.5h1.25"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          />
+        </svg>
         <div className="copy-pipeline__text">
           <div className="copy-pipeline__title">Copy pipeline YAML</div>
           <div className="copy-pipeline__description">

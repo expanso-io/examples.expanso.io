@@ -1,9 +1,19 @@
 ---
-title: "Step 4: Batch and Encode to Parquet"
-sidebar_label: "Step 4: Batch to Parquet"
+title: 'Step 4: Batch and Encode to Parquet'
+sidebar_label: 'Step 4: Batch to Parquet'
 sidebar_position: 6
-description: "Batch synthetic POS events and encode them as Parquet for the walkthrough."
+description: 'Batch synthetic POS events and encode them as Parquet for the walkthrough.'
 keywords: [retail, pos, batching, parquet, columnar-storage]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-integrations-motherduck-retail-analytics-step-4-batch-parquet-encode]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 4: Batch and Encode to Parquet
@@ -12,90 +22,90 @@ Individual JSON transactions become compressed, columnar Parquet. Compression ra
 
 ## Batching Strategy
 
-Parquet files work best at 50-200MB. Too small and you get "small file problem" overhead in DuckLake. Too large and you lose parallelism. We use micro-batching:
+Choose Parquet object sizes from measured write, discovery, and query behavior. The reference uses an authored micro-batch:
 
 ```yaml
-    # Batch: collect 1000 transactions or flush every 10 seconds
-    - batch:
-        count: 1000
-        period: 10s
+# Batch: collect 1000 transactions or flush every 10 seconds
+- batch:
+    count: 1000
+    period: 10s
 ```
 
 At 10 TPS per store, that's roughly one Parquet file every 100 seconds (1000 rows), or a flush every 10 seconds during slow periods. Both produce well-sized files for DuckLake.
 
 ## Flatten for Parquet
 
-Parquet handles flat columns best. We serialize nested items as JSON strings — DuckDB can parse these natively with `json_extract`:
+The example maps selected fields into flat columns and serializes nested items as JSON strings for later inspection:
 
 ```yaml
-    # Prepare for Parquet encoding
-    - mapping: |
-        root = this
-        # Serialize nested items array as JSON string for Parquet
-        root.items_json = this.items.format_json()
-        # Drop the original nested array
-        root = root.without("items")
+# Prepare for Parquet encoding
+- mapping: |
+    root = this
+    # Serialize nested items array as JSON string for Parquet
+    root.items_json = this.items.format_json()
+    # Drop the original nested array
+    root = root.without("items")
 ```
 
 ## Encode to Parquet
 
 ```yaml
-    # Encode batch to Parquet with Zstandard compression
-    - parquet_encode:
-        schema:
-          - name: txn_id
-            type: UTF8
-          - name: store_id
-            type: INT32
-          - name: terminal_id
-            type: INT32
-          - name: timestamp
-            type: UTF8
-          - name: type
-            type: UTF8
-          - name: payment_method
-            type: UTF8
-          - name: employee_id
-            type: UTF8
-          - name: items_json
-            type: UTF8
-          - name: item_count
-            type: INT32
-          - name: subtotal
-            type: DOUBLE
-          - name: tax_rate
-            type: DOUBLE
-          - name: tax_amount
-            type: DOUBLE
-          - name: total_amount
-            type: DOUBLE
-          - name: store_region
-            type: UTF8
-          - name: store_format
-            type: UTF8
-          - name: store_city
-            type: UTF8
-          - name: store_state
-            type: UTF8
-          - name: store_sqft
-            type: INT32
-          - name: hour_of_day
-            type: INT32
-          - name: day_of_week
-            type: UTF8
-          - name: is_weekend
-            type: BOOLEAN
-          - name: basket_size
-            type: INT32
-          - name: avg_item_price
-            type: DOUBLE
-          - name: anomaly_flags
-            type: UTF8
-          - name: is_anomaly
-            type: BOOLEAN
-          - name: quality_score
-            type: UTF8
-        default_compression: zstd
+# Encode batch to Parquet with Zstandard compression
+- parquet_encode:
+    schema:
+      - name: txn_id
+        type: UTF8
+      - name: store_id
+        type: INT32
+      - name: terminal_id
+        type: INT32
+      - name: timestamp
+        type: UTF8
+      - name: type
+        type: UTF8
+      - name: payment_method
+        type: UTF8
+      - name: employee_id
+        type: UTF8
+      - name: items_json
+        type: UTF8
+      - name: item_count
+        type: INT32
+      - name: subtotal
+        type: DOUBLE
+      - name: tax_rate
+        type: DOUBLE
+      - name: tax_amount
+        type: DOUBLE
+      - name: total_amount
+        type: DOUBLE
+      - name: store_region
+        type: UTF8
+      - name: store_format
+        type: UTF8
+      - name: store_city
+        type: UTF8
+      - name: store_state
+        type: UTF8
+      - name: store_sqft
+        type: INT32
+      - name: hour_of_day
+        type: INT32
+      - name: day_of_week
+        type: UTF8
+      - name: is_weekend
+        type: BOOLEAN
+      - name: basket_size
+        type: INT32
+      - name: avg_item_price
+        type: DOUBLE
+      - name: anomaly_flags
+        type: UTF8
+      - name: is_anomaly
+        type: BOOLEAN
+      - name: quality_score
+        type: UTF8
+    default_compression: zstd
 ```
 
 ## Measure Compression
@@ -104,7 +114,7 @@ Record raw JSON bytes, Parquet bytes, row count, schema, codec, row-group settin
 
 ## Why Parquet + DuckLake?
 
-- **Columnar**: Query `SELECT sum(total_amount) FROM ...` only reads the `total_amount` column, not the entire row
+- **Columnar**: Queries can select a field without reading unrelated columns, subject to the engine and file layout
 - **Typed**: No runtime type parsing — DuckDB knows every column type at read time
 - **Compressed**: Zstandard on columnar data compresses extremely well (repeated store IDs, payment methods, etc.)
 - **DuckLake inlining**: Small batches get inlined into the catalog, periodically flushed to Parquet — no small-file overhead

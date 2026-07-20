@@ -66,4 +66,3 @@ if (productionBase) {
 if (!buildDir && !productionBase) {
   console.log('Source IndexNow protocol bytes verified.');
 }
-

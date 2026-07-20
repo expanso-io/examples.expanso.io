@@ -1,358 +1,44 @@
 ---
-title: "Step 3: Filter Before Indexing"
-description: "Apply measurable edge-filtering policies before sending selected events to Splunk"
+title: 'Step 3: Apply a Retention Policy'
+description: Delete or sample selected fixture events before the Splunk HEC boundary.
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-integrations-splunk-edge-processing-step-3-filter-before-indexing]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Step 3: Filter Before Indexing
+# Step 3: Apply a Retention Policy
 
-This stage applies an explicit filtering policy before events reach Splunk HEC. Whether that reduces billable ingest or total cost depends on your Splunk product, contract, workload, retention policy, and the events you choose to keep.
+This stage deletes fixture records before they reach Splunk HEC. Source filtering and search filtering are different controls: a search hides indexed records from a result, while this mapping prevents deleted records from reaching the destination.
 
-:::caution Measure before making cost claims
-The sample policy intentionally drops and samples data. Test it against representative traffic, verify that required security and audit events are preserved, measure bytes accepted by the destination, and apply your own contracted pricing. This tutorial does not claim a typical reduction or savings percentage.
-:::
-
-## Build a Baseline
-
-Classify a representative sample using your retention and investigation requirements. Useful baseline categories include verbose diagnostics, repetitive health checks, duplicate events, routine operational events, and security or business records that must be retained.
-
-## Source Filtering and Search Filtering Are Different Controls
-
-The following SPL narrows search results after ingestion. The edge policy later in this step changes what is sent to HEC. Treat those as different controls with different failure modes:
-
-```spl
-# This runs AFTER you've already paid to index everything
-index=main sourcetype=json_logs level!=DEBUG
-| where NOT match(message, "health.*check")  
-| dedup user, message
-```
-
-**The problem:** You've already indexed (and paid for) the DEBUG logs, health checks, and duplicates!
-
-## Expanso's Solution: Filter At The Source
-
-With Expanso, filtering happens **before data leaves your edge nodes**:
-
-### Enhanced Pipeline with Smart Filtering
-
-```bash
-cat > ~/splunk-edge-pipeline.yaml << 'EOF'
-apiVersion: v1
-kind: Pipeline
-metadata:
-  name: "splunk-edge-filtered"
-  description: "Apply an example filtering policy before events reach Splunk"
-
-input:
-  file_watcher:
-    paths:
-      - "/var/log/expanso-demo/app.log"
-      - "/var/log/expanso-demo/security.log" 
-      - "/var/log/expanso-demo/system.log"
-    poll_interval: "1s"
-    include_file_name: true
-
-processors:
-  # 1. Parse data (from Step 2)
-  - mapping: |
-      root.source_file = file.name
-      root.collection_timestamp = timestamp()
-      root.host = hostname()
-      
-      root.sourcetype = match file.name {
-        this.contains("app.log") => "json_logs"
-        this.contains("security.log") => "cef"
-        this.contains("system.log") => "syslog"
-        _ => "unknown"
-      }
-
-  # 2. JSON parsing and enrichment
-  - conditional:
-      condition: 'this.sourcetype == "json_logs"'
-    mapping: |
-      root = if this.type() == "object" {
-        this
-      } else {
-        this.parse_json().catch({"raw_message": this, "parse_error": true})
-      }
-      
-      root.log_severity = match this.level {
-        "ERROR" => 3
-        "WARN" => 2  
-        "INFO" => 1
-        _ => 0
-      }
-      
-      # Flag events for filtering decisions
-      root.is_debug = this.level == "DEBUG"
-      root.is_health_check = this.message.contains("health check") || this.message.contains("Health check")
-      root.is_duplicate = false  # Will be determined by dedup processor
-
-  # 3. CEF parsing
-  - conditional:
-      condition: 'this.sourcetype == "cef"'
-    mapping: |
-      root.cef = this.string().parse_regex("CEF:(?P<version>\\d+)\\|(?P<vendor>[^|]*)\\|(?P<product>[^|]*)\\|(?P<device_version>[^|]*)\\|(?P<signature_id>[^|]*)\\|(?P<name>[^|]*)\\|(?P<severity>[^|]*)\\|(?P<extensions>.*)")
-      
-      root.vendor = this.cef.vendor
-      root.event_name = this.cef.name
-      root.severity = this.cef.severity
-      root.risk_score = match this.severity {
-        "Critical" => 10
-        "High" => 8
-        "Medium" => 5
-        "Low" => 2
-        _ => 1
-      }
-
-  # 4. SMART FILTERING - The Game Changer!
-  
-  # 4a. Drop DEBUG logs (SPL equivalent: | where level!="DEBUG")
-  - conditional:
-      condition: 'this.level == "DEBUG"'
-    mapping: 'root = deleted()'  # Completely remove from pipeline
-      
-  # 4b. Sample health checks (keep 1 in 10, drop the rest)
-  - conditional:  
-      condition: 'this.is_health_check == true'
-    mapping: |
-      # Use hash of content to ensure consistent sampling
-      let hash = (this.host + this.timestamp).hash("xxhash64") % 10
-      if hash != 0 {
-        root = deleted()  # Drop 9 out of 10 health checks
-      } else {
-        root.sampled_health_check = true  # Keep this one, mark it as sampled
-      }
-
-  # 4c. Deduplicate events (keep first occurrence in 5-minute window)
-  - dedup:
-      cache_size: 10000
-      drop_on: 'this.level + this.message + this.host'
-      dedupe_after: "5m"
-
-  # 4d. Filter out test/synthetic events
-  - conditional:
-      condition: 'this.user.contains("test") || this.user.contains("synthetic") || this.source_ip.contains("127.0.0.1")'
-    mapping: 'root = deleted()'
-
-  # 4e. Rate limiting for verbose sources 
-  - throttle:
-      key: 'this.host + this.process_name'
-      limit: 100  # Max 100 events per minute per host+process
-      interval: "1m"
-      
-  # 5. Add filtering metadata for analysis
-  - mapping: |
-      root.filtered_by_expanso = true
-      root.processing_timestamp = timestamp()
-      
-      # Calculate data reduction
-      root.original_size_bytes = this.string().length()
-      
-      # Tag event priority for further routing
-      root.priority = match {
-        this.sourcetype == "cef" && this.risk_score >= 8 => "critical"
-        this.level == "ERROR" => "high"
-        this.level == "WARN" => "medium"
-        this.sampled_health_check == true => "low"
-        _ => "normal"
-      }
-
-# Still using stdout for now - we'll add Splunk HEC in Step 4      
-output:
-  stdout:
-    format: "json"
-    
-  # Add a metrics output to track filtering efficiency
-  - metrics:
-      prometheus:
-        listen_addr: ":9090"
-        path: "/metrics"
-EOF
-```
-
-### Add a Volume Tracking Processor
-
-Let's add another pipeline stage that tracks exactly how much data reduction we're achieving:
-
-```bash
-cat >> ~/splunk-edge-pipeline.yaml << 'EOF'
-
-  # Volume tracking processor (add before final output)
-  - mapping: |
-      # Track volumes for cost analysis
-      meta events_processed = (meta("events_processed").number().catch(0)) + 1
-      meta bytes_before_filtering = (meta("bytes_before_filtering").number().catch(0)) + this.original_size_bytes
-      meta bytes_after_filtering = (meta("bytes_after_filtering").number().catch(0)) + this.string().length()
-      
-      # Calculate reduction percentage  
-      let reduction_pct = if meta("bytes_before_filtering") > 0 {
-        ((meta("bytes_before_filtering") - meta("bytes_after_filtering")).number() / meta("bytes_before_filtering").number()) * 100
-      } else { 0 }
-      
-      root.volume_stats = {
-        "events_processed": meta("events_processed"),
-        "bytes_before": meta("bytes_before_filtering"), 
-        "bytes_after": meta("bytes_after_filtering"),
-        "reduction_percentage": reduction_pct
-      }
-EOF
-```
-
-## Deploy and Test the Filtering
-
-### 1. Deploy Enhanced Pipeline
-
-```bash
-expanso pipeline deploy ~/splunk-edge-pipeline.yaml
-
-# Monitor the filtered output
-expanso pipeline logs splunk-edge-filtered -f
-```
-
-### 2. Generate Mixed Test Data
-
-Create a mix of valuable and noisy data to see the filtering in action:
-
-```bash
-# Add DEBUG noise (should be filtered out)
-echo '{"timestamp":"'$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")'","level":"DEBUG","message":"Cache lookup for user session","user":"john.doe","cache_key":"session_abc123"}' >> $TEST_DATA_DIR/app.log
-
-echo '{"timestamp":"'$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")'","level":"DEBUG","message":"SQL query trace: SELECT * FROM sessions","execution_time_ms":5}' >> $TEST_DATA_DIR/app.log
-
-# Add health checks (should be sampled down)
-for i in {1..10}; do
-  echo '{"timestamp":"'$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")'","level":"INFO","message":"Health check passed","service":"user-service","status":"healthy"}' >> $TEST_DATA_DIR/app.log
-done
-
-# Add valuable ERROR events (should be kept)
-echo '{"timestamp":"'$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")'","level":"ERROR","message":"Payment processing failed","user":"customer@company.com","transaction_id":"tx_12345","amount":99.99}' >> $TEST_DATA_DIR/app.log
-
-# Add critical security event (should be kept)
-echo 'CEF:0|Company|WebApp|1.0|800|Brute Force Attack|Critical|src=203.0.113.100 suser=admin act=login outcome=failure attempts=50 dpt=443' >> $TEST_DATA_DIR/security.log
-
-# Add test user events (should be filtered out)
-echo '{"timestamp":"'$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")'","level":"INFO","message":"User login","user":"test.user","source_ip":"127.0.0.1"}' >> $TEST_DATA_DIR/app.log
-```
-
-### 3. Monitor Filtering Results
-
-You should see:
-- ✅ **0 DEBUG events** in output (all filtered)
-- ✅ **1 health check** out of the 10 synthetic checks (the configured sample behavior)
-- ✅ **ERROR events preserved** (valuable data kept)
-- ✅ **Security events preserved** (critical data kept)
-- ❌ **Test user events filtered** (synthetic data removed)
-
-### 4. Check Volume Reduction Metrics
-
-```bash
-# View filtering metrics
-curl http://localhost:9090/metrics | grep expanso
-
-# Check pipeline statistics
-expanso pipeline stats splunk-edge-filtered
-```
-
-## Filter Types and SPL Equivalents
-
-| **Filter Type** | **SPL Equivalent** | **Expanso Edge Filtering** | **Measure** |
-|---|---|---|---|
-| **Level Filtering** | `level!="DEBUG"` | `root = deleted()` if DEBUG | Events and bytes removed by level |
-| **Health Check Sampling** | `NOT (message="health*")` | Keep 1 in 10 via hash | Sample accuracy and retained failures |
-| **Deduplication** | `dedup user,message` | Deduplication processor | Duplicate window and false matches |
-| **Test Data Removal** | `user!="test*"` | Conditional deletion | Matches reviewed before deletion |
-| **Rate Limiting** | Manual time windows | Throttling policy | Delayed or dropped events under load |
-
-## Advanced Filtering Patterns
-
-### 1. Time-Based Filtering
+## Reference mapping
 
 ```yaml
-# Only send business-hours data for non-critical events
-- conditional:
-    condition: 'this.priority != "critical" && (timestamp().format("15").number() < 9 || timestamp().format("15").number() > 17)'
-  mapping: 'root = deleted()'
+pipeline:
+  processors:
+    - mapping: |
+        if this.level == "DEBUG" {
+          root = deleted()
+        }
+        if this.message.contains("Health check passed") {
+          root = deleted()
+        }
 ```
 
-### 2. Adaptive Thresholds
+## Review the policy
 
-```yaml
-# Increase filtering aggressiveness during high-volume periods
-- mapping: |
-    let current_hour_events = meta("hour_" + timestamp().format("15")).number().catch(0) + 1
-    meta("hour_" + timestamp().format("15")) = current_hour_events
-    
-    # Filter more aggressively if >1000 events this hour
-    if current_hour_events > 1000 && this.level == "INFO" {
-      root = deleted()
-    }
-```
+Record the event classes and bytes before and after filtering with representative traffic. Test required security, audit, investigation, and operational records explicitly. A sample that removes events successfully does not establish that the policy is safe.
 
-### 3. Content-Based Intelligence
+Keep reject and observation paths separate from the main HEC output. Define what happens when parsing fails, a policy field is absent, or destination delivery is unavailable.
 
-```yaml
-# Filter known-good patterns
-- conditional:
-    condition: 'this.message.contains("successfully") && this.level == "INFO" && this.response_time_ms < 100'
-  mapping: |
-    let hash = this.message.hash("xxhash64") % 20
-    if hash != 0 {
-      root = deleted()  # Keep only 5% of successful fast operations
-    }
-```
+## Boundary
 
-### 4. Compliance-Aware Filtering
+This authored rule removes debug and health-check fixture lines. It makes no prediction about ingest, licensing, storage, or commercial outcomes for a Splunk environment.
 
-```yaml
-# Never filter PII/compliance-related events
-- conditional:
-    condition: 'this.message.contains("login") || this.message.contains("payment") || this.message.contains("access")'
-  mapping: |
-    root.compliance_protected = true
-    root.filter_exempt = true
-```
-
-## Cost Impact Analysis
-
-Use measured daily destination bytes and your contracted unit to build the comparison:
-
-```text
-baseline_cost = priced_baseline_volume × contracted_rate
-filtered_cost = priced_filtered_volume × contracted_rate
-net_effect = baseline_cost - filtered_cost - added_edge_and_operating_costs
-```
-
-Include infrastructure, support, operations, retention effects, and the value or risk of data removed. Do not extrapolate the synthetic event mix in this tutorial to a production workload.
-
-## Monitoring Filter Effectiveness
-
-### 1. Check Reduction Metrics
-
-```bash
-# View real-time filtering stats
-expanso pipeline logs splunk-edge-filtered --filter "volume_stats"
-```
-
-### 2. Track Filtered Events
-
-```bash
-# Count filtered vs. passed events
-expanso pipeline metrics splunk-edge-filtered | grep -E "(events_processed|events_filtered)"
-```
-
-### 3. Validate Critical Events Preserved
-
-```bash
-# Ensure no critical events were filtered
-expanso pipeline logs splunk-edge-filtered --filter "level=ERROR" --count
-```
-
-## What's Next?
-
-You now have a configurable pre-ingest policy and a way to measure its behavior. Next, configure the output to send the retained events to Splunk via HEC.
-
-→ **Next Step:** [Step 4: Route to Splunk HEC](/integrations/splunk-edge-processing/step-4-route-to-splunk-hec)
-
----
-
-**Key takeaway:** Pre-ingest filtering can change destination volume, but the policy must be validated against investigation, security, legal, and operational requirements before deployment.
+**Next:** [Route retained events to HEC](/integrations/splunk-edge-processing/step-4-route-to-splunk-hec).

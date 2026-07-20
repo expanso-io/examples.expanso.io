@@ -4,6 +4,15 @@ sidebar_label: Step 4 - Add Elasticsearch
 sidebar_position: 7
 description: Add Elasticsearch as a search and analytics destination to your fan-out pipeline.
 keywords: [elasticsearch, search, analytics, broker, fan-out]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-fan-out-pattern-step-4-add-elasticsearch]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 4: Add Elasticsearch for Search and Analytics
@@ -12,7 +21,7 @@ This final step in building the core fan-out pipeline is to add **Elasticsearch*
 
 ## The Goal
 
-You will modify your `fan-out.yaml` file to send messages to a local file, a Kafka topic, an S3 bucket, *and* an Elasticsearch index, all at the same time.
+You will modify your `fan-out.yaml` file to send messages to a local file, a Kafka topic, an S3 bucket, _and_ an Elasticsearch index, all at the same time.
 
 ## Implementation
 
@@ -49,14 +58,17 @@ You will modify your `fan-out.yaml` file to send messages to a local file, a Kaf
                 count: 10
                 period: 10s
     ```
-    We use a daily index name (`sensor-events-YYYY-MM-DD`) which is a common best practice. The `id` field is set from the event's ID to prevent duplicate documents.
+
+    The example uses a daily index name (`sensor-events-YYYY-MM-DD`). The `id` field is derived from the event ID; verify update and duplicate behavior against the target service.
 
 3.  **Configure Elasticsearch:** Ensure you have an Elasticsearch instance running and the required environment variables are set.
+
     ```bash
     export ES_ENDPOINT="http://localhost:9200"
     ```
 
 4.  **Deploy and Test:**
+
     ```bash
     # Send a test event with an event_id
     curl -X POST http://localhost:8080/events \

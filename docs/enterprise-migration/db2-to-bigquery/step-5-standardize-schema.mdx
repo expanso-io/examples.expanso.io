@@ -1,9 +1,19 @@
 ---
-title: "Step 5: Standardize Schema"
-sidebar_label: "Step 5: Standardize Schema"
+title: 'Step 5: Standardize Schema'
+sidebar_label: 'Step 5: Standardize Schema'
 sidebar_position: 7
 description: Transform DB2 column names to BigQuery-friendly format
 keywords: [schema, mapping, bigquery, transformation, naming]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-enterprise-migration-db2-to-bigquery-step-5-standardize-schema]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 5: Standardize Schema
@@ -19,13 +29,14 @@ Convert DB2's UPPERCASE column names to BigQuery's lowercase snake_case conventi
 
 ## Why This Matters
 
-**BigQuery Best Practices:** Lowercase, snake_case column names
+**Example convention:** Lowercase, snake_case column names
 **Query Simplicity:** `SELECT transaction_id` vs `SELECT "TRANSACTION_ID"`
-**Partitioning:** Date partitions dramatically improve query performance and reduce costs
+**Partitioning:** Date partitions are an authored layout choice; measure query and billing behavior against the target workload
 
 ## DataStage Equivalent
 
 In DataStage, schema mapping requires:
+
 1. **Transformer Stage** with manual field-by-field assignment
 2. **Metadata propagation** to ensure downstream stages see new names
 3. **Separate logic** for partition field generation
@@ -40,7 +51,7 @@ Add the schema standardization processor after categorization:
 pipeline:
   processors:
     # Steps 1-4 from previous...
-    
+
     # Step 5: Standardize field names for BigQuery
     - mapping: |
         # Map DB2 columns to BigQuery format
@@ -52,7 +63,7 @@ pipeline:
         root.merchant_category_code = this.MERCHANT_CATEGORY_CODE
         root.source_system = this.SOURCE_SYSTEM
         root.created_at = this.CREATED_AT
-        
+
         # Carry forward transformed fields from previous steps
         root.amount_usd = this.amount_usd
         root.original_amount = this.original_amount
@@ -61,19 +72,19 @@ pipeline:
         root.account_number_hash = this.account_number_hash
         root.transaction_category = this.transaction_category
         root._lineage = this._lineage
-        
+
         # Add BigQuery partition field
         root._partition_date = this.TRANSACTION_DATE.ts_parse("2006-01-02").ts_format("2006-01-02")
 ```
 
 ## Understanding the Code
 
-| Expression | What It Does |
-|------------|--------------|
-| `root.transaction_id = this.TRANSACTION_ID` | Rename field to lowercase |
-| `root = ...` (starting fresh) | Only include explicitly mapped fields |
-| `.ts_parse("2006-01-02")` | Parse date string to timestamp |
-| `.ts_format("2006-01-02")` | Format timestamp back to date string |
+| Expression                                  | What It Does                         |
+| ------------------------------------------- | ------------------------------------ |
+| `root.transaction_id = this.TRANSACTION_ID` | Rename field to lowercase            |
+| `root = ...` (starting fresh)               | Include explicitly mapped fields     |
+| `.ts_parse("2006-01-02")`                   | Parse date string to timestamp       |
+| `.ts_format("2006-01-02")`                  | Format timestamp back to date string |
 
 :::info Go Time Format
 Expanso uses Go's time format convention where `2006-01-02` is the reference date. This is different from `YYYY-MM-DD` in other languages.
@@ -82,6 +93,7 @@ Expanso uses Go's time format convention where `2006-01-02` is the reference dat
 ## Expected Output
 
 **Input (after steps 1-4):**
+
 ```json
 {
   "TRANSACTION_ID": "TXN-2024-00123456",
@@ -96,6 +108,7 @@ Expanso uses Go's time format convention where `2006-01-02` is the reference dat
 ```
 
 **Output:**
+
 ```json
 {
   "transaction_id": "TXN-2024-00123456",
@@ -148,10 +161,10 @@ For time and region partitioning:
 ```yaml
 root._partition_date = this.TRANSACTION_DATE
 root._partition_region = match this.SOURCE_SYSTEM {
-  this.contains("EU") => "eu",
-  this.contains("US") => "us",
-  this.contains("APAC") => "apac",
-  _ => "global"
+this.contains("EU") => "eu",
+this.contains("US") => "us",
+this.contains("APAC") => "apac",
+_ => "global"
 }
 ```
 
@@ -171,7 +184,10 @@ root._cluster_2 = this.customer_id
 ## Next Step
 
 <div className="margin-top--lg margin-bottom--lg">
-  <a href="./step-6-validate-required-fields" className="button button--primary button--lg">
+  <a
+    href="../step-6-validate-required-fields"
+    className="button button--primary button--lg"
+  >
     📖 Step 6: Validate Required Fields →
   </a>
 </div>

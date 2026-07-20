@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://examples.expanso.io/contracts/dataset-registry-v1.schema.json",
+  "title": "Public fixture data-rights registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "policyVersion", "policyDigest", "datasets"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "policyVersion": { "const": "dataset-evidence-v1" },
+    "policyDigest": { "$ref": "#/$defs/digest" },
+    "datasets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/dataset" }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "date": { "type": "string", "format": "date" },
+    "scan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "command", "result", "checkedAt"],
+      "properties": {
+        "tool": { "type": "string", "minLength": 1 },
+        "command": { "type": "string", "minLength": 1 },
+        "result": { "const": "PASS" },
+        "checkedAt": { "$ref": "#/$defs/date" }
+      }
+    },
+    "dataset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "fixturePaths",
+        "fixtureSha256",
+        "deterministic",
+        "attribution",
+        "transformationRecord",
+        "redistributionScope",
+        "dataRightsVerdict",
+        "piiScan",
+        "syntheticDataScan"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "kind": { "enum": ["synthetic", "public-derived"] },
+        "fixturePaths": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "fixtureSha256": { "$ref": "#/$defs/digest" },
+        "deterministic": { "const": true },
+        "attribution": { "type": "string", "minLength": 1 },
+        "transformationRecord": { "type": "string", "minLength": 1 },
+        "redistributionScope": { "const": "repository-and-public-build" },
+        "dataRightsVerdict": { "const": "allowed" },
+        "piiScan": { "$ref": "#/$defs/scan" },
+        "syntheticDataScan": { "$ref": "#/$defs/scan" },
+        "sourceUrl": { "type": "string", "pattern": "^https://" },
+        "sourceSha256": { "$ref": "#/$defs/digest" },
+        "spdxLicenseId": { "type": "string", "minLength": 1 },
+        "licenseTextPath": { "type": "string", "minLength": 1 },
+        "generation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["command", "generatorPath", "generatorSha256", "seed"],
+          "properties": {
+            "command": { "type": "string", "minLength": 1 },
+            "generatorPath": { "type": "string", "minLength": 1 },
+            "generatorSha256": { "$ref": "#/$defs/digest" },
+            "seed": { "type": "string", "minLength": 1 }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "synthetic" } } },
+          "then": { "required": ["generation"] }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "public-derived" } } },
+          "then": {
+            "required": [
+              "sourceUrl",
+              "sourceSha256",
+              "spdxLicenseId",
+              "licenseTextPath"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

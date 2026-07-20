@@ -1,163 +1,42 @@
 ---
-title: Cross-Border GDPR Compliance
-sidebar_label: Introduction
+title: Cross-Border Data Minimization
 sidebar_position: 1
-description: Demonstrate data minimization, generalization, and pseudonymization before a cross-border analytics transfer
-keywords:
-  [
-    gdpr,
-    cross-border,
-    anonymization,
-    eu,
-    compliance,
-    article-44,
-    data-residency,
-  ]
+description: Minimize and pseudonymize synthetic records before an analytics transfer.
+keywords: [gdpr, data-minimization, pseudonymization, hashing, residency]
+hide_title: true
+contentArchetype: overview
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+difficulty: intermediate
+verificationDate: '2026-07-18'
+expectedTime: 5 minutes
+localNavigation: true
+uniqueTasks: [inspect-cross-border-gdpr-architecture]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Cross-Border GDPR Compliance
+import { ExampleHeader } from '@site/src/components/ExamplePage';
 
-Apply example data-minimization and pseudonymization controls at the edge before sending selected fields to a global analytics system.
+<ExampleHeader
+  exampleId="cross-border-gdpr"
+  title="Cross-Border Data Minimization"
+  outcome="Minimize and pseudonymize selected fields before sending a synthetic record to an analytics destination."
+  primaryAction={{
+    href: '/data-security/cross-border-gdpr/setup',
+    label: 'Review the local path',
+  }}
+  difficulty="intermediate"
+  executionStatus="architecture-only"
+  operationalEvidence="not-assessed"
+  expectedTime={{ inspectMinutes: 5 }}
+  verifiedAt="2026-07-18"
+/>
 
-:::caution Legal scope
-This tutorial is a technical pattern, not a determination that its output is anonymous or that a transfer complies with GDPR. Salted hashes and generalized values can remain personal data when a person is still identifiable or the controller retains additional information. Have privacy and legal owners assess identifiability, lawful basis, transfer mechanisms, retention, access, and the complete processing context.
-:::
+## Related examples
 
-## The Problem
-
-Your organization has:
-
-- EU customer transaction data subject to GDPR
-- Global analytics platform (BigQuery in US or multi-region)
-- Requirement to aggregate data globally for business intelligence
-
-**The challenge:** GDPR Chapter V governs transfers of personal data to third countries or international organizations. The applicable transfer mechanism and safeguards depend on the actual parties, destination, and processing context.
-
-**The pattern:** Delete fields that are not needed, pseudonymize selected identifiers, generalize high-precision values, and block records that fail the configured field checks. These controls can reduce exposure; they do not by themselves make data anonymous or authorize a transfer.
-
-## The Pattern: 6 Data-Protection Steps
-
-This pipeline demonstrates transformations that must be reviewed against a specific dataset and threat model:
-
-### 1. **Tag Data Origin** → Compliance Tracking
-
-- Record source region, extraction time, pipeline ID
-- Required for audit trail and data lineage
-
-### 2. **Create GDPR Record** → Legal Documentation
-
-- Document lawful basis before transformation
-- List all PII fields being processed
-- Cite relevant GDPR article (44)
-
-### 3. **Delete High-Risk Fields** → No Recovery Needed
-
-- Full names, addresses—no analytics value
-- Convert DOB to age buckets (25-34, 35-44)
-
-### 4. **Hash Identifiers** → Pseudonymization
-
-- Customer ID → salted hash (for cohort counting)
-- Email → domain only (B2B vs B2C analysis)
-- IBAN → country code (geographic distribution)
-- IP → /16 subnet (regional analysis)
-
-### 5. **Generalize Values** → Reduce Precision
-
-- Transaction amounts → buckets
-- Timestamps → hour-level
-
-### 6. **Validate Configured Fields** → Technical Gate
-
-- Verify no PII fields remain
-- Record which configured checks ran
-
-## How This Differs from Remove PII
-
-| Aspect               | Remove PII                   | Cross-Border GDPR                                     |
-| -------------------- | ---------------------------- | ----------------------------------------------------- |
-| **Focus**            | General privacy              | Data residency & transfer                             |
-| **Input**            | HTTP streams                 | SQL database                                          |
-| **Data type**        | User activity                | Financial transactions                                |
-| **Output**           | Single destination           | Dual: global + EU archive                             |
-| **Governance scope** | Generic minimization example | Cross-border transfer scenario requiring legal review |
-| **Audit**            | Optional                     | Required attestation                                  |
-
-## Data Flow
-
-```
-┌─────────────────┐     ┌─────────────────────────┐
-│  EU Database    │────▶│  Expanso Edge (EU)      │
-│  (Personal Data)│     │  - Tag origin           │
-└─────────────────┘     │  - Anonymize            │
-                        │  - Validate             │
-                        └───────┬─────────────────┘
-                                │
-                    ┌───────────┼───────────┐
-                    ▼           ▼           ▼
-            ┌───────────┐ ┌──────────┐ ┌──────────┐
-            │ Global    │ │ EU       │ │ Audit    │
-            │ BigQuery  │ │ Archive  │ │ Log      │
-            │ (Anon)    │ │ (Full)   │ │          │
-            └───────────┘ └──────────┘ └──────────┘
-```
-
-## What This Demonstrates—and Does Not Prove
-
-The example removes direct fields and changes the precision or representation of others. The remaining output can still be personal data: stable hashes enable linkage, generalized values can combine with other datasets, and the controller may retain the source data or salt.
-
-- **Direct-field handling** - Some fields are deleted and others are pseudonymized with salted hashes
-- **Precision reduction** - Age and amount values are generalized into configured ranges
-- **Linkage remains possible** - Stable pseudonyms and combinations of fields require an identifiability assessment
-- **Cryptographic scope** - Salted hashing is one-way in this example, but dictionary attacks, salt access, and source-data linkage remain part of the threat model
-
-**Result:** The output has a smaller set of direct identifiers and a machine-readable record of the configured transformations. Whether it is anonymous, and whether a cross-border transfer is lawful, requires a separate documented assessment.
-
-## What You'll Learn
-
-By the end of this guide, you'll be able to:
-
-✅ **Classify PII by anonymization treatment** (delete/hash/generalize)  
-✅ **Attach processing metadata** that can support an audit trail
-✅ **Route data to multiple destinations** (global + regional archive)  
-✅ **Validate the configured field-removal rules** before output
-✅ **Target designated edge nodes** with selectors
-
-## Get Started
-
-### Option 1: Step-by-Step Tutorial (Recommended)
-
-Build the pipeline incrementally, understanding each GDPR requirement:
-
-1. [**Setup Guide**](/data-security/cross-border-gdpr/setup) - Prerequisites and environment
-2. [**Step 1: Tag Data Origin**](/data-security/cross-border-gdpr/step-1-tag-data-origin) - Compliance tracking
-3. [**Step 2: Create GDPR Record**](/data-security/cross-border-gdpr/step-2-create-gdpr-record) - Legal basis
-4. [**Step 3: Delete High-Risk Fields**](/data-security/cross-border-gdpr/step-3-delete-high-risk-fields) - No-value PII
-5. [**Step 4: Hash Identifiers**](/data-security/cross-border-gdpr/step-4-hash-identifiers) - Pseudonymization
-6. [**Step 5: Generalize Values**](/data-security/cross-border-gdpr/step-5-generalize-values) - Reduce precision
-7. [**Step 6: Validate Anonymization**](/data-security/cross-border-gdpr/step-6-validate-anonymization) - Compliance gate
-
-### Option 2: Jump to Complete Pipeline
-
-Review the complete reference configuration:
-
-[**→ Get Complete Pipeline**](/data-security/cross-border-gdpr/complete-pipeline)
-
-## Who This Guide Is For
-
-- **Data Protection Officers** implementing GDPR transfer mechanisms
-- **Data Engineers** prototyping cross-border data-minimization controls
-- **Legal/Compliance Teams** documenting data transfer safeguards
-- **Platform Teams** deploying EU-specific data infrastructure
-
-## Prerequisites
-
-- PostgreSQL database with EU transaction data
-- GCP project with BigQuery (global) and Cloud Storage (EU region)
-- Expanso Edge installed on EU-located infrastructure
-- Basic understanding of GDPR principles
-
-## Time to Complete
-
-- **Step-by-Step Tutorial:** 45-60 minutes
-- **Quick Deploy:** 10 minutes
+- [Remove PII](/data-security/remove-pii)
+- [Encrypt sensitive data](/data-security/encrypt-data)
+- [Enforce schema](/data-security/enforce-schema)

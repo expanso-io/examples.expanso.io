@@ -4,6 +4,15 @@ sidebar_label: Troubleshooting
 sidebar_position: 9
 description: Common smart buffering issues and solutions
 keywords: [troubleshooting, debug, smart-buffering, priority]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-smart-buffering-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Troubleshooting
@@ -35,6 +44,7 @@ docker logs smart-buffer --tail 20 2>&1 | grep priority
 ```
 
 **Fix:** Verify field names match your data:
+
 ```yaml
 # If your field is "level" not "severity":
 let severity = this.level.or("info").string().lowercase()
@@ -44,9 +54,10 @@ let severity = this.level.or("info").string().lowercase()
 
 ### All messages getting same score
 
-**Cause:** Classification always falling to default case
+**Cause:** Classification repeatedly falls to the default case
 
 **Fix:** Check field existence and add explicit logging:
+
 ```yaml
 - mapping: |
     root = this
@@ -62,6 +73,7 @@ let severity = this.level.or("info").string().lowercase()
 **Cause:** Age boost not high enough or timestamp parsing failing
 
 **Fix:** Increase age boost values:
+
 ```yaml
 let age_boost = match {
   age_seconds > 3600 => 950,   # 1 hour = near-important
@@ -77,6 +89,7 @@ let age_boost = match {
 **Cause:** Sort processor not applied to output batch
 
 **Fix:** Ensure sort processor is in output processors, not pipeline:
+
 ```yaml
 output:
   broker:
@@ -94,10 +107,11 @@ output:
 **Cause:** Output slower than input
 
 **Fix:** Increase buffer limit or add overflow handling:
+
 ```yaml
 buffer:
   memory:
-    limit: 100000  # Increase capacity
+    limit: 100000 # Increase capacity
 
 # Or add overflow to file
 output:

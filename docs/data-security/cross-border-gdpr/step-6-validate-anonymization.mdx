@@ -1,14 +1,23 @@
 ---
-title: "Step 6: Validate Anonymization"
-sidebar_label: "Step 6: Validate"
+title: 'Step 6: Validate Anonymization'
+sidebar_label: 'Step 6: Validate'
 sidebar_position: 8
 description: Verify that the example's configured direct-identifier fields were transformed before output
-keywords: [validation, compliance, gate, verification, audit]
+keywords: [validation, transformation, gate, verification, audit]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-cross-border-gdpr-step-6-validate-anonymization]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 6: Validate Anonymization
 
-Before output, verify that the direct-identifier fields named by this example were removed or transformed. This is a technical configuration check, not proof that no personal data remains and not a legal compliance gate.
+Before output, verify that the direct-identifier fields named by this example were removed or transformed. This technical check does not prove that no personal data remains or that legal obligations have been met.
 
 ## The Goal
 
@@ -23,7 +32,7 @@ Before output, verify that the direct-identifier fields named by this example we
 
 **Audit Context:** The record shows that the configured checks ran before output; it does not prove anonymous-data status.
 
-**Fail-Safe:** Better to reject a record than transfer PII illegally.
+**Fail-Safe:** Reject records that fail the configured checks; obtain legal review for transfer requirements.
 
 ## Implementation
 
@@ -31,7 +40,7 @@ Before output, verify that the direct-identifier fields named by this example we
 pipeline:
   processors:
     # Steps 1-5 from previous...
-    
+
     # Step 6: Validate anonymization completeness
     - mapping: |
         # List of PII fields that must NOT exist
@@ -44,17 +53,17 @@ pipeline:
           "iban",
           "ip_address"
         ]
-        
+
         # Check for any remaining PII
         let remaining_pii = $pii_fields.filter(f -> this.exists(f))
-        
+
         root = if $remaining_pii.length() > 0 {
           throw("GDPR VIOLATION: PII fields still present: " + $remaining_pii.join(", "))
         } else {
           this
         }
-        
-        # Add compliance attestation
+
+        # Add example transformation metadata
         root._gdpr_compliance.anonymization_verified = true
         root._gdpr_compliance.verification_timestamp = now()
         root._gdpr_compliance.fields_removed = ["customer_name", "customer_address", "customer_dob"]
@@ -63,16 +72,17 @@ pipeline:
 
 ## Understanding the Code
 
-| Expression | What It Does |
-|------------|--------------|
-| `$pii_fields.filter(f -> this.exists(f))` | Find PII fields that still exist |
-| `$remaining_pii.length() > 0` | Check if any PII remains |
-| `throw("message")` | Reject record with error |
-| `root._gdpr_compliance.anonymization_verified = true` | Add attestation |
+| Expression                                            | What It Does                     |
+| ----------------------------------------------------- | -------------------------------- |
+| `$pii_fields.filter(f -> this.exists(f))`             | Find PII fields that still exist |
+| `$remaining_pii.length() > 0`                         | Check if any PII remains         |
+| `throw("message")`                                    | Reject record with error         |
+| `root._gdpr_compliance.anonymization_verified = true` | Add attestation                  |
 
 ## Expected Behavior
 
 **Valid Record (all PII removed):**
+
 ```json
 {
   "transaction_id": "TXN-EU-2024-00001",
@@ -95,13 +105,14 @@ pipeline:
 ```
 
 **Invalid Record (PII found):**
+
 ```
 ERROR: GDPR VIOLATION: PII fields still present: customer_email, iban
 ```
 
 Record is rejected—does not proceed to output.
 
-## Production Considerations
+## Adaptation checks
 
 ### Dead Letter Queue for Failures
 
@@ -113,7 +124,7 @@ output:
     - check: errored()
       output:
         gcp_pubsub:
-          project: "${GCP_PROJECT}"
+          project: '${GCP_PROJECT}'
           topic: gdpr-validation-failures
     - output:
         # Normal output for valid records
@@ -147,9 +158,9 @@ Track validation failures:
       reason: ${! meta("validation_error").or("unknown") }
 ```
 
-### Compliance Report Generation
+### Transformation report generation
 
-Generate daily compliance summaries:
+Generate daily summaries of the selected technical checks:
 
 ```yaml
 # Add to output
@@ -172,7 +183,7 @@ Generate daily compliance summaries:
 You've built all six technical steps in the example. Review the complete reference configuration:
 
 <div className="margin-top--lg margin-bottom--lg">
-  <a href="./complete-pipeline" className="button button--primary button--lg">
+  <a href="../complete-pipeline" className="button button--primary button--lg">
     📖 Complete Pipeline →
   </a>
 </div>

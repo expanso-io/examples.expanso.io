@@ -1,56 +1,33 @@
 ---
-title: "Interactive SCADA Edge Processing Explorer"
-sidebar_label: "Interactive Explorer"
+title: SCADA Energy Edge Explorer
+sidebar_label: Interactive Explorer
 sidebar_position: 2
-description: "Explore 4 stages of SCADA edge processing with live before/after comparisons — from raw Modbus registers to classified fault events."
-keywords: [scada, modbus, edge-processing, interactive, tutorial, demo, nerc-cip, fault-detection]
+description: Inspect a curated four-stage view of synthetic, adapter-decoded SCADA records.
+keywords: [scada, energy, gateway, edge-processing, interactive]
+contentArchetype: explorer
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-scada-stages]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 import DataPipelineExplorer from '@site/src/components/DataPipelineExplorer';
-import { scadaEnergyEdgeStages } from '../scada-energy-edge-full.stages';
+import fullPipelineYaml from '!!raw-loader!@site/examples/integrations/scada-energy-edge/scada-edge-complete.yaml';
+import { scadaEnergyEdgeStages } from './stages';
 
-# Interactive SCADA Edge Processing Explorer
+# SCADA Energy Edge Explorer
 
-Use the interactive explorer to step through four stages using synthetic, adapter-decoded register records. The stages parse, filter, classify, and route example data; they do not decode Modbus or establish that the result is CIP-compliant.
-
-## How to Use This Explorer
-
-1. **Navigate** using arrow keys (← →) or click the numbered stage buttons
-2. **Compare** the Input (left) and Output (right) at each stage
-3. **Observe** how raw register values become structured JSON (green), and noise gets filtered (removal)
-4. **Inspect** the YAML code showing exactly what processor handles each stage
-5. **Learn** from the stage description explaining the SCADA engineering context and business impact
-
-## Interactive SCADA Edge Processing Explorer
+Follow one synthetic record from gateway output through parsing, status selection, labeling, and the Kafka boundary.
 
 <DataPipelineExplorer
+  exampleId="scada-energy-edge"
+  fullYaml={fullPipelineYaml}
+  fullYamlFilename="scada-edge-complete.yaml"
   stages={scadaEnergyEdgeStages}
   title="SCADA EDGE PROCESSING"
-  subtitle="4-Stage Substation Data Pipeline"
+  subtitle="Architecture review"
 />
-
-## Try It Yourself
-
-Ready to build this SCADA edge processing pipeline? Follow the step-by-step tutorial:
-
-<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
-  <a href="./setup" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Start Tutorial
-  </a>
-  <a href="./complete-scada-integration" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Download Complete Pipeline
-  </a>
-</div>
-
-## Deep Dive into Each Step
-
-Want to understand each transformation in depth?
-
-- [**Step 1: Parse Modbus Register Data**](/integrations/scada-energy-edge/step-1-parse-modbus-registers) — Map register addresses to engineering units with scaling
-- [**Step 2: Filter Nominal Readings at the Edge**](/integrations/scada-energy-edge/step-2-filter-normalize-readings) — Drop 99%+ of noise before it leaves the substation
-- [**Step 3: Classify Fault Types with Bloblang**](/integrations/scada-energy-edge/step-3-classify-fault-events) — Tag each anomaly: VOLTAGE_DEVIATION, FREQUENCY_DRIFT, THERMAL_OVERLOAD
-- [**Step 4: Route to SCADA Historian and Alerting**](/integrations/scada-energy-edge/step-4-route-to-destinations) — Critical faults to historian + PagerDuty; KPIs to cloud dashboard
-
----
-
-**Next:** [Set up your environment](/integrations/scada-energy-edge/setup) to build this pipeline yourself

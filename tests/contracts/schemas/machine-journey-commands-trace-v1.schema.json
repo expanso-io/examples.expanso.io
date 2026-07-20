@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://examples.expanso.io/tests/contracts/schemas/machine-journey-commands-trace-v1.schema.json",
+  "title": "Expanso machine journey raw command trace v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "traceVersion",
+    "contractId",
+    "contractSha256",
+    "subjectSha",
+    "environmentId",
+    "trialId",
+    "taskId",
+    "invocations"
+  ],
+  "properties": {
+    "traceVersion": { "const": "journey-commands-trace-v1" },
+    "contractId": { "const": "machine-journey-v1" },
+    "contractSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "subjectSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "environmentId": { "type": "string", "minLength": 3 },
+    "trialId": { "type": "string", "minLength": 1 },
+    "taskId": { "type": "string", "minLength": 1 },
+    "invocations": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sequence",
+          "command",
+          "cwd",
+          "exitCode",
+          "stdout",
+          "stderr"
+        ],
+        "properties": {
+          "sequence": { "type": "integer", "minimum": 0 },
+          "command": { "type": "string", "minLength": 1 },
+          "cwd": { "type": "string", "minLength": 1 },
+          "exitCode": { "type": "integer", "minimum": 0, "maximum": 255 },
+          "stdout": { "type": "string" },
+          "stderr": { "type": "string" }
+        }
+      }
+    }
+  }
+}

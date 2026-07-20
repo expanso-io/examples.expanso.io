@@ -1,9 +1,18 @@
 ---
-title: "Step 3: Split Nested Structures"
-sidebar_label: "Step 3: Split Nested Structures"
+title: 'Step 3: Split Nested Structures'
+sidebar_label: 'Step 3: Split Nested Structures'
 sidebar_position: 6
 description: Apply the core splitting pattern to a nested JSON object.
 keywords: [nested-json, hierarchical-data, e-commerce, order-processing]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-content-splitting-step-3-split-nested-structures]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 3: Split Nested Structures
@@ -41,41 +50,42 @@ You will transform a single, complex order object into multiple `line_item` mess
 The pattern is exactly the same as before, you just need to store more context from the nested structure.
 
 1.  **Start with the Foundation:** Copy the `order-processing-foundation.yaml` file to a new file named `order-splitter.yaml`.
+
     ```bash
     cp examples/data-routing/order-processing-foundation.yaml order-splitter.yaml
     ```
 
 2.  **Add the Splitting Logic:** Open `order-splitter.yaml` and replace the entire `pipeline` section with the three-processor block below.
 
-    ```yaml title="Insert this into order-splitter.yaml"
-pipeline:
-  processors:
-    # 1. STORE context from the nested structure
-    - mapping: |
-        meta order_id = this.order_id
-        meta customer_id = this.customer.customer_id
-        meta customer_email = this.customer.email
-        root = this
+        ```yaml title="Insert this into order-splitter.yaml"
 
-    # 2. SPLIT the 'items' array
-    - unarchive:
-        format: json_array
-        field: items
+    pipeline:
+    processors: # 1. STORE context from the nested structure - mapping: |
+    meta order_id = this.order_id
+    meta customer_id = this.customer.customer_id
+    meta customer_email = this.customer.email
+    root = this
 
-    # 3. RESTORE the context into each new line item message
-    - mapping: |
-        root = this
-        root.order_id = meta("order_id")
-        root.customer_id = meta("customer_id")
-        root.customer_email = meta("customer_email")
-    ```
+        # 2. SPLIT the 'items' array
+        - unarchive:
+            format: json_array
+            field: items
+
+        # 3. RESTORE the context into each new line item message
+        - mapping: |
+            root = this
+            root.order_id = meta("order_id")
+            root.customer_id = meta("customer_id")
+            root.customer_email = meta("customer_email")
+        ```
 
 3.  **Deploy and Test:**
+
     ```bash
     # Send the test order
     curl -X POST http://localhost:8080/orders \
       -H "Content-Type: application/json" \
-      -d '{ 
+      -d '{
         "order_id": "order-12345",
         "customer": { "customer_id": "customer-001", "email": "john.doe@example.com" },
         "items": [

@@ -1,297 +1,34 @@
 ---
-title: Troubleshooting
+title: Cross-Border Minimization Troubleshooting
 sidebar_label: Troubleshooting
 sidebar_position: 10
-description: Common GDPR pipeline issues and solutions
-keywords: [troubleshooting, debug, gdpr, compliance, errors]
+description: Diagnose field-selection, secret, and destination problems in the cross-border minimization example.
+keywords: [troubleshooting, gdpr, pseudonymization, hashing, routing]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [diagnose-cross-border-minimization]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Troubleshooting
+# Cross-Border Minimization Troubleshooting
 
-## Quick Diagnosis
+## Expected fields remain
 
-```bash
-# Check pipeline status
-expanso-cli status
+**Check:** Compare the input schema with every deletion and assignment path. Nested fields require their exact path. Add a synthetic rejected record before changing a real source.
 
-# Find failed executions, then inspect the reported execution ID
-expanso-cli job executions eu-cross-border-compliance --state failed --limit 5
-expanso-cli execution describe <failed-execution-id>
+## Derived identifiers change between runs
 
-# Test EU database connectivity
-psql "postgres://${DB_USER}:${DB_PASSWORD}@${EU_DB_HOST}:5432/transactions_eu" \
-  -c "SELECT COUNT(*) FROM customer_transactions LIMIT 1;"
+**Check:** Confirm that each process receives the intended environment-managed salt. A missing or different salt changes the digest. Do not print the salt or use the demonstration fallback in a deployment.
 
-# Test GCP connectivity
-bq query "SELECT 1"
-gsutil ls gs://${EU_ARCHIVE_BUCKET}
-```
+## Records use the wrong destination
 
-## Validation Failures
+**Check:** Inspect the authored region field and branch order. A field label does not prove physical location. Verify the actual service endpoint and surrounding transfer context outside this example.
 
-### GDPR VIOLATION: PII fields still present
+## Output still appears identifiable
 
-**Symptoms:**
-```
-Error: GDPR VIOLATION: PII fields still present: customer_email, iban
-```
-
-**Cause:** Anonymization step didn't run or field names don't match.
-
-**Fix:**
-
-1. Check field name case sensitivity:
-   ```yaml
-   # Database may return different case
-   root = root.without("customer_email")  # Ensure exact match
-   root = root.without("CUSTOMER_EMAIL")  # Try uppercase if needed
-   ```
-
-2. Verify processor order:
-   ```yaml
-   pipeline:
-     processors:
-       - mapping: # Step 4: Hash identifiers MUST run
-       - mapping: # Step 6: Validate MUST come after
-   ```
-
-3. Debug by printing intermediate state:
-   ```yaml
-   - mapping: |
-       root = this
-       root._debug_keys = this.keys()  # See what fields exist
-   ```
-
----
-
-### Age bucket returning "unknown"
-
-**Symptoms:**
-```json
-{"customer_age_bucket": "unknown"}
-```
-
-**Cause:** DOB field is null, empty, or wrong format.
-
-**Fix:**
-
-```yaml
-# Handle multiple date formats
-root.customer_age_bucket = if this.customer_dob == null || this.customer_dob == "" {
-  "unknown"
-} else {
-  # Try parsing with fallback formats
-  let dob = this.customer_dob.ts_parse("2006-01-02").catch(
-    this.customer_dob.ts_parse("02/01/2006").catch(
-      this.customer_dob.ts_parse("January 2, 2006")
-    )
-  )
-  # ... age calculation
-}
-```
-
----
-
-## Hash Consistency Issues
-
-### Anonymized IDs different across runs
-
-**Symptoms:** Same customer ID produces different hashes in different runs.
-
-**Cause:** Salt not set or varying between executions.
-
-**Fix:**
-
-1. Verify salt is set:
-   ```bash
-   echo "ANONYMIZATION_SALT: ${ANONYMIZATION_SALT:-NOT SET}"
-   ```
-
-2. Persist salt properly:
-   ```bash
-   # Store in secrets manager, not env file
-   vault kv put secret/gdpr-pipeline salt="${ANONYMIZATION_SALT}"
-   ```
-
-3. Verify in pipeline:
-   ```yaml
-   - mapping: |
-       let salt = env("ANONYMIZATION_SALT")
-       root._debug_salt_set = $salt != ""
-   ```
-
----
-
-### IP subnet extraction failing
-
-**Symptoms:**
-```json
-{"ip_subnet": "unknown"}
-```
-
-**Cause:** IPv6 address or malformed IP.
-
-**Fix:**
-
-```yaml
-root.ip_subnet = if this.ip_address.contains(":") {
-  # IPv6
-  this.ip_address.split(":").slice(0, 4).join(":") + "::/64"
-} else if this.ip_address.contains(".") {
-  # IPv4
-  this.ip_address.split(".").slice(0, 2).join(".") + ".0.0/16"
-} else if this.ip_address == "" || this.ip_address == null {
-  "not_provided"
-} else {
-  "invalid_format"
-}
-```
-
----
-
-## Destination Issues
-
-### BigQuery authentication failed
-
-**Symptoms:**
-```
-Error: google: could not find default credentials
-```
-
-**Fix:**
-
-```bash
-# Set up credentials
-gcloud auth application-default login
-
-# Or use service account
-export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
-
-# Verify
-gcloud auth list
-```
-
----
-
-### EU archive bucket not in EU region
-
-**Symptoms:** Compliance risk—data leaving EU before anonymization.
-
-**Fix:**
-
-```bash
-# Check bucket location
-gsutil ls -L -b gs://${EU_ARCHIVE_BUCKET} | grep "Location"
-
-# If not EU, create new bucket
-gsutil mb -l EU gs://new-eu-archive-bucket
-
-# Update config
-export EU_ARCHIVE_BUCKET=new-eu-archive-bucket
-```
-
----
-
-### Audit log directory not writable
-
-**Symptoms:**
-```
-Error: open /var/log/expanso/gdpr-audit-2024-01-15.jsonl: permission denied
-```
-
-**Fix:**
-
-```bash
-# Create directory with correct permissions
-sudo mkdir -p /var/log/expanso
-sudo chown $(whoami):$(whoami) /var/log/expanso
-
-# Or change log path in config
-file:
-  path: "/tmp/expanso/gdpr-audit-${!timestamp_format(\"2006-01-02\")}.jsonl"
-```
-
----
-
-## Performance Issues
-
-### Pipeline processing slowly
-
-**Diagnosis:**
-```bash
-expanso-cli node list
-```
-
-**Common fixes:**
-
-1. Increase batch size:
-   ```yaml
-   output:
-     gcp_bigquery:
-       batching:
-         count: 1000  # Increase from 500
-         period: 60s
-   ```
-
-2. Add parallel processing:
-   ```yaml
-   pipeline:
-     threads: 4
-   ```
-
-3. Optimize database query:
-   ```yaml
-   input:
-     sql_select:
-       # Add index on transaction_timestamp
-       where: "transaction_timestamp >= NOW() - INTERVAL '1 hour'"
-   ```
-
----
-
-## Transformation Verification
-
-### How do I check whether the configured transformations ran?
-
-**Generate a technical check report:**
-
-```sql
--- Verify no PII in global dataset
-SELECT 
-  COUNT(*) as total_records,
-  COUNTIF(_gdpr_compliance.anonymization_verified = true) as verified,
-  COUNTIF(_gdpr_compliance.anonymization_verified != true OR _gdpr_compliance.anonymization_verified IS NULL) as unverified
-FROM `global_analytics.anonymized_transactions`
-WHERE DATE(transaction_hour) = CURRENT_DATE();
-```
-
-This query checks the example's own flag. It does not inspect every field, establish anonymous-data status, or prove that a transfer complies with GDPR.
-
-**Export audit trail:**
-
-```bash
-# Export today's audit log
-gsutil cp /var/log/expanso/gdpr-audit-$(date +%Y-%m-%d).jsonl \
-  gs://${EU_ARCHIVE_BUCKET}/audit/$(date +%Y/%m/%d)/
-```
-
----
-
-## Still Stuck?
-
-1. **Enable debug logging:**
-   ```yaml
-   logger:
-     level: DEBUG
-     format: json
-   ```
-
-2. **Test each step individually:**
-   ```bash
-   echo '{"customer_email":"test@example.com"}' | \
-     expanso-edge run --config step-4-hash.yaml
-   ```
-
-3. **Check the [Complete Pipeline](/data-security/cross-border-gdpr/complete-pipeline)** for reference
-
-4. **Review GDPR guidance:** [ICO UK GDPR guidance and resources](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/)
+**Check:** Treat pseudonymized output as potentially personal data. Review retained fields, linkability, source access, other datasets, purpose, retention, and deletion with privacy and legal reviewers.

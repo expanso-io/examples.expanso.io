@@ -3,6 +3,11 @@ declare module '*.module.css' {
   export default classes;
 }
 
+declare module '!!raw-loader!*' {
+  const content: string;
+  export default content;
+}
+
 declare module '@theme/CodeBlock' {
   import type React from 'react';
 

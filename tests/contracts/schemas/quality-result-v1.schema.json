@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://examples.expanso.io/tests/contracts/schemas/quality-result-v1.schema.json",
+  "title": "Expanso examples quality result v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "resultVersion",
+    "contractId",
+    "contractSha256",
+    "subjectSha",
+    "environmentId",
+    "startedAt",
+    "finishedAt",
+    "status",
+    "cells"
+  ],
+  "properties": {
+    "resultVersion": { "const": "1.0.0" },
+    "contractId": { "type": "string", "minLength": 1 },
+    "contractSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "subjectSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "environmentId": { "type": "string", "minLength": 1 },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "finishedAt": { "type": "string", "format": "date-time" },
+    "status": {
+      "enum": ["PASS", "FAIL", "UNKNOWN", "BLOCKED_CAPABILITY"]
+    },
+    "cells": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "required", "status", "evidence"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "required": { "type": "boolean" },
+          "status": {
+            "enum": ["PASS", "FAIL", "UNKNOWN", "BLOCKED_CAPABILITY"]
+          },
+          "evidence": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

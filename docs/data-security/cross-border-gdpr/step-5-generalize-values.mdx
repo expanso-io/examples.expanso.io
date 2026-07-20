@@ -1,9 +1,18 @@
 ---
-title: "Step 5: Generalize Values"
-sidebar_label: "Step 5: Generalize"
+title: 'Step 5: Generalize Values'
+sidebar_label: 'Step 5: Generalize'
 sidebar_position: 7
 description: Reduce precision on numeric and temporal fields while preserving analytics value
 keywords: [generalize, bucket, precision, anonymization, k-anonymity]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-cross-border-gdpr-step-5-generalize-values]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 5: Generalize Values
@@ -13,17 +22,17 @@ Reduce precision on values to achieve k-anonymity—ensuring each data point rep
 ## The Goal
 
 - **Transaction amount** → Bucket (0-10, 10-50, 50-100, etc.)
-- **Timestamp** → Hour-level only (sufficient for pattern analysis)
+- **Timestamp** → Reduce to hour-level precision in this example
 - Keep exact amount for SUM calculations (not PII without identifier)
 
 ## Why Generalize?
 
 Generalization achieves **k-anonymity**: each record looks like at least k other people.
 
-| Precision | k-anonymity | Risk |
-|-----------|-------------|------|
+| Precision                  | k-anonymity  | Risk |
+| -------------------------- | ------------ | ---- |
 | Exact: €247.83 at 14:32:17 | k=1 (unique) | High |
-| Bucket: €100-500 at 14:00 | k=many | Low |
+| Bucket: €100-500 at 14:00  | k=many       | Low  |
 
 When combined with hashed identifiers, generalized values make re-identification statistically impossible.
 
@@ -33,11 +42,11 @@ When combined with hashed identifiers, generalized values make re-identification
 pipeline:
   processors:
     # Steps 1-4 from previous...
-    
+
     # Step 5: Generalize values
     - mapping: |
         root = this
-        
+
         # Transaction amount → bucket (preserves distribution analysis)
         root.amount_bucket = match {
           this.transaction_amount < 10 => "0-10",
@@ -48,27 +57,28 @@ pipeline:
           this.transaction_amount < 5000 => "1000-5000",
           _ => "5000+"
         }
-        
+
         # Keep exact amount for aggregate SUM calculations
         # Amount is retained for this example; assess identifiability in context.
         root.transaction_amount = this.transaction_amount
-        
+
         # Timestamp → hour bucket (sufficient for pattern analysis)
         root.transaction_hour = this.transaction_timestamp.ts_parse("2006-01-02T15:04:05Z").ts_format("2006-01-02T15:00:00Z")
 ```
 
 ## Understanding the Code
 
-| Expression | What It Does |
-|------------|--------------|
-| `match {...}` | Pattern matching for bucketing |
-| `this.transaction_amount < 50` | Comparison condition |
-| `.ts_parse(...)` | Parse ISO timestamp |
-| `.ts_format("...T15:00:00Z")` | Format to hour-level (minutes/seconds zeroed) |
+| Expression                     | What It Does                                  |
+| ------------------------------ | --------------------------------------------- |
+| `match {...}`                  | Pattern matching for bucketing                |
+| `this.transaction_amount < 50` | Comparison condition                          |
+| `.ts_parse(...)`               | Parse ISO timestamp                           |
+| `.ts_format("...T15:00:00Z")`  | Format to hour-level (minutes/seconds zeroed) |
 
 ## Expected Output
 
 **Input:**
+
 ```json
 {
   "transaction_amount": 249.99,
@@ -78,6 +88,7 @@ pipeline:
 ```
 
 **Output:**
+
 ```json
 {
   "transaction_amount": 249.99,
@@ -95,9 +106,9 @@ The exact `transaction_amount` (249.99) is kept because:
 2. **Analytics need:** Aggregate SUM/AVG requires exact values
 3. **Risk is bucket:** The bucket is used for distribution queries, exact for totals
 
-This is a risk-based decision—your compliance team may require bucketing all values.
+This is a risk-based decision. Privacy review may require different buckets, field deletion, or a different output entirely.
 
-## Production Considerations
+## Adaptation checks
 
 ### Configurable Buckets
 
@@ -106,10 +117,10 @@ Different markets may need different bucket ranges:
 ```yaml
 # High-value transaction market (B2B)
 root.amount_bucket = match {
-  this.transaction_amount < 1000 => "0-1000",
-  this.transaction_amount < 10000 => "1000-10000",
-  this.transaction_amount < 100000 => "10000-100000",
-  _ => "100000+"
+this.transaction_amount < 1000 => "0-1000",
+this.transaction_amount < 10000 => "1000-10000",
+this.transaction_amount < 100000 => "10000-100000",
+_ => "100000+"
 }
 ```
 
@@ -136,16 +147,16 @@ Different currencies need different bucket ranges:
 
 ```yaml
 root.amount_bucket = match this.transaction_currency {
-  "JPY" => match {
-    this.transaction_amount < 1000 => "0-1000",
-    this.transaction_amount < 5000 => "1000-5000",
-    _ => "5000+"
-  },
-  _ => match {
-    this.transaction_amount < 10 => "0-10",
-    this.transaction_amount < 100 => "10-100",
-    _ => "100+"
-  }
+"JPY" => match {
+this.transaction_amount < 1000 => "0-1000",
+this.transaction_amount < 5000 => "1000-5000",
+_ => "5000+"
+},
+_ => match {
+this.transaction_amount < 10 => "0-10",
+this.transaction_amount < 100 => "10-100",
+_ => "100+"
+}
 }
 ```
 
@@ -167,7 +178,10 @@ root = if meta("bucket_count") < 5 {
 ## Next Step
 
 <div className="margin-top--lg margin-bottom--lg">
-  <a href="./step-6-validate-anonymization" className="button button--primary button--lg">
+  <a
+    href="../step-6-validate-anonymization"
+    className="button button--primary button--lg"
+  >
     📖 Step 6: Validate Anonymization →
   </a>
 </div>

@@ -1,11 +1,21 @@
 ---
-title: "Step 5: Advanced Splunk Patterns"
-description: "Multi-destination routing, compliance, metrics extraction, and adaptive processing"
+title: 'Step 5: Advanced Splunk Patterns'
+description: 'Inspect multi-destination routing, data classification, metrics extraction, and adaptive processing.'
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-integrations-splunk-edge-processing-step-5-advanced-splunk-patterns]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 5: Advanced Splunk Patterns
 
-Now that you have a solid Splunk integration, let's explore advanced patterns that extend your capabilities beyond traditional Splunk deployments. These patterns show how Expanso can enhance your entire data architecture, not just reduce costs.
+Inspect optional routing and transformation branches around a Splunk destination. Their operational and commercial effects require workload-specific testing.
 
 ## Pattern 1: Multi-Destination Routing
 
@@ -19,13 +29,13 @@ apiVersion: v1
 kind: Pipeline
 metadata:
   name: "splunk-multi-destination"
-  description: "Advanced pipeline with multi-destination routing and compliance features"
+  description: "Advanced pipeline with multi-destination routing and review features"
 
 input:
   file_watcher:
     paths:
       - "/var/log/expanso-demo/app.log"
-      - "/var/log/expanso-demo/security.log" 
+      - "/var/log/expanso-demo/security.log"
       - "/var/log/expanso-demo/system.log"
     poll_interval: "1s"
     include_file_name: true
@@ -36,7 +46,7 @@ processors:
       root.source_file = file.name
       root.collection_timestamp = timestamp()
       root.host = hostname()
-      
+
       root.sourcetype = match file.name {
         this.contains("app.log") => "json_logs"
         this.contains("security.log") => "cef"
@@ -44,7 +54,7 @@ processors:
         _ => "unknown"
       }
 
-  # 2. Enhanced parsing with compliance fields
+  # 2. Enhanced parsing with review fields
   - conditional:
       condition: 'this.sourcetype == "json_logs"'
     mapping: |
@@ -53,27 +63,27 @@ processors:
       } else {
         this.parse_json().catch({"raw_message": this, "parse_error": true})
       }
-      
+
       # Standard enrichment
       root.log_severity = match this.level {
         "ERROR" => 3
-        "WARN" => 2  
+        "WARN" => 2
         "INFO" => 1
         _ => 0
       }
-      
-      # Compliance classification
+
+      # Review classification
       root.data_classification = match {
         this.user.contains("@") || this.message.contains("login") => "pii"
         this.message.contains("payment") || this.message.contains("transaction") => "financial"
         this.message.contains("medical") || this.message.contains("health") => "phi"
         _ => "general"
       }
-      
+
       # Data residency requirements
       root.data_residency = match this.source_ip {
         this.contains("10.0.") || this.contains("192.168.") => "us"
-        this.contains("172.16.") => "eu" 
+        this.contains("172.16.") => "eu"
         _ => "global"
       }
 
@@ -81,16 +91,16 @@ processors:
   - mapping: |
       # Detect and mask PII before it goes to any destination
       root.original_message = this.message
-      
+
       # Mask email addresses
       root.message = this.message.replace_all_regex("\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b", "***@***.***")
-      
-      # Mask credit card numbers  
+
+      # Mask credit card numbers
       root.message = root.message.replace_all_regex("\\b\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b", "****-****-****-****")
-      
+
       # Mask SSNs
       root.message = root.message.replace_all_regex("\\b\\d{3}-\\d{2}-\\d{4}\\b", "***-**-****")
-      
+
       # Track if masking occurred
       root.pii_masked = if this.message != this.original_message { true } else { false }
 
@@ -122,14 +132,14 @@ processors:
         "source": "expanso-edge:" + this.host + ":" + this.source_file,
         "sourcetype": "expanso:" + this.sourcetype,
         "index": match {
-          this.data_classification == "pii" || this.data_classification == "financial" => "compliance"
+          this.data_classification == "pii" || this.data_classification == "financial" => "review"
           this.sourcetype == "cef" => "security"
           this.log_severity >= 3 => "main"
           _ => "main"
         },
         "event": this.without("splunk_event", "s3_event", "metrics")
       }
-      
+
       # S3 archival format (structured for analytics)
       root.s3_event = {
         "timestamp": timestamp().format_timestamp_unix(),
@@ -140,7 +150,7 @@ processors:
         "event_data": this.without("splunk_event", "s3_event", "metrics"),
         "retention_policy": match this.data_classification {
           "pii" => "7_years"
-          "financial" => "10_years" 
+          "financial" => "10_years"
           "phi" => "6_years"
           _ => "3_years"
         }
@@ -162,7 +172,7 @@ output:
         period: "10s"
       postmap: 'root = this.splunk_event'
 
-  # Secondary: S3 for long-term storage and compliance
+  # Secondary: S3 for long-term storage and review
   - condition: 'this.data_classification != ""'
     s3:
       bucket: "company-logs-${this.data_residency}"
@@ -174,7 +184,7 @@ output:
       server_side_encryption: "AES256"
       postmap: 'root = this.s3_event'
 
-  # Tertiary: Metrics to Prometheus/InfluxDB  
+  # Tertiary: Metrics to Prometheus/InfluxDB
   - condition: 'this.metrics.response_time.type() == "number"'
     prometheus:
       push_url: "http://prometheus-pushgateway:9091/metrics/job/expanso-edge/instance/${hostname()}"
@@ -183,7 +193,7 @@ output:
         root = [
           {
             "name": "http_request_duration_seconds",
-            "type": "histogram", 
+            "type": "histogram",
             "help": "HTTP request duration in seconds",
             "value": this.metrics.response_time / 1000,
             "labels": {
@@ -207,7 +217,7 @@ output:
         root = {
           "severity": match this.log_severity {
             3 => "critical"
-            2 => "warning"  
+            2 => "warning"
             _ => "info"
           },
           "summary": this.message.string().catch("Unknown error"),
@@ -232,15 +242,15 @@ cat >> ~/advanced-splunk-pipeline.yaml << 'EOF'
       let current_hour = timestamp().format("15").number()
       let is_business_hours = current_hour >= 9 && current_hour <= 17
       let is_weekend = timestamp().format("Monday").contains("Saturday") || timestamp().format("Monday").contains("Sunday")
-      
+
       # Adaptive filtering based on conditions
       root.filter_aggressiveness = match {
         is_weekend => "high"           # Filter more on weekends
-        !is_business_hours => "medium" # Filter more outside business hours  
-        this.data_classification == "pii" => "low"  # Always preserve PII
+        !is_business_hours => "medium" # Filter more outside business hours
+        this.data_classification == "pii" => "low"  # Use the least aggressive example sampling branch
         _ => "normal"
       }
-      
+
       # Apply adaptive filtering
       if this.filter_aggressiveness == "high" && this.level == "INFO" {
         let hash = this.message.hash("xxhash64") % 10
@@ -248,9 +258,9 @@ cat >> ~/advanced-splunk-pipeline.yaml << 'EOF'
           root = deleted()  # Keep only 10% of INFO logs
         }
       }
-      
+
       if this.filter_aggressiveness == "medium" && this.level == "INFO" && this.response_time_ms < 100 {
-        let hash = this.message.hash("xxhash64") % 5  
+        let hash = this.message.hash("xxhash64") % 5
         if hash != 0 {
           root = deleted()  # Keep only 20% of fast INFO logs
         }
@@ -269,17 +279,17 @@ processors:
       # Track baseline metrics in memory (sliding window)
       let response_time = this.response_time_ms.number().catch(0)
       let endpoint = this.endpoint.string().catch("unknown")
-      
+
       # Calculate rolling averages (this would use external cache in production)
       let avg_response_key = "avg_response_" + endpoint
       let current_avg = meta(avg_response_key).number().catch(response_time)
       let new_avg = (current_avg * 0.9) + (response_time * 0.1)  # Exponential moving average
-      
+
       meta(avg_response_key) = new_avg
-      
+
       # Detect anomalies (>3x normal response time)
       root.is_anomaly = response_time > (new_avg * 3) && response_time > 1000
-      
+
       # Anomaly metadata
       if this.is_anomaly {
         root.anomaly_details = {
@@ -293,7 +303,7 @@ processors:
 
 ## Pattern 4: Geographic Data Routing
 
-Route data based on geographic requirements for compliance:
+Route data from an explicit geographic policy:
 
 ```yaml
 processors:
@@ -306,7 +316,7 @@ processors:
         this.contains("10.4.") => "asia_pacific"
         _ => "unknown"
       }
-      
+
       # Apply data sovereignty rules
       root.allowed_destinations = match this.data_classification + "_" + this.geo_region {
         "pii_eu_west" => ["eu_splunk", "eu_s3"]
@@ -316,18 +326,18 @@ processors:
       }
 
 output:
-  # Route based on geographic compliance
+  # Route based on geographic review
   switch:
     - condition: 'this.allowed_destinations.contains("eu_splunk")'
       output:
         http_client:
-          url: "https://eu-splunk.company.com:8088/services/collector/event"
-          
+          url: 'https://eu-splunk.company.com:8088/services/collector/event'
+
     - condition: 'this.allowed_destinations.contains("us_splunk")'
       output:
         http_client:
-          url: "https://us-splunk.company.com:8088/services/collector/event"
-          
+          url: 'https://us-splunk.company.com:8088/services/collector/event'
+
     - condition: 'this.allowed_destinations.contains("local_only")'
       output:
         file:
@@ -345,7 +355,7 @@ processors:
       let sample_key = this.level + "_" + this.endpoint.string().catch("unknown")
       let sample_count = meta("sample_" + sample_key).number().catch(0) + 1
       meta("sample_" + sample_key) = sample_count
-      
+
       # Sample rates based on event type and frequency
       root.sample_rate = match {
         this.level == "ERROR" => 1.0        # Keep all errors
@@ -355,11 +365,11 @@ processors:
         this.level == "DEBUG" => 0.0        # Drop all DEBUG
         _ => 0.3
       }
-      
+
       # Ensure we keep at least one sample per hour for each category
       let hourly_sample_key = sample_key + "_" + timestamp().format("2006-01-02-15")
       let hourly_sample_count = meta("hourly_" + hourly_sample_key).number().catch(0)
-      
+
       if hourly_sample_count == 0 {
         # Force keep first sample of each type per hour
         root.force_keep = true
@@ -367,7 +377,7 @@ processors:
       } else {
         root.force_keep = false
       }
-      
+
       # Apply sampling decision
       let random_value = this.message.hash("xxhash64") % 100 / 100.0
       if !this.force_keep && random_value > this.sample_rate {
@@ -385,10 +395,10 @@ processors:
       # Track pipeline performance metrics
       meta("events_processed") = meta("events_processed").number().catch(0) + 1
       meta("bytes_processed") = meta("bytes_processed").number().catch(0) + this.string().length()
-      
+
       let current_time = timestamp().format_timestamp_unix()
       let last_reset = meta("last_perf_reset").number().catch(current_time)
-      
+
       # Reset counters every minute for rate calculation
       if current_time - last_reset > 60 {
         let events_per_minute = meta("events_processed") 
@@ -435,10 +445,10 @@ expanso pipeline logs splunk-multi-destination -f
 ### 2. Test Multi-Destination Routing
 
 ```bash
-# Generate PII event (should go to compliance index + S3)
+# Generate PII event (should go to review index + S3)
 echo '{"timestamp":"'$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")'","level":"INFO","message":"User login successful","user":"john.doe@company.com","source_ip":"10.1.100.50","endpoint":"/auth/login","response_time_ms":150}' >> $TEST_DATA_DIR/app.log
 
-# Generate financial transaction (should trigger alert)  
+# Generate financial transaction (should trigger alert)
 echo '{"timestamp":"'$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")'","level":"ERROR","message":"Payment processing failed for transaction tx_999999","user":"customer@bank.com","amount":50000,"endpoint":"/api/payments","response_time_ms":3000}' >> $TEST_DATA_DIR/app.log
 
 # Generate anomalous response time
@@ -448,9 +458,10 @@ echo '{"timestamp":"'$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")'","level":"INFO","mess
 ### 3. Verify Data in Multiple Destinations
 
 **Splunk:**
+
 ```spl
-# Check compliance data
-index=compliance pii_masked=true earliest=-15m
+# Check review data
+index=review pii_masked=true earliest=-15m
 
 # Check anomaly detection
 index=main is_anomaly=true earliest=-15m
@@ -458,6 +469,7 @@ index=main is_anomaly=true earliest=-15m
 ```
 
 **S3 (via AWS CLI):**
+
 ```bash
 # Check S3 storage
 aws s3 ls s3://company-logs-us/year=$(date +%Y)/month=$(date +%m)/day=$(date +%d)/
@@ -467,6 +479,7 @@ aws s3api head-object --bucket company-logs-us --key "path/to/your/file.json"
 ```
 
 **Metrics (Prometheus):**
+
 ```bash
 # Check metrics endpoint
 curl http://prometheus-pushgateway:9091/metrics | grep http_request_duration
@@ -474,14 +487,13 @@ curl http://prometheus-pushgateway:9091/metrics | grep http_request_duration
 
 ## Advanced Pattern Benefits
 
-| **Pattern** | **Traditional Splunk Limitation** | **Expanso Advantage** | **Business Impact** |
-|---|---|---|---|
-| **Multi-Destination** | Separate destination paths | Simultaneous routing to multiple systems | Consistent routing policy, subject to delivery testing |
-| **Adaptive Processing** | Static rules only | Dynamic adjustment based on conditions | Optimal resource utilization |
-| **Real-Time Anomalies** | Search-time detection | Edge-side detection and alerts | Potentially earlier signal; measure end-to-end latency |
-| **Geographic Routing** | Manual data management | Automatic compliance with sovereignty laws | Reduced legal risk |
-| **Intelligent Sampling** | Simple random sampling | Stratified sampling preserving distributions | Better analytics accuracy |
-| **Auto-Scaling** | Manual tuning | Automatic performance optimization | Reduced operational overhead |
+| **Pattern**             | **What this page configures**                | **Boundary to validate**                           |
+| ----------------------- | -------------------------------------------- | -------------------------------------------------- |
+| **Multi-Destination**   | Separate output branches                     | Delivery behavior for every destination            |
+| **Adaptive Processing** | Conditions that select authored rules        | Workload behavior and failure handling             |
+| **Anomaly Fields**      | Example thresholds and alert-shaped records  | Detection quality and end-to-end timing            |
+| **Geographic Routing**  | Destination labels selected from record data | Legal basis and destination policy remain external |
+| **Sampling**            | Deterministic example sampling branches      | Distribution and downstream analysis               |
 
 ## Monitoring Advanced Features
 
@@ -491,33 +503,30 @@ curl http://prometheus-pushgateway:9091/metrics | grep http_request_duration
 # View comprehensive metrics
 expanso pipeline metrics splunk-multi-destination --format prometheus
 
-# Check destination health  
+# Check destination health
 expanso pipeline logs splunk-multi-destination --filter "destination_status"
 ```
 
-### 2. Compliance Reporting
+### 2. Policy Reporting
 
 ```bash
-# Generate compliance report
+# Generate review report
 expanso pipeline logs splunk-multi-destination --filter "data_classification" --format json \
   | jq -r '.[] | select(.pii_masked == true) | [.timestamp, .data_classification, .data_residency] | @csv'
 ```
 
-### 3. Cost Analysis
+### 3. Volume Accounting
 
 ```spl
-# Splunk search for cost analysis
+# Report delivered event and byte volume; apply current contract pricing separately
 index=main sourcetype="expanso:*" earliest=-24h
-| stats 
+| stats
     count as events_sent,
     sum(eval(len(_raw))) as bytes_sent,
     dc(host) as edge_nodes
-| eval 
-    gb_sent = round(bytes_sent / 1024 / 1024 / 1024, 2),
-    daily_cost = gb_sent * 200,
-    estimated_original_volume = gb_sent / 0.3,
-    savings = (estimated_original_volume - gb_sent) * 200
-| table events_sent, gb_sent, daily_cost, savings
+| eval
+    gb_sent = round(bytes_sent / 1024 / 1024 / 1024, 2)
+| table events_sent, gb_sent, edge_nodes
 ```
 
 ## What's Next?
@@ -528,4 +537,4 @@ You have now implemented several optional routing and policy patterns. Next, rev
 
 ---
 
-**Key takeaway:** These patterns can complement a Splunk deployment with upstream routing and transformation. They do not establish feature parity, full compatibility, compliance, or cost savings without workload-specific testing and review.
+**Key takeaway:** These patterns can complement a Splunk deployment with upstream routing and transformation. Feature parity, compatibility, regulatory outcomes, and commercial outcomes require workload-specific testing and review.

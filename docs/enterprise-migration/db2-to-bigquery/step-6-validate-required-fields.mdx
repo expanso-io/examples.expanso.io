@@ -1,9 +1,19 @@
 ---
-title: "Step 6: Validate Required Fields"
-sidebar_label: "Step 6: Validate"
+title: 'Step 6: Validate Required Fields'
+sidebar_label: 'Step 6: Validate'
 sidebar_position: 8
 description: Enforce data quality gates before loading to BigQuery
 keywords: [validation, data-quality, required-fields, error-handling]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-enterprise-migration-db2-to-bigquery-step-6-validate-required-fields]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 6: Validate Required Fields
@@ -20,13 +30,14 @@ Reject records with missing required fields before they reach BigQuery. This rep
 
 **Data Quality:** Bad records in BigQuery break dashboards and reports.
 
-**Cost Control:** Rejecting early saves BigQuery storage and query costs.
+**Delivery boundary:** Reject invalid records before the BigQuery output; measure storage and query billing separately.
 
 **Debugging:** Clear error messages help identify source data issues.
 
 ## DataStage Equivalent
 
 In DataStage, validation typically requires:
+
 1. **Data Rules Stage** or **Filter Stage**
 2. **Reject links** to capture bad records
 3. **Separate error handling jobs**
@@ -41,7 +52,7 @@ Add the validation processor as the final step:
 pipeline:
   processors:
     # Steps 1-5 from previous...
-    
+
     # Step 6: Validate required fields before BigQuery load
     - mapping: |
         root = if this.transaction_id == null || 
@@ -55,18 +66,19 @@ pipeline:
 
 ## Understanding the Code
 
-| Expression | What It Does |
-|------------|--------------|
-| `this.field == null` | Check if field is missing or null |
-| `\|\|` | Logical OR (any condition triggers) |
-| `throw("message")` | Stop processing with error |
-| `else { this }` | Pass record through unchanged |
+| Expression           | What It Does                        |
+| -------------------- | ----------------------------------- |
+| `this.field == null` | Check if field is missing or null   |
+| `\|\|`               | Logical OR (any condition triggers) |
+| `throw("message")`   | Stop processing with error          |
+| `else { this }`      | Pass record through unchanged       |
 
 ## Expected Behavior
 
 **Valid Record:** Passes through unchanged
 
 **Invalid Record (missing customer_id):**
+
 ```
 ERROR: Missing required field for BigQuery load
 Record: {"transaction_id": "TXN-001", "amount_usd": 100.00, ...}
@@ -84,7 +96,7 @@ Identify which field is missing:
     let missing = if this.transaction_id == null { $missing.append("transaction_id") } else { $missing }
     let missing = if this.customer_id == null { $missing.append("customer_id") } else { $missing }
     let missing = if this.amount_usd == null { $missing.append("amount_usd") } else { $missing }
-    
+
     root = if $missing.length() > 0 {
       throw("Missing required fields: " + $missing.join(", "))
     } else {
@@ -100,7 +112,7 @@ Route bad records to a DLQ instead of failing:
 pipeline:
   processors:
     # ... transformation steps ...
-    
+
     - switch:
         - check: this.transaction_id == null || this.customer_id == null
           processors:
@@ -110,10 +122,10 @@ pipeline:
                 root._failed_at = now()
             - output:
                 gcp_pubsub:
-                  project: "${GCP_PROJECT}"
+                  project: '${GCP_PROJECT}'
                   topic: etl-dlq
         - processors:
-            - mapping: root = this  # Valid records continue
+            - mapping: root = this # Valid records continue
 ```
 
 ### Type Validation
@@ -171,7 +183,7 @@ Count validation failures for monitoring:
 You've built all 6 transformation steps! See the complete, complete example configuration:
 
 <div className="margin-top--lg margin-bottom--lg">
-  <a href="./complete-pipeline" className="button button--primary button--lg">
+  <a href="../complete-pipeline" className="button button--primary button--lg">
     📖 Complete Pipeline →
   </a>
 </div>

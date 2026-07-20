@@ -1,0 +1,64 @@
+# Stage 6: Illustrative Key-Version Metadata
+
+pipeline:
+  processors:
+    # Multi-tier key architecture
+    - mapping: |
+        root = this
+
+        # Multi-key security metadata
+        root.multi_key_metadata = {
+          "encryption_architecture": "multi_tier_risk_based",
+          "key_tiers_used": {
+            "payment_critical": {
+              "rotation_schedule_days": 90,
+              "compliance_standards": ["PCI-DSS"],
+              "access_control": "payment_processor_only"
+            },
+            "pii_high": {
+              "rotation_schedule_days": 180,
+              "compliance_standards": ["GDPR", "CCPA"],
+              "access_control": "customer_service_analytics"
+            },
+            "location_medium": {
+              "rotation_schedule_days": 365,
+              "compliance_standards": ["location_privacy"]
+            },
+            "temporal_medium": {
+              "rotation_schedule_days": 365,
+              "compliance_standards": ["HIPAA"]
+            }
+          }
+        }
+
+        # Authored example metadata; values are not measurements
+        root.operational_metrics = {
+          "pipeline_health": "optimal",
+          "selected_field_count": 11,
+          "key_version": "v2",
+          "fixture_status": "illustrative"
+        }
+
+        # Comprehensive audit trail
+        meta audit_trail = {
+          "audit_id": "enc_" + uuid_v4(),
+          "timestamp": now(),
+          "encryption_operations": [
+            {"field": "payment.card_number", "algorithm": "AES-256-GCM", "field_group": "payment"},
+            {"field": "customer.email", "algorithm": "AES-256-GCM", "field_group": "identity"},
+            {"field": "customer.date_of_birth", "algorithm": "AES-256-GCM", "field_group": "temporal"},
+            {"field": "billing_address.street", "algorithm": "AES-256-GCM", "field_group": "location"}
+          ],
+          "selected_field_count": 11
+        }
+
+# Illustrative outputs with transformation metadata
+outputs:
+  - label: encrypted_data
+    file:
+      path: "./encrypted-data-${!timestamp_unix()}.jsonl"
+  - label: audit_trail
+    processors:
+      - mapping: root = meta("audit_trail")
+    file:
+      path: "./audit-trail-${!timestamp_unix()}.jsonl"

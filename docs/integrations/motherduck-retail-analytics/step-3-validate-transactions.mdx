@@ -1,9 +1,21 @@
 ---
-title: "Step 3: Validate and Flag Transactions"
-sidebar_label: "Step 3: Validate"
+title: 'Step 3: Validate and Flag Transactions'
+sidebar_label: 'Step 3: Validate'
 sidebar_position: 5
-description: "Apply example validation rules and attach anomaly flags without dropping records."
+description: 'Apply example validation rules and attach anomaly flags without dropping records.'
 keywords: [retail, pos, validation, anomalies, data-quality]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [
+    inspect-integrations-motherduck-retail-analytics-step-3-validate-transactions,
+  ]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 3: Validate and Flag Anomalies
@@ -13,52 +25,52 @@ Before data leaves the store, we validate every transaction. Bad records get fla
 ## Validation Rules
 
 ```yaml
-    - mapping: |
-        root = this
+- mapping: |
+    root = this
 
-        # Initialize flags
-        let flags = []
+    # Initialize flags
+    let flags = []
 
-        # Rule 1: Empty basket
-        let flags = if this.items.length() == 0 {
-          $flags.append("EMPTY_BASKET")
-        }
+    # Rule 1: Empty basket
+    let flags = if this.items.length() == 0 {
+      $flags.append("EMPTY_BASKET")
+    }
 
-        # Rule 2: Suspiciously high total (> $500 for non-electronics)
-        let has_electronics = this.items.map_each(this.category).flatten().any(c -> c == "electronics")
-        let flags = if this.total_amount.abs() > 500 && !$has_electronics {
-          $flags.append("HIGH_VALUE_NON_ELECTRONICS")
-        }
+    # Rule 2: Suspiciously high total (> $500 for non-electronics)
+    let has_electronics = this.items.map_each(this.category).flatten().any(c -> c == "electronics")
+    let flags = if this.total_amount.abs() > 500 && !$has_electronics {
+      $flags.append("HIGH_VALUE_NON_ELECTRONICS")
+    }
 
-        # Rule 3: Sale with negative total (data error)
-        let flags = if this.type == "sale" && this.total_amount < 0 {
-          $flags.append("NEGATIVE_SALE")
-        }
+    # Rule 3: Sale with negative total (data error)
+    let flags = if this.type == "sale" && this.total_amount < 0 {
+      $flags.append("NEGATIVE_SALE")
+    }
 
-        # Rule 4: Return without negative total
-        let flags = if this.type == "return" && this.total_amount > 0 {
-          $flags.append("POSITIVE_RETURN")
-        }
+    # Rule 4: Return without negative total
+    let flags = if this.type == "return" && this.total_amount > 0 {
+      $flags.append("POSITIVE_RETURN")
+    }
 
-        # Rule 5: Quantity exceeds 10 on a single line item
-        let bulk_items = this.items.filter(i -> i.qty > 10)
-        let flags = if $bulk_items.length() > 0 {
-          $flags.append("BULK_QUANTITY")
-        }
+    # Rule 5: Quantity exceeds 10 on a single line item
+    let bulk_items = this.items.filter(i -> i.qty > 10)
+    let flags = if $bulk_items.length() > 0 {
+      $flags.append("BULK_QUANTITY")
+    }
 
-        # Rule 6: Missing employee ID
-        let flags = if this.employee_id == "" || this.employee_id == null {
-          $flags.append("MISSING_EMPLOYEE")
-        }
+    # Rule 6: Missing employee ID
+    let flags = if this.employee_id == "" || this.employee_id == null {
+      $flags.append("MISSING_EMPLOYEE")
+    }
 
-        # Apply flags
-        root.anomaly_flags = $flags
-        root.is_anomaly = $flags.length() > 0
-        root.quality_score = match {
-          $flags.length() == 0 => "clean",
-          $flags.length() == 1 => "warning",
-          _ => "review"
-        }
+    # Apply flags
+    root.anomaly_flags = $flags
+    root.is_anomaly = $flags.length() > 0
+    root.quality_score = match {
+      $flags.length() == 0 => "clean",
+      $flags.length() == 1 => "warning",
+      _ => "review"
+    }
 ```
 
 ## Sample Flagged Transaction
@@ -67,10 +79,10 @@ Before data leaves the store, we validate every transaction. Bad records get fla
 {
   "txn_id": "...",
   "type": "sale",
-  "total_amount": 723.50,
+  "total_amount": 723.5,
   "items": [
-    {"category": "grocery", "qty": 2, "unit_price": 3.49},
-    {"category": "household", "qty": 1, "unit_price": 349.99}
+    { "category": "grocery", "qty": 2, "unit_price": 3.49 },
+    { "category": "household", "qty": 1, "unit_price": 349.99 }
   ],
   "anomaly_flags": ["HIGH_VALUE_NON_ELECTRONICS"],
   "is_anomaly": true,

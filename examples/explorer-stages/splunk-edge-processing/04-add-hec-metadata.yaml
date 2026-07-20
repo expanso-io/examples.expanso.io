@@ -1,0 +1,15 @@
+pipeline:
+  processors:
+    - mapping: |
+        root.event = {
+          "timestamp": this.timestamp,
+          "level": this.level,
+          "thread": this.thread,
+          "message": this.message,
+          "raw": this.raw
+        }
+        # Add Splunk HEC metadata
+        root.sourcetype = "app:custom"
+        root.index = if this.level == "ERROR" { "security" } else { "main" }
+        root.host = env("HOSTNAME").or("edge-node-01")
+        root.source = "/var/log/app/application.log"

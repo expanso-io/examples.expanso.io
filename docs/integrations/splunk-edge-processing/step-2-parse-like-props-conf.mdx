@@ -1,17 +1,27 @@
 ---
-title: "Step 2: Parse Data Like props.conf + transforms.conf"
-description: "Field extraction and parsing with side-by-side SPL vs Bloblang comparisons"
+title: 'Step 2: Parse Data Like props.conf + transforms.conf'
+description: 'Field extraction and parsing with side-by-side SPL vs Bloblang comparisons'
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-integrations-splunk-edge-processing-step-2-parse-like-props-conf]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 2: Parse Data Like props.conf + transforms.conf
 
-In Splunk, `props.conf` and `transforms.conf` handle parsing and field extraction. Expanso uses **Bloblang** mapping language, which is more expressive and happens in real-time at the edge.
+In Splunk, `props.conf` and `transforms.conf` handle parsing and field extraction. This example uses the **Bloblang** mapping language to perform those operations at collection time.
 
-## Traditional Splunk Parsing Configuration
+## Splunk Parsing Configuration Example
 
 ### props.conf + transforms.conf Setup
 
-In Splunk, you'd create complex configurations like this:
+The Splunk example uses these `props.conf` and `transforms.conf` entries:
 
 ```ini
 # props.conf
@@ -34,17 +44,17 @@ EXTRACT-syslog_fields = ^(?<month>\w+)\s+(?<day>\d+)\s+(?<time>\d+:\d+:\d+)\s+(?
 ### SPL Search-Time Field Extraction
 
 ```spl
-# Extract fields during search (expensive!)
-index=main sourcetype=json_logs 
+# Extract fields during search
+index=main sourcetype=json_logs
 | rex field=message "Database connection timeout.*database=\"(?<db_name>[^\"]+)\""
 | eval response_category = case(response_time_ms < 100, "fast", response_time_ms < 500, "normal", 1=1, "slow")
 | eval user_domain = split(user, "@")[1]
 | eval hour_of_day = strftime(_time, "%H")
 ```
 
-## Expanso Bloblang Mapping (Better!)
+## Expanso Bloblang Mapping
 
-With Expanso, all parsing happens **at collection time** with more expressive syntax:
+In this example, parsing happens **at collection time** with the following mapping:
 
 ### Update Pipeline with Parsing
 
@@ -54,13 +64,13 @@ apiVersion: v1
 kind: Pipeline
 metadata:
   name: "splunk-edge-collection"
-  description: "Parse data like props.conf but in real-time"
+  description: "Parse data like props.conf during collection"
 
 input:
   file_watcher:
     paths:
       - "/var/log/expanso-demo/app.log"
-      - "/var/log/expanso-demo/security.log" 
+      - "/var/log/expanso-demo/security.log"
       - "/var/log/expanso-demo/system.log"
     poll_interval: "1s"
     include_file_name: true
@@ -75,7 +85,7 @@ processors:
       root.source_file = file.name
       root.collection_timestamp = timestamp()
       root.host = hostname()
-      
+
       root.sourcetype = match file.name {
         this.contains("app.log") => "json_logs"
         this.contains("security.log") => "cef"
@@ -93,7 +103,7 @@ processors:
       } else {
         this.parse_json().catch({"raw_message": this, "parse_error": true})
       }
-      
+
       # Add computed fields (like Splunk EVAL)
       root.log_severity = match this.level {
         "ERROR" => 3
@@ -101,7 +111,7 @@ processors:
         "INFO" => 1
         _ => 0
       }
-      
+
       # Response time categorization
       root.response_category = if this.response_time_ms.type() == "number" {
         match {
@@ -110,7 +120,7 @@ processors:
           _ => "slow"
         }
       }
-      
+
       # Extract user domain (equivalent to SPL split)
       root.user_domain = if this.user.contains("@") {
         this.user.split("@")[1]
@@ -119,7 +129,7 @@ processors:
       } else {
         "unknown"
       }
-      
+
       # Time-based fields
       root.hour_of_day = timestamp().format("15")
       root.day_of_week = timestamp().format("Monday")
@@ -130,14 +140,14 @@ processors:
     mapping: |
       # Parse CEF format: CEF:Version|Device Vendor|Device Product|Device Version|Signature ID|Name|Severity|Extension
       root.cef = this.string().parse_regex("CEF:(?P<version>\\d+)\\|(?P<vendor>[^|]*)\\|(?P<product>[^|]*)\\|(?P<device_version>[^|]*)\\|(?P<signature_id>[^|]*)\\|(?P<name>[^|]*)\\|(?P<severity>[^|]*)\\|(?P<extensions>.*)")
-      
+
       # Flatten main CEF fields to root level
       root.vendor = this.cef.vendor
       root.product = this.cef.product
       root.signature_id = this.cef.signature_id
       root.event_name = this.cef.name
       root.severity = this.cef.severity
-      
+
       # Parse extensions (key=value pairs)
       root.extensions = {}
       for_each this.cef.extensions.split(" ") -> value {
@@ -146,7 +156,7 @@ processors:
           root.extensions = root.extensions.merge({kv[0]: kv[1]})
         }
       }
-      
+
       # Add risk scoring (like Splunk EVAL)
       root.risk_score = match this.severity {
         "Critical" => 10
@@ -155,7 +165,7 @@ processors:
         "Low" => 2
         _ => 1
       }
-      
+
       # Extract IP addresses for geo enrichment
       root.source_ip = this.extensions.src.string().catch("")
       root.dest_ip = this.extensions.dst.string().catch("")
@@ -166,7 +176,7 @@ processors:
     mapping: |
       # Parse syslog format
       root.syslog = this.string().parse_regex("(?P<month>\\w+)\\s+(?P<day>\\d+)\\s+(?P<time>\\d+:\\d+:\\d+)\\s+(?P<hostname>\\w+)\\s+(?P<process>[^\\[:]*)\\[?(?P<pid>\\d+)?\\]?:\\s*(?P<message>.*)")
-      
+
       # Flatten and enhance
       root.log_month = this.syslog.month
       root.log_day = this.syslog.day.number()
@@ -175,10 +185,10 @@ processors:
       root.process_name = this.syslog.process
       root.process_id = this.syslog.pid.number().catch(0)
       root.message = this.syslog.message
-      
+
       # Create structured timestamp
       root.timestamp = timestamp().format("2006") + "-01-" + this.log_day.string().format_int(2, "0") + "T" + this.log_time + ".000Z"
-      
+
       # Process classification
       root.process_category = match this.process_name {
         "sshd" => "authentication"
@@ -196,10 +206,10 @@ processors:
         "syslog" => if this.process_category == "authentication" { "security" } else { "main" }
         _ => "main"
       }
-      
+
       # Add data volume tracking
       root.raw_size_bytes = this.string().length()
-      
+
       # Classification for filtering (used in Step 3)
       root.event_class = match {
         this.sourcetype == "cef" => "security"
@@ -222,11 +232,13 @@ Here are common Splunk field extraction patterns and their Bloblang equivalents:
 ### 1. Regular Expression Extraction
 
 **SPL:**
+
 ```spl
 | rex field=message "response_time=(?<response_time>\d+)"
 ```
 
 **Bloblang:**
+
 ```yaml
 root.response_time = this.message.parse_regex("response_time=(?P<response_time>\\d+)").response_time.number()
 ```
@@ -234,28 +246,32 @@ root.response_time = this.message.parse_regex("response_time=(?P<response_time>\
 ### 2. Conditional Field Creation
 
 **SPL:**
+
 ```spl
 | eval priority = case(level="ERROR", "high", level="WARN", "medium", 1=1, "low")
 ```
 
 **Bloblang:**
+
 ```yaml
 root.priority = match this.level {
-  "ERROR" => "high"
-  "WARN" => "medium"
-  _ => "low"
+"ERROR" => "high"
+"WARN" => "medium"
+_ => "low"
 }
 ```
 
 ### 3. String Manipulation
 
 **SPL:**
+
 ```spl
 | eval user_domain = split(user, "@")[1]
 | eval upper_user = upper(user)
 ```
 
 **Bloblang:**
+
 ```yaml
 root.user_domain = this.user.split("@")[1]
 root.upper_user = this.user.uppercase()
@@ -264,12 +280,14 @@ root.upper_user = this.user.uppercase()
 ### 4. Time-Based Fields
 
 **SPL:**
+
 ```spl
 | eval hour = strftime(_time, "%H")
 | eval is_business_hours = if(hour>=9 AND hour<=17, "yes", "no")
 ```
 
 **Bloblang:**
+
 ```yaml
 root.hour = timestamp().format("15")
 root.is_business_hours = if this.hour.number() >= 9 && this.hour.number() <= 17 { "yes" } else { "no" }
@@ -278,11 +296,13 @@ root.is_business_hours = if this.hour.number() >= 9 && this.hour.number() <= 17 
 ### 5. JSON Path Extraction
 
 **SPL:**
+
 ```spl
 | spath input=json_field path=user.preferences.theme output=theme
 ```
 
 **Bloblang:**
+
 ```yaml
 root.theme = this.json_field.user.preferences.theme
 ```
@@ -322,14 +342,14 @@ You should see enriched output like:
 {
   "timestamp": "2024-02-10T10:30:15.123Z",
   "level": "ERROR",
-  "message": "Database connection timeout", 
+  "message": "Database connection timeout",
   "user": "john.doe@company.com",
   "database": "users_db",
   "response_time_ms": 2500,
   "retry_count": 3,
   "log_severity": 3,
   "response_category": "slow",
-  "user_domain": "company.com", 
+  "user_domain": "company.com",
   "hour_of_day": "10",
   "sourcetype": "json_logs",
   "target_index": "main",
@@ -338,15 +358,13 @@ You should see enriched output like:
 }
 ```
 
-## Performance Comparison: Search-Time vs Real-Time
+## Parsing Locations Represented in This Tutorial
 
-| **Aspect** | **Splunk (Search-Time)** | **Expanso (Real-Time)** |
-|---|---|---|
-| **CPU Usage** | High during searches | Low, distributed |
-| **Search Performance** | Slow (parse every search) | Fast (pre-parsed) |
-| **Storage** | Raw + indexed fields | Structured JSON |
-| **Memory** | Search-head intensive | Edge processing |
-| **Latency** | Parse delay on search | Immediate |
+| **Operation**        | **Splunk snippet**        | **Pipeline snippet**        |
+| -------------------- | ------------------------- | --------------------------- |
+| **Field extraction** | SPL command during search | Bloblang mapping before HEC |
+| **Parsing point**    | During search             | During pipeline processing  |
+| **Output shape**     | Search fields             | Structured JSON             |
 
 ## Advanced Bloblang Techniques
 
@@ -383,7 +401,7 @@ root.user_tags = this.tags.map_each(tag -> tag.uppercase())
 
 ## What's Next?
 
-Excellent! Your data is now being parsed in real-time at the edge, which is more efficient than Splunk's search-time parsing. Next, we'll implement the game-changing capability that Splunk can't do natively: **filtering before data reaches the indexers**.
+The pipeline now parses data at collection time. Next, implement filtering before data reaches the indexers.
 
 → **Next Step:** [Step 3: Filter Before Indexing](/integrations/splunk-edge-processing/step-3-filter-before-indexing)
 

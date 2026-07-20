@@ -1,9 +1,19 @@
 ---
-title: "Step 1: Collect O-RAN Metrics"
-sidebar_label: "Step 1: Collect Metrics"
+title: 'Step 1: Collect O-RAN Metrics'
+sidebar_label: 'Step 1: Collect Metrics'
 sidebar_position: 4
-description: "Collect sample DU telemetry through file-based or API-based inputs."
+description: 'Collect sample DU telemetry through file-based or API-based inputs.'
 keywords: [oran, telecom, telemetry, collection, distributed-unit]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-integrations-oran-telco-pipeline-step-1-collect-oran-metrics]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 1: Collect O-RAN Metrics
@@ -14,12 +24,12 @@ Configure your Expanso Edge pipeline to collect telemetry from DU nodes using fi
 
 O-RAN Distributed Units (DU) generate critical telemetry for network operations:
 
-| Metric Category | Description | Update Frequency | Use Case |
-|----------------|-------------|------------------|----------|
-| **PTP Timing** | IEEE 1588 precision timing offset | 1Hz | 5G synchronization compliance |
-| **Resource Blocks** | Physical Resource Block (PRB) utilization | 1Hz | Capacity planning, congestion detection |
-| **System Performance** | CPU, memory, interface utilization | 10s | Performance monitoring, SLA compliance |
-| **RF Measurements** | RSRP, SINR, CQI from UE reports | 1Hz | Coverage optimization, quality assurance |
+| Metric Category     | Description                               | Update Frequency | Use Case                                 |
+| ------------------- | ----------------------------------------- | ---------------- | ---------------------------------------- |
+| **PTP Timing**      | Authored timing offset                    | Fixture cadence  | Timing review                            |
+| **Resource Blocks** | Physical Resource Block (PRB) utilization | 1Hz              | Capacity planning, congestion detection  |
+| **System Metrics**  | CPU, memory, interface utilization        | Fixture cadence  | Operations review                        |
+| **RF Measurements** | RSRP, SINR, CQI from UE reports           | 1Hz              | Coverage optimization, quality assurance |
 
 ## Collection Method 1: File-Based Input
 
@@ -33,7 +43,7 @@ Most DU implementations write telemetry to local log files. This approach reads 
 ├── ptp4l/
 │   └── offset.log          # PTP offset measurements
 ├── scheduler/
-│   ├── prb_dl.log         # Downlink PRB utilization  
+│   ├── prb_dl.log         # Downlink PRB utilization
 │   └── prb_ul.log         # Uplink PRB utilization
 ├── system/
 │   ├── cpu.log            # CPU utilization
@@ -53,7 +63,7 @@ config:
       inputs:
         # PTP timing data
         - file:
-            paths: [ "/mnt/du-telemetry/ptp4l/offset.log" ]
+            paths: ['/mnt/du-telemetry/ptp4l/offset.log']
             scanner:
               lines: {}
             processors:
@@ -62,16 +72,16 @@ config:
                   root.metric_type = "ptp_offset"
                   root.du_id = env("DU_ID")
                   root.cell_id = env("CELL_ID")
-                  
+
                   # Parse PTP offset from log line
                   # Example: "2024-02-10T17:23:45Z offset: -85ns"
                   let offset_match = this.re_find_all("offset: ([+-]?\\d+)ns")
                   root.ptp4l_offset_ns = offset_match.0.1.number()
                   root.raw_line = this
-        
+
         # PRB utilization data
         - file:
-            paths: [ "/mnt/du-telemetry/scheduler/prb_*.log" ]
+            paths: ['/mnt/du-telemetry/scheduler/prb_*.log']
             scanner:
               lines: {}
             processors:
@@ -80,7 +90,7 @@ config:
                   root.metric_type = "prb_utilization"
                   root.du_id = env("DU_ID")
                   root.cell_id = env("CELL_ID")
-                  
+
                   # Parse PRB data from log line
                   # Example: "DL_PRB: 85%, UL_PRB: 42%"
                   let dl_match = this.re_find_all("DL_PRB: (\\d+)%")
@@ -88,10 +98,10 @@ config:
                   root.prb_dl_pct = dl_match.0.1.number()
                   root.prb_ul_pct = ul_match.0.1.number()
                   root.raw_line = this
-        
+
         # System performance data
         - file:
-            paths: [ "/mnt/du-telemetry/system/*.log" ]
+            paths: ['/mnt/du-telemetry/system/*.log']
             scanner:
               lines: {}
             processors:
@@ -100,7 +110,7 @@ config:
                   root.metric_type = "system_performance"
                   root.du_id = env("DU_ID")
                   root.cell_id = env("CELL_ID")
-                  
+
                   # Parse CPU utilization
                   # Example: "CPU: 76.4%, MEM: 8.2GB"
                   let cpu_match = this.re_find_all("CPU: ([\\d.]+)%")
@@ -108,7 +118,7 @@ config:
                   root.cpu_pct = cpu_match.0.1.number()
                   root.memory_gb = mem_match.0.1.number()
                   root.raw_line = this
-  
+
   # Continue to transformation step...
 ```
 
@@ -136,12 +146,12 @@ config:
       inputs:
         # PTP metrics via API polling
         - http_client:
-            url: "${DU_ENDPOINT}/api/v1/metrics/ptp"
+            url: '${DU_ENDPOINT}/api/v1/metrics/ptp'
             verb: GET
             headers:
-              Authorization: "Bearer ${DU_API_KEY}"
-              Accept: "application/json"
-            rate_limit: "1/s"
+              Authorization: 'Bearer ${DU_API_KEY}'
+              Accept: 'application/json'
+            rate_limit: '1/s'
             processors:
               - mapping: |
                   root.timestamp = now()
@@ -149,46 +159,46 @@ config:
                   root.du_id = env("DU_ID")
                   root.cell_id = env("CELL_ID")
                   root.gnb_id = env("GNB_ID")
-                  
+
                   # Extract from JSON response
                   root.ptp4l_offset_ns = this.ptp.offset_nanoseconds
                   root.ptp_status = this.ptp.status
                   root.sync_source = this.ptp.master_id
-        
+
         # PRB metrics via API
         - http_client:
-            url: "${DU_ENDPOINT}/api/v1/metrics/prb"
-            verb: GET  
+            url: '${DU_ENDPOINT}/api/v1/metrics/prb'
+            verb: GET
             headers:
-              Authorization: "Bearer ${DU_API_KEY}"
-            rate_limit: "1/s"
+              Authorization: 'Bearer ${DU_API_KEY}'
+            rate_limit: '1/s'
             processors:
               - mapping: |
                   root.timestamp = now()
                   root.metric_type = "prb_utilization"
                   root.du_id = env("DU_ID")
                   root.cell_id = env("CELL_ID")
-                  
+
                   # Extract PRB data from JSON
                   root.prb_dl_pct = this.scheduler.prb_dl_utilization_percent
                   root.prb_ul_pct = this.scheduler.prb_ul_utilization_percent
                   root.prb_total_available = this.scheduler.prb_total
                   root.active_ue_count = this.scheduler.active_ue_count
-        
+
         # System metrics via API
         - http_client:
-            url: "${DU_ENDPOINT}/api/v1/metrics/system"
+            url: '${DU_ENDPOINT}/api/v1/metrics/system'
             verb: GET
             headers:
-              Authorization: "Bearer ${DU_API_KEY}"
-            rate_limit: "10s"
+              Authorization: 'Bearer ${DU_API_KEY}'
+            rate_limit: '10s'
             processors:
               - mapping: |
                   root.timestamp = now()
                   root.metric_type = "system_performance"
                   root.du_id = env("DU_ID")
                   root.cell_id = env("CELL_ID")
-                  
+
                   # Extract system metrics from JSON
                   root.cpu_pct = this.system.cpu_utilization_percent
                   root.memory_gb = this.system.memory_used_bytes / 1000000000
@@ -196,7 +206,7 @@ config:
                   root.disk_pct = this.system.disk_utilization_percent
                   root.network_rx_mbps = this.system.network_rx_bytes_per_sec / 1000000
                   root.network_tx_mbps = this.system.network_tx_bytes_per_sec / 1000000
-  
+
   # Continue to transformation step...
 ```
 
@@ -212,23 +222,23 @@ config:
       inputs:
         # Real-time metrics via API (high frequency)
         - http_client:
-            url: "${DU_ENDPOINT}/api/v1/metrics/realtime"
+            url: '${DU_ENDPOINT}/api/v1/metrics/realtime'
             verb: GET
-            rate_limit: "1/s"
+            rate_limit: '1/s'
             processors:
               - mapping: 'root.source = "api_realtime"'
-        
-        # Historical/batch data via files (lower frequency)  
+
+        # Historical/batch data via files (lower frequency)
         - file:
-            paths: [ "/mnt/du-telemetry/batch/*.json" ]
+            paths: ['/mnt/du-telemetry/batch/*.json']
             scanner:
               lines: {}
             processors:
               - mapping: 'root.source = "file_batch"'
-        
+
         # Performance data via SNMP polling
         - generate:
-            interval: "30s"
+            interval: '30s'
             mapping: |
               # Trigger SNMP collection
               root = {}
@@ -255,7 +265,7 @@ pipeline:
         } else {
           deleted()  # Drop invalid records
         }
-    
+
     - mapping: |
         # Validate PTP offset ranges (-1000000ns to +1000000ns)
         root = if this.metric_type == "ptp_offset" {

@@ -1,0 +1,18 @@
+pipeline:
+  processors:
+    - mapping: |
+        # Retain authored review candidates
+        if !(this.timing_review == "review-first" || this.prb_review || this.cpu_review) {
+          root = deleted()
+        }
+
+        root.review_reasons = []
+        if this.timing_review == "review-first" {
+          root.review_reasons = this.review_reasons.append("timing-band")
+        }
+        if this.cpu_review {
+          root.review_reasons = this.review_reasons.append("cpu-band")
+        }
+        if this.prb_review {
+          root.review_reasons = this.review_reasons.append("prb-band")
+        }

@@ -8,17 +8,27 @@ export type JsonLine = {
 
 export type Stage = {
   id: number;
+  slug: string;
   title: string;
   description: string;
   inputLines: JsonLine[];
   outputLines: JsonLine[];
+  yamlCode?: string;
+  yamlFilename?: string;
+  inputFormat?: 'json' | 'text' | 'binary' | 'tabular' | 'route';
+  outputFormat?: 'json' | 'text' | 'binary' | 'tabular' | 'route';
+};
+
+export type CanonicallyBoundStage = Stage & {
   yamlCode: string;
   yamlFilename: string;
 };
 
 export interface DataPipelineExplorerProps {
-  stages: Stage[];
+  exampleId: string;
+  stages: readonly Stage[];
+  fullYaml: string;
+  fullYamlFilename: string;
   title?: string;
   subtitle?: string;
 }
-

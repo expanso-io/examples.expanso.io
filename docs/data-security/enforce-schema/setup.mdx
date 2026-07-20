@@ -1,163 +1,50 @@
 ---
-title: Setup Environment for Schema Validation
-sidebar_label: Setup
-sidebar_position: 2
-description: Configure edge nodes and sample data for schema validation.
-keywords: [setup, environment, configuration, edge nodes, schema validation]
+title: Schema Enforcement Review
+sidebar_label: Configuration review
+sidebar_position: 3
+description: Review schema rules, accepted output, and rejected-data handling for synthetic JSON.
+keywords: [schema-validation, setup, json-schema, rejected-data]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-enforce-schema-configuration]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Setup Environment for Schema Validation
+import { ExampleSurface } from '@site/src/components/ExamplePage';
 
-Before building the complete schema validation solution, you'll set up edge nodes and prepare sample data.
+# Schema Enforcement Review
 
-## Prerequisites
+The reference pattern evaluates an authored schema and routes records by result. A current machine fixture does not execute the accepted and rejected paths.
 
-This example requires the following services to be running:
+<ExampleSurface
+  kind="reference"
+  title="Before you adapt it"
+  description="Resolve the example boundary before changing processors or destinations."
+>
 
-*   **[Kafka](/getting-started/services/kafka)**
+- An Expanso environment for configuration inspection
+- A versioned schema and representative accepted and rejected records
+- Explicit destinations and access rules for rejected data
 
-Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
+</ExampleSurface>
 
-## Step 1: Create Schema Directory
+## Review path
 
-Create a local directory for schema files:
+1. [Schema definition](/data-security/enforce-schema/step-1-define-json-schema)
+2. [Rejected-data branch](/data-security/enforce-schema/step-2-route-failures-dlq)
+3. [Advanced variants](/data-security/enforce-schema/step-3-advanced-patterns)
 
-```bash
-mkdir -p /tmp/expanso/schemas
-```
+Then inspect the [Complete reference configuration](/data-security/enforce-schema/complete-schema-validation).
 
-## Step 2: Prepare Sample Sensor Data
+## Adaptation checks
 
-Create test data to verify schema validation works correctly:
+- Version schema changes and define compatibility expectations.
+- Test missing, extra, malformed, and boundary values.
+- Define remediation, retention, replay, and access for rejected records.
 
-```bash
-# Create sample data directory
-mkdir -p /tmp/sensor-test-data
-
-# Create valid sensor reading
-cat > /tmp/sensor-test-data/valid-reading.json << 'EOF'
-{
-  "sensor_id": "sensor-42",
-  "timestamp": "2025-10-20T14:30:00Z",
-  "location": {
-    "building": "warehouse-3",
-    "floor": 2,
-    "zone": "A"
-  },
-  "readings": {
-    "temperature_celsius": 23.5,
-    "humidity_percent": 45.2
-  },
-  "metadata": {
-    "firmware_version": "2.1.0",
-    "battery_percent": 87
-  }
-}
-EOF
-
-# Create invalid sensor reading (missing required fields)
-cat > /tmp/sensor-test-data/invalid-reading-1.json << 'EOF'
-{
-  "sensor_id": "sensor-99",
-  "timestamp": "2025-10-20T14:30:00Z"
-}
-EOF
-
-# Create invalid sensor reading (wrong data types)
-cat > /tmp/sensor-test-data/invalid-reading-2.json << 'EOF'
-{
-  "sensor_id": "sensor-42",
-  "timestamp": "2025-10-20T14:30:00Z",
-  "location": {
-    "building": "warehouse-3",
-    "floor": "second floor",
-    "zone": "A"
-  },
-  "readings": {
-    "temperature_celsius": "twenty-three point five",
-    "humidity_percent": 45.2
-  },
-  "metadata": {
-    "firmware_version": "2.1.0",
-    "battery_percent": 87
-  }
-}
-EOF
-
-# Create invalid sensor reading (values out of range)
-cat > /tmp/sensor-test-data/invalid-reading-3.json << 'EOF'
-{
-  "sensor_id": "sensor-42",
-  "timestamp": "not-a-timestamp",
-  "location": {
-    "building": "warehouse-3",
-    "floor": 2,
-    "zone": "A"
-  },
-  "readings": {
-    "temperature_celsius": -500,
-    "humidity_percent": 150
-  },
-  "metadata": {
-    "firmware_version": "2.1.0",
-    "battery_percent": 87
-  }
-}
-EOF
-
-# Verify test data files
-echo "Test data files created:"
-ls -la /tmp/sensor-test-data/
-echo ""
-
-echo "Valid reading sample:"
-jq . /tmp/sensor-test-data/valid-reading.json
-```
-
-## Step 3: Set Environment Variables
-
-Configure endpoints for analytics and metrics collection:
-
-```bash
-# Set up environment variables for pipeline configuration
-export ANALYTICS_ENDPOINT="http://localhost:9000"
-export METRICS_ENDPOINT="http://localhost:9001"
-export NODE_ID="edge-sensor-001"
-
-# Verify environment variables
-echo "Analytics endpoint: $ANALYTICS_ENDPOINT"
-echo "Metrics endpoint: $METRICS_ENDPOINT"
-echo "Node ID: $NODE_ID"
-```
-
-## Step 4: Set Up Mock Analytics Endpoint
-
-Create a simple HTTP server to capture messages for testing:
-
-```bash
-# Start mock analytics endpoint in background
-echo "Starting mock analytics endpoint..."
-python3 -m http.server 9000 --bind localhost &
-ANALYTICS_PID=$!
-
-echo "Analytics endpoint PID: $ANALYTICS_PID"
-
-# Start mock metrics endpoint  
-python3 -m http.server 9001 --bind localhost &
-METRICS_PID=$!
-
-echo "Metrics endpoint PID: $METRICS_PID"
-```
-
-## Next Steps
-
-With your environment set up and verified, you're ready to build the complete schema validation solution:
-
-<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
-  <a href="./step-1-define-json-schema" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Step 1: Define JSON Schema
-  </a>
-  <a href="./troubleshooting" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Troubleshooting Guide
-  </a>
-</div>
+This route is a configuration review, not a verified execution guide.

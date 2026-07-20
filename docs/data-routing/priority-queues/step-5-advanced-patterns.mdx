@@ -1,18 +1,33 @@
 ---
-title: "Advanced Priority Queue Patterns"
-sidebar_label: "Step 5: Advanced Patterns"
+title: 'Advanced Priority Queue Patterns'
+sidebar_label: 'Step 5: Advanced Patterns'
 sidebar_position: 8
 description: Explore advanced priority queue patterns like SLA tracking, dynamic scoring, and dedicated infrastructure.
-keywords: [advanced-priority-queue, sla, dynamic-scoring, dedicated-infrastructure, production]
+keywords:
+  [
+    advanced-priority-queue,
+    dynamic-scoring,
+    dedicated-infrastructure,
+    adaptation,
+  ]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-priority-queues-step-5-advanced-patterns]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Advanced Priority Queue Patterns & Production Tuning
+# Advanced Priority Queue Adaptations
 
-Once you have mastered the basics of multi-criteria scoring and age-based escalation, you can implement more sophisticated, production-grade patterns.
+After reviewing multi-criteria scoring and age-based escalation, use these variants as unverified adaptation sketches.
 
 ## Pattern 1: Dedicated Infrastructure for Tiers
 
-For true performance isolation, enterprise or premium customers should be routed to entirely separate infrastructure (e.g., a different Kafka cluster). This prevents "noisy neighbor" problems, where a massive influx of low-priority data could still impact higher-tier customers at the network level.
+Separate infrastructure is one possible isolation boundary. It adds operational cost and still requires load, failure, fairness, and capacity tests in the target environment.
 
 ```yaml title="Dedicated Enterprise Infrastructure"
 output:
@@ -89,15 +104,15 @@ For paying customers, you can explicitly track and alert on SLA (Service Level A
 # Downstream, a 'switch' can route SLA violations to an alerting system.
 ```
 
-## Production Kafka Tuning
+## Illustrative Kafka settings
 
-The minimal Kafka configurations in the steps are for learning. A production setup would have much more detailed tuning for each priority queue.
+The following settings are adaptation sketches. Choose acknowledgements, batching, retries, and timeouts from measured destination behavior and explicit delivery requirements.
 
-```yaml title="Production-Tuned Critical Queue"
+```yaml title="Illustrative critical branch"
 - check: this.priority == "critical"
   output:
     kafka:
-      addresses: ["${KAFKA_BROKERS}"]
+      addresses: ['${KAFKA_BROKERS}']
       topic: logs-critical
       batching:
         count: 1 # No batching for speed
@@ -113,11 +128,11 @@ The minimal Kafka configurations in the steps are for learning. A production set
       compression: none # No compression for speed
 ```
 
-```yaml title="Production-Tuned Bulk Queue"
+```yaml title="Illustrative bulk branch"
 - check: this.priority == "bulk"
   output:
     kafka:
-      addresses: ["${KAFKA_BROKERS}"]
+      addresses: ['${KAFKA_BROKERS}']
       topic: logs-bulk
       batching:
         count: 5000 # Massive batches for throughput
@@ -125,9 +140,10 @@ The minimal Kafka configurations in the steps are for learning. A production set
         byte_size: 10MB
       # Performance settings
       max_in_flight: 20
-      compression: gzip # High compression to save network/disk
+compression: gzip # Compression choice; benchmark with representative payloads
       # Reliability is less important
       ack_replicas: false
       max_retries: 1
 ```
-These advanced patterns allow you to build a highly sophisticated, business-aware, and resilient routing system that can be tuned to meet specific performance, cost, and compliance goals.
+
+These variants add configurable routing inputs. Validate their semantics, failure paths, operating limits, and organizational policy in the target environment.

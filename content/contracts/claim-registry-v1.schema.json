@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://examples.expanso.io/contracts/claim-registry-v1.schema.json",
+  "title": "Material claim registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "policyVersion", "policyDigest", "claims"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "policyVersion": { "const": "claims-evidence-v1" },
+    "policyDigest": { "$ref": "#/$defs/digest" },
+    "claims": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/claim" }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "date": { "type": "string", "format": "date" },
+    "agentId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]{2,127}$" },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "exactWording",
+        "conservativeVariants",
+        "type",
+        "status",
+        "routes",
+        "assumptions",
+        "environment",
+        "producerAgentId",
+        "verifierAgentId",
+        "verifiedAt",
+        "reviewBy"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "exactWording": { "type": "string", "minLength": 1 },
+        "conservativeVariants": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "type": {
+          "enum": [
+            "legal",
+            "cost",
+            "performance",
+            "reliability",
+            "compression",
+            "bandwidth",
+            "security",
+            "compliance",
+            "market",
+            "accuracy",
+            "partner",
+            "interoperability"
+          ]
+        },
+        "status": {
+          "enum": [
+            "measured",
+            "modeled",
+            "third-party-sourced",
+            "illustrative",
+            "prohibited"
+          ]
+        },
+        "routes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^/" }
+        },
+        "assumptions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "environment": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "producerAgentId": { "$ref": "#/$defs/agentId" },
+        "verifierAgentId": { "$ref": "#/$defs/agentId" },
+        "verifiedAt": { "$ref": "#/$defs/date" },
+        "reviewBy": { "$ref": "#/$defs/date" },
+        "visibleLabel": { "type": "string", "minLength": 1 },
+        "publicSource": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["url", "title", "publicationDate", "retrievedAt"],
+          "properties": {
+            "url": { "type": "string", "pattern": "^https://" },
+            "title": { "type": "string", "minLength": 1 },
+            "publicationDate": { "$ref": "#/$defs/date" },
+            "retrievedAt": { "$ref": "#/$defs/date" }
+          }
+        },
+        "reproduction": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "command",
+            "fixturePath",
+            "fixtureSha256",
+            "rawResultPath",
+            "rawResultSha256",
+            "productVersions"
+          ],
+          "properties": {
+            "command": { "type": "string", "minLength": 1 },
+            "fixturePath": { "type": "string", "minLength": 1 },
+            "fixtureSha256": { "$ref": "#/$defs/digest" },
+            "rawResultPath": { "type": "string", "minLength": 1 },
+            "rawResultSha256": { "$ref": "#/$defs/digest" },
+            "productVersions": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "measured" } } },
+          "then": { "required": ["reproduction"] }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "third-party-sourced" } }
+          },
+          "then": { "required": ["publicSource"] }
+        },
+        {
+          "if": {
+            "properties": { "status": { "enum": ["modeled", "illustrative"] } }
+          },
+          "then": { "required": ["visibleLabel"] }
+        }
+      ]
+    }
+  }
+}

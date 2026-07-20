@@ -1,0 +1,43 @@
+# Severity-based priority classification
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+
+        # Map severity to priority
+        root.priority = match root.severity {
+          "CRITICAL" => "critical"
+          "FATAL" => "critical"
+          "ERROR" => "high"
+          "WARNING" => "normal"
+          "INFO" => "low"
+          _ => "normal"
+        }
+
+        root.priority_score = match root.priority {
+          "critical" => 85
+          "high" => 60
+          "normal" => 35
+          "low" => 15
+          _ => 0
+        }
+
+output:
+  switch:
+    cases:
+      - check: this.priority == "critical"
+        output:
+          kafka:
+            topic: logs-critical
+            batching:
+              count: 1        # Immediate delivery
+              period: 0s      # No batching delay
+            max_retries: 10   # Maximum reliability
+
+      - check: this.priority == "high"
+        output:
+          kafka:
+            topic: logs-high
+            batching:
+              count: 10       # Small batches
+              period: 1s      # Fast delivery

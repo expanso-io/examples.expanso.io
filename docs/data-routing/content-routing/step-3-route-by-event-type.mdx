@@ -1,9 +1,18 @@
 ---
-title: "Step 3: Route by Event Type"
-sidebar_label: "Step 3: Route by Event Type"
+title: 'Step 3: Route by Event Type'
+sidebar_label: 'Step 3: Route by Event Type'
 sidebar_position: 6
 description: Route logs to different destinations based on the type of event.
 keywords: [log-routing, conditional-routing, switch-output, event-type]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-content-routing-step-3-route-by-event-type]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 3: Route by Event Type
@@ -19,6 +28,7 @@ You will modify your `switch` output so that any message with `event_type: "paym
 ## Implementation
 
 1.  **Start with the Previous Pipeline:** Copy the `severity-router.yaml` from Step 1 to a new file named `event-router.yaml`.
+
     ```bash
     cp severity-router.yaml event-router.yaml
     ```
@@ -54,6 +64,7 @@ You will modify your `switch` output so that any message with `event_type: "paym
     ```
 
 3.  **Deploy and Test:**
+
     ```bash
     # Send a CRITICAL event that is also a payment event
     curl -X POST http://localhost:8080/ingest -d '{"level": "ERROR", "event_type": "payment", "message": "High-risk transaction"}'
@@ -63,7 +74,7 @@ You will modify your `switch` output so that any message with `event_type: "paym
     ```
 
 4.  **Verify:** Check your output files.
-    -   The first event, despite being an `ERROR`, will be in `payments.jsonl` because the first rule in the `switch` matched it.
-    -   The second event will be in `errors.jsonl` because it did not match the payment rule and fell through to the severity-based routing.
+    - The first event, despite being an `ERROR`, will be in `payments.jsonl` because the first rule in the `switch` matched it.
+    - The second event will be in `errors.jsonl` because it did not match the payment rule and fell through to the severity-based routing.
 
 You have now built a routing system that can make decisions based on multiple different fields in your data.

@@ -4,6 +4,15 @@ sidebar_label: Troubleshooting
 sidebar_position: 9
 description: Common deduplication issues and solutions
 keywords: [troubleshooting, debug, deduplication, cache]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-deduplicate-events-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Troubleshooting
@@ -35,9 +44,10 @@ curl -X POST http://localhost:8080/events \
 **Cause:** Wrong field used for deduplication key
 
 **Fix:** Check the key field matches your data:
+
 ```yaml
 dedup:
-  key: ${!json("event_id")}  # Must match actual field name
+  key: ${!json("event_id")} # Must match actual field name
   cache: memory
 ```
 
@@ -53,6 +63,7 @@ docker logs deduplicate-events --tail 20 2>&1 | grep event_id
 ```
 
 **Fix:** Verify events have unique IDs, add fallback:
+
 ```yaml
 - mapping: |
     root.dedup_key = this.event_id.or(this.hash("xxhash64"))
@@ -69,6 +80,7 @@ docker stats deduplicate-events --no-stream
 ```
 
 **Fix:** Add TTL and size limits to cache:
+
 ```yaml
 dedup:
   key: ${!json("event_id")}
@@ -85,6 +97,7 @@ dedup:
 **Cause:** Using in-memory cache, state lost on restart
 
 **Fix:** Use Redis or persistent cache:
+
 ```yaml
 cache:
   redis:

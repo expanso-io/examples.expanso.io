@@ -4,6 +4,15 @@ sidebar_label: Step 1 - HTTP Circuit Breakers
 sidebar_position: 3
 description: Implement circuit breaker protection for HTTP API calls.
 keywords: [http-circuit-breaker, api-protection, try-catch, fallback]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-circuit-breakers-step-1-http-circuit-breakers]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 1: HTTP Client Circuit Breakers
@@ -31,6 +40,7 @@ curl -X POST http://localhost:8080/sensor-data \
   --connect-timeout 5 \
   -v
 ```
+
 You will notice the `curl` command hangs and eventually times out, and the pipeline logs will show an error. The pipeline is blocked, unable to process other requests.
 
 ## 3. Add the Circuit Breaker
@@ -38,44 +48,41 @@ You will notice the `curl` command hangs and eventually times out, and the pipel
 To fix this, you'll wrap the `http` processor in a `try` block and add a `catch` block to handle failures gracefully.
 
 1.  **Copy the Foundation:**
+
     ```bash
     cp examples/data-routing/circuit-breakers-foundation.yaml http-circuit-breaker.yaml
     ```
 
 2.  **Modify the Pipeline:** Open `http-circuit-breaker.yaml` and replace the entire `pipeline` section with the one below. The key changes are the `try` and `catch` blocks.
 
-    ```yaml title="Insert this into http-circuit-breaker.yaml"
-pipeline:
-  processors:
-    # Wrap the fallible processors in a 'try' block.
-    - try:
-        # This is the same HTTP call from the foundation,
-        # but now with retries and a timeout defined.
-        - http:
-            url: $\{MOCK_API_URL\}/metadata/$\{!this.sensor_id\}
-            verb: GET
-            timeout: 3s
-            retries: 2
-            retry_period: 1s
-            headers:
-              Authorization: Bearer $\{!env("API_TOKEN")\}
+        ```yaml title="Insert this into http-circuit-breaker.yaml"
 
-        # This mapping only runs if the HTTP call succeeds.
-        - mapping: |
-            root = this
-            let api_response = content().parse_json()
-            root.metadata = api_response.metadata
-            root.enriched = true
-            root.api_status = "success"
+    pipeline:
+    processors: # Wrap the fallible processors in a 'try' block. - try: # This is the same HTTP call from the foundation, # but now with retries and a timeout defined. - http:
+    url: $\{MOCK_API_URL\}/metadata/$\{!this.sensor_id\}
+    verb: GET
+    timeout: 3s
+    retries: 2
+    retry_period: 1s
+    headers:
+    Authorization: Bearer $\{!env("API_TOKEN")\}
 
-      # The 'catch' block executes ONLY if any processor in the 'try' block fails.
-      catch:
-        - mapping: |
-            root = this
-            root.enriched = false
-            root.api_status = "failed"
-            root.fallback_reason = "api_circuit_breaker_open"
-    ```
+            # This mapping runs after a successful HTTP call.
+            - mapping: |
+                root = this
+                let api_response = content().parse_json()
+                root.metadata = api_response.metadata
+                root.enriched = true
+                root.api_status = "success"
+
+          # The 'catch' block executes when a processor in the 'try' block fails.
+          catch:
+            - mapping: |
+                root = this
+                root.enriched = false
+                root.api_status = "failed"
+                root.fallback_reason = "api_circuit_breaker_open"
+        ```
 
 ## 4. Deploy and Test Again
 
@@ -91,5 +98,7 @@ curl -X POST http://localhost:8080/sensor-data \
 This time, the command will return immediately. If you check the output, you will see a JSON object with `enriched: false` and `api_status: "failed"`. The pipeline didn't crash; it failed gracefully and produced a fallback message.
 
 You have now implemented a basic circuit breaker.
+
+```
 
 ```

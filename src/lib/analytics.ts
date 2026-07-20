@@ -32,6 +32,28 @@ type ExampleEventName =
 
 let posthogClientPromise: Promise<PostHogInterface> | undefined;
 
+declare global {
+  interface Window {
+    dataLayer: unknown[];
+  }
+}
+
+export function updateGtmConsent(granted: boolean): void {
+  window.dataLayer = window.dataLayer || [];
+  window.dataLayer.push([
+    'consent',
+    'update',
+    {
+      ad_storage: granted ? 'granted' : 'denied',
+      analytics_storage: granted ? 'granted' : 'denied',
+      ad_user_data: granted ? 'granted' : 'denied',
+      ad_personalization: granted ? 'granted' : 'denied',
+      personalization_storage: granted ? 'granted' : 'denied',
+      functionality_storage: granted ? 'granted' : 'denied',
+    },
+  ]);
+}
+
 export function readCookie(
   cookieString: string,
   cookieName: string

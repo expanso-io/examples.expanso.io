@@ -1,0 +1,12 @@
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        # Try ISO 8601 first
+        root.parsed_time = this.time.parse_timestamp("2006-01-02T15:04:05Z").catch(
+          # Fallback to Unix epoch
+          this.time.number().timestamp_unix().catch(
+            # Fallback to custom format
+            this.time.parse_timestamp("02/01/2006 15:04")
+          )
+        )

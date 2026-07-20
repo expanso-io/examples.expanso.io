@@ -1,99 +1,51 @@
 ---
-title: Setup Environment for Content Routing
-sidebar_label: Setup
+title: Content Routing Configuration Review
+sidebar_label: Configuration review
 sidebar_position: 3
-description: Configure environment variables and destination services for content routing.
-keywords: [setup, environment, configuration, deployment, content-routing]
+description: Review the fields, branch order, and destinations used by the content-routing pattern.
+keywords: [content-routing, setup, severity, region, routing]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-content-routing-configuration]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Setup Environment for Content Routing
+import { ExampleSurface } from '@site/src/components/ExamplePage';
 
-Before building the content routing pipeline, you'll set up destination services and configure environment variables.
+# Content Routing Configuration Review
 
-## Prerequisites
+This pattern evaluates synthetic fields and sends records to named branches. Destination availability and organizational policy are outside the checked-in example.
 
-This example requires the following services to be running:
+<ExampleSurface
+  kind="reference"
+  title="Before you adapt it"
+  description="Resolve the example boundary before changing processors or destinations."
+>
 
-*   **[Kafka](/getting-started/services/kafka)**
+- An Expanso environment for configuration inspection
+- A documented input schema for every routed field
+- Real destination outputs if you adapt the example beyond local review
 
-Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
+</ExampleSurface>
 
-## Step 1: Configure Example-Specific Variables
+## Review path
 
-After setting up the core services, configure content routing-specific variables:
+1. [Severity branch](/data-routing/content-routing/step-1-route-by-severity)
+2. [Region branch](/data-routing/content-routing/step-2-route-by-region)
+3. [Event-type branch](/data-routing/content-routing/step-3-route-by-event-type)
+4. [Advanced conditions](/data-routing/content-routing/step-4-advanced-patterns)
 
-```bash
-# Alert destinations for severity routing (optional)
-export PAGERDUTY_API_KEY="your_pagerduty_integration_key"
-export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+Then inspect the [Complete reference configuration](/data-routing/content-routing/complete-content-routing).
 
-# Analytics and monitoring endpoints (optional)
-export ANALYTICS_API_URL="https://analytics.example.com/events"
-export SECURITY_MONITORING_URL="https://security.example.com/auth-events"
+## Adaptation checks
 
-# Verification
-echo "Kafka: $KAFKA_BROKERS"
-echo "Slack: ${SLACK_WEBHOOK_URL:0:30}..."
-```
+- Order overlapping conditions explicitly.
+- Define a default branch for unexpected field values.
+- Validate destination schemas and failure handling in your environment.
 
-## Step 2: Verify Optional Services
-
-If you plan to use the advanced routing features, verify connectivity to optional services:
-
-### Test PagerDuty Integration (Optional)
-
-```bash
-# Test PagerDuty integration
-curl -X POST https://events.pagerduty.com/v2/enqueue \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Token ${PAGERDUTY_API_KEY}" \
-  -d '{
-    "payload": {
-      "summary": "Test alert from content router setup",
-      "source": "content-routing-setup",
-      "severity": "info"
-    },
-    "routing_key": "test-routing-key",
-    "event_action": "trigger"
-  }'
-```
-
-### Test Slack Integration (Optional)
-
-```bash
-# Test Slack webhook
-curl -X POST $SLACK_WEBHOOK_URL \
-  -H "Content-Type: application/json" \
-  -d '{
-    "text": "Content routing setup test from '$(hostname)'",
-    "username": "content-router",
-    "icon_emoji": ":gear:"
-  }'
-```
-
-### Test AWS S3 Access (Optional)
-
-```bash
-# Test S3 bucket access (if using geographic routing)
-echo '{"test": "s3-access", "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' | \
-  aws s3 cp - s3://your-test-bucket/setup-test.json
-
-# Verify upload
-aws s3 ls s3://your-test-bucket/setup-test.json
-
-# Clean up
-aws s3 rm s3://your-test-bucket/setup-test.json
-```
-
-## Next Steps
-
-With your environment configured, you're ready to implement content routing techniques:
-
-<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
-  <a href="./step-1-route-by-severity" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Start with Severity Routing
-  </a>
-  <a href="./explorer" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Review Interactive Explorer
-  </a>
-</div>
+This route is a configuration review, not a verified execution guide.

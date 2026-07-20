@@ -4,6 +4,15 @@ sidebar_label: Troubleshooting
 sidebar_position: 8
 description: Common circuit breaker issues and solutions
 keywords: [troubleshooting, debug, circuit-breakers, fallback]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-circuit-breakers-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Troubleshooting
@@ -33,9 +42,10 @@ docker logs circuit-breakers --tail 50 2>&1 | grep -i retry
 ```
 
 **Fix:** Lower the failure threshold or reduce timeout:
+
 ```yaml
 max_retries: 3
-timeout: 5s  # Reduce from 30s
+timeout: 5s # Reduce from 30s
 ```
 
 ---
@@ -71,12 +81,13 @@ wc -l /var/buffer/failed-requests.jsonl 2>/dev/null
 **Cause:** No fallback configured or fallback also failing
 
 **Fix:** Add multi-level fallback chain:
+
 ```yaml
 output:
   fallback:
-    - http_client: {url: "${PRIMARY_URL}"}
-    - http_client: {url: "${SECONDARY_URL}"}
-    - file: {path: "/var/buffer/emergency.jsonl"}
+    - http_client: { url: '${PRIMARY_URL}' }
+    - http_client: { url: '${SECONDARY_URL}' }
+    - file: { path: '/var/buffer/emergency.jsonl' }
 ```
 
 ## Still stuck?

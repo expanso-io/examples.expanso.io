@@ -1,14 +1,24 @@
 ---
-title: "Step 3: Mask Account Numbers"
-sidebar_label: "Step 3: Mask Accounts"
+title: 'Step 3: Mask Account Numbers'
+sidebar_label: 'Step 3: Mask Accounts'
 sidebar_position: 5
-description: PCI-DSS compliant account masking with hash preservation for joins
+description: Inspect account-number masking and a deterministic join-key pattern.
 keywords: [pci, compliance, masking, hash, account, security]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-enterprise-migration-db2-to-bigquery-step-3-mask-account-numbers]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 3: Mask Account Numbers
 
-Mask sensitive account numbers for PCI-DSS compliance while preserving the ability to join records. This replaces DataStage Transformer routines with built-in slice and hash functions.
+Reduce account-number exposure with an authored mask and deterministic join key. This page compares the mapping with a DataStage-style transformer.
 
 ## The Goal
 
@@ -18,7 +28,7 @@ Mask sensitive account numbers for PCI-DSS compliance while preserving the abili
 
 ## Why This Matters
 
-**PCI-DSS Requirement 3.4:** Render PANs unreadable anywhere they are stored.
+**Security boundary:** Tokenization, keying, access, retention, and regulatory controls require a separate design.
 
 **Analytics Need:** You still need to count unique accounts and join transactions.
 
@@ -27,6 +37,7 @@ Mask sensitive account numbers for PCI-DSS compliance while preserving the abili
 ## DataStage Equivalent
 
 In DataStage, account masking typically requires:
+
 1. **Transformer Stage** with custom routines
 2. **External library** for hashing (often COBOL or Java)
 3. **Multiple output columns** managed manually
@@ -41,33 +52,34 @@ Add the masking processor after currency normalization:
 pipeline:
   processors:
     # Steps 1-2 from previous...
-    
-    # Step 3: Mask account numbers for PCI compliance
+
+    # Step 3: Mask account numbers for downstream control design
     - mapping: |
         root = this
-        
+
         # Keep last 4 digits for reconciliation
         root.account_number_masked = "****-****-" + this.ACCOUNT_NUMBER.slice(-4)
-        
+
         # Hash for joins (truncated to 16 chars)
         root.account_number_hash = this.ACCOUNT_NUMBER.hash("sha256").slice(0, 16)
-        
+
         # Remove the original account number
         root = root.without("ACCOUNT_NUMBER")
 ```
 
 ## Understanding the Code
 
-| Expression | What It Does |
-|------------|--------------|
-| `.slice(-4)` | Get last 4 characters |
-| `.hash("sha256")` | Create SHA-256 hash (64 hex chars) |
-| `.slice(0, 16)` | Truncate hash to 16 chars |
-| `.without("ACCOUNT_NUMBER")` | Remove field from record |
+| Expression                   | What It Does                       |
+| ---------------------------- | ---------------------------------- |
+| `.slice(-4)`                 | Get last 4 characters              |
+| `.hash("sha256")`            | Create SHA-256 hash (64 hex chars) |
+| `.slice(0, 16)`              | Truncate hash to 16 chars          |
+| `.without("ACCOUNT_NUMBER")` | Remove field from record           |
 
 ## Expected Output
 
 **Input:**
+
 ```json
 {
   "ACCOUNT_NUMBER": "4532-1234-5678-9012",
@@ -76,6 +88,7 @@ pipeline:
 ```
 
 **Output:**
+
 ```json
 {
   "account_number_masked": "****-****-9012",
@@ -117,7 +130,7 @@ Mask several fields at once:
 ```yaml
 root = root.without("ACCOUNT_NUMBER", "CARD_CVV", "CARD_EXPIRY")
 root.account_last4 = this.ACCOUNT_NUMBER.slice(-4)
-root.card_present = this.CARD_CVV != null  # Boolean flag only
+root.card_present = this.CARD_CVV != null # Boolean flag only
 ```
 
 ### Consistent Hashing Across Pipelines
@@ -127,7 +140,7 @@ Ensure all pipelines use the same hash configuration for joins to work:
 ```yaml
 # Document your hash spec:
 # Algorithm: SHA-256
-# Salt: env("HASH_SALT")  
+# Salt: env("HASH_SALT")
 # Truncation: 16 characters
 # Input: Raw account number with dashes
 ```
@@ -137,7 +150,10 @@ Ensure all pipelines use the same hash configuration for joins to work:
 ## Next Step
 
 <div className="margin-top--lg margin-bottom--lg">
-  <a href="./step-4-categorize-transactions" className="button button--primary button--lg">
+  <a
+    href="../step-4-categorize-transactions"
+    className="button button--primary button--lg"
+  >
     📖 Step 4: Categorize Transactions →
   </a>
 </div>

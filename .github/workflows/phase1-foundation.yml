@@ -1,0 +1,1071 @@
+name: Phase 1 Foundation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase-1-foundation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: 20.19.4
+  CONTENT_ENFORCEMENT_STAGE: foundation
+
+jobs:
+  format-lint:
+    name: Format & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check changed files
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASE_SHA="$PR_BASE_SHA"
+            HEAD_SHA="$PR_HEAD_SHA"
+          else
+            BASE_SHA="$PUSH_BASE_SHA"
+            HEAD_SHA="$GITHUB_SHA"
+          fi
+
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            BASE_SHA="$(git rev-parse "${HEAD_SHA}^")"
+          fi
+
+          git diff --check "$BASE_SHA" "$HEAD_SHA"
+
+          mapfile -d '' FILES < <(
+            git diff --name-only --diff-filter=ACMR -z "$BASE_SHA" "$HEAD_SHA" -- \
+              '*.css' '*.js' '*.jsx' '*.json' '*.md' '*.mdx' \
+              '*.ts' '*.tsx' '*.yaml' '*.yml'
+          )
+
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "No Prettier-supported files changed."
+            exit 0
+          fi
+
+          ./node_modules/.bin/prettier --check "${FILES[@]}"
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run TypeScript compiler
+        run: npm run typecheck -- --noEmit
+
+  catalog-mdx-schema:
+    name: Catalog & MDX Schema
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate quality contract schemas and digests
+        run: npm run quality:contracts
+
+      - name: Enforce machine-journey raw-evidence reducer semantics
+        run: npm run test-machine-journey-reducer
+
+      - name: Enforce release evidence manifest semantics
+        run: npm run test-release-evidence
+
+      - name: Enforce honest browser capability classification
+        run: npm run test-machine-journey-browser-runner
+
+      - name: Run catalog positive and negative tests
+        run: npm run test-catalog
+
+      - name: Enforce the versioned analytics privacy schema
+        run: npm run test-analytics
+
+      - name: Test the fail-closed portfolio admission contract
+        run: npm run test-portfolio-admission
+
+      - name: Validate the test-only portfolio admission result
+        run: npm run validate-portfolio-admission
+
+      - name: Validate the canonical 26-family registry
+        run: npm run validate-catalog
+
+      - name: Reject route-disposition ledger drift
+        run: npm run routes:ledger
+
+      - name: Run content and claims foundation oracles
+        run: npm run test-content-foundation
+
+      - name: Enforce full-estate content contract
+        run: npm run validate-content
+
+      - name: Enforce full-estate claim and dataset contract
+        run: npm run validate-claims
+
+      - name: Observe full-estate content and claims migration debt
+        run: |
+          npm run --silent content:estate-report -- \
+            --stage "$CONTENT_ENFORCEMENT_STAGE" > content-estate.json
+
+      - name: Summarize full-estate content and claims status
+        if: always()
+        run: |
+          node --input-type=module - <<'NODE'
+          import { existsSync, readFileSync } from 'node:fs';
+
+          if (!existsSync('content-estate.json')) {
+            console.error('content-estate.json was not produced; estate status is UNKNOWN');
+            process.exit(1);
+          }
+          const report = JSON.parse(readFileSync('content-estate.json', 'utf8'));
+          const lines = [
+            `### Content estate: ${report.status}`,
+            '',
+            `Stage: ${report.stage}`,
+            `Claimed gate: ${report.claimedGate}`,
+            '',
+            '| Validator | Status | Files | Findings |',
+            '| --- | --- | ---: | ---: |',
+            ...report.validators.map(
+              (validator) =>
+                `| ${validator.gateId} | ${validator.status} | ${validator.filesChecked} | ${validator.findings} |`
+            ),
+          ];
+          process.stdout.write(`${lines.join('\n')}\n`);
+          process.env.GITHUB_STEP_SUMMARY &&
+            (await import('node:fs/promises')).appendFile(
+              process.env.GITHUB_STEP_SUMMARY,
+              `${lines.join('\n')}\n`
+            );
+          NODE
+
+      - name: Upload full-estate content and claims evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: content-estate-${{ github.sha }}
+          path: content-estate.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Run Health V2 reducer tests
+        run: npm run test-health-v2
+
+      - name: Generate exact-SHA Health V2 report
+        run: npm run health-v2 -- --subject-sha "$GITHUB_SHA" > health-v2.json
+
+      - name: Upload Health V2 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-v2-${{ github.sha }}
+          path: health-v2.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Record exact-SHA machine-journey capability state
+        env:
+          QUALITY_SUBJECT_SHA: ${{ github.sha }}
+          QUALITY_ENVIRONMENT_ID: github-actions-${{ github.run_id }}-${{ github.run_attempt }}
+          JOURNEY_ATTEMPT_ID: diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          JOURNEY_EVIDENCE_ROOT: test-results/quality/machine-journey-diagnostic
+        run: |
+          set -euo pipefail
+          set +e
+          npm run quality:journey:produce
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -ne 2 ]; then
+            echo "Expected unavailable external machine-journey adapters to produce BLOCKED_CAPABILITY (exit 2), received $STATUS" >&2
+            exit 1
+          fi
+          jq -e \
+            --arg sha "$GITHUB_SHA" \
+            '.status == "BLOCKED_CAPABILITY" and .subjectSha == $sha' \
+            test-results/quality/machine-journey-diagnostic/machine-journey-producer-manifest.json \
+            > /dev/null
+
+      - name: Upload machine-journey diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: machine-journey-diagnostic-${{ github.sha }}
+          path: test-results/quality/machine-journey-diagnostic/machine-journey-producer-manifest.json
+          if-no-files-found: error
+          retention-days: 90
+
+  route-link-validation:
+    name: Route & Link Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build with broken-link failures enabled
+        run: npm run build
+
+      - name: Crawl generated internal targets and anchors
+        run: |
+          node --input-type=module - <<'NODE'
+          import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+          import { join, relative, resolve, sep } from 'node:path';
+
+          const buildRoot = resolve('build');
+          const htmlFiles = [];
+          const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
+          const visit = (directory) => {
+            const entries = readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+              compareText(left.name, right.name)
+            );
+            for (const entry of entries) {
+              const path = join(directory, entry.name);
+              if (entry.isDirectory()) visit(path);
+              else if (entry.isFile() && entry.name.endsWith('.html')) htmlFiles.push(path);
+            }
+          };
+          visit(buildRoot);
+
+          const failures = [];
+          const attributes = /\b(?:href|src)\s*=\s*["']([^"']+)["']/gi;
+          const idsByFile = new Map();
+
+          for (const sourceFile of htmlFiles) {
+            const source = readFileSync(sourceFile, 'utf8');
+            const sourceRoute = `/${relative(buildRoot, sourceFile)
+              .split(sep)
+              .join('/')
+              .replace(/index\.html$/, '')}`;
+            const base = new URL(sourceRoute, 'https://ci.invalid/');
+
+            for (const [, rawTarget] of source.matchAll(attributes)) {
+              if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(rawTarget)) continue;
+
+              let target;
+              try {
+                target = new URL(rawTarget, base);
+              } catch {
+                failures.push(`${sourceRoute}: invalid URL ${rawTarget}`);
+                continue;
+              }
+
+              let pathname;
+              try {
+                pathname = decodeURIComponent(target.pathname);
+              } catch {
+                failures.push(`${sourceRoute}: invalid encoding ${rawTarget}`);
+                continue;
+              }
+
+              const localPath = pathname.replace(/^\/+/, '');
+              const candidatePaths =
+                pathname.endsWith('/') || !/\.[^/]+$/.test(pathname)
+                  ? [join(localPath, 'index.html'), `${localPath}.html`]
+                  : [localPath];
+              const candidates = candidatePaths.map((path) => resolve(buildRoot, path));
+              if (candidates.some((path) => !path.startsWith(`${buildRoot}${sep}`))) {
+                failures.push(`${sourceRoute}: target escapes build output ${rawTarget}`);
+                continue;
+              }
+
+              const targetFile = candidates.find(
+                (path) => existsSync(path) && statSync(path).isFile()
+              );
+              if (!targetFile) {
+                failures.push(`${sourceRoute}: missing ${rawTarget}`);
+                continue;
+              }
+
+              if (target.hash && targetFile.endsWith('.html')) {
+                let id;
+                try {
+                  id = decodeURIComponent(target.hash.slice(1));
+                } catch {
+                  failures.push(`${sourceRoute}: invalid anchor encoding ${rawTarget}`);
+                  continue;
+                }
+
+                if (!idsByFile.has(targetFile)) {
+                  const targetHtml = readFileSync(targetFile, 'utf8');
+                  idsByFile.set(
+                    targetFile,
+                    new Set(
+                      [...targetHtml.matchAll(/\b(?:id|name)=["']([^"']+)["']/gi)].map(
+                        (match) => match[1]
+                      )
+                    )
+                  );
+                }
+
+                if (!idsByFile.get(targetFile).has(id)) {
+                  failures.push(`${sourceRoute}: missing anchor ${rawTarget}`);
+                }
+              }
+            }
+          }
+
+          if (failures.length) {
+            failures.sort(compareText);
+            console.error(`Route/link validation failed with ${failures.length} finding(s):`);
+            for (const finding of failures) console.error(`- ${finding}`);
+            process.exitCode = 1;
+          } else {
+            console.log(
+              `Validated internal targets and anchors across ${htmlFiles.length} generated HTML files.`
+            );
+          }
+          NODE
+
+  yaml-cli-validation:
+    name: YAML & CLI Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate canonical Explorer stage ownership
+        run: npm run stages:canonical
+
+      - name: Run strict YAML validator negative tests
+        run: npm run test-yaml-validator
+
+      - name: Install Expanso validation binaries
+        run: npm run setup-binaries
+
+      - name: Validate documented CLI commands
+        run: npm run validate-cli
+
+      - name: Validate YAML inventory
+        run: npm run validate-yaml
+
+      - name: Validate complete pipeline structure
+        run: npm run validate-complete-yaml
+
+  runnable-fixture-tests:
+    name: Runnable Fixture Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Expanso validation binaries
+        run: npm run setup-binaries
+
+      - name: Verify deterministic Remove PII fixture source
+        run: npx tsx scripts/fixtures/generate-remove-pii-fixture.ts
+
+      - name: Verify deterministic foundation fixture source
+        run: npx tsx scripts/fixtures/generate-foundation-fixtures.ts
+
+      - name: Verify deterministic SCADA fixture source
+        run: npx tsx scripts/fixtures/generate-scada-fixture.ts
+
+      - name: Verify deterministic medical-device fixture source
+        run: npx tsx scripts/fixtures/generate-medical-device-fixture.ts
+
+      - name: Run offline pipeline fixtures
+        run: npm run test-pipelines
+
+  explorer-tests:
+    name: Explorer Unit & Component Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate quality contract schemas and digests
+        run: npm run quality:contracts
+
+      - name: Run Explorer V2 schema and normalization tests
+        run: npm run test-explorer-v2
+
+      - name: Run canonical stage generator negative tests
+        run: npm run test-stage-configs
+
+      - name: Run Explorer draft generator contract tests
+        run: npm run test-create-explorer
+
+      - name: Install pinned Playwright Chromium
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Verify pinned Chromium version
+        run: |
+          node --input-type=module - <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { chromium } from 'playwright';
+
+          const contract = JSON.parse(
+            readFileSync('tests/contracts/accessibility-v1.json', 'utf8')
+          );
+          const browser = await chromium.launch({ headless: true });
+          const actual = browser.version();
+          await browser.close();
+          if (actual !== contract.tools.chromium) {
+            throw new Error(
+              `Chromium version mismatch: expected ${contract.tools.chromium}, received ${actual}`
+            );
+          }
+          console.log(`Pinned Chromium ${actual}`);
+          NODE
+
+      - name: Run Explorer component behavior tests
+        run: |
+          ./node_modules/.bin/playwright test \
+            tests/quality/explorer/explorer.spec.ts \
+            tests/quality/explorer/runtime-proof.spec.ts \
+            --project=chromium-desktop \
+            --project=chromium-tablet \
+            --project=chromium-mobile
+
+      - name: Run catalog interaction and URL-state tests
+        run: |
+          ./node_modules/.bin/playwright test tests/quality/catalog-explorer.spec.ts \
+            --project=chromium-desktop \
+            --project=chromium-mobile
+
+      - name: Produce exact-SHA Explorer provenance projection
+        env:
+          EXPLORER_PRODUCER_AGENT_ID: github-actions/${{ github.repository }}/phase1-foundation/explorer-tests
+          EXPLORER_VERIFIER_AGENT_ID: github-actions/${{ github.repository }}/phase1-foundation/catalog-verifier
+        run: |
+          set -euo pipefail
+          STARTED_AT=$(date -u '+%Y-%m-%dT%H:%M:%S.000Z')
+          set +e
+          npm run validate-catalog
+          CATALOG_STATUS=$?
+          set -e
+          COMPLETED_AT=$(date -u '+%Y-%m-%dT%H:%M:%S.000Z')
+          mkdir -p evidence/explorer-provenance
+          npm run quality:explorer:evidence -- produce \
+            --repository "$GITHUB_REPOSITORY" \
+            --subject-sha "$GITHUB_SHA" \
+            --foundation-run-id "$GITHUB_RUN_ID" \
+            --foundation-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --producer-agent-id "$EXPLORER_PRODUCER_AGENT_ID" \
+            --verifier-agent-id "$EXPLORER_VERIFIER_AGENT_ID" \
+            --command 'npm run validate-catalog' \
+            --exit-status "$CATALOG_STATUS" \
+            --started-at "$STARTED_AT" \
+            --completed-at "$COMPLETED_AT" \
+            --output evidence/explorer-provenance/evidence-set-v1.json
+
+      - name: Run five-cell browser smoke readiness
+        env:
+          CI: 'true'
+        run: |
+          set -euo pipefail
+          npm run quality:journey:browser
+          mkdir -p test-results/quality/browser-smoke-readiness
+          node --input-type=module - <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          const result = {
+            resultVersion: 'browser-smoke-readiness-v1',
+            status: 'PASS',
+            scope: 'scripted-browser-smoke',
+            subjectSha: process.env.GITHUB_SHA,
+            workflowRunId: process.env.GITHUB_RUN_ID,
+            workflowRunAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+            browser: 'pinned-playwright-chromium',
+            cells: 5,
+          };
+          writeFileSync(
+            'test-results/quality/browser-smoke-readiness/browser-smoke-readiness-v1.json',
+            `${JSON.stringify(result, null, 2)}\n`
+          );
+          NODE
+
+      - name: Upload browser smoke readiness evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-smoke-readiness-${{ github.sha }}
+          path: test-results/quality/browser-smoke-readiness/browser-smoke-readiness-v1.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload Explorer failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: explorer-test-evidence-${{ github.sha }}
+          path: test-results/quality
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Retain exact-SHA Explorer provenance projection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: explorer-provenance-${{ github.sha }}
+          path: evidence/explorer-provenance/evidence-set-v1.json
+          if-no-files-found: error
+          retention-days: 90
+
+  visual-regression:
+    name: Visual Regression
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install pinned Playwright Chromium
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Require checked-in visual baselines
+        run: npm run quality:visual
+
+      - name: Reject generated or updated baseline files
+        if: always()
+        run: |
+          set -euo pipefail
+          CHANGES=$(git status --porcelain --untracked-files=all -- \
+            'tests/quality/visual-regression/visual-regression.spec.ts-snapshots')
+          if [ -n "$CHANGES" ]; then
+            echo "Playwright changed visual baselines; baseline candidates must be reviewed and checked in separately."
+            echo "$CHANGES"
+            exit 1
+          fi
+
+      - name: Record visual regression PASS
+        run: |
+          node --input-type=module - <<'NODE'
+          import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+          const snapshotRoot = 'tests/quality/visual-regression/visual-regression.spec.ts-snapshots';
+          const result = {
+            resultVersion: 'visual-regression-result-v1',
+            status: 'PASS',
+            subjectSha: process.env.GITHUB_SHA,
+            workflowRunId: process.env.GITHUB_RUN_ID,
+            workflowRunAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+            snapshotCount: readdirSync(snapshotRoot).filter((name) => name.endsWith('.png')).length,
+          };
+          mkdirSync('test-results/quality/visual-regression', { recursive: true });
+          writeFileSync(
+            'test-results/quality/visual-regression/visual-regression-result-v1.json',
+            `${JSON.stringify(result, null, 2)}\n`
+          );
+          NODE
+
+      - name: Upload visual regression PASS result
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression-result-${{ github.sha }}
+          path: test-results/quality/visual-regression/visual-regression-result-v1.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload visual-regression evidence and candidate captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression-evidence-${{ github.sha }}
+          path: |
+            test-results/quality
+            tests/quality/visual-regression/visual-regression.spec.ts-snapshots
+          if-no-files-found: error
+          retention-days: 14
+
+  browser-accessibility:
+    name: Browser Accessibility
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate accessibility contract schema and digest
+        run: npm run quality:contracts
+
+      - name: Install pinned Playwright Chromium
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Build the exact route inventory
+        run: npm run build
+
+      - name: Run accessibility reducer negative tests
+        run: npm run test-quality-reducers
+
+      - name: Build the test-only accessibility inventory
+        env:
+          EXPLORER_RUNTIME_HARNESS: '1'
+        run: npm run build
+
+      - name: Produce and reduce the full accessibility evidence matrix
+        env:
+          QUALITY_SUBJECT_SHA: ${{ github.sha }}
+          QUALITY_ENVIRONMENT_ID: github-actions-linux-x64
+          QUALITY_SKIP_BUILD: '1'
+        run: |
+          set -euo pipefail
+          npm run quality:accessibility
+          npm run quality:accessibility:reduce -- \
+            --input test-results/quality/accessibility/accessibility-result.json \
+            --subject-sha "$GITHUB_SHA" \
+            --environment-id github-actions-linux-x64 \
+            --evidence-root test-results/quality/accessibility \
+            > test-results/quality/accessibility/accessibility-reduction.json
+
+      - name: Upload accessibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-accessibility-evidence-${{ github.sha }}
+          path: test-results/quality/accessibility
+          if-no-files-found: ignore
+          retention-days: 14
+
+  production-build:
+    name: Production Build
+    needs:
+      - format-lint
+      - typecheck
+      - catalog-mdx-schema
+      - route-link-validation
+      - yaml-cli-validation
+      - runnable-fixture-tests
+      - explorer-tests
+      - visual-regression
+      - browser-accessibility
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download content estate evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: content-estate-${{ github.sha }}
+          path: evidence/content
+
+      - name: Download Health V2 evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: health-v2-${{ github.sha }}
+          path: evidence/health
+
+      - name: Download machine-journey diagnostic
+        uses: actions/download-artifact@v4
+        with:
+          name: machine-journey-diagnostic-${{ github.sha }}
+          path: evidence/machine-journey
+
+      - name: Download Explorer evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: explorer-provenance-${{ github.sha }}
+          path: evidence/explorer
+
+      - name: Download browser smoke evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: browser-smoke-readiness-${{ github.sha }}
+          path: evidence/browser-smoke
+
+      - name: Download visual regression evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: visual-regression-result-${{ github.sha }}
+          path: evidence/visual
+
+      - name: Download accessibility evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: browser-accessibility-evidence-${{ github.sha }}
+          path: evidence/accessibility
+
+      - name: Build production artifact
+        run: npm run build
+
+      - name: Scan public artifact for private content
+        run: |
+          set -euo pipefail
+
+          PRIVATE_PATHS=$(find build -type f \( -path '*/internal/*' -o -name '*.map' \) -print)
+          if [ -n "$PRIVATE_PATHS" ]; then
+            echo "Private paths or source maps found in the public artifact:"
+            echo "$PRIVATE_PATHS"
+            exit 1
+          fi
+
+          PRIVATE_REPO_MARKER='second'"-brain"
+          PRIVATE_WORK_MARKER='\\.codex'"-work"
+          INTERNAL_DOCS_MARKER='docs/'"internal"
+          LOCAL_HOME_MARKER='/'"Users/[[:alnum:]_.-]+/"
+          PRIVATE_MARKER_PATTERN="${PRIVATE_REPO_MARKER}|${PRIVATE_WORK_MARKER}|${INTERNAL_DOCS_MARKER}|${LOCAL_HOME_MARKER}"
+
+          GREP_STATUS=0
+          PRIVATE_MARKERS=$(grep -RIlE \
+            --include='*.html' \
+            --include='*.js' \
+            --include='*.json' \
+            --include='*.xml' \
+            --include='*.txt' \
+            --include='*.yaml' \
+            --include='*.yml' \
+            "$PRIVATE_MARKER_PATTERN" \
+            build) || GREP_STATUS=$?
+          if [ "$GREP_STATUS" -gt 1 ]; then
+            echo "Public artifact privacy scan could not complete (grep status $GREP_STATUS)" >&2
+            exit "$GREP_STATUS"
+          fi
+          if [ -n "$PRIVATE_MARKERS" ]; then
+            echo "Private repository or local-path markers found in the public artifact:"
+            echo "$PRIVATE_MARKERS"
+            exit 1
+          fi
+
+          echo "Public artifact privacy scan passed"
+
+      - name: Validate performance contract schema and digest
+        run: npm run quality:contracts
+
+      - name: Run performance reducer adversarial tests
+        run: npm run test-performance-harness
+
+      - name: Build exact baseline artifact
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASELINE_SHA="$PR_BASE_SHA"
+          else
+            BASELINE_SHA="$PUSH_BASE_SHA"
+          fi
+
+          if [ -z "$BASELINE_SHA" ] || [ "$BASELINE_SHA" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "${BASELINE_SHA}^{commit}" 2>/dev/null; then
+            BASELINE_SHA="$(git rev-parse "${GITHUB_SHA}^")"
+          fi
+          if [ "$BASELINE_SHA" = "$GITHUB_SHA" ]; then
+            echo "Baseline and candidate SHAs must be different"
+            exit 1
+          fi
+
+          BASELINE_ROOT="$RUNNER_TEMP/performance-baseline"
+          git worktree add --detach "$BASELINE_ROOT" "$BASELINE_SHA"
+          npm --prefix "$BASELINE_ROOT" ci
+          npm --prefix "$BASELINE_ROOT" run build
+
+          echo "PERFORMANCE_BASELINE_SHA=$BASELINE_SHA" >> "$GITHUB_ENV"
+          echo "PERFORMANCE_BASELINE_ROOT=$BASELINE_ROOT" >> "$GITHUB_ENV"
+
+      - name: Install pinned Playwright Chromium
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Run Lighthouse and interaction performance contract
+        run: |
+          set -euo pipefail
+
+          CANDIDATE_SERVER_LOG="$RUNNER_TEMP/performance-candidate-server.log"
+          BASELINE_SERVER_LOG="$RUNNER_TEMP/performance-baseline-server.log"
+          npm run serve -- --host 127.0.0.1 --port 4173 > "$CANDIDATE_SERVER_LOG" 2>&1 &
+          CANDIDATE_SERVER_PID=$!
+          npm --prefix "$PERFORMANCE_BASELINE_ROOT" run serve -- --host 127.0.0.1 --port 4174 > "$BASELINE_SERVER_LOG" 2>&1 &
+          BASELINE_SERVER_PID=$!
+          trap 'kill "$CANDIDATE_SERVER_PID" "$BASELINE_SERVER_PID" 2>/dev/null || true' EXIT
+
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error http://127.0.0.1:4173/ > /dev/null && \
+              curl --fail --silent --show-error http://127.0.0.1:4174/ > /dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              cat "$CANDIDATE_SERVER_LOG"
+              cat "$BASELINE_SERVER_LOG"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          PERFORMANCE_ENVIRONMENT_ID="github-actions-${RUNNER_OS}-${RUNNER_ARCH}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          QUALITY_BASE_URL=http://127.0.0.1:4174 \
+          PERFORMANCE_ROLE=baseline \
+          PERFORMANCE_SUBJECT_SHA="$PERFORMANCE_BASELINE_SHA" \
+          PERFORMANCE_ENVIRONMENT_ID="$PERFORMANCE_ENVIRONMENT_ID" \
+          PERFORMANCE_EVIDENCE_DIR="$GITHUB_WORKSPACE/test-results/performance/baseline" \
+          PERFORMANCE_BUILD_ROOT="$PERFORMANCE_BASELINE_ROOT/build" \
+          PERFORMANCE_DOCUSARUS_ROOT="$PERFORMANCE_BASELINE_ROOT/.docusaurus" \
+            npm run quality:performance:collect
+
+          QUALITY_BASE_URL=http://127.0.0.1:4173 \
+          PERFORMANCE_ROLE=candidate \
+          PERFORMANCE_SUBJECT_SHA="$GITHUB_SHA" \
+          PERFORMANCE_ENVIRONMENT_ID="$PERFORMANCE_ENVIRONMENT_ID" \
+          PERFORMANCE_EVIDENCE_DIR="$GITHUB_WORKSPACE/test-results/performance/candidate" \
+          PERFORMANCE_BUILD_ROOT="$GITHUB_WORKSPACE/build" \
+          PERFORMANCE_DOCUSARUS_ROOT="$GITHUB_WORKSPACE/.docusaurus" \
+            npm run quality:performance:collect
+
+          npm run quality:performance -- \
+            --baseline test-results/performance/baseline/evidence-manifest-v1.json \
+            --candidate test-results/performance/candidate/evidence-manifest-v1.json \
+            --baseline-sha "$PERFORMANCE_BASELINE_SHA" \
+            --candidate-sha "$GITHUB_SHA" \
+            --environment-id "$PERFORMANCE_ENVIRONMENT_ID" \
+            --output test-results/performance/performance-result-v1.json
+
+      - name: Upload performance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-evidence-${{ github.sha }}
+          path: test-results/performance
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Assemble exact-run release evidence manifest
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/performance
+          cp \
+            test-results/performance/performance-result-v1.json \
+            evidence/performance/performance-result-v1.json
+          npm run quality:release-evidence -- \
+            --repository "$GITHUB_REPOSITORY" \
+            --subject-sha "$GITHUB_SHA" \
+            --foundation-run-id "$GITHUB_RUN_ID" \
+            --foundation-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --evidence-root evidence \
+            --output build/release-evidence.json
+
+      - name: Bind production canary routes to build bytes
+        run: |
+          node --input-type=module - <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { readFileSync, writeFileSync } from 'node:fs';
+
+          const routes = [
+            ['/', 'index.html'],
+            ['/data-security/remove-pii/', 'data-security/remove-pii/index.html'],
+            ['/data-security/remove-pii/explorer/', 'data-security/remove-pii/explorer/index.html'],
+            ['/data-routing/content-routing/explorer/', 'data-routing/content-routing/explorer/index.html'],
+            ['/sitemap.xml', 'sitemap.xml'],
+          ].map(([route, artifactPath]) => {
+            const bytes = readFileSync(`build/${artifactPath}`);
+            return {
+              route,
+              artifactPath,
+              bytes: bytes.byteLength,
+              sha256: createHash('sha256').update(bytes).digest('hex'),
+            };
+          });
+          const manifest = {
+            manifestVersion: 'release-canary-manifest-v1',
+            repository: process.env.GITHUB_REPOSITORY,
+            subjectSha: process.env.GITHUB_SHA,
+            routes,
+          };
+          writeFileSync(
+            'build/release-canary-manifest-v1.json',
+            `${JSON.stringify(manifest, null, 2)}\n`
+          );
+          NODE
+
+      - name: Bind artifact to the exact checked commit
+        run: |
+          node --input-type=module - <<'NODE'
+          import { createHash } from 'node:crypto';
+          import {
+            lstatSync,
+            readdirSync,
+            readFileSync,
+            writeFileSync,
+          } from 'node:fs';
+          import { join, relative, sep } from 'node:path';
+
+          const buildRoot = 'build';
+          const files = [];
+          function visit(directory) {
+            for (const entry of readdirSync(directory, { withFileTypes: true })) {
+              const absolute = join(directory, entry.name);
+              const metadata = lstatSync(absolute);
+              if (metadata.isSymbolicLink()) {
+                throw new Error(`Build artifact contains a symlink: ${absolute}`);
+              }
+              if (metadata.isDirectory()) visit(absolute);
+              else if (metadata.isFile()) files.push(absolute);
+              else throw new Error(`Build artifact contains a special file: ${absolute}`);
+            }
+          }
+          visit(buildRoot);
+          const content = createHash('sha256');
+          let artifactFileCount = 0;
+          for (const absolute of files.sort()) {
+            const path = relative(buildRoot, absolute).split(sep).join('/');
+            if (path === 'release-subject.json') continue;
+            const bytes = readFileSync(absolute);
+            const digest = createHash('sha256').update(bytes).digest('hex');
+            content.update(path);
+            content.update('\0');
+            content.update(digest);
+            content.update('\n');
+            artifactFileCount += 1;
+          }
+          if (artifactFileCount === 0) {
+            throw new Error('Production artifact contains no files');
+          }
+
+          const canaryManifestBytes = readFileSync(
+            'build/release-canary-manifest-v1.json'
+          );
+          const subject = {
+            manifestVersion: '1.2.0',
+            repository: process.env.GITHUB_REPOSITORY,
+            subjectSha: process.env.GITHUB_SHA,
+            workflowRunId: process.env.GITHUB_RUN_ID,
+            workflowRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            artifactContentSha256: content.digest('hex'),
+            artifactFileCount,
+            canaryManifestPath: 'release-canary-manifest-v1.json',
+            canaryManifestSha256: createHash('sha256')
+              .update(canaryManifestBytes)
+              .digest('hex'),
+          };
+          writeFileSync(
+            'build/release-subject.json',
+            `${JSON.stringify(subject, null, 2)}\n`
+          );
+          NODE
+
+      - name: Upload exact-SHA production artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-build-${{ github.sha }}
+          path: build
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Create deterministic rollback archive
+        run: |
+          set -euo pipefail
+          ARCHIVE="production-build-${GITHUB_SHA}.tar.gz"
+          tar \
+            --sort=name \
+            --mtime='UTC 1970-01-01' \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            -czf "$ARCHIVE" \
+            -C build .
+          test -s "$ARCHIVE"
+          shasum -a 256 "$ARCHIVE"
+
+      - name: Upload exact-SHA rollback archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-rollback-bundle-${{ github.sha }}
+          path: production-build-${{ github.sha }}.tar.gz
+          if-no-files-found: error
+          retention-days: 90

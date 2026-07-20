@@ -1,13 +1,23 @@
 ---
-title: "Step 4: Route to Splunk HEC Like outputs.conf"
-description: "Send filtered data to Splunk HTTP Event Collector with proper index and sourcetype routing"
+title: 'Step 4: Route to Splunk HEC Like outputs.conf'
+description: 'Send filtered data to Splunk HTTP Event Collector with proper index and sourcetype routing'
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-integrations-splunk-edge-processing-step-4-route-to-splunk-hec]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 4: Route to Splunk HEC Like outputs.conf
 
 Now that the example filtering policy is in place, send the retained data to Splunk. This step uses Splunk's HTTP Event Collector (HEC); choose between HEC and other supported ingestion paths based on your deployment requirements.
 
-## Traditional Splunk outputs.conf vs. Expanso HEC Output
+## outputs.conf and HEC Configuration Examples
 
 ### Splunk outputs.conf Configuration
 
@@ -16,56 +26,55 @@ Now that the example filtering policy is in place, send the retained data to Spl
 [tcpout]
 defaultGroup = splunk_indexers
 
-[tcpout:splunk_indexers]  
+[tcpout:splunk_indexers]
 server = splunk-indexer1:9997, splunk-indexer2:9997
 compressed = true
 useACK = true
 
-# Limited routing - can't dynamically choose index
+# Second tcpout group
 [tcpout:security_group]
 server = splunk-indexer1:9997
 compressed = true
 ```
 
-**Limitations:**
-- ❌ Static routing - can't dynamically route based on content
-- ❌ No built-in retry logic for failed connections  
-- ❌ Limited metadata control
-- ❌ Requires open ports (9997) and network configuration
-- ❌ No native TLS without additional setup
+**Configuration shown above:**
 
-### Expanso HEC Output (Better!)
+- Two `tcpout` groups use fixed server lists.
+- Index selection is configured outside this `outputs.conf` excerpt.
+- The transport uses port 9997 in the example.
+- Acknowledgement and compression are enabled.
+
+### Expanso HEC Output
 
 ```yaml
-# Dynamic routing with full control
+# Route on configured conditions
 output:
   switch:
     - condition: 'this.priority == "critical" || this.sourcetype == "cef"'
       output:
         http_client:
-          url: "https://${SPLUNK_HOST}:8088/services/collector/event"
+          url: 'https://${SPLUNK_HOST}:8088/services/collector/event'
           headers:
-            Authorization: "Splunk ${HEC_TOKEN}"
-            Content-Type: "application/json"
-          timeout: "30s"
+            Authorization: 'Splunk ${HEC_TOKEN}'
+            Content-Type: 'application/json'
+          timeout: '30s'
           retry_policy:
             max_retries: 3
-            backoff: "exponential"
-    
-    - condition: 'this.target_index == "security"'  
+            backoff: 'exponential'
+
+    - condition: 'this.target_index == "security"'
       output:
         http_client:
-          url: "https://${SPLUNK_HOST}:8088/services/collector/event"
+          url: 'https://${SPLUNK_HOST}:8088/services/collector/event'
           # Route to dedicated security indexer cluster
 ```
 
-**Advantages:**
-- ✅ Dynamic routing based on event content
-- ✅ Built-in retry and error handling
-- ✅ TLS by default
-- ✅ No firewall port management
-- ✅ Full control over index/sourcetype per event
-- ✅ Load balancing across multiple HEC endpoints
+**Configured behavior in this example:**
+
+- Conditions route records by priority, sourcetype, and target index.
+- HTTP requests use the configured HEC URL and headers.
+- The YAML sets request timeouts and retry behavior.
+- A separate branch handles records targeted at the security index.
 
 ## Complete Pipeline with Splunk HEC Output
 
@@ -83,7 +92,7 @@ input:
   file_watcher:
     paths:
       - "/var/log/expanso-demo/app.log"
-      - "/var/log/expanso-demo/security.log" 
+      - "/var/log/expanso-demo/security.log"
       - "/var/log/expanso-demo/system.log"
     poll_interval: "1s"
     include_file_name: true
@@ -94,7 +103,7 @@ processors:
       root.source_file = file.name
       root.collection_timestamp = timestamp()
       root.host = hostname()
-      
+
       root.sourcetype = match file.name {
         this.contains("app.log") => "json_logs"
         this.contains("security.log") => "cef"
@@ -111,10 +120,10 @@ processors:
       } else {
         this.parse_json().catch({"raw_message": this, "parse_error": true})
       }
-      
+
       root.log_severity = match this.level {
         "ERROR" => 3
-        "WARN" => 2  
+        "WARN" => 2
         "INFO" => 1
         _ => 0
       }
@@ -124,7 +133,7 @@ processors:
       condition: 'this.sourcetype == "cef"'
     mapping: |
       root.cef = this.string().parse_regex("CEF:(?P<version>\\d+)\\|(?P<vendor>[^|]*)\\|(?P<product>[^|]*)\\|(?P<device_version>[^|]*)\\|(?P<signature_id>[^|]*)\\|(?P<name>[^|]*)\\|(?P<severity>[^|]*)\\|(?P<extensions>.*)")
-      
+
       root.vendor = this.cef.vendor
       root.event_name = this.cef.name
       root.severity = this.cef.severity
@@ -140,8 +149,8 @@ processors:
   - conditional:
       condition: 'this.level == "DEBUG"'
     mapping: 'root = deleted()'
-      
-  - conditional:  
+
+  - conditional:
       condition: 'this.is_health_check == true'
     mapping: |
       let hash = (this.host + this.timestamp).hash("xxhash64") % 10
@@ -152,22 +161,22 @@ processors:
       # Determine target index based on content and risk
       root.splunk_index = match {
         this.sourcetype == "cef" => env("SECURITY_INDEX").string().catch("security")
-        this.level == "ERROR" => env("MAIN_INDEX").string().catch("main") 
+        this.level == "ERROR" => env("MAIN_INDEX").string().catch("main")
         this.risk_score >= 7 => env("SECURITY_INDEX").string().catch("security")
         _ => env("MAIN_INDEX").string().catch("main")
       }
-      
+
       # Set appropriate sourcetype for Splunk
       root.splunk_sourcetype = match this.sourcetype {
         "json_logs" => "expanso:json"
-        "cef" => "expanso:cef" 
+        "cef" => "expanso:cef"
         "syslog" => "expanso:syslog"
         _ => "expanso:unknown"
       }
-      
+
       # Add source information
       root.source = "expanso-edge:" + this.host + ":" + this.source_file
-      
+
       # Ensure timestamp is in epoch format for Splunk
       root.splunk_timestamp = timestamp().format_timestamp_unix()
 
@@ -175,17 +184,17 @@ processors:
   - mapping: |
       # Create Splunk HEC event format
       # See: https://docs.splunk.com/Documentation/Splunk/latest/Data/FormateventsforHTTPEventCollector
-      
+
       root = {
         "time": this.splunk_timestamp,
         "host": this.host,
-        "source": this.source, 
+        "source": this.source,
         "sourcetype": this.splunk_sourcetype,
         "index": this.splunk_index,
         "event": this.without("splunk_timestamp", "splunk_index", "splunk_sourcetype", "source")
       }
 
-# Multiple outputs with intelligent routing
+# Multiple outputs with conditional routing
 output:
   # Route based on priority and content
   switch:
@@ -201,7 +210,7 @@ output:
           timeout: "10s"
           retry_policy:
             max_retries: 5
-            initial_interval: "1s" 
+            initial_interval: "1s"
             max_interval: "30s"
             backoff_multiplier: 2.0
           # Batch for efficiency
@@ -210,7 +219,7 @@ output:
             period: "5s"
             byte_size: 1048576  # 1MB batches
 
-    # Normal events - standard HEC endpoint  
+    # Normal events - standard HEC endpoint
     - condition: 'this.event.priority != "critical"'
       output:
         http_client:
@@ -223,7 +232,7 @@ output:
           retry_policy:
             max_retries: 3
             initial_interval: "2s"
-            max_interval: "60s" 
+            max_interval: "60s"
           batch:
             count: 100
             period: "10s"
@@ -244,7 +253,7 @@ Make sure your environment variables are set correctly:
 ```bash
 # Verify HEC configuration
 echo "HEC_TOKEN: $HEC_TOKEN"
-echo "SPLUNK_HOST: $SPLUNK_HOST" 
+echo "SPLUNK_HOST: $SPLUNK_HOST"
 echo "SPLUNK_PORT: $SPLUNK_PORT"
 
 # Set index names if not already configured
@@ -276,7 +285,7 @@ curl -k "https://$SPLUNK_HOST:$SPLUNK_PORT/services/collector/event" \
     "time": 1644505200,
     "host": "test-host",
     "source": "expanso-test",
-    "sourcetype": "expanso:test", 
+    "sourcetype": "expanso:test",
     "index": "main",
     "event": {"message": "HEC connectivity test", "test": true}
   }'
@@ -303,11 +312,11 @@ In your Splunk search interface:
 # Search for Expanso-processed events
 index=main sourcetype="expanso:*" earliest=-15m
 
-# Verify critical events reached security index  
+# Verify critical events reached security index
 index=security sourcetype="expanso:cef" risk_score>=8
 
 # Check data volume reduction
-index=main sourcetype="expanso:json" 
+index=main sourcetype="expanso:json"
 | stats count by level
 | eval expected_debug_count=0
 ```
@@ -322,11 +331,11 @@ output:
     - condition: 'this.event.host.hash("xxhash64") % 2 == 0'
       output:
         http_client:
-          url: "https://splunk-indexer1.company.com:8088/services/collector/event"
-    - condition: 'this.event.host.hash("xxhash64") % 2 == 1' 
+          url: 'https://splunk-indexer1.company.com:8088/services/collector/event'
+    - condition: 'this.event.host.hash("xxhash64") % 2 == 1'
       output:
         http_client:
-          url: "https://splunk-indexer2.company.com:8088/services/collector/event"
+          url: 'https://splunk-indexer2.company.com:8088/services/collector/event'
 ```
 
 ### 2. Environment-Based Routing
@@ -349,28 +358,28 @@ output:
   http_client:
     # Circuit breaker prevents overwhelming Splunk during issues
     circuit_breaker:
-      failure_threshold: 10    # Open after 10 failures
-      success_threshold: 3     # Close after 3 successes  
-      timeout: "60s"           # Try again after 1 minute
-    
+      failure_threshold: 10 # Open after 10 failures
+      success_threshold: 3 # Close after 3 successes
+      timeout: '60s' # Try again after 1 minute
+
     # Graceful degradation
     fallback_outputs:
       - file:
-          path: "/var/lib/expanso/failed-events.log"
+          path: '/var/lib/expanso/failed-events.log'
       - kafka:
-          brokers: ["kafka1:9092", "kafka2:9092"]
-          topic: "splunk-backup"
+          brokers: ['kafka1:9092', 'kafka2:9092']
+          topic: 'splunk-backup'
 ```
 
-### 4. Compliance and Audit Logging
+### 4. Delivery Audit Fields
 
 ```yaml
 output:
   # Primary: Send to Splunk
   http_client:
     url: "https://${SPLUNK_HOST}:8088/services/collector/event"
-    
-  # Secondary: Audit trail for compliance  
+
+# Secondary: Example audit-event file
   - file:
       path: "/var/audit/splunk-events-${timestamp().format('2006-01-02')}.log"
       condition: 'this.event.sourcetype == "expanso:cef" || this.event.level == "ERROR"'
@@ -393,7 +402,7 @@ expanso pipeline logs splunk-edge-complete --level error --filter "HEC"
 In Splunk, check HEC performance:
 
 ```spl
-# HEC token usage and performance  
+# HEC token usage and performance
 index=_internal source=*splunkd.log* component=HttpEventCollector
 | stats count, avg(response_time) by token_name
 | sort -count
@@ -409,7 +418,7 @@ index=_internal source=*splunkd.log* component=HttpEventCollector level=ERROR
 index=main sourcetype="expanso:*"
 | eval missing_fields = case(
     isnull(collection_timestamp), "collection_timestamp",
-    isnull(host), "host", 
+    isnull(host), "host",
     isnull(source_file), "source_file",
     1=1, "none"
 )
@@ -442,9 +451,9 @@ curl -k "https://$SPLUNK_HOST:8088/services/collector/health" \
 ```yaml
 # Increase timeouts for slow networks
 http_client:
-  timeout: "120s"
-  keep_alive: "300s"
-  dial_timeout: "30s"
+  timeout: '120s'
+  keep_alive: '300s'
+  dial_timeout: '30s'
 ```
 
 ### 4. Certificate Issues
@@ -453,7 +462,7 @@ http_client:
 # Skip cert validation for self-signed certificates (dev only!)
 http_client:
   tls:
-    skip_verify: true  # DO NOT use in production!
+    skip_verify: true # DO NOT use in production!
 ```
 
 ## Performance Optimization
@@ -462,16 +471,16 @@ http_client:
 
 ```yaml
 batch:
-  count: 100          # Events per batch
-  period: "10s"       # Max wait time
-  byte_size: 1048576  # 1MB max batch size
+  count: 100 # Events per batch
+  period: '10s' # Max wait time
+  byte_size: 1048576 # 1MB max batch size
 ```
 
 ### 2. Compression
 
 ```yaml
 http_client:
-  compression: "gzip"  # Reduce network overhead
+  compression: 'gzip' # Reduce network overhead
 ```
 
 ### 3. Connection Pooling
@@ -480,7 +489,7 @@ http_client:
 http_client:
   max_idle_conns: 100
   max_idle_conns_per_host: 10
-  idle_conn_timeout: "90s"
+  idle_conn_timeout: '90s'
 ```
 
 ## What's Next?
@@ -491,4 +500,4 @@ Your filtered sample data is now routed to Splunk via HEC. Measure destination b
 
 ---
 
-**Key Takeaway:** HEC provides much more flexibility than traditional outputs.conf forwarding. You get dynamic routing, better error handling, and the ability to send different event types to different indexers - all while maintaining the familiar Splunk concepts you already know!
+**Key Takeaway:** This example uses HEC with conditional routing and separate destinations for different event types.

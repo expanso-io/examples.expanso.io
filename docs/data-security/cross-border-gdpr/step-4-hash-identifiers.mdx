@@ -1,9 +1,18 @@
 ---
-title: "Step 4: Hash Identifiers"
-sidebar_label: "Step 4: Hash Identifiers"
+title: 'Step 4: Hash Identifiers'
+sidebar_label: 'Step 4: Hash Identifiers'
 sidebar_position: 6
 description: Pseudonymize customer identifiers with one-way hashing
 keywords: [hash, pseudonymization, identifiers, salt, sha256]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-cross-border-gdpr-step-4-hash-identifiers]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 4: Hash Identifiers
@@ -13,13 +22,14 @@ Transform identifiers into irreversible hashes for cohort analytics while making
 ## The Goal
 
 - **Customer ID** → Salted hash (count unique customers without knowing who)
-- **Email** → Domain only (B2B vs B2C segmentation)
-- **IBAN** → Country code only (geographic distribution)
+- **Email** → Retain the domain in this authored example
+- **IBAN** → Retain the country prefix in this authored example
 - **IP Address** → /16 subnet (regional analysis)
 
 ## Why Hash vs. Delete?
 
 Hashed identifiers enable valuable analytics:
+
 - Count unique customers per merchant
 - Track customer cohort behavior over time
 - Detect patterns across pseudonymous IDs
@@ -32,29 +42,29 @@ The key is using **salted, one-way hashes** that cannot be reversed.
 pipeline:
   processors:
     # Steps 1-3 from previous...
-    
+
     # Step 4: Hash identifiers
     - mapping: |
         root = this
-        
+
         # Customer ID → pseudonymous cohort ID
-        # Salt ensures can't be reversed even with rainbow tables
-        let salt = env("ANONYMIZATION_SALT").or("gdpr-compliance-2024")
+        # Fixed fallback is for this authored example; require a managed secret when adapting it
+        let salt = env("ANONYMIZATION_SALT").or("example-fixed-salt")
         root.anonymized_customer_id = (this.customer_id.string() + $salt).hash("sha256").slice(0, 12)
         root = root.without("customer_id")
-        
-        # Email → domain only (for B2B vs B2C analysis)
+
+        # Email → retain the domain in this example
         root.email_domain = if this.customer_email.contains("@") {
           this.customer_email.split("@").index(1).lowercase()
         } else {
           "unknown"
         }
         root = root.without("customer_email")
-        
-        # IBAN → country code only (for geographic analysis)
+
+        # IBAN → retain the country prefix in this example
         root.bank_country = this.iban.slice(0, 2)
         root = root.without("iban")
-        
+
         # IP address → /16 subnet (country-level geolocation possible)
         root.ip_subnet = if this.ip_address.contains(".") {
           this.ip_address.split(".").slice(0, 2).join(".") + ".0.0/16"
@@ -66,12 +76,12 @@ pipeline:
 
 ## Understanding the Code
 
-| Expression | What It Does |
-|------------|--------------|
-| `(value + $salt).hash("sha256")` | Salted SHA-256 hash |
-| `.slice(0, 12)` | Truncate to 12 chars (still unique enough) |
-| `.split("@").index(1)` | Get domain from email |
-| `.slice(0, 2)` | Get first 2 characters (country code from IBAN) |
+| Expression                       | What It Does                                    |
+| -------------------------------- | ----------------------------------------------- |
+| `(value + $salt).hash("sha256")` | Salted SHA-256 hash                             |
+| `.slice(0, 12)`                  | Truncate to 12 chars (still unique enough)      |
+| `.split("@").index(1)`           | Get domain from email                           |
+| `.slice(0, 2)`                   | Get first 2 characters (country code from IBAN) |
 
 ## Why Salting Matters
 
@@ -85,13 +95,14 @@ customer_id = "CUST-DE-12345"
 # Without salt (vulnerable):
 hash("CUST-DE-12345") → "a1b2c3d4..."  # Rainbow table attack possible
 
-# With salt (secure):
+# With the demonstration salt:
 hash("CUST-DE-12345" + "secret-salt-xyz") → "x9y8z7w6..."  # Requires salt knowledge
 ```
 
 ## Expected Output
 
 **Input:**
+
 ```json
 {
   "customer_id": "CUST-DE-12345",
@@ -103,6 +114,7 @@ hash("CUST-DE-12345" + "secret-salt-xyz") → "x9y8z7w6..."  # Requires salt kno
 ```
 
 **Output:**
+
 ```json
 {
   "anonymized_customer_id": "x9y8z7w6e5r4",
@@ -115,14 +127,14 @@ hash("CUST-DE-12345" + "secret-salt-xyz") → "x9y8z7w6..."  # Requires salt kno
 
 ## Analytics Value Preserved
 
-| Original | Pseudonymous output | Analytics Possible |
-|----------|------------|-------------------|
-| customer_id | anonymized_customer_id | Count unique customers, cohort tracking |
-| customer_email | email_domain | B2B vs B2C ratio, company analysis |
-| iban | bank_country | Geographic distribution by bank country |
-| ip_address | ip_subnet | Regional traffic patterns |
+| Original       | Pseudonymous output    | Analytics Possible                      |
+| -------------- | ---------------------- | --------------------------------------- |
+| customer_id    | anonymized_customer_id | Count unique customers, cohort tracking |
+| customer_email | email_domain           | B2B vs B2C ratio, company analysis      |
+| iban           | bank_country           | Geographic distribution by bank country |
+| ip_address     | ip_subnet              | Regional traffic patterns               |
 
-## Production Considerations
+## Adaptation checks
 
 ### Consistent Hashing Across Pipelines
 
@@ -169,7 +181,10 @@ root.email_type = if $freemail.contains(domain) { "consumer" } else { "business"
 ## Next Step
 
 <div className="margin-top--lg margin-bottom--lg">
-  <a href="./step-5-generalize-values" className="button button--primary button--lg">
+  <a
+    href="../step-5-generalize-values"
+    className="button button--primary button--lg"
+  >
     📖 Step 5: Generalize Values →
   </a>
 </div>

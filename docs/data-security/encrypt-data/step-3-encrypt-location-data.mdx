@@ -1,9 +1,18 @@
 ---
-title: "Step 3 - Encrypt Address and Location Data"
-sidebar_label: "Step 3: Location Data Encryption"
+title: 'Step 3 - Encrypt Address and Location Data'
+sidebar_label: 'Step 3: Location Data Encryption'
 sidebar_position: 6
 description: Encrypt street addresses and zip codes while preserving regional analytics.
 keywords: [address, location, geographic, privacy, encryption]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-encrypt-data-step-3-encrypt-location-data]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 3: Encrypt Address and Location Data
@@ -13,6 +22,7 @@ In addition to customer and payment PII, location data like street addresses and
 ## The Goal
 
 You will enhance your processor to handle the `billing_address` object by:
+
 1. Encrypting the `street` and `zip` fields.
 2. Creating a `zip_prefix` field containing the first 3 digits of the zip for safe regional analysis.
 3. Deleting the original `street` and `zip` fields.
@@ -20,49 +30,52 @@ You will enhance your processor to handle the `billing_address` object by:
 ## Implementation
 
 1. **Start with the Previous Pipeline:** Copy the `encrypt-pii.yaml` file from Step 2 to a new file named `encrypt-location.yaml`.
-    ```bash
-    cp encrypt-pii.yaml encrypt-location.yaml
-    ```
+
+   ```bash
+   cp encrypt-pii.yaml encrypt-location.yaml
+   ```
 
 2. **Enhance the Encryption Processor:** Open `encrypt-location.yaml` and add the new location logic to the bottom of the existing `mapping` processor.
 
-    ```yaml title="Add this to the 'mapping' processor in encrypt-location.yaml"
-    # --- Logic from Step 1 & 2 (Card & PII Encryption) ---
-    # (The existing logic for card numbers, ssn, and email remains here)
+   ```yaml title="Add this to the 'mapping' processor in encrypt-location.yaml"
+   # --- Logic from Step 1 & 2 (Card & PII Encryption) ---
+   # (The existing logic for card numbers, ssn, and email remains here)
 
-    # --- START: New additions for Location Data ---
+   # --- START: New additions for Location Data ---
 
-    # 5. Encrypt Billing Address (if it exists)
-    if this.billing_address.exists() {
-      # Encrypt the street address
-      if this.billing_address.street.exists() {
-        root.billing_address.street_encrypted = this.billing_address.street.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
-      }
+   # 5. Encrypt Billing Address (if it exists)
+   if this.billing_address.exists() {
+     # Encrypt the street address
+     if this.billing_address.street.exists() {
+       root.billing_address.street_encrypted = this.billing_address.street.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
+     }
 
-      # Encrypt the zip code and extract the prefix
-      if this.billing_address.zip.exists() {
-        let clean_zip = this.billing_address.zip.re_replace_all("[^0-9]", "")
-        root.billing_address.zip_encrypted = clean_zip.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
-        if clean_zip.length() >= 3 {
-          root.billing_address.zip_prefix = clean_zip.slice(0, 3)
-        }
-      }
+     # Encrypt the zip code and extract the prefix
+     if this.billing_address.zip.exists() {
+       let clean_zip = this.billing_address.zip.re_replace_all("[^0-9]", "")
+       root.billing_address.zip_encrypted = clean_zip.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
+       if clean_zip.length() >= 3 {
+         root.billing_address.zip_prefix = clean_zip.slice(0, 3)
+       }
+     }
 
-      # Remove the original plaintext fields
-      root.billing_address = this.billing_address.without("street", "zip")
-    }
+     # Remove the original plaintext fields
+     root.billing_address = this.billing_address.without("street", "zip")
+   }
 
-    # --- END: New additions ---
-    ```
-    *Note: This step uses a separate `ADDRESS_ENCRYPTION_KEY`. Ensure you have set it as an environment variable.*
+   # --- END: New additions ---
+   ```
+
+   _Note: This step uses a separate `ADDRESS_ENCRYPTION_KEY`. Ensure you have set it as an environment variable._
 
 3. **Deploy and Test:**
-    ```bash
-    # Send the sample payment data, which includes an address
-    curl -X POST http://localhost:8080/events/payment \
-      -H "Content-Type: application/json" \
-      -d @/tmp/encryption-test/sample-payment.json
-    ```
+
+   ```bash
+   # Send the sample payment data, which includes an address
+   curl -X POST http://localhost:8080/events/payment \
+     -H "Content-Type: application/json" \
+     -d @/tmp/encryption-test/sample-payment.json
+   ```
 
 4. **Verify:** Check your logs. You will see that the `billing_address` object now contains `street_encrypted`, `zip_encrypted`, and the safe `zip_prefix`, while the original sensitive fields are gone. All the previous PII (card number, SSN, etc.) is still being encrypted correctly.
 

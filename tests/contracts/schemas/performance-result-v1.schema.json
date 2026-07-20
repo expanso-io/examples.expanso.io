@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://examples.expanso.io/tests/contracts/schemas/performance-result-v1.schema.json",
+  "title": "Expanso performance comparison result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "resultVersion",
+    "contractId",
+    "contractSha256",
+    "baselineSha",
+    "candidateSha",
+    "environmentId",
+    "fixtureIds",
+    "stageIds",
+    "toolVersions",
+    "timestamps",
+    "rawTraces",
+    "rawEvidence",
+    "measurements",
+    "status",
+    "errors"
+  ],
+  "properties": {
+    "resultVersion": { "const": "1.0.0" },
+    "contractId": { "const": "performance-v1" },
+    "contractSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "baselineSha": {
+      "type": "string",
+      "pattern": "^(?!0000000000000000000000000000000000000000$)[a-f0-9]{40}$"
+    },
+    "candidateSha": {
+      "type": "string",
+      "pattern": "^(?!0000000000000000000000000000000000000000$)[a-f0-9]{40}$"
+    },
+    "environmentId": { "type": "string", "minLength": 1 },
+    "fixtureIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "stageIds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "candidate"],
+      "properties": {
+        "baseline": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "candidate": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "toolVersions": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "timestamps": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reducedAt"],
+      "properties": {
+        "baselineStartedAt": { "type": "string", "format": "date-time" },
+        "baselineFinishedAt": { "type": "string", "format": "date-time" },
+        "candidateStartedAt": { "type": "string", "format": "date-time" },
+        "candidateFinishedAt": { "type": "string", "format": "date-time" },
+        "reducedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "rawTraces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "id", "path", "bytes", "sha256"],
+        "properties": {
+          "role": { "enum": ["baseline", "candidate"] },
+          "id": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "minLength": 1 },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      }
+    },
+    "rawEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "candidate"],
+      "properties": {
+        "baseline": { "$ref": "#/$defs/evidenceBinding" },
+        "candidate": { "$ref": "#/$defs/evidenceBinding" }
+      }
+    },
+    "measurements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "candidate", "comparison"],
+      "properties": {
+        "baseline": { "$ref": "#/$defs/measurements" },
+        "candidate": { "$ref": "#/$defs/measurements" },
+        "comparison": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "metric",
+              "baseline",
+              "candidate",
+              "delta",
+              "threshold",
+              "comparator",
+              "status"
+            ],
+            "properties": {
+              "metric": { "type": "string", "minLength": 1 },
+              "baseline": { "type": "number" },
+              "candidate": { "type": "number" },
+              "delta": { "type": "number" },
+              "threshold": { "type": "number" },
+              "comparator": { "enum": ["<=", "<"] },
+              "status": { "enum": ["PASS", "FAIL"] }
+            }
+          }
+        }
+      }
+    },
+    "status": { "enum": ["PASS", "FAIL", "UNKNOWN", "BLOCKED_CAPABILITY"] },
+    "errors": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "path", "bytes", "sha256", "mediaType"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "mediaType": { "type": "string", "minLength": 1 }
+      }
+    },
+    "evidenceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifacts"],
+      "properties": {
+        "manifestPath": { "type": "string", "minLength": 1 },
+        "manifestSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "artifacts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/artifact" }
+        }
+      }
+    },
+    "measurements": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sharedJavaScriptGzipBytes": { "type": "number", "minimum": 0 },
+        "explorerIncrementGzipBytes": { "type": "number", "minimum": 0 },
+        "globalCssGzipBytes": { "type": "number", "minimum": 0 },
+        "explorerJavaScriptGzipBytes": {
+          "type": "number",
+          "minimum": 0
+        },
+        "explorerCssGzipBytes": { "type": "number", "minimum": 0 },
+        "mobileLcpMsP75": { "type": "number", "minimum": 0 },
+        "mobileClsP75": { "type": "number", "minimum": 0 },
+        "mobileInpMsP75": { "type": "number", "minimum": 0 },
+        "explorerScriptingMsP95": { "type": "number", "minimum": 0 },
+        "pageOverflowCssPixels": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

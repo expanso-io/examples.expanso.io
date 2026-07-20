@@ -1,0 +1,55 @@
+# Enhanced priority with customer tier consideration
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+
+        # Calculate base severity score
+        let severity_score = match root.severity {
+          "CRITICAL" => 85
+          "ERROR" => 60
+          "WARNING" => 35
+          "INFO" => 15
+          _ => 20
+        }
+
+        # Customer tier multiplier
+        let tier_multiplier = match root.customer_tier {
+          "enterprise" => 4.0   # 4x boost
+          "premium" => 3.0      # 3x boost
+          "standard" => 2.0     # 2x boost
+          "free" => 1.0         # No boost
+          _ => 1.0
+        }
+
+        # Calculate final score
+        root.priority_score = severity_score * tier_multiplier
+
+        # Map to priority tier
+        root.priority = match {
+          root.priority_score >= 200 => "critical"
+          root.priority_score >= 120 => "high"
+          root.priority_score >= 60 => "normal"
+          _ => "low"
+        }
+
+        # SLA targets by tier
+        root.sla_target_ms = match root.customer_tier {
+          "enterprise" => 100   # 100ms SLA
+          "premium" => 500      # 500ms SLA
+          "standard" => 2000    # 2s SLA
+          _ => 5000            # 5s default
+        }
+
+output:
+  switch:
+    cases:
+      - check: this.customer_tier == "enterprise" && this.priority == "critical"
+        output:
+          kafka:
+            addresses: ["enterprise-kafka-1:9092","enterprise-kafka-2:9092"]
+            topic: enterprise-critical-events
+            batching:
+              count: 1
+              period: 0s
+            max_retries: 15     # Extra retries for enterprise

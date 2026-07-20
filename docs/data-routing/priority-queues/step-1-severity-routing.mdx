@@ -4,11 +4,20 @@ sidebar_label: Step 1 - Severity Routing
 sidebar_position: 4
 description: Route messages to different Kafka topics based on a `severity` field.
 keywords: [severity, routing, priority-queue, switch, kafka]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-priority-queues-step-1-severity-routing]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 1: Severity-Based Priority Routing
 
-In this step, you will implement the most common priority queue pattern: routing log messages to different Kafka topics based on their severity. This ensures that critical alerts are processed immediately while routine logs are handled efficiently.
+This step maps authored severity values to different Kafka topic names. Real processing order and time depend on the broker, consumers, backlog, and failure behavior.
 
 ## The Goal
 
@@ -22,6 +31,7 @@ You will modify a basic logging pipeline to route messages to `logs-critical`, `
 ## Implementation
 
 1.  **Start with the Foundation:** Copy the `priority-queues-foundation.yaml` to a new file named `severity-router.yaml`.
+
     ```bash
     cp examples/data-routing/priority-queues-foundation.yaml severity-router.yaml
     ```
@@ -53,7 +63,7 @@ You will modify a basic logging pipeline to route messages to `logs-critical`, `
           - check: this.priority == "critical"
             output:
               kafka:
-                addresses: ["${KAFKA_BROKERS}"]
+                addresses: ['${KAFKA_BROKERS}']
                 topic: logs-critical
                 # For critical logs, we send immediately (no batching)
                 batching:
@@ -62,7 +72,7 @@ You will modify a basic logging pipeline to route messages to `logs-critical`, `
           - check: this.priority == "high"
             output:
               kafka:
-                addresses: ["${KAFKA_BROKERS}"]
+                addresses: ['${KAFKA_BROKERS}']
                 topic: logs-high
                 batching:
                   count: 10 # Small batch for high-priority
@@ -71,7 +81,7 @@ You will modify a basic logging pipeline to route messages to `logs-critical`, `
           - check: this.priority == "normal"
             output:
               kafka:
-                addresses: ["${KAFKA_BROKERS}"]
+                addresses: ['${KAFKA_BROKERS}']
                 topic: logs-normal
                 batching:
                   count: 100 # Standard batch size
@@ -80,7 +90,7 @@ You will modify a basic logging pipeline to route messages to `logs-critical`, `
           # Default case for "low" priority and any others
           - output:
               kafka:
-                addresses: ["${KAFKA_BROKERS}"]
+                addresses: ['${KAFKA_BROKERS}']
                 topic: logs-low
                 batching:
                   count: 1000 # Large batch for low-priority
@@ -88,6 +98,7 @@ You will modify a basic logging pipeline to route messages to `logs-critical`, `
     ```
 
 4.  **Deploy and Test:**
+
     ```bash
     # Send a critical event
     curl -X POST http://localhost:8080/logs -H "Content-Type: application/json" \

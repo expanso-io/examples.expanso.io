@@ -1,9 +1,19 @@
 ---
-title: "Step 2: Normalize Currency"
-sidebar_label: "Step 2: Normalize Currency"
+title: 'Step 2: Normalize Currency'
+sidebar_label: 'Step 2: Normalize Currency'
 sidebar_position: 4
 description: Replace DataStage lookup stages with edge-native currency conversion
 keywords: [currency, conversion, lookup, normalization, datastage]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-enterprise-migration-db2-to-bigquery-step-2-normalize-currency]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 2: Normalize Currency
@@ -19,6 +29,7 @@ Convert all transaction amounts to USD while preserving original values. This re
 ## DataStage Equivalent
 
 In DataStage, currency conversion typically requires:
+
 1. **Lookup Stage** reading from a rates table
 2. **Transformer Stage** applying the conversion
 3. **Database connection** to fetch current rates
@@ -57,11 +68,11 @@ pipeline:
                 "CHF": 1.13,
                 "CAD": 0.74
               }
-              
+
               root = this
               root.original_amount = this.AMOUNT
               root.original_currency = this.CURRENCY
-              
+
               # Convert to USD
               root.amount_usd = if this.CURRENCY == "USD" {
                 this.AMOUNT
@@ -72,16 +83,17 @@ pipeline:
 
 ## Understanding the Code
 
-| Expression | What It Does |
-|------------|--------------|
-| `let rates = {...}` | Define a local variable with rate map |
-| `$rates.get(this.CURRENCY)` | Look up rate by currency code |
-| `.or(1.0)` | Default to 1.0 if currency not found |
-| `this.AMOUNT * $rates...` | Apply the conversion |
+| Expression                  | What It Does                          |
+| --------------------------- | ------------------------------------- |
+| `let rates = {...}`         | Define a local variable with rate map |
+| `$rates.get(this.CURRENCY)` | Look up rate by currency code         |
+| `.or(1.0)`                  | Default to 1.0 if currency not found  |
+| `this.AMOUNT * $rates...`   | Apply the conversion                  |
 
 ## Why Use `branch`?
 
 The `branch` processor creates an isolated scope:
+
 - Variables defined with `let` don't leak to other processors
 - Cleaner separation of concerns
 - Easier debugging and testing
@@ -89,6 +101,7 @@ The `branch` processor creates an isolated scope:
 ## Expected Output
 
 **Input:**
+
 ```json
 {
   "AMOUNT": 125.50,
@@ -98,6 +111,7 @@ The `branch` processor creates an isolated scope:
 ```
 
 **Output:**
+
 ```json
 {
   "AMOUNT": 125.50,
@@ -119,7 +133,7 @@ For real-time rates, call an external API:
 - branch:
     processors:
       - http:
-          url: "https://api.exchangerate.host/latest?base=${! this.CURRENCY }"
+          url: 'https://api.exchangerate.host/latest?base=${! this.CURRENCY }'
           verb: GET
       - mapping: |
           root = this
@@ -157,7 +171,10 @@ root.amount_usd = if $rates.exists(this.CURRENCY) {
 ## Next Step
 
 <div className="margin-top--lg margin-bottom--lg">
-  <a href="./step-3-mask-account-numbers" className="button button--primary button--lg">
+  <a
+    href="../step-3-mask-account-numbers"
+    className="button button--primary button--lg"
+  >
     📖 Step 3: Mask Account Numbers →
   </a>
 </div>

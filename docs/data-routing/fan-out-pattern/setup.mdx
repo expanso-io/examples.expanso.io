@@ -1,144 +1,52 @@
 ---
-title: Setup Environment for Fan-Out Pattern
-sidebar_label: Setup
+title: Fan-Out Configuration Review
+sidebar_label: Configuration review
 sidebar_position: 3
-description: Configure environment variables and cloud services for a multi-destination pipeline.
-keywords: [setup, environment, configuration, deployment, kafka, s3, elasticsearch]
+description: Review the dependencies and independent branches in the fan-out reference architecture.
+keywords: [fan-out, setup, kafka, object-storage, search]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-fan-out-pattern-configuration]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Setup Environment for Fan-Out Pattern
+import { ExampleSurface } from '@site/src/components/ExamplePage';
 
-Before building the multi-destination pipeline, you'll set up cloud service credentials and edge node configuration.
+# Fan-Out Configuration Review
 
-## Prerequisites
+Kafka, object storage, and search are external integrations. The repository does not execute this multi-destination topology end to end.
 
-This example requires the following services to be running:
+<ExampleSurface
+  kind="reference"
+  title="Before you adapt it"
+  description="Resolve the example boundary before changing processors or destinations."
+>
 
-*   **[Kafka](/getting-started/services/kafka)**
+- An Expanso environment for configuration inspection
+- Reachable destination services and environment-managed credentials
+- Destination-specific topics, buckets, indexes, schemas, and access rules
 
-Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
+</ExampleSurface>
 
-## Step 1: Configure Example-Specific Variables
+## Review path
 
-After setting up the core services, configure fan-out-specific variables:
+1. [Broker branch](/data-routing/fan-out-pattern/step-1-configure-broker)
+2. [Kafka branch](/data-routing/fan-out-pattern/step-2-add-kafka)
+3. [Object-storage branch](/data-routing/fan-out-pattern/step-3-add-s3)
+4. [Search branch](/data-routing/fan-out-pattern/step-4-add-elasticsearch)
+5. [Advanced variants](/data-routing/fan-out-pattern/step-5-advanced-patterns)
 
-```bash
-# Edge Node Configuration
-export NODE_ID="edge-node-01"
-export NODE_LOCATION="factory-floor-west"
+Then inspect the [Complete reference configuration](/data-routing/fan-out-pattern/complete-fan-out-pipeline).
 
-# Optional: Cloud service credentials (for multi-cloud fan-out)
-export S3_BUCKET="your-sensor-data-archive"
-export AWS_REGION="us-west-2"
+## Adaptation checks
 
-# Optional: Elasticsearch Configuration
-export ES_USERNAME="your-elasticsearch-username"
-export ES_PASSWORD="your-elasticsearch-password"
-export ES_ENDPOINT="https://es-1.your-cluster.com:9200"
+- Decide whether branch failures are isolated or propagated.
+- Test retries, duplicates, replay, and partial destination outages.
+- Set retention and access controls separately for every destination.
 
-# Verify configuration
-echo "Node ID: $NODE_ID"
-echo "Kafka: $KAFKA_BROKERS"
-echo "S3 Bucket: ${S3_BUCKET:-not set}"
-```
-
-**Security Note:** Never commit credentials to version control. Use your orchestrator's secret management for production deployments.
-
-## Step 2: Verify Optional Cloud Services
-
-If using optional cloud services, verify connectivity:
-
-```bash
-# Test S3 connectivity (if configured)
-if [ -n "$S3_BUCKET" ]; then
-  aws s3 ls s3://$S3_BUCKET/ --region $AWS_REGION
-fi
-
-# Test Elasticsearch connectivity (if configured)
-if [ -n "$ES_ENDPOINT" ]; then
-  curl -X GET "$ES_ENDPOINT/_cluster/health" \
-    -u "$ES_USERNAME:$ES_PASSWORD" \
-    -H "Content-Type: application/json"
-fi
-```
-
-## Step 3: Create Example-Specific Topics
-
-Create Kafka topics specific to this example (core topics already exist from local dev setup):
-
-```bash title="Create example-specific Kafka topic"
-# Create sensor-events topic for fan-out example
-kafka-topics.sh --bootstrap-server $KAFKA_BROKERS \
-  --topic sensor-events \
-  --create \
-  --partitions 3 \
-  --replication-factor 1 \
-  --if-not-exists
-
-# Verify topic creation
-kafka-topics.sh --bootstrap-server $KAFKA_BROKERS \
-  --topic sensor-events \
-  --describe
-```
-
-**Create Elasticsearch index template (if using Elasticsearch):**
-
-```bash title="Create Elasticsearch index template"
-# Create index template for daily sensor event indices
-curl -X PUT "$ES_ENDPOINT_1/_index_template/sensor-events" \
-  -u "$ES_USERNAME:$ES_PASSWORD" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "index_patterns": ["sensor-events-*"],
-    "template": {
-      "settings": {
-        "number_of_shards": 3,
-        "number_of_replicas": 1,
-        "index.codec": "best_compression"
-      },
-      "mappings": {
-        "properties": {
-          "event_id": {"type": "keyword"},
-          "sensor_id": {"type": "keyword"},
-          "timestamp": {"type": "date"},
-          "processing_timestamp": {"type": "date"},
-          "temperature": {"type": "float"},
-          "humidity": {"type": "float"},
-          "edge_node_id": {"type": "keyword"},
-          "edge_location": {"type": "keyword"},
-          "device_type": {"type": "keyword"},
-          "location": {
-            "properties": {
-              "building": {"type": "keyword"},
-              "floor": {"type": "integer"},
-              "zone": {"type": "keyword"}
-            }
-          }
-        }
-      }
-    }
-  }'
-
-# Verify template creation
-curl -X GET "$ES_ENDPOINT_1/_index_template/sensor-events" \
-  -u "$ES_USERNAME:$ES_PASSWORD"
-```
-
-## Next Steps
-
-✅ **Setup Complete!** Your environment is now configured for multi-destination fan-out pattern.
-
-**Ready to add destinations?** Continue with the step-by-step tutorial:
-
-<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
-  <a href="./step-1-configure-broker" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Step 1: Configure Broker
-  </a>
-  <a href="./complete-fan-out-pipeline" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Skip to Complete Pipeline
-  </a>
-</div>
-
----
-
-**Next:** [Configure the broker foundation](/data-routing/fan-out-pattern/step-1-configure-broker) for fan-out routing
+This route is a configuration review, not a verified execution guide.

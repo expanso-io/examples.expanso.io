@@ -1,109 +1,61 @@
 ---
-title: Setup Environment for PII Removal
+title: Prepare the PII removal example
 sidebar_label: Setup
 sidebar_position: 3
-description: Configure environment variables and sample data for PII removal.
-keywords: [setup, environment, configuration, expanso, deployment]
+description: Inspect the synthetic fixture, canonical configuration, and salt inputs used by the walkthrough.
+keywords: [setup, fixture, configuration, salts, privacy]
+contentArchetype: reference
+executionStatus: offline-runnable
+operationalEvidence: not-assessed
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+localNavigation: true
+uniqueTasks: [prepare-fixture]
 ---
 
-# Setup Environment for PII Removal
+# Prepare the PII removal example
 
-Before building the PII removal pipeline, you'll set up environment variables for cryptographic salts and download sample data for testing.
+The walkthrough and machine fixture use these repository files:
 
-## Prerequisites
+- Fixture: `examples/data-security/remove-pii/sample-data.json`
+- Configuration: `examples/data-security/remove-pii-complete.yaml`
+- Fixture environment: `examples/data-security/remove-pii/fixture-environment.json`
+- Expected output: `examples/data-security/remove-pii/expected-output.jsonl`
 
-This example requires the following services to be running:
-
-*   **[Kafka](/getting-started/services/kafka)**
-
-Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
-
-## Step 1: Generate Cryptographic Salts
-
-Salts are secret values used in hashing to prevent rainbow table attacks. Each type of PII should have its own salt.
+From the repository root, inspect both before changing field names:
 
 ```bash
-# Generate three secure random salts (32 bytes each)
-export IP_SALT=$(openssl rand -hex 32)
-export EMAIL_SALT=$(openssl rand -hex 32)
-export USER_SALT=$(openssl rand -hex 32)
-
-# Verify salts were generated
-echo "IP_SALT length: ${#IP_SALT}"     # Should print 64
-echo "EMAIL_SALT length: ${#EMAIL_SALT}" # Should print 64
-echo "USER_SALT length: ${#USER_SALT}"  # Should print 64
+jq . examples/data-security/remove-pii/sample-data.json
+sed -n '1,220p' examples/data-security/remove-pii-complete.yaml
 ```
 
-:::danger Protect Your Salts
-These salts are **cryptographic secrets**. If an attacker obtains them, they can reverse-engineer hashed values using rainbow table attacks.
+## Salt inputs
 
-**Production best practices:**
-- Store salts in a secret management system (HashiCorp Vault, AWS Secrets Manager, etc.)
-- Never commit salts to version control
-- Rotate salts periodically (every 90 days recommended)
-- Use different salts per environment (dev/staging/prod)
-:::
-
-### Optional: Persist Salts
-
-To avoid regenerating salts every session:
+The hash mappings read three environment variables. Generate values for an adapted run without printing them:
 
 ```bash
-# Save to a file (add to .gitignore!)
-cat > ~/.pii-pipeline-secrets <<EOF
-export IP_SALT="$IP_SALT"
-export EMAIL_SALT="$EMAIL_SALT"
-export USER_SALT="$USER_SALT"
-EOF
+export IP_SALT="$(openssl rand -hex 32)"
+export EMAIL_SALT="$(openssl rand -hex 32)"
+export USER_SALT="$(openssl rand -hex 32)"
 
-# Load in future sessions
-source ~/.pii-pipeline-secrets
+printf 'IP=%s EMAIL=%s USER=%s\n' \
+  "${#IP_SALT}" "${#EMAIL_SALT}" "${#USER_SALT}"
 ```
 
-## Step 2: Set Analytics Endpoint
+The configuration has no built-in salt fallback. Treat a missing or empty value as a failed precondition, and load secrets through the controls used by the adapted environment.
 
-Configure where processed (PII-free) events will be sent:
+## Run the exact fixture gate
+
+With Docker available, run the machine gate from the repository root:
 
 ```bash
-# For this tutorial, use a local file sink
-export ANALYTICS_ENDPOINT="file:///var/log/expanso/pii-removed.jsonl"
-
-# In production, use your analytics service:
-# export ANALYTICS_ENDPOINT="http://analytics-service:8080/events"
-# export ANALYTICS_ENDPOINT="https://your-datadog-endpoint.com"
+npm run test-pipelines
 ```
 
-## Step 3: Download Sample Data
+The gate pulls the digest-pinned Benthos image, serves the canonical HTTP input, posts the synthetic fixture, and compares the file output byte for byte. Its checked-in salts are fixture-specific values, not secrets or deployment defaults.
 
-Download the sample purchase event we'll use for testing:
+## Scope
 
-```bash
-# Create a working directory
-mkdir -p ~/pii-pipeline-tutorial
-cd ~/pii-pipeline-tutorial
-
-# Download sample data
-curl -o sample-data.json \
-  https://examples.expanso.io/files/data-security/remove-pii/sample-data.json
-
-# Verify the download
-cat sample-data.json | jq .
-```
-
----
-
-## Next Steps
-
-Environment configured! Now build the pipeline step-by-step:
-
-<div className="margin-top--lg margin-bottom--lg">
-  <a href="./step-1-delete-payment-data" className="button button--primary button--lg">
-    📖 Step 1: Delete Payment Data →
-  </a>
-</div>
-
-Or jump to a specific step:
-- [**Step 2: Hash IP Address**](/data-security/remove-pii/step-2-hash-ip-address)
-- [**Step 3: Hash Email**](/data-security/remove-pii/step-3-hash-email)
-- [**Step 4: Pseudonymize User**](/data-security/remove-pii/step-4-pseudonymize-user)
-- [**Step 5: Generalize Location**](/data-security/remove-pii/step-5-generalize-location)
+This proves one deterministic core-path result. It does not test malformed inputs, load, recovery, salt rotation, or production controls. Continue with [payment-field deletion](/data-security/remove-pii/step-1-delete-payment-data) or inspect the [curated Explorer](/data-security/remove-pii/explorer).

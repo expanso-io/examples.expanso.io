@@ -1,48 +1,31 @@
 ---
-title: "Step 1: Delete Payment Card Data"
-sidebar_label: "Step 1: Delete Payment Data"
+title: 'Step 1: Delete payment card fields'
+sidebar_label: 'Step 1: Delete payment data'
 sidebar_position: 4
-description: Remove credit card numbers using the .without() function for PCI-DSS compliance.
-keywords: [pii-removal, delete, pci-dss, without]
+description: Remove the full card number and expiry from the synthetic payment object.
+keywords: [pii-removal, deletion, payment-data, mapping]
+contentArchetype: step
+executionStatus: offline-runnable
+operationalEvidence: not-assessed
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Technique 1: Deletion
+# Step 1: Delete payment card fields
 
-The simplest and most effective way to protect sensitive data is to **delete it**. This is the best pattern for high-risk data that has little to no analytics value, such as a full credit card number.
+Remove fields that are not needed by the example output. This mapping keeps the payment type and last four digits from the synthetic fixture.
 
-## The Goal
+```yaml title="Payment-field mapping"
+- mapping: |
+    root = this
+    root.payment_method = this.payment_method.without(
+      "full_number",
+      "expiry"
+    )
+```
 
-You will use the `.without()` function to remove the `full_number` and `expiry` fields from the `payment_method` object, as required for PCI-DSS compliance.
+Check the adapted input schema for alternate or nested card fields. Deleting these two keys does not inspect the rest of a record.
 
-## Implementation
-
-1.  **Start with the Foundation:** Copy the `remove-pii-foundation.yaml` to a new file named `delete-payment.yaml`.
-    ```bash
-    cp examples/data-security/remove-pii-foundation.yaml delete-payment.yaml
-    ```
-
-2.  **Add the Deletion Logic:** Open `delete-payment.yaml` and add a `mapping` processor to the `pipeline` section.
-
-    ```yaml title="Add this to the 'processors' array in delete-payment.yaml"
-    - mapping: |
-        root = this
-        # The .without() function removes fields from an object.
-        # Here, we replace the existing payment_method object with a new one
-        # that doesn't have the sensitive fields.
-        root.payment_method = this.payment_method.without(
-          "full_number",
-          "expiry"
-        )
-    ```
-
-3.  **Deploy and Test:**
-    ```bash
-    # Send the sample event data from the setup step
-    curl -X POST http://localhost:8080/events/ingest \
-      -H "Content-Type: application/json" \
-      -d @~/expanso-remove-pii/sample-event.json
-    ```
-
-4.  **Verify:** Check your logs. The `payment_method` object in the output will no longer contain the `full_number` or `expiry` fields.
-
-You have successfully applied the deletion pattern. In the next steps, you will learn other PII removal techniques for data that has more analytics value.
+[Next: replace the IP address](/data-security/remove-pii/step-2-hash-ip-address).
