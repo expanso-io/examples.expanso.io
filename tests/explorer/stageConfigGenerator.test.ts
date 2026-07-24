@@ -22,6 +22,9 @@ const repositoryRoot = resolve(
 const tsxCli = join(repositoryRoot, 'node_modules/tsx/dist/cli.mjs');
 const manifestPath = 'content/explorer-stage-bindings-v1.json';
 const generatedPath = 'src/catalog/explorerStageConfigs.generated.ts';
+const generatedEvidencePath = 'src/catalog/explorerEvidence.generated.ts';
+const generatedFamilyPath =
+  'src/catalog/explorerStageFamilies.generated/circuit-breakers.ts';
 let fixtureRoot = '';
 
 type Manifest = {
@@ -230,40 +233,56 @@ describe('canonical Explorer stage generator', () => {
     });
   });
 
-  it('rejects generated-map drift', () => {
-    withRestoredFile(generatedPath, () => {
-      writeFileSync(
-        join(fixtureRoot, generatedPath),
-        `${readFileSync(join(fixtureRoot, generatedPath), 'utf8')}\n// drift\n`
-      );
-      expectFailure(/generated\.ts is stale/);
-    });
+  it('rejects aggregate, evidence, and per-family generated drift', () => {
+    for (const path of [
+      generatedPath,
+      generatedEvidencePath,
+      generatedFamilyPath,
+    ]) {
+      withRestoredFile(path, () => {
+        writeFileSync(
+          join(fixtureRoot, path),
+          `${readFileSync(join(fixtureRoot, path), 'utf8')}\n// drift\n`
+        );
+        expectFailure(/is stale/);
+      });
+    }
   });
 
   it('fails before write-mode output changes and writes deterministically', () => {
     const manifest = readManifest();
     const configPath = manifest.explorers[0].stages[0].configPath;
-    const generatedBefore = readFileSync(
-      join(fixtureRoot, generatedPath),
-      'utf8'
+    const generatedPaths = [
+      generatedPath,
+      generatedEvidencePath,
+      generatedFamilyPath,
+    ];
+    const generatedBefore = generatedPaths.map((path) =>
+      readFileSync(join(fixtureRoot, path), 'utf8')
     );
     withRestoredFile(configPath, () => {
       writeFileSync(join(fixtureRoot, configPath), 'pipeline: [\n');
       expectFailure(/not warning-free YAML/, '--write');
-      assert.equal(
-        readFileSync(join(fixtureRoot, generatedPath), 'utf8'),
+      assert.deepEqual(
+        generatedPaths.map((path) =>
+          readFileSync(join(fixtureRoot, path), 'utf8')
+        ),
         generatedBefore
       );
     });
 
     const first = runGenerator('--write');
     assert.equal(first.status, 0, first.stderr);
-    const firstBytes = readFileSync(join(fixtureRoot, generatedPath), 'utf8');
+    const firstBytes = generatedPaths.map((path) =>
+      readFileSync(join(fixtureRoot, path), 'utf8')
+    );
     const second = runGenerator('--write');
     assert.equal(second.status, 0, second.stderr);
-    const secondBytes = readFileSync(join(fixtureRoot, generatedPath), 'utf8');
-    assert.equal(digest(firstBytes), digest(secondBytes));
-    assert.equal(firstBytes, secondBytes);
+    const secondBytes = generatedPaths.map((path) =>
+      readFileSync(join(fixtureRoot, path), 'utf8')
+    );
+    assert.deepEqual(firstBytes.map(digest), secondBytes.map(digest));
+    assert.deepEqual(firstBytes, secondBytes);
   });
 
   it('rejects a config path that escapes its canonical family', () => {

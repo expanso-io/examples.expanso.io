@@ -5,11 +5,11 @@ import {
   createExampleViewEvent,
   createRelatedExampleClickEvent,
   createRunLocalClickEvent,
+  exampleAnalyticsClassification,
   exampleIdFromCatalogPath,
   isRunLocalPath,
   recordAnalyticsEvent,
 } from '../analytics/events';
-import { PUBLIC_CATALOG } from '../catalog/registry';
 import {
   CONSENT_COOKIE_NAME,
   getAnalyticsConsent,
@@ -50,17 +50,13 @@ export default function Root({ children }: RootProps): React.JSX.Element {
 
   useEffect(() => {
     const pathname = `/${location.pathname.split('/').filter(Boolean).join('/')}/`;
-    const record = PUBLIC_CATALOG.records.find((candidate) =>
-      Object.values(candidate.routes).some(
-        (route) => route !== undefined && route === pathname
-      )
-    );
-    if (record !== undefined) {
+    const classification = exampleAnalyticsClassification(pathname);
+    if (classification !== null) {
       recordAnalyticsEvent(
         createExampleViewEvent(
-          record.id,
-          record.executionStatus,
-          record.operationalEvidence
+          classification.exampleId,
+          classification.executionStatus,
+          classification.operationalEvidence
         )
       );
     }

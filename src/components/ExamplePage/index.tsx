@@ -1,15 +1,9 @@
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import styles from './styles.module.css';
 import { getCatalogOverviewProjection } from '../../catalog/overviewProjection';
-import { GENERATED_EXPLORER_STAGE_CONFIGS } from '../../catalog/explorerStageConfigs.generated';
+import type { GeneratedExplorerStageFamily } from '../../catalog/explorerStageConfigs.generated';
 import DataPipelineExplorer from '../DataPipelineExplorer';
-import type { Stage } from '../DataPipelineExplorer/types';
-import type {
-  BoundaryFlow,
-  BoundaryNode,
-  ExampleAction,
-  ExamplePageMeta,
-} from './types';
+import type { ExampleAction, ExamplePageMeta } from './types';
 
 interface DirectExampleHeaderProps extends ExamplePageMeta {
   eyebrow?: string;
@@ -33,93 +27,93 @@ interface ExampleHeaderProjection extends ExamplePageMeta {
   title: string;
 }
 
-type ExplorerStageLoader = () => Promise<readonly Stage[]>;
+type ExplorerFamilyLoader = () => Promise<GeneratedExplorerStageFamily>;
 
-const explorerStageLoaders: Readonly<Record<string, ExplorerStageLoader>> = {
+const explorerFamilyLoaders: Readonly<Record<string, ExplorerFamilyLoader>> = {
   'circuit-breakers': () =>
-    import('@site/docs/data-routing/circuit-breakers-full.stages').then(
-      (module) => module.circuitBreakerStages
-    ),
+    import(
+      '../../catalog/explorerStageFamilies.generated/circuit-breakers'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
   'content-routing': () =>
-    import('@site/docs/data-routing/content-routing-full.stages').then(
-      (module) => module.contentRoutingStages
-    ),
+    import(
+      '../../catalog/explorerStageFamilies.generated/content-routing'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
   'content-splitting': () =>
-    import('@site/docs/data-routing/content-splitting-full.stages').then(
-      (module) => module.contentSplittingStages
-    ),
+    import(
+      '../../catalog/explorerStageFamilies.generated/content-splitting'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
   'fan-out-pattern': () =>
-    import('@site/docs/data-routing/fan-out-pattern-full.stages').then(
-      (module) => module.fanOutPatternStages
-    ),
+    import(
+      '../../catalog/explorerStageFamilies.generated/fan-out-pattern'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
   'priority-queues': () =>
-    import('@site/docs/data-routing/priority-queues-full.stages').then(
-      (module) => module.priorityQueuesStages
-    ),
+    import(
+      '../../catalog/explorerStageFamilies.generated/priority-queues'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
   'smart-buffering': () =>
-    import('@site/docs/data-routing/smart-buffering-full.stages').then(
-      (module) => module.smartBufferingStages
-    ),
+    import(
+      '../../catalog/explorerStageFamilies.generated/smart-buffering'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
   'encrypt-data': () =>
-    import('@site/docs/data-security/encrypt-data-full.stages').then(
-      (module) => module.encryptDataStages
+    import('../../catalog/explorerStageFamilies.generated/encrypt-data').then(
+      (module) => module.GENERATED_EXPLORER_STAGE_FAMILY
     ),
   'encryption-patterns': () =>
-    import('@site/docs/data-security/encryption-patterns-full.stages').then(
-      (module) => module.encryptionPatternsStages
-    ),
+    import(
+      '../../catalog/explorerStageFamilies.generated/encryption-patterns'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
   'enforce-schema': () =>
-    import('@site/docs/data-security/enforce-schema-full.stages').then(
-      (module) => module.enforceSchemaStages
+    import('../../catalog/explorerStageFamilies.generated/enforce-schema').then(
+      (module) => module.GENERATED_EXPLORER_STAGE_FAMILY
     ),
   'remove-pii': () =>
-    import('@site/docs/data-security/remove-pii-full.stages').then(
-      (module) => module.removePiiFullStages
+    import('../../catalog/explorerStageFamilies.generated/remove-pii').then(
+      (module) => module.GENERATED_EXPLORER_STAGE_FAMILY
     ),
   'aggregate-time-windows': () =>
     import(
-      '@site/docs/data-transformation/aggregate-time-windows-full.stages'
-    ).then((module) => module.aggregateTimeWindowsStages),
+      '../../catalog/explorerStageFamilies.generated/aggregate-time-windows'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
   'deduplicate-events': () =>
     import(
-      '@site/docs/data-transformation/deduplicate-events-full.stages'
-    ).then((module) => module.deduplicateEventsStages),
+      '../../catalog/explorerStageFamilies.generated/deduplicate-events'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
   'normalize-timestamps': () =>
     import(
-      '@site/docs/data-transformation/normalize-timestamps-full.stages'
-    ).then((module) => module.normalizeTimestampsStages),
+      '../../catalog/explorerStageFamilies.generated/normalize-timestamps'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
   'parse-logs': () =>
-    import('@site/docs/data-transformation/parse-logs-full.stages').then(
-      (module) => module.parseLogsStages
+    import('../../catalog/explorerStageFamilies.generated/parse-logs').then(
+      (module) => module.GENERATED_EXPLORER_STAGE_FAMILY
     ),
   'transform-formats': () =>
-    import('@site/docs/data-transformation/transform-formats-full.stages').then(
-      (module) => module.transformFormatsStages
-    ),
+    import(
+      '../../catalog/explorerStageFamilies.generated/transform-formats'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
   'oran-telco-pipeline': () =>
-    import('@site/docs/integrations/oran-telco-pipeline-full.stages').then(
-      (module) => module.oranTelcoPipelineStages
-    ),
+    import(
+      '../../catalog/explorerStageFamilies.generated/oran-telco-pipeline'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
   'scada-energy-edge': () =>
-    import('@site/docs/integrations/scada-energy-edge/stages').then(
-      (module) => module.scadaEnergyEdgeStages
-    ),
+    import(
+      '../../catalog/explorerStageFamilies.generated/scada-energy-edge'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
   'splunk-edge-processing': () =>
-    import('@site/docs/integrations/splunk-edge-processing-full.stages').then(
-      (module) => module.splunkEdgeProcessingStages
-    ),
+    import(
+      '../../catalog/explorerStageFamilies.generated/splunk-edge-processing'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
   'enrich-export': () =>
-    import('@site/docs/log-processing/enrich-export-full.stages').then(
-      (module) => module.enrichExportStages
+    import('../../catalog/explorerStageFamilies.generated/enrich-export').then(
+      (module) => module.GENERATED_EXPLORER_STAGE_FAMILY
     ),
   'filter-severity': () =>
-    import('@site/docs/log-processing/filter-severity-full.stages').then(
-      (module) => module.filterSeverityStages
-    ),
+    import(
+      '../../catalog/explorerStageFamilies.generated/filter-severity'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
   'production-pipeline': () =>
-    import('@site/docs/log-processing/production-pipeline-full.stages').then(
-      (module) => module.productionPipelineStages
-    ),
+    import(
+      '../../catalog/explorerStageFamilies.generated/production-pipeline'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
 };
 
 function InlineExplorer({
@@ -129,29 +123,30 @@ function InlineExplorer({
   exampleId: string;
   title: string;
 }) {
-  const [stages, setStages] = useState<readonly Stage[] | null>(null);
-  const loader = explorerStageLoaders[exampleId];
-  const generated = GENERATED_EXPLORER_STAGE_CONFIGS[exampleId];
+  const [generatedFamily, setGeneratedFamily] =
+    useState<GeneratedExplorerStageFamily | null>(null);
+  const familyLoader = explorerFamilyLoaders[exampleId];
 
   useEffect(() => {
-    if (!loader || !generated) return;
+    if (!familyLoader) return;
     let active = true;
-    void loader().then((loadedStages) => {
-      if (active) setStages(loadedStages);
+    void familyLoader().then((family) => {
+      if (active) setGeneratedFamily(family);
     });
     return () => {
       active = false;
     };
-  }, [generated, loader]);
+  }, [familyLoader]);
 
-  if (!loader || !generated || !stages) return null;
+  if (!familyLoader || !generatedFamily) return null;
 
   return (
     <DataPipelineExplorer
       exampleId={exampleId}
-      stages={stages}
-      fullYaml={generated.fullYaml}
-      fullYamlFilename={generated.fullYamlFilename}
+      stages={generatedFamily.stages}
+      generatedFamily={generatedFamily}
+      fullYaml={generatedFamily.fullYaml}
+      fullYamlFilename={generatedFamily.fullYamlFilename}
       title={`${title} pipeline`}
       subtitle=""
     />
@@ -222,98 +217,4 @@ export function ExampleSurface({
   );
 }
 
-interface DirectSystemBoundaryProps {
-  exampleId?: never;
-  flows: readonly BoundaryFlow[];
-  nodes: readonly BoundaryNode[];
-  title?: string;
-}
-
-interface CatalogSystemBoundaryProps {
-  exampleId: string;
-  flows?: never;
-  nodes?: never;
-  title?: string;
-}
-
-type SystemBoundaryProps =
-  | DirectSystemBoundaryProps
-  | CatalogSystemBoundaryProps;
-
-export interface SystemBoundaryProjection {
-  flows: readonly BoundaryFlow[];
-  nodes: readonly BoundaryNode[];
-}
-
-export function resolveSystemBoundaryProjection(
-  props: SystemBoundaryProps
-): SystemBoundaryProjection {
-  if (props.exampleId) {
-    return getCatalogOverviewProjection(props.exampleId).boundary;
-  }
-
-  return { nodes: props.nodes, flows: props.flows };
-}
-
-export function SystemBoundary(props: SystemBoundaryProps) {
-  const { flows, nodes } = resolveSystemBoundaryProjection(props);
-  const title = props.title ?? 'System boundary';
-  const titleId = useId();
-  const nodeById = new Map(nodes.map((node) => [node.id, node]));
-
-  return (
-    <figure className={styles.boundary} aria-labelledby={titleId}>
-      <figcaption id={titleId}>{title}</figcaption>
-      <ul className={styles.boundaryNodes} aria-label="Systems">
-        {nodes.map((node) => (
-          <li
-            className={styles.boundaryNode}
-            data-kind={node.kind}
-            key={node.id}
-          >
-            <span>{node.label}</span>
-            <small>{node.location}</small>
-          </li>
-        ))}
-      </ul>
-      <ol className={styles.boundaryFlows} aria-label="Data flows">
-        {flows.map((flow) => {
-          const source = nodeById.get(flow.from);
-          const destination = nodeById.get(flow.to);
-          return (
-            <li key={`${flow.from}-${flow.to}-${flow.payload}`}>
-              <span>{source?.label ?? flow.from}</span>
-              <span className={styles.arrow} aria-hidden="true">
-                →
-              </span>
-              <span>{destination?.label ?? flow.to}</span>
-              <small>{flow.payload}</small>
-              <strong data-crosses-boundary={flow.crossesBoundary}>
-                {flow.crossesBoundary ? 'Crosses boundary' : 'Stays local'}
-              </strong>
-            </li>
-          );
-        })}
-      </ol>
-    </figure>
-  );
-}
-
-interface LimitationsProps {
-  children: ReactNode;
-  title?: string;
-}
-
-export function Limitations({
-  children: _children,
-  title: _title = 'Limitations and assumptions',
-}: LimitationsProps) {
-  return null;
-}
-
-export type {
-  BoundaryFlow,
-  BoundaryNode,
-  ExampleAction,
-  ExamplePageMeta,
-} from './types';
+export type { ExampleAction, ExamplePageMeta } from './types';

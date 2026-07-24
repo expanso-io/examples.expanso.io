@@ -5,10 +5,8 @@ import { resolve } from 'node:path';
 
 import ts from 'typescript';
 
-import {
-  GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE,
-  GENERATED_EXPLORER_STAGE_CONFIGS,
-} from '../../src/catalog/explorerStageConfigs.generated';
+import { GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE } from '../../src/catalog/explorerEvidence.generated';
+import { GENERATED_EXPLORER_STAGE_CONFIGS } from '../../src/catalog/explorerStageConfigs.generated';
 import { EXAMPLE_RECORDS } from '../../src/catalog/registry';
 import {
   EXPLORER_EVIDENCE_SCHEMA_DIGEST,
