@@ -6,6 +6,7 @@ import {
   CATALOG_ANALYTICS_FILTER_IDS,
   createExampleFilterChangeEvent,
   createExampleSearchEvent,
+  exampleAnalyticsClassification,
   exampleIdFromCatalogPath,
   isRunLocalPath,
 } from '../../src/analytics/events';
@@ -195,5 +196,17 @@ describe('privacy-safe example analytics', () => {
     );
     assert.equal(isRunLocalPath('/data-security/remove-pii/setup/'), true);
     assert.equal(isRunLocalPath('/data-security/remove-pii/explorer/'), false);
+    assert.equal(exampleIdFromCatalogPath('/getting-started/services/'), null);
+    for (const record of PUBLIC_CATALOG.records) {
+      for (const route of Object.values(record.routes).filter(
+        (value): value is string => value !== undefined
+      )) {
+        assert.deepEqual(exampleAnalyticsClassification(route), {
+          exampleId: record.id,
+          executionStatus: record.executionStatus,
+          operationalEvidence: record.operationalEvidence,
+        });
+      }
+    }
   });
 });

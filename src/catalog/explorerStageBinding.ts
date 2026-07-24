@@ -1,7 +1,4 @@
-import {
-  GENERATED_EXPLORER_STAGE_CONFIGS,
-  type GeneratedExplorerStageFamily,
-} from './explorerStageConfigs.generated';
+import type { GeneratedExplorerStageFamily } from './explorerStageConfigs.generated';
 import type { CatalogExplorerBinding } from './explorerBinding';
 import type {
   CanonicallyBoundStage,
@@ -29,9 +26,7 @@ export function bindCanonicalExplorerStages(
   rawStages: readonly Stage[],
   fullYaml: string,
   fullYamlFilename: string,
-  generatedFamily:
-    | GeneratedExplorerStageFamily
-    | undefined = GENERATED_EXPLORER_STAGE_CONFIGS[binding.exampleId]
+  generatedFamily: GeneratedExplorerStageFamily | undefined
 ): CanonicallyBoundStage[] {
   if (!generatedFamily) {
     throw new Error(

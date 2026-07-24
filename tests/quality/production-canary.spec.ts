@@ -50,6 +50,21 @@ test('production serves the exact release, redirect, canonical, and local assets
   expect(manifest.artifactContentSha256).toMatch(/^[a-f0-9]{64}$/);
   expect(manifest.artifactFileCount).toBeGreaterThan(0);
 
+  const versionResponse = await page.request.get(
+    `/version.json?subject=${subjectSha}`,
+    { failOnStatusCode: true }
+  );
+  const version = (await versionResponse.json()) as {
+    schemaVersion?: string;
+    repository?: string;
+    subjectSha?: string;
+  };
+  expect(version).toEqual({
+    schemaVersion: 'examples-release-v1',
+    repository: 'expanso-io/examples.expanso.io',
+    subjectSha,
+  });
+
   const runtimeProofResponse = await page.request.get(
     '/__explorer-runtime-proof/',
     { failOnStatusCode: false, maxRedirects: 0 }

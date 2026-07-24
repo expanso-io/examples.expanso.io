@@ -191,7 +191,7 @@ export const REMOVE_PII_EXPLORER_EVIDENCE = {
     'sha256:b795cfc4e9d6efb141382b4ba4d5959b6937962c5738ea2f7234808c9e474808',
   semanticsVerifierPath: 'scripts/quality/verify-explorer-provenance.ts',
   semanticsVerifierSha256:
-    'sha256:fdc3699e5fc2c2fa03aab7ddf958dcba0c1654a7bb8252a2f4fc1329857a0783',
+    'sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555',
   stageCount: 6,
   processorCount: 5,
   checkpointCount: 6,

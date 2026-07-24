@@ -1,3 +1,5 @@
+import type { GeneratedExplorerStageFamily } from '../../catalog/explorerStageConfigs.generated';
+
 export type JsonLine = {
   content: string;
   indent: number;
@@ -27,6 +29,7 @@ export type CanonicallyBoundStage = Stage & {
 export interface DataPipelineExplorerProps {
   exampleId: string;
   stages: readonly Stage[];
+  generatedFamily: GeneratedExplorerStageFamily;
   fullYaml: string;
   fullYamlFilename: string;
   title?: string;

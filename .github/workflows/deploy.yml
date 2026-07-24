@@ -124,6 +124,7 @@ jobs:
 
           const subject = JSON.parse(readFileSync('build/release-subject.json', 'utf8'));
           const evidence = JSON.parse(readFileSync('build/release-evidence.json', 'utf8'));
+          const version = JSON.parse(readFileSync('build/version.json', 'utf8'));
           for (const value of [subject, evidence]) {
             if (value.repository !== process.env.EXPECTED_REPOSITORY) throw new Error('repository mismatch');
             if (value.subjectSha !== process.env.EXPECTED_SUBJECT_SHA) throw new Error('subject SHA mismatch');
@@ -133,6 +134,13 @@ jobs:
           if (subject.manifestVersion !== '1.2.0') throw new Error('unsupported release subject manifest');
           if (subject.workflowRunId !== process.env.EXPECTED_RUN_ID) throw new Error('artifact workflow run mismatch');
           if (subject.workflowRunAttempt !== process.env.EXPECTED_RUN_ATTEMPT) throw new Error('artifact workflow attempt mismatch');
+          if (
+            version.schemaVersion !== 'examples-release-v1' ||
+            version.repository !== process.env.EXPECTED_REPOSITORY ||
+            version.subjectSha !== process.env.EXPECTED_SUBJECT_SHA
+          ) {
+            throw new Error('public version identity mismatch');
+          }
           if (
             evidence.manifestVersion !== 'site-refresh-release-evidence-v1' ||
             evidence.releaseScope !== 'viewer-facing-site-refresh' ||
@@ -171,6 +179,7 @@ jobs:
             ['/data-security/remove-pii/explorer/', 'data-security/remove-pii/explorer/index.html'],
             ['/data-routing/content-routing/explorer/', 'data-routing/content-routing/explorer/index.html'],
             ['/sitemap.xml', 'sitemap.xml'],
+            ['/version.json', 'version.json'],
           ]);
           if (
             canaryManifest.manifestVersion !== 'release-canary-manifest-v1' ||
@@ -314,12 +323,18 @@ jobs:
           curl --fail --silent --show-error --location \
             --header 'Cache-Control: no-cache' --header 'Accept-Encoding: identity' \
             "$BASE_URL/sitemap.xml?release=$SUBJECT_SHA" -o canary/sitemap.xml
+          curl --fail --silent --show-error --location \
+            --header 'Cache-Control: no-cache' --header 'Accept-Encoding: identity' \
+            "$BASE_URL/version.json?release=$SUBJECT_SHA" -o canary/version.json
 
           grep -Fq 'Find the shortest path from data to outcome.' canary/home.html
           grep -Fq 'Remove PII' canary/remove-pii.html
           grep -Fq 'Inspect PII removal' canary/remove-pii-explorer.html
           grep -Fq 'Inspect content routing' canary/content-routing-explorer.html
           grep -Fq 'data-security/remove-pii' canary/sitemap.xml
+          jq -e --arg sha "$SUBJECT_SHA" \
+            '.schemaVersion == "examples-release-v1" and .repository == env.GITHUB_REPOSITORY and .subjectSha == $sha' \
+            canary/version.json > /dev/null
 
           node --input-type=module - <<'NODE'
           import { createHash } from 'node:crypto';
@@ -351,6 +366,7 @@ jobs:
             ['/data-security/remove-pii/explorer/', 'remove-pii-explorer.html'],
             ['/data-routing/content-routing/explorer/', 'content-routing-explorer.html'],
             ['/sitemap.xml', 'sitemap.xml'],
+            ['/version.json', 'version.json'],
           ]);
           const files = expectedManifest.routes.map((expected) => {
             const observedPath = observedPaths.get(expected.route);

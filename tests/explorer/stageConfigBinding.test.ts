@@ -90,7 +90,8 @@ describe('canonical Explorer stage binding', () => {
           { ...binding, exampleId: 'missing-generated-family' },
           sourceStages(),
           family.fullYaml,
-          family.fullYamlFilename
+          family.fullYamlFilename,
+          undefined
         ),
       /no generated stage/
     );

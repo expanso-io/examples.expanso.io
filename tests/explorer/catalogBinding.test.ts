@@ -18,6 +18,10 @@ describe('catalog Explorer binding', () => {
     );
     for (const record of explorerRecords) {
       const binding = resolveCatalogExplorerBinding(record.id);
+      assert.deepEqual(
+        GENERATED_EXPLORER_STAGE_CONFIGS[record.id].binding,
+        binding
+      );
       assert.equal(binding.exampleId, record.id);
       assert.equal(binding.canonicalPipelinePath, record.completePipelinePath);
       assert.equal(binding.provenance, record.explorerEvidence.kind);
