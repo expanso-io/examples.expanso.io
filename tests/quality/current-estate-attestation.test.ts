@@ -222,7 +222,12 @@ describe('current-estate release workflow structure', () => {
   it('retains exact-SHA rollback artifacts and verifies production bytes', () => {
     assert.match(
       foundationWorkflow,
-      /name: Upload exact-SHA production artifact[\s\S]*?retention-days: 90/
+      /name: Upload exact-SHA production artifact[\s\S]*?path: build[\s\S]*?include-hidden-files: true[\s\S]*?retention-days: 90/
+    );
+    assert.equal(
+      readFileSync('static/.well-known/mcp.json', 'utf8').length > 0,
+      true,
+      'MCP discovery metadata must remain part of the exact-SHA artifact'
     );
     assert.match(
       foundationWorkflow,
