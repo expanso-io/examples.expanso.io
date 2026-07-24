@@ -278,6 +278,20 @@ jobs:
     needs: [publish-artifact, deploy]
     runs-on: ubuntu-latest
     steps:
+      - name: Download admitted exact-SHA production artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: production-build-${{ needs.publish-artifact.outputs.subject_sha }}
+          path: expected
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ needs.publish-artifact.outputs.foundation_run_id }}
+
+      - name: Checkout exact-SHA production verifier
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.publish-artifact.outputs.subject_sha }}
+          path: verifier
+
       - name: Verify release subject and public routes
         env:
           BASE_URL: https://examples.expanso.io
@@ -336,77 +350,11 @@ jobs:
             '.schemaVersion == "examples-release-v1" and .repository == env.GITHUB_REPOSITORY and .subjectSha == $sha' \
             canary/version.json > /dev/null
 
-          node --input-type=module - <<'NODE'
-          import { createHash } from 'node:crypto';
-          import { readFileSync, writeFileSync } from 'node:fs';
-
-          const subjectBytes = readFileSync('canary/release-subject.json');
-          const subject = JSON.parse(subjectBytes.toString('utf8'));
-          const expectedManifestBytes = readFileSync(
-            'canary/release-canary-manifest-v1.json'
-          );
-          const expectedManifestSha256 = createHash('sha256')
-            .update(expectedManifestBytes)
-            .digest('hex');
-          if (expectedManifestSha256 !== subject.canaryManifestSha256) {
-            throw new Error('deployed canary manifest is not bound to the admitted subject');
-          }
-          const expectedManifest = JSON.parse(expectedManifestBytes.toString('utf8'));
-          if (
-            expectedManifest.manifestVersion !== 'release-canary-manifest-v1' ||
-            expectedManifest.repository !== process.env.GITHUB_REPOSITORY ||
-            expectedManifest.subjectSha !== process.env.SUBJECT_SHA ||
-            !Array.isArray(expectedManifest.routes)
-          ) {
-            throw new Error('deployed canary manifest identity mismatch');
-          }
-          const observedPaths = new Map([
-            ['/', 'home.html'],
-            ['/data-security/remove-pii/', 'remove-pii.html'],
-            ['/data-security/remove-pii/explorer/', 'remove-pii-explorer.html'],
-            ['/data-routing/content-routing/explorer/', 'content-routing-explorer.html'],
-            ['/sitemap.xml', 'sitemap.xml'],
-            ['/version.json', 'version.json'],
-          ]);
-          const files = expectedManifest.routes.map((expected) => {
-            const observedPath = observedPaths.get(expected.route);
-            if (!observedPath) throw new Error(`unexpected canary route: ${expected.route}`);
-            const bytes = readFileSync(`canary/${observedPath}`);
-            const observed = {
-              route: expected.route,
-              artifactPath: expected.artifactPath,
-              observedPath,
-              bytes: bytes.byteLength,
-              sha256: createHash('sha256').update(bytes).digest('hex'),
-              expectedBytes: expected.bytes,
-              expectedSha256: expected.sha256,
-            };
-            if (
-              observed.bytes !== expected.bytes ||
-              observed.sha256 !== expected.sha256
-            ) {
-              throw new Error(`production bytes do not match admitted artifact: ${expected.route}`);
-            }
-            observedPaths.delete(expected.route);
-            return observed;
-          });
-          if (observedPaths.size !== 0) throw new Error('production canary routes are incomplete');
-          const result = {
-            resultVersion: 'production-canary-v1',
-            status: 'PASS',
-            releaseScope: 'viewer-facing-site-refresh',
-            repository: process.env.GITHUB_REPOSITORY,
-            subjectSha: process.env.SUBJECT_SHA,
-            foundationRunId: process.env.FOUNDATION_RUN_ID,
-            foundationRunAttempt: Number(process.env.FOUNDATION_RUN_ATTEMPT),
-            releaseRunId: process.env.GITHUB_RUN_ID,
-            releaseRunAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
-            baseUrl: process.env.BASE_URL,
-            expectedManifestSha256,
-            files,
-          };
-          writeFileSync('production-canary-v1.json', `${JSON.stringify(result, null, 2)}\n`);
-          NODE
+          node verifier/scripts/verify-production-canary.mjs \
+            --manifest canary/release-canary-manifest-v1.json \
+            --expected-root expected \
+            --observed-root canary \
+            --output production-canary-v1.json
 
       - name: Upload production canary evidence
         uses: actions/upload-artifact@v4

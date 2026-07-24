@@ -173,6 +173,10 @@ describe('current-estate release attestation verifier', () => {
 
 describe('current-estate release workflow structure', () => {
   const deployWorkflow = readFileSync('.github/workflows/deploy.yml', 'utf8');
+  const productionCanaryVerifier = readFileSync(
+    'scripts/verify-production-canary.mjs',
+    'utf8'
+  );
   const foundationWorkflow = readFileSync(
     '.github/workflows/phase1-foundation.yml',
     'utf8'
@@ -240,8 +244,16 @@ describe('current-estate release workflow structure', () => {
     assert.match(foundationWorkflow, /if \[ "\$GREP_STATUS" -gt 1 \]/);
     assert.match(deployWorkflow, /production-canary-v1/);
     assert.match(
-      deployWorkflow,
+      productionCanaryVerifier,
       /production bytes do not match admitted artifact/
+    );
+    assert.match(
+      deployWorkflow,
+      /name: Download admitted exact-SHA production artifact[\s\S]*?run-id: \$\{\{ needs\.publish-artifact\.outputs\.foundation_run_id \}\}/
+    );
+    assert.match(
+      deployWorkflow,
+      /node verifier\/scripts\/verify-production-canary\.mjs/
     );
     assert.match(deployWorkflow, /name: Upload production canary evidence/);
     assert.match(
