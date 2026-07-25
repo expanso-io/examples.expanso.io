@@ -8,6 +8,10 @@ const EMAIL_PROTECTION =
 const EMAIL_DECODER =
   /<script data-cfasync="false" src="\/cdn-cgi\/scripts\/([0-9a-f]{8})\/cloudflare-static\/email-decode\.min\.js"><\/script>/g;
 const CHALLENGE_START = '<script>(function(){function c(){';
+const CHALLENGE_DOCUMENT_EXPRESSIONS = [
+  'a.contentDocument||a.contentWindow.document',
+  'a.contentDocument||(a.contentWindow&&a.contentWindow.document)',
+];
 
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
@@ -32,8 +36,8 @@ function decodeCloudflareEmail(encoded) {
   return email;
 }
 
-function expectedChallengeScript(ray, timestamp) {
-  return `<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'${ray}',t:'${timestamp}'};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script>`;
+function expectedChallengeScript(ray, timestamp, documentExpression) {
+  return `<script>(function(){function c(){var b=${documentExpression};if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'${ray}',t:'${timestamp}'};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script>`;
 }
 
 function removeCloudflareChallenge(html) {
@@ -45,10 +49,12 @@ function removeCloudflareChallenge(html) {
   const identity = candidate.match(
     /window\.__CF\$cv\$params=\{r:'([0-9a-f]{16})',t:'([A-Za-z0-9+/]+={0,2})'\};/
   );
-  if (
-    !identity ||
-    candidate !== expectedChallengeScript(identity[1], identity[2])
-  ) {
+  const expectedCandidates = identity
+    ? CHALLENGE_DOCUMENT_EXPRESSIONS.map((documentExpression) =>
+        expectedChallengeScript(identity[1], identity[2], documentExpression)
+      )
+    : [];
+  if (!identity || !expectedCandidates.includes(candidate)) {
     throw new Error('unrecognized Cloudflare challenge transformation');
   }
   if (html.indexOf(CHALLENGE_START) !== challengeIndex) {
