@@ -25,6 +25,19 @@ mkdirSync(evidenceRoot, { recursive: true });
 rmSync(observationPath, { force: true });
 rmSync(resultPath, { force: true });
 
+const accessibilityWorkers = (
+  process.env.QUALITY_ACCESSIBILITY_WORKERS ?? ''
+).trim();
+if (
+  accessibilityWorkers !== '' &&
+  (!/^[1-9]\d*$/.test(accessibilityWorkers) ||
+    Number(accessibilityWorkers) > 16)
+) {
+  throw new Error(
+    'QUALITY_ACCESSIBILITY_WORKERS must be an integer between 1 and 16'
+  );
+}
+
 function run(command: string, args: string[], env = process.env): number {
   const result = spawnSync(command, args, {
     stdio: 'inherit',
@@ -55,6 +68,9 @@ const playwrightExit = run(
     'tests/quality/accessibility/site-accessibility.spec.ts',
     '--project=chromium-desktop',
     '--reporter=line,./scripts/quality/accessibility-reporter.ts',
+    ...(accessibilityWorkers === ''
+      ? []
+      : [`--workers=${accessibilityWorkers}`]),
   ],
   {
     ...process.env,

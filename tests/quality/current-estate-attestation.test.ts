@@ -185,6 +185,22 @@ describe('current-estate release workflow structure', () => {
     'scripts/quality/build-release-evidence.ts',
     'utf8'
   );
+  const accessibilityRunner = readFileSync(
+    'scripts/quality/run-accessibility.ts',
+    'utf8'
+  );
+
+  it('runs the complete accessibility estate within the hosted-runner budget', () => {
+    assert.match(
+      foundationWorkflow,
+      /name: Produce and reduce the full accessibility evidence matrix[\s\S]*?QUALITY_ACCESSIBILITY_WORKERS: '6'/
+    );
+    assert.match(
+      accessibilityRunner,
+      /QUALITY_ACCESSIBILITY_WORKERS[\s\S]*?--workers=\$\{accessibilityWorkers\}/
+    );
+    assert.match(accessibilityRunner, /must be an integer between 1 and 16/);
+  });
 
   it('deploys only an exact successful main-branch foundation artifact', () => {
     assert.match(
