@@ -261,4 +261,24 @@ describe('current-estate release workflow structure', () => {
       /release-canary-manifest-v1[\s\S]*?canaryManifestSha256/
     );
   });
+
+  it('uses the manifest-bound verifier as the production content oracle', () => {
+    const canaryStep = deployWorkflow.match(
+      /      - name: Verify release subject and public routes[\s\S]*?(?=\n      - name: Upload production canary evidence)/
+    );
+    assert.ok(canaryStep, 'production canary verification step must exist');
+    assert.doesNotMatch(
+      canaryStep[0],
+      /\bgrep\b/,
+      'content-literal pre-checks must not preempt exact byte verification'
+    );
+    assert.match(
+      canaryStep[0],
+      /\.schemaVersion == "examples-release-v1"[\s\S]*?\.subjectSha == \$sha/
+    );
+    assert.match(
+      canaryStep[0],
+      /node verifier\/scripts\/verify-production-canary\.mjs[\s\S]*?--manifest canary\/release-canary-manifest-v1\.json[\s\S]*?--expected-root expected[\s\S]*?--observed-root canary/
+    );
+  });
 });
