@@ -654,9 +654,14 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  browser-accessibility:
-    name: Browser Accessibility
+  browser-accessibility-shard:
+    name: Browser Accessibility Shard (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -676,10 +681,56 @@ jobs:
       - name: Install pinned Playwright Chromium
         run: ./node_modules/.bin/playwright install --with-deps chromium
 
+      - name: Build the exact test-only accessibility inventory
+        env:
+          EXPLORER_RUNTIME_HARNESS: '1'
+        run: npm run build
+
+      - name: Produce deterministic accessibility shard
+        env:
+          QUALITY_SUBJECT_SHA: ${{ github.sha }}
+          QUALITY_ENVIRONMENT_ID: github-actions-linux-x64
+          QUALITY_SKIP_BUILD: '1'
+          QUALITY_ACCESSIBILITY_WORKERS: '6'
+          QUALITY_ACCESSIBILITY_SHARD_INDEX: ${{ matrix.shard }}
+          QUALITY_ACCESSIBILITY_SHARD_TOTAL: '4'
+          QUALITY_ACCESSIBILITY_OUTPUT_ROOT: test-results/quality/accessibility-shard
+        run: npm run quality:accessibility
+
+      - name: Upload exact accessibility shard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-accessibility-shard-${{ github.sha }}-${{ matrix.shard }}
+          path: test-results/quality/accessibility-shard
+          if-no-files-found: error
+          retention-days: 14
+
+  browser-accessibility:
+    name: Browser Accessibility
+    needs:
+      - browser-accessibility-shard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate accessibility contract schema and digest
+        run: npm run quality:contracts
+
       - name: Build the exact route inventory
         run: npm run build
 
-      - name: Run accessibility reducer negative tests
+      - name: Run accessibility reducer and shard-merger negative tests
         run: npm run test-quality-reducers
 
       - name: Build the test-only accessibility inventory
@@ -687,15 +738,48 @@ jobs:
           EXPLORER_RUNTIME_HARNESS: '1'
         run: npm run build
 
-      - name: Produce and reduce the full accessibility evidence matrix
+      - name: Download accessibility shard 1
+        uses: actions/download-artifact@v4
+        with:
+          name: browser-accessibility-shard-${{ github.sha }}-1
+          path: test-results/accessibility-shards/1
+
+      - name: Download accessibility shard 2
+        uses: actions/download-artifact@v4
+        with:
+          name: browser-accessibility-shard-${{ github.sha }}-2
+          path: test-results/accessibility-shards/2
+
+      - name: Download accessibility shard 3
+        uses: actions/download-artifact@v4
+        with:
+          name: browser-accessibility-shard-${{ github.sha }}-3
+          path: test-results/accessibility-shards/3
+
+      - name: Download accessibility shard 4
+        uses: actions/download-artifact@v4
+        with:
+          name: browser-accessibility-shard-${{ github.sha }}-4
+          path: test-results/accessibility-shards/4
+
+      - name: Merge shards and reduce the full accessibility inventory
         env:
           QUALITY_SUBJECT_SHA: ${{ github.sha }}
           QUALITY_ENVIRONMENT_ID: github-actions-linux-x64
-          QUALITY_SKIP_BUILD: '1'
-          QUALITY_ACCESSIBILITY_WORKERS: '6'
         run: |
           set -euo pipefail
-          npm run quality:accessibility
+          npm run quality:accessibility:merge -- \
+            --input-root test-results/accessibility-shards \
+            --output test-results/quality/accessibility/playwright-observations.json \
+            --subject-sha "$GITHUB_SHA" \
+            --environment-id github-actions-linux-x64 \
+            --shard-total 4
+          npm run quality:accessibility:result -- \
+            --observations test-results/quality/accessibility/playwright-observations.json \
+            --subject-sha "$GITHUB_SHA" \
+            --environment-id github-actions-linux-x64 \
+            --evidence-root test-results/quality/accessibility \
+            --output test-results/quality/accessibility/accessibility-result.json
           ./node_modules/.bin/tsx scripts/quality/reduce-accessibility.ts \
             --input test-results/quality/accessibility/accessibility-result.json \
             --subject-sha "$GITHUB_SHA" \
@@ -703,13 +787,13 @@ jobs:
             --evidence-root test-results/quality/accessibility \
             > test-results/quality/accessibility/accessibility-reduction.json
 
-      - name: Upload accessibility evidence
+      - name: Upload canonical accessibility evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: browser-accessibility-evidence-${{ github.sha }}
           path: test-results/quality/accessibility
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 14
 
   production-build:

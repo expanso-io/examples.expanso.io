@@ -189,17 +189,32 @@ describe('current-estate release workflow structure', () => {
     'scripts/quality/run-accessibility.ts',
     'utf8'
   );
+  const accessibilityMerger = readFileSync(
+    'scripts/quality/merge-accessibility-shards.ts',
+    'utf8'
+  );
 
   it('runs the complete accessibility estate within the hosted-runner budget', () => {
     assert.match(
       foundationWorkflow,
-      /name: Produce and reduce the full accessibility evidence matrix[\s\S]*?QUALITY_ACCESSIBILITY_WORKERS: '6'/
+      /matrix:[\s\S]*?shard: \[1, 2, 3, 4\][\s\S]*?QUALITY_ACCESSIBILITY_SHARD_TOTAL: '4'/
     );
     assert.match(
       accessibilityRunner,
       /QUALITY_ACCESSIBILITY_WORKERS[\s\S]*?--workers=\$\{accessibilityWorkers\}/
     );
-    assert.match(accessibilityRunner, /must be an integer between 1 and 16/);
+    assert.match(
+      accessibilityRunner,
+      /--shard=\$\{shardIndex\}\/\$\{shardTotal\}/
+    );
+    assert.match(
+      accessibilityMerger,
+      /Duplicate accessibility observation across shards/
+    );
+    assert.match(
+      foundationWorkflow,
+      /production-build:[\s\S]*?needs:[\s\S]*?- browser-accessibility/
+    );
   });
 
   it('deploys only an exact successful main-branch foundation artifact', () => {

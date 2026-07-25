@@ -8,6 +8,7 @@ import {
   reduceAccessibility,
 } from './reduce-accessibility';
 import { readJson } from './contract-lib';
+import { writeAccessibilityShardManifest } from './merge-accessibility-shards';
 
 const subjectSha = process.env.QUALITY_SUBJECT_SHA;
 if (!subjectSha) {
@@ -18,7 +19,37 @@ if (!subjectSha) {
 
 const environmentId =
   process.env.QUALITY_ENVIRONMENT_ID ?? `${process.platform}-${process.arch}`;
-const evidenceRoot = resolve('test-results/quality/accessibility');
+const shardIndexText = (
+  process.env.QUALITY_ACCESSIBILITY_SHARD_INDEX ?? ''
+).trim();
+const shardTotalText = (
+  process.env.QUALITY_ACCESSIBILITY_SHARD_TOTAL ?? ''
+).trim();
+if ((shardIndexText === '') !== (shardTotalText === '')) {
+  throw new Error(
+    'QUALITY_ACCESSIBILITY_SHARD_INDEX and QUALITY_ACCESSIBILITY_SHARD_TOTAL must be set together'
+  );
+}
+const shardIndex = shardIndexText === '' ? null : Number(shardIndexText);
+const shardTotal = shardTotalText === '' ? null : Number(shardTotalText);
+if (
+  shardIndex !== null &&
+  shardTotal !== null &&
+  (!Number.isInteger(shardTotal) ||
+    shardTotal < 1 ||
+    shardTotal > 16 ||
+    !Number.isInteger(shardIndex) ||
+    shardIndex < 1 ||
+    shardIndex > shardTotal)
+) {
+  throw new Error(
+    'Accessibility shard coordinates must be integers with 1 <= index <= total <= 16'
+  );
+}
+const evidenceRoot = resolve(
+  process.env.QUALITY_ACCESSIBILITY_OUTPUT_ROOT ??
+    'test-results/quality/accessibility'
+);
 const observationPath = resolve(evidenceRoot, 'playwright-observations.json');
 const resultPath = resolve(evidenceRoot, 'accessibility-result.json');
 mkdirSync(evidenceRoot, { recursive: true });
@@ -71,6 +102,9 @@ const playwrightExit = run(
     ...(accessibilityWorkers === ''
       ? []
       : [`--workers=${accessibilityWorkers}`]),
+    ...(shardIndex === null || shardTotal === null
+      ? []
+      : [`--shard=${shardIndex}/${shardTotal}`]),
   ],
   {
     ...process.env,
@@ -88,6 +122,26 @@ if (playwrightExit !== 0) {
   throw new Error(
     `Playwright accessibility producer exited ${playwrightExit}; retained observations cannot authorize PASS`
   );
+}
+
+if (shardIndex !== null && shardTotal !== null) {
+  writeAccessibilityShardManifest({
+    subjectSha,
+    environmentId,
+    shardIndex,
+    shardTotal,
+    observationPath,
+    outputPath: resolve(evidenceRoot, 'accessibility-shard-manifest.json'),
+  });
+  process.stdout.write(
+    `${JSON.stringify({
+      status: 'PASS',
+      shardIndex,
+      shardTotal,
+      observationPath,
+    })}\n`
+  );
+  process.exit(0);
 }
 
 produceAccessibilityResult({
