@@ -554,11 +554,25 @@ test.describe('accessibility-v1 inventory matrix', () => {
         }
       );
 
-      await observe(
+      expect(failures, failures.join('\n')).toEqual([]);
+    });
+
+    test(`dark and light viewport evidence emits for ${route.path}`, async ({
+      page,
+      browser,
+    }, testInfo) => {
+      const failure = await recordObservation(
+        testInfo,
+        browser,
         'dark-light-viewports',
+        route.path,
         {
           environmentIds: contract.environments.map(({ id }) => id),
           themes: ['dark', 'light'],
+          interactionModes:
+            route.capabilities.interactionMode === 'none'
+              ? []
+              : [route.capabilities.interactionMode],
         },
         async () => {
           for (const environment of contract.environments) {
@@ -575,7 +589,7 @@ test.describe('accessibility-v1 inventory matrix', () => {
         }
       );
 
-      expect(failures, failures.join('\n')).toEqual([]);
+      expect(failure, failure ?? '').toBeNull();
     });
   }
 });
