@@ -568,7 +568,7 @@ export const COMPONENTS = [
     id: 'expanso-runtime',
     label: 'Expanso runtime',
     definition: 'The Expanso-native runtime that executes a pipeline.',
-    aliases: ['bacalhau', 'expanso'],
+    aliases: ['expanso'],
     maintainingAgentLane: 'engineering',
   },
   {
