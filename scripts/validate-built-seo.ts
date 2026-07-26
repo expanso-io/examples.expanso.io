@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const buildRoot = resolve('build');
@@ -58,6 +58,40 @@ for (const url of urls) {
 if (tagRoutes === 0) {
   failures.push('Sitemap contains no tag routes');
 }
+const forbiddenEntity = ['baca', 'lhau'].join('');
+const textExtensions = new Set([
+  '.css', '.csv', '.html', '.js', '.json', '.jsonl', '.mjs', '.rss',
+  '.svg', '.txt', '.xml', '.yaml', '.yml',
+]);
+const unsupportedInspectableExtensions = new Set(['.docx', '.pdf']);
+
+function scanPublicArtifacts(directory: string): void {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = resolve(directory, entry.name);
+    if (entry.isDirectory()) {
+      scanPublicArtifacts(path);
+      continue;
+    }
+    if (!entry.isFile()) {
+      failures.push(`${path}: public artifact is not a regular file`);
+      continue;
+    }
+    const extension = entry.name.includes('.')
+      ? entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase()
+      : '';
+    if (unsupportedInspectableExtensions.has(extension)) {
+      failures.push(`${path}: public artifact type requires an explicit entity inspector`);
+      continue;
+    }
+    if (!textExtensions.has(extension)) continue;
+    const value = readFileSync(path, 'utf8').toLowerCase();
+    if (value.includes(forbiddenEntity)) {
+      failures.push(`${path}: contains the prohibited legacy entity`);
+    }
+  }
+}
+
+scanPublicArtifacts(buildRoot);
 if (failures.length > 0) {
   throw new Error(`Built SEO validation failed:\n${failures.join('\n')}`);
 }
