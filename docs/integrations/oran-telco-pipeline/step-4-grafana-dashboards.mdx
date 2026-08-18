@@ -1,21 +1,31 @@
 ---
-title: "Step 4: Visualize O-RAN Telemetry in Grafana"
-sidebar_label: "Step 4: Grafana"
+title: 'Step 4: Visualize O-RAN Telemetry in Grafana'
+sidebar_label: 'Step 4: Grafana'
 sidebar_position: 7
 description: "Build illustrative Grafana dashboards from the walkthrough's telemetry fields."
 keywords: [oran, telecom, telemetry, grafana, dashboards, observability]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-integrations-oran-telco-pipeline-step-4-grafana-dashboards]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 4: Grafana Dashboards
 
-Create comprehensive Grafana dashboards to visualize O-RAN telemetry for NOC operations, compliance monitoring, and performance analysis.
+Inspect authored Grafana panels for telemetry review. Grafana remains an external service.
 
 ## Dashboard Overview
 
 Build three specialized dashboards:
 
 1. **O-RAN Operations Dashboard** — Real-time NOC view with KPIs
-2. **PTP Compliance Dashboard** — 5G timing compliance monitoring
+2. **Timing Review Dashboard** — authored offset bands
 3. **Network Performance Dashboard** — Capacity planning and optimization
 
 ## Dashboard 1: O-RAN Operations (NOC View)
@@ -42,27 +52,27 @@ Real-time operational dashboard for network operations center:
         "id": 1,
         "title": "Network Health Overview",
         "type": "stat",
-        "gridPos": {"h": 6, "w": 8, "x": 0, "y": 0},
+        "gridPos": { "h": 6, "w": 8, "x": 0, "y": 0 },
         "targets": [
           {
-            "expr": "count(oran_ptp_compliance_score > 90)",
-            "legendFormat": "Compliant Sites",
+            "expr": "count(oran_ptp_review_score > 90)",
+            "legendFormat": "Sites in review band",
             "refId": "A"
           },
           {
-            "expr": "count(oran_ptp_compliance_score)",
-            "legendFormat": "Total Sites", 
+            "expr": "count(oran_ptp_review_score)",
+            "legendFormat": "Total Sites",
             "refId": "B"
           }
         ],
         "fieldConfig": {
           "defaults": {
-            "color": {"mode": "thresholds"},
+            "color": { "mode": "thresholds" },
             "thresholds": {
               "steps": [
-                {"color": "red", "value": 0},
-                {"color": "yellow", "value": 80},
-                {"color": "green", "value": 95}
+                { "color": "red", "value": 0 },
+                { "color": "yellow", "value": 80 },
+                { "color": "green", "value": 95 }
               ]
             },
             "unit": "short"
@@ -81,25 +91,25 @@ Real-time operational dashboard for network operations center:
       },
       {
         "id": 2,
-        "title": "PTP Timing Compliance",
+        "title": "PTP Timing Review",
         "type": "gauge",
-        "gridPos": {"h": 6, "w": 8, "x": 8, "y": 0},
+        "gridPos": { "h": 6, "w": 8, "x": 8, "y": 0 },
         "targets": [
           {
-            "expr": "avg(oran_ptp_compliance_score)",
+            "expr": "avg(oran_ptp_review_score)",
             "legendFormat": "Network Average",
             "refId": "A"
           }
         ],
         "fieldConfig": {
           "defaults": {
-            "color": {"mode": "thresholds"},
+            "color": { "mode": "thresholds" },
             "thresholds": {
               "mode": "absolute",
               "steps": [
-                {"color": "red", "value": 0},
-                {"color": "yellow", "value": 70},
-                {"color": "green", "value": 90}
+                { "color": "red", "value": 0 },
+                { "color": "yellow", "value": 70 },
+                { "color": "green", "value": 90 }
               ]
             },
             "unit": "percent",
@@ -118,13 +128,13 @@ Real-time operational dashboard for network operations center:
         }
       },
       {
-        "id": 3, 
+        "id": 3,
         "title": "Critical Alerts",
         "type": "table",
-        "gridPos": {"h": 6, "w": 8, "x": 16, "y": 0},
+        "gridPos": { "h": 6, "w": 8, "x": 16, "y": 0 },
         "targets": [
           {
-            "expr": "oran_ptp_compliance_score{ptp_compliance=\"critical\"} < 50",
+            "expr": "oran_ptp_review_score{ptp_review=\"critical\"} < 50",
             "format": "table",
             "legendFormat": "{{du_id}} - {{cell_id}}",
             "refId": "A"
@@ -137,24 +147,24 @@ Real-time operational dashboard for network operations center:
               "displayMode": "list",
               "filterable": true
             },
-            "color": {"mode": "thresholds"},
+            "color": { "mode": "thresholds" },
             "thresholds": {
               "steps": [
-                {"color": "transparent", "value": 0},
-                {"color": "red", "value": 1}
+                { "color": "transparent", "value": 0 },
+                { "color": "red", "value": 1 }
               ]
             }
           }
         },
         "options": {
           "showHeader": true,
-          "sortBy": [{"desc": true, "displayName": "Value"}]
+          "sortBy": [{ "desc": true, "displayName": "Value" }]
         },
         "transformations": [
           {
             "id": "organize",
             "options": {
-              "excludeByName": {"Time": true},
+              "excludeByName": { "Time": true },
               "indexByName": {
                 "du_id": 0,
                 "cell_id": 1,
@@ -162,8 +172,8 @@ Real-time operational dashboard for network operations center:
               },
               "renameByName": {
                 "du_id": "DU ID",
-                "cell_id": "Cell ID", 
-                "Value": "Compliance Score"
+                "cell_id": "Cell ID",
+                "Value": "Review Score"
               }
             }
           }
@@ -173,7 +183,7 @@ Real-time operational dashboard for network operations center:
         "id": 4,
         "title": "PRB Utilization Heatmap",
         "type": "heatmap",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
         "targets": [
           {
             "expr": "oran_prb_utilization_percent{direction=\"downlink\"}",
@@ -189,7 +199,7 @@ Real-time operational dashboard for network operations center:
                 "tooltip": false,
                 "vis": false
               },
-              "scaleDistribution": {"type": "linear"}
+              "scaleDistribution": { "type": "linear" }
             },
             "color": {
               "mode": "continuous-GrYlRd",
@@ -200,9 +210,9 @@ Real-time operational dashboard for network operations center:
         },
         "options": {
           "calculate": true,
-          "calculation": {"xBuckets": {"mode": "count", "value": "50"}},
+          "calculation": { "xBuckets": { "mode": "count", "value": "50" } },
           "cellGap": 2,
-          "cellValues": {"unit": "percent"},
+          "cellValues": { "unit": "percent" },
           "color": {
             "exponent": 0.5,
             "fill": "dark-orange",
@@ -211,11 +221,11 @@ Real-time operational dashboard for network operations center:
             "scheme": "Oranges",
             "steps": 64
           },
-          "exemplars": {"color": "rgba(255,0,255,0.7)"},
-          "filterValues": {"le": 1e-9},
-          "legend": {"show": false},
-          "rowsFrame": {"layout": "auto"},
-          "tooltip": {"show": true, "yHistogram": false},
+          "exemplars": { "color": "rgba(255,0,255,0.7)" },
+          "filterValues": { "le": 1e-9 },
+          "legend": { "show": false },
+          "rowsFrame": { "layout": "auto" },
+          "tooltip": { "show": true, "yHistogram": false },
           "yAxis": {
             "axisPlacement": "left",
             "reverse": false,
@@ -227,7 +237,7 @@ Real-time operational dashboard for network operations center:
         "id": 5,
         "title": "CPU Utilization by Site",
         "type": "timeseries",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
         "targets": [
           {
             "expr": "oran_cpu_utilization_percent",
@@ -237,7 +247,7 @@ Real-time operational dashboard for network operations center:
         ],
         "fieldConfig": {
           "defaults": {
-            "color": {"mode": "palette-classic"},
+            "color": { "mode": "palette-classic" },
             "custom": {
               "axisPlacement": "auto",
               "barAlignment": 0,
@@ -252,18 +262,18 @@ Real-time operational dashboard for network operations center:
               "lineInterpolation": "smooth",
               "lineWidth": 2,
               "pointSize": 5,
-              "scaleDistribution": {"type": "linear"},
+              "scaleDistribution": { "type": "linear" },
               "showPoints": "never",
               "spanNulls": false,
-              "stacking": {"group": "A", "mode": "none"},
-              "thresholdsStyle": {"mode": "line"}
+              "stacking": { "group": "A", "mode": "none" },
+              "thresholdsStyle": { "mode": "line" }
             },
             "thresholds": {
               "mode": "absolute",
               "steps": [
-                {"color": "green", "value": null},
-                {"color": "yellow", "value": 70},
-                {"color": "red", "value": 90}
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 70 },
+                { "color": "red", "value": 90 }
               ]
             },
             "unit": "percent"
@@ -275,14 +285,14 @@ Real-time operational dashboard for network operations center:
             "displayMode": "table",
             "placement": "bottom"
           },
-          "tooltip": {"mode": "multi", "sort": "desc"}
+          "tooltip": { "mode": "multi", "sort": "desc" }
         }
       },
       {
         "id": 6,
         "title": "RF Quality Distribution",
-        "type": "piechart", 
-        "gridPos": {"h": 6, "w": 8, "x": 0, "y": 14},
+        "type": "piechart",
+        "gridPos": { "h": 6, "w": 8, "x": 0, "y": 14 },
         "targets": [
           {
             "expr": "count by (rsrp_quality) (oran_rf_health_score)",
@@ -292,7 +302,7 @@ Real-time operational dashboard for network operations center:
         ],
         "fieldConfig": {
           "defaults": {
-            "color": {"mode": "palette-classic"},
+            "color": { "mode": "palette-classic" },
             "custom": {
               "hideFrom": {
                 "legend": false,
@@ -304,12 +314,22 @@ Real-time operational dashboard for network operations center:
           },
           "overrides": [
             {
-              "matcher": {"id": "byName", "options": "excellent"},
-              "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]
+              "matcher": { "id": "byName", "options": "excellent" },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": { "mode": "fixed", "fixedColor": "green" }
+                }
+              ]
             },
             {
-              "matcher": {"id": "byName", "options": "poor"},
-              "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]
+              "matcher": { "id": "byName", "options": "poor" },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": { "mode": "fixed", "fixedColor": "red" }
+                }
+              ]
             }
           ]
         },
@@ -320,9 +340,9 @@ Real-time operational dashboard for network operations center:
             "fields": ""
           },
           "pieType": "pie",
-          "tooltip": {"mode": "single", "sort": "none"},
+          "tooltip": { "mode": "single", "sort": "none" },
           "legend": {
-            "displayMode": "table", 
+            "displayMode": "table",
             "placement": "right",
             "values": ["percent"]
           }
@@ -332,7 +352,7 @@ Real-time operational dashboard for network operations center:
         "id": 7,
         "title": "Congestion Forecast",
         "type": "timeseries",
-        "gridPos": {"h": 6, "w": 16, "x": 8, "y": 14},
+        "gridPos": { "h": 6, "w": 16, "x": 8, "y": 14 },
         "targets": [
           {
             "expr": "predict_linear(oran_prb_utilization_percent{direction=\"downlink\"}[30m], 3600)",
@@ -347,7 +367,7 @@ Real-time operational dashboard for network operations center:
         ],
         "fieldConfig": {
           "defaults": {
-            "color": {"mode": "palette-classic"},
+            "color": { "mode": "palette-classic" },
             "custom": {
               "axisPlacement": "auto",
               "drawStyle": "line",
@@ -358,17 +378,17 @@ Real-time operational dashboard for network operations center:
             "thresholds": {
               "mode": "absolute",
               "steps": [
-                {"color": "transparent", "value": null},
-                {"color": "yellow", "value": 80},
-                {"color": "red", "value": 95}
+                { "color": "transparent", "value": null },
+                { "color": "yellow", "value": 80 },
+                { "color": "red", "value": 95 }
               ]
             },
             "unit": "percent"
           }
         },
         "options": {
-          "legend": {"displayMode": "table", "placement": "bottom"},
-          "tooltip": {"mode": "multi", "sort": "desc"}
+          "legend": { "displayMode": "table", "placement": "bottom" },
+          "tooltip": { "mode": "multi", "sort": "desc" }
         }
       }
     ]
@@ -376,17 +396,17 @@ Real-time operational dashboard for network operations center:
 }
 ```
 
-## Dashboard 2: PTP Compliance Monitoring
+## Dashboard 2: Timing Review
 
-Specialized dashboard for 5G timing compliance:
+Reference dashboard for authored timing bands:
 
 ### Key Panels
 
 ```json
 {
   "dashboard": {
-    "title": "O-RAN PTP Timing Compliance",
-    "description": "5G precision timing protocol compliance monitoring",
+    "title": "O-RAN PTP Timing Review",
+    "description": "5G precision timing protocol review monitoring",
     "panels": [
       {
         "id": 1,
@@ -401,15 +421,15 @@ Specialized dashboard for 5G timing compliance:
         ],
         "fieldConfig": {
           "defaults": {
-            "custom": {"bucketSize": 50},
+            "custom": { "bucketSize": 50 },
             "unit": "ns",
-            "color": {"mode": "continuous-GrYlRd"}
+            "color": { "mode": "continuous-GrYlRd" }
           }
         }
       },
       {
         "id": 2,
-        "title": "Compliance Violations (Last 24h)",
+        "title": "Review Violations (Last 24h)",
         "type": "table",
         "targets": [
           {
@@ -423,9 +443,12 @@ Specialized dashboard for 5G timing compliance:
             "id": "groupBy",
             "options": {
               "fields": {
-                "du_id": {"aggregation": ["distinctCount"], "operation": "groupby"},
-                "severity": {"aggregation": ["last"], "operation": "groupby"},
-                "Value": {"aggregation": ["sum"], "operation": "aggregate"}
+                "du_id": {
+                  "aggregation": ["distinctCount"],
+                  "operation": "groupby"
+                },
+                "severity": { "aggregation": ["last"], "operation": "groupby" },
+                "Value": { "aggregation": ["sum"], "operation": "aggregate" }
               }
             }
           }
@@ -444,16 +467,19 @@ Specialized dashboard for 5G timing compliance:
         ],
         "fieldConfig": {
           "defaults": {
-            "color": {"mode": "thresholds"},
+            "color": { "mode": "thresholds" },
             "thresholds": {
               "steps": [
-                {"color": "red", "value": 0},
-                {"color": "green", "value": 1}
+                { "color": "red", "value": 0 },
+                { "color": "green", "value": 1 }
               ]
             },
             "mappings": [
-              {"options": {"0": {"text": "Unreachable"}}, "type": "value"},
-              {"options": {"1": {"text": "Healthy"}}, "type": "value"}
+              {
+                "options": { "0": { "text": "Unreachable" } },
+                "type": "value"
+              },
+              { "options": { "1": { "text": "Healthy" } }, "type": "value" }
             ]
           }
         }
@@ -472,7 +498,7 @@ Advanced analytics dashboard for capacity planning:
 ```json
 {
   "dashboard": {
-    "title": "O-RAN Network Performance Analytics", 
+    "title": "O-RAN Network Performance Analytics",
     "panels": [
       {
         "id": 1,
@@ -512,9 +538,9 @@ Advanced analytics dashboard for capacity planning:
             "unit": "percent",
             "thresholds": {
               "steps": [
-                {"color": "red", "value": 0},
-                {"color": "yellow", "value": 20},
-                {"color": "green", "value": 50}
+                { "color": "red", "value": 0 },
+                { "color": "yellow", "value": 20 },
+                { "color": "green", "value": 50 }
               ]
             }
           }
@@ -534,9 +560,9 @@ Advanced analytics dashboard for capacity planning:
         "fieldConfig": {
           "defaults": {
             "custom": {
-              "hideFrom": {"legend": false, "tooltip": false, "vis": false}
+              "hideFrom": { "legend": false, "tooltip": false, "vis": false }
             },
-            "color": {"mode": "continuous-GrYlRd"}
+            "color": { "mode": "continuous-GrYlRd" }
           }
         }
       }
@@ -552,27 +578,27 @@ Configure Prometheus alerting rules for proactive monitoring:
 ```yaml
 # alerts/oran-alerts.yml
 groups:
-  - name: oran_ptp_compliance
+  - name: oran_ptp_review
     rules:
-      - alert: PTPComplianceCritical
-        expr: oran_ptp_compliance_score < 50
+      - alert: PTPReviewCritical
+        expr: oran_ptp_review_score < 50
         for: 2m
         labels:
           severity: critical
           service: oran_timing
         annotations:
-          summary: "PTP compliance critical on {{$labels.du_id}}"
-          description: "PTP compliance score is {{$value}}% on DU {{$labels.du_id}}, cell {{$labels.cell_id}}"
-          
-      - alert: PTPOffsetHigh  
+          summary: 'PTP review critical on {{$labels.du_id}}'
+          description: 'PTP review score is {{$value}}% on DU {{$labels.du_id}}, cell {{$labels.cell_id}}'
+
+      - alert: PTPOffsetHigh
         expr: abs(oran_ptp_offset_nanoseconds) > 1000
         for: 1m
         labels:
           severity: warning
           service: oran_timing
         annotations:
-          summary: "High PTP offset detected"
-          description: "PTP offset is {{$value}}ns on {{$labels.du_id}}"
+          summary: 'High PTP offset detected'
+          description: 'PTP offset is {{$value}}ns on {{$labels.du_id}}'
 
   - name: oran_capacity
     rules:
@@ -583,9 +609,9 @@ groups:
           severity: warning
           service: oran_capacity
         annotations:
-          summary: "High PRB utilization on {{$labels.du_id}}"
-          description: "DL PRB utilization is {{$value}}% on cell {{$labels.cell_id}}"
-          
+          summary: 'High PRB utilization on {{$labels.du_id}}'
+          description: 'DL PRB utilization is {{$value}}% on cell {{$labels.cell_id}}'
+
       - alert: CongestedCellPredicted
         expr: predict_linear(oran_prb_utilization_percent{direction="downlink"}[30m], 3600) > 95
         for: 10m
@@ -593,8 +619,8 @@ groups:
           severity: warning
           service: oran_capacity
         annotations:
-          summary: "Cell congestion predicted in 1 hour"
-          description: "PRB utilization on {{$labels.cell_id}} predicted to reach {{$value}}%"
+          summary: 'Cell congestion predicted in 1 hour'
+          description: 'PRB utilization on {{$labels.cell_id}} predicted to reach {{$value}}%'
 
   - name: oran_rf_quality
     rules:
@@ -605,8 +631,8 @@ groups:
           severity: warning
           service: oran_rf
         annotations:
-          summary: "RF quality degraded on {{$labels.du_id}}"
-          description: "RF health score is {{$value}} on cell {{$labels.cell_id}}"
+          summary: 'RF quality degraded on {{$labels.du_id}}'
+          description: 'RF health score is {{$value}} on cell {{$labels.cell_id}}'
 ```
 
 ## Dashboard Import Script
@@ -627,11 +653,11 @@ curl -X POST \
   -d @dashboards/oran-operations.json \
   "${GRAFANA_URL}/api/dashboards/db"
 
-# Import PTP Compliance Dashboard  
+# Import PTP Review Dashboard
 curl -X POST \
   -H "Authorization: Bearer ${GRAFANA_TOKEN}" \
   -H "Content-Type: application/json" \
-  -d @dashboards/oran-ptp-compliance.json \
+  -d @dashboards/oran-ptp-review.json \
   "${GRAFANA_URL}/api/dashboards/db"
 
 # Import Performance Analytics Dashboard
@@ -655,15 +681,15 @@ Configure template variables for dynamic filtering:
       {
         "name": "region",
         "type": "query",
-        "query": "label_values(oran_ptp_compliance_score, region)",
+        "query": "label_values(oran_ptp_review_score, region)",
         "refresh": 2,
         "includeAll": true,
         "allValue": ".*"
       },
       {
-        "name": "du_id", 
+        "name": "du_id",
         "type": "query",
-        "query": "label_values(oran_ptp_compliance_score{region=~\"$region\"}, du_id)",
+        "query": "label_values(oran_ptp_review_score{region=~\"$region\"}, du_id)",
         "refresh": 2,
         "includeAll": true,
         "multi": true
@@ -672,12 +698,12 @@ Configure template variables for dynamic filtering:
         "name": "time_range",
         "type": "custom",
         "options": [
-          {"text": "Last 15 minutes", "value": "15m"},
-          {"text": "Last hour", "value": "1h"},
-          {"text": "Last 6 hours", "value": "6h"},
-          {"text": "Last 24 hours", "value": "24h"}
+          { "text": "Last 15 minutes", "value": "15m" },
+          { "text": "Last hour", "value": "1h" },
+          { "text": "Last 6 hours", "value": "6h" },
+          { "text": "Last 24 hours", "value": "24h" }
         ],
-        "current": {"text": "Last hour", "value": "1h"}
+        "current": { "text": "Last hour", "value": "1h" }
       }
     ]
   }

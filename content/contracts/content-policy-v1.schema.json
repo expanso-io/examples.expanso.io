@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://examples.expanso.io/contracts/content-policy-v1.schema.json",
+  "title": "Content validator v1 policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "contractVersion",
+    "gateId",
+    "budgets",
+    "structure",
+    "actionHeadingPatterns",
+    "placeholderPhrases",
+    "readinessVocabulary",
+    "archetypeRequirements",
+    "componentContracts",
+    "intrinsicTextProps"
+  ],
+  "properties": {
+    "$schema": { "type": "string", "const": "./content-policy-v1.schema.json" },
+    "contractVersion": { "type": "string", "const": "1.0.0" },
+    "gateId": { "type": "string", "const": "content-validator-v1" },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "catalog-card",
+        "overview",
+        "explorer",
+        "run",
+        "step",
+        "troubleshooting",
+        "reference"
+      ],
+      "properties": {
+        "catalog-card": { "$ref": "#/$defs/budget" },
+        "overview": { "$ref": "#/$defs/budget" },
+        "explorer": { "$ref": "#/$defs/budget" },
+        "run": { "$ref": "#/$defs/budget" },
+        "step": { "$ref": "#/$defs/budget" },
+        "troubleshooting": { "$ref": "#/$defs/budget" },
+        "reference": { "$ref": "#/$defs/budget" }
+      }
+    },
+    "structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "overviewOpeningHardMax",
+        "localNavigationAfterWords",
+        "localNavigationAfterHeadings",
+        "localNavigationAfterNarrativeBlocks",
+        "duplicateBlockMinimumWords"
+      ],
+      "properties": {
+        "overviewOpeningHardMax": { "type": "integer", "minimum": 1 },
+        "localNavigationAfterWords": { "type": "integer", "minimum": 1 },
+        "localNavigationAfterHeadings": { "type": "integer", "minimum": 1 },
+        "localNavigationAfterNarrativeBlocks": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "duplicateBlockMinimumWords": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "actionHeadingPatterns": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "placeholderPhrases": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "readinessVocabulary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "executionStatuses",
+        "operationalEvidenceStatuses",
+        "forbiddenPatterns"
+      ],
+      "properties": {
+        "executionStatuses": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "offline-runnable",
+              "requires-integration",
+              "architecture-only"
+            ]
+          }
+        },
+        "operationalEvidenceStatuses": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "not-assessed",
+              "component-tested",
+              "operating-envelope-tested"
+            ]
+          }
+        },
+        "forbiddenPatterns": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "archetypeRequirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "catalog-card",
+        "overview",
+        "explorer",
+        "run",
+        "step",
+        "troubleshooting",
+        "reference"
+      ],
+      "properties": {
+        "catalog-card": { "$ref": "#/$defs/archetypeRequirement" },
+        "overview": { "$ref": "#/$defs/archetypeRequirement" },
+        "explorer": { "$ref": "#/$defs/archetypeRequirement" },
+        "run": { "$ref": "#/$defs/archetypeRequirement" },
+        "step": { "$ref": "#/$defs/archetypeRequirement" },
+        "troubleshooting": { "$ref": "#/$defs/archetypeRequirement" },
+        "reference": { "$ref": "#/$defs/archetypeRequirement" }
+      }
+    },
+    "componentContracts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["mode", "textProps"],
+        "properties": {
+          "mode": { "enum": ["children", "opaque-narrative-free"] },
+          "textProps": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "importedTextProps": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["narrativeKeys", "visibleTextKeys"],
+              "properties": {
+                "narrativeKeys": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "visibleTextKeys": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "intrinsicTextProps": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "$defs": {
+    "archetypeRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requiredFrontmatter",
+        "requiredHeadingPatterns",
+        "requiredComponentGroups"
+      ],
+      "properties": {
+        "requiredFrontmatter": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "requiredHeadingPatterns": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "requiredComponentGroups": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["targetMin", "targetMax", "hardMax"],
+      "properties": {
+        "targetMin": { "type": ["integer", "null"], "minimum": 0 },
+        "targetMax": { "type": ["integer", "null"], "minimum": 0 },
+        "hardMax": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    }
+  }
+}

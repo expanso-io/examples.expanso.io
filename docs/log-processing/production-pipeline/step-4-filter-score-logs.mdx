@@ -2,8 +2,17 @@
 title: Step 4 - Filter & Score Logs
 sidebar_label: Step 4 - Filter & Score
 sidebar_position: 7
-description: Reduce costs and noise by intelligently filtering logs and assigning severity scores
+description: Inspect an authored log-filtering policy and severity scores.
 keywords: [filtering, scoring, severity, cost-reduction, noise]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-production-pipeline-step-4-filter-score-logs]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 import CodeBlock from '@theme/CodeBlock';
@@ -25,26 +34,26 @@ Not all logs are created equal. In a production system, "DEBUG" logs can consume
 We verify the standard logging levels and can also upgrade the level based on keywords (e.g., "panic" or "exception").
 
 ```yaml
-    - mapping: |
-        root = this
-        
-        # Calculate numeric priority (higher is more critical)
-        let priority = match root.level {
-          "FATAL" => 10,
-          "ERROR" => 8,
-          "WARN" => 5,
-          "INFO" => 3,
-          "DEBUG" => 1,
-          _ => 0
-        }
-        
-        # Upgrade priority if sensitive keywords found
-        if root.message.contains("panic") || root.message.contains("crash") {
-           priority = 10
-           root.level = "FATAL"
-        }
-        
-        root.priority_score = $priority
+- mapping: |
+    root = this
+
+    # Calculate numeric priority (higher is more critical)
+    let priority = match root.level {
+      "FATAL" => 10,
+      "ERROR" => 8,
+      "WARN" => 5,
+      "INFO" => 3,
+      "DEBUG" => 1,
+      _ => 0
+    }
+
+    # Upgrade priority if sensitive keywords found
+    if root.message.contains("panic") || root.message.contains("crash") {
+       priority = 10
+       root.level = "FATAL"
+    }
+
+    root.priority_score = $priority
 ```
 
 ### 2. Intelligent Filtering
@@ -52,18 +61,18 @@ We verify the standard logging levels and can also upgrade the level based on ke
 We drop logs that fall below a certain priority, or filter out specific noisy patterns.
 
 ```yaml
-    - mapping: |
-        root = this
-        
-        # Drop DEBUG logs unless explicitly enabled
-        if root.level == "DEBUG" && env("DEBUG_LOGGING_ENABLED") != "true" {
-           deleted()
-        }
-        
-        # Drop Health Checks (often very noisy)
-        if root.service == "health-check" && root.level == "INFO" {
-           deleted()
-        }
+- mapping: |
+    root = this
+
+    # Drop DEBUG logs unless explicitly enabled
+    if root.level == "DEBUG" && env("DEBUG_LOGGING_ENABLED") != "true" {
+       deleted()
+    }
+
+    # Drop Health Checks (often very noisy)
+    if root.service == "health-check" && root.level == "INFO" {
+       deleted()
+    }
 ```
 
 ## Complete Step 4 Configuration
@@ -71,13 +80,13 @@ We drop logs that fall below a certain priority, or filter out specific noisy pa
 ```yaml title="production-pipeline-step-4.yaml"
 input:
   http_server:
-    address: "0.0.0.0:8080"
+    address: '0.0.0.0:8080'
     path: /logs/ingest
-    rate_limit: "1000/1s"
+    rate_limit: '1000/1s'
     auth:
       type: header
-      header: "X-API-Key"
-      required_value: "${LOG_API_KEY}"
+      header: 'X-API-Key'
+      required_value: '${LOG_API_KEY}'
 
 pipeline:
   processors:
@@ -89,7 +98,7 @@ pipeline:
     # Score & Filter
     - mapping: |
         root = this
-        
+
         # 1. Scoring
         let score = match root.level {
           "FATAL" => 10,
@@ -100,13 +109,13 @@ pipeline:
           _ => 0
         }
         root.score = $score
-        
+
         # 2. Filtering
         # Drop low value logs
         if $score < 3 { # Drop DEBUG
            deleted()
         }
-        
+
         # Drop noisy health checks
         if root.message.contains("HealthCheck") && $score < 5 {
            deleted()
@@ -119,12 +128,14 @@ output:
 ## Deployment & Verification
 
 1.  **Test Dropped Log (DEBUG):**
+
     ```bash
     curl -X POST http://localhost:8080/logs/ingest \
       -H "X-API-Key: $LOG_API_KEY" \
       -d '{"level": "DEBUG", "message": "This should be dropped"}'
     ```
-    *Result: No output (log dropped).*
+
+    _Result: No output (log dropped)._
 
 2.  **Test Kept Log (ERROR):**
     ```bash
@@ -132,7 +143,7 @@ output:
       -H "X-API-Key: $LOG_API_KEY" \
       -d '{"level": "ERROR", "message": "Keep this"}'
     ```
-    *Result: Log output with score=8.*
+    _Result: Log output with score=8._
 
 ## Next Steps
 

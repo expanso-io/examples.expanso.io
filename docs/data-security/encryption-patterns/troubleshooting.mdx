@@ -3,7 +3,16 @@ title: Troubleshooting
 sidebar_label: Troubleshooting
 sidebar_position: 11
 description: Common encryption pattern issues and solutions
-keywords: [troubleshooting, debug, encryption, multi-key, compliance]
+keywords: [troubleshooting, debug, encryption, multi-key, audit]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-encryption-patterns-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Troubleshooting
@@ -35,6 +44,7 @@ docker logs encryption-patterns --tail 20 2>&1 | grep key_
 ```
 
 **Fix:** Verify key selection in mapping:
+
 ```yaml
 root.card_encrypted = this.card.encrypt_aes("${PAYMENT_KEY}")
 root.ssn_encrypted = this.ssn.encrypt_aes("${PII_KEY}")
@@ -46,11 +56,12 @@ root.ssn_encrypted = this.ssn.encrypt_aes("${PII_KEY}")
 
 **Cause:** Old key not available for re-encryption
 
-**Fix:** Always keep previous key versions accessible:
+**Fix:** Retain required key versions under the deployment's access and retention policy:
+
 ```yaml
 # Support both old and new keys during rotation
 root.decrypted = this.ciphertext.decrypt_aes("${NEW_KEY}")
-  .catch(this.ciphertext.decrypt_aes("${OLD_KEY}"))
+.catch(this.ciphertext.decrypt_aes("${OLD_KEY}"))
 ```
 
 ---
@@ -60,6 +71,7 @@ root.decrypted = this.ciphertext.decrypt_aes("${NEW_KEY}")
 **Cause:** Derived fields deleted during encryption
 
 **Fix:** Extract analytics-safe data before encrypting:
+
 ```yaml
 root.last_four = this.card.slice(-4)
 root.email_domain = this.email.split("@").index(1)
@@ -69,11 +81,12 @@ root.email = this.email.encrypt_aes("${KEY}")
 
 ---
 
-### Compliance audit failures
+### Transformation audit gaps
 
 **Cause:** Missing encryption metadata for audit trail
 
 **Fix:** Add encryption metadata to every encrypted field:
+
 ```yaml
 root.card_encrypted = {
   "ciphertext": encrypted_value,

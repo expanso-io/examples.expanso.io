@@ -1,60 +1,53 @@
 ---
-title: "Setup MotherDuck Retail Analytics"
-sidebar_label: "Setup"
+title: Review the MotherDuck Retail Reference
+sidebar_label: Run path
 sidebar_position: 2
-description: "Configure Expanso Edge, an S3 bucket, and MotherDuck for the retail analytics walkthrough."
-keywords: [motherduck, ducklake, retail, setup, s3, parquet]
+description: Inspect the checked-in POS-to-Parquet architecture without provisioning storage or analytics services.
+keywords: [motherduck, ducklake, parquet, inspection]
+contentArchetype: run
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-run-path-integrations-motherduck-retail-analytics]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Setup: MotherDuck Retail Analytics Pipeline
+# Review the MotherDuck Retail Reference
+
+This path inspects repository artifacts. It does not write to S3, register a DuckLake table, or query MotherDuck.
 
 ## Prerequisites
 
-Before building the pipeline, ensure you have:
+- A checkout of this repository
+- A shell with `sed` and `rg`
+- No AWS or MotherDuck credentials
 
-### 1. Expanso Edge
+## Run the inspection
 
-```bash
-curl -sSL https://get.expanso.io | bash
-```
-
-### 2. MotherDuck Account
-
-1. Sign up at [motherduck.com](https://motherduck.com) and verify current plan limits in the official pricing documentation
-2. Get your access token from **Settings → Access Tokens**
-3. Save it — you'll need it for Step 6
-
-### 3. S3 Bucket
-
-Create a bucket for your retail data. Any S3-compatible storage works:
+From the repository root:
 
 ```bash
-# AWS S3
-aws s3 mb s3://my-retail-data
-
-# Or use MinIO, Cloudflare R2, etc.
+test -f static/pipelines/motherduck-retail-pipeline.yaml
+sed -n '1,100p' static/pipelines/motherduck-retail-pipeline.yaml
+rg -n 'generate|mapping|parquet|aws_s3' \
+  static/pipelines/motherduck-retail-pipeline.yaml
 ```
 
-### 4. AWS Credentials
+## Expected output
 
-Ensure your environment has S3 write access:
+The file check exits successfully. The final command identifies synthetic generation, transformation, encoding, and the external S3 handoff.
 
-```bash
-export AWS_ACCESS_KEY_ID=your-key
-export AWS_SECRET_ACCESS_KEY=your-secret
-export AWS_REGION=us-east-1
-```
+## Cleanup
 
-## Pipeline Architecture
+No files or external resources are created.
 
-The complete pipeline has 6 stages:
+## Common failures
 
-```
-POS Terminal → [Generate] → [Enrich] → [Validate] → [Batch] → [Parquet] → S3 → DuckLake
-```
+- A missing file means the checkout does not contain the referenced artifact.
+- No `rg` matches means the pipeline shape changed; inspect the complete file before updating the walkthrough.
+- Artifact inspection does not verify object format, table registration, or query behavior.
 
-Each step adds one stage. By the end, you'll have a reference pipeline that transforms synthetic POS events into partitioned Parquet files on S3 for query testing in MotherDuck.
-
-## Next Step
-
-→ [Step 1: Generate POS Transactions](/integrations/motherduck-retail-analytics/step-1-generate-pos-data)
+**Next:** [Inspect synthetic event generation](/integrations/motherduck-retail-analytics/step-1-generate-pos-data).

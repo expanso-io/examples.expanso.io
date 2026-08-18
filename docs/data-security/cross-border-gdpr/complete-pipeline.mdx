@@ -3,7 +3,16 @@ title: Complete Cross-Border GDPR Pipeline
 sidebar_label: Complete Pipeline
 sidebar_position: 9
 description: Reference cross-border pipeline demonstrating field removal, pseudonymization, generalization, and validation
-keywords: [complete, production, gdpr, cross-border, deployment]
+keywords: [complete, gdpr, cross-border, deployment]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-cross-border-gdpr-complete-pipeline]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 import CodeBlock from '@theme/CodeBlock';
@@ -21,7 +30,7 @@ This reference pipeline combines six technical data-protection steps for a cross
 6. **Validate configured fields** - Technical gate before output
 
 :::caution Legal scope
-The configuration does not establish GDPR compliance or anonymous-data status. In particular, stable salted hashes are pseudonymous and can remain personal data. Use the output only after privacy and legal review of identifiability, transfer mechanisms, access, retention, and the surrounding system.
+The configuration does not determine legal status or make the output anonymous. Stable salted hashes are pseudonymous and can remain personal data. Use the output after privacy and legal review of identifiability, transfer mechanisms, access, retention, and the surrounding system.
 :::
 
 ## Data Flow
@@ -31,12 +40,14 @@ EU Database ──→ [Anonymization Pipeline] ──→ Global BigQuery (anonym
                         │
                         ├──→ EU Archive (full data, stays in EU)
                         │
-                        └──→ Audit Log (compliance records)
+                        └──→ Audit Log (transformation records)
 ```
 
 ## Full Configuration
 
-<CodeBlock language="yaml" title="cross-border-gdpr.yaml">{pipelineYaml}</CodeBlock>
+<CodeBlock language="yaml" title="cross-border-gdpr.yaml">
+  {pipelineYaml}
+</CodeBlock>
 
 ## Quick Test
 
@@ -69,6 +80,7 @@ echo '{
 ```
 
 **Expected Output (transformed and pseudonymized):**
+
 ```json
 {
   "transaction_id": "TXN-EU-2024-00001",
@@ -88,7 +100,7 @@ echo '{
     "country": "DE",
     "database": "transactions_eu",
     "extracted_at": "2024-01-15T02:00:00Z",
-    "pipeline": "eu-cross-border-compliance"
+    "pipeline": "eu-cross-border-minimization"
   },
   "_gdpr_compliance": {
     "legal_basis": "legitimate_interest_analytics",
@@ -101,20 +113,20 @@ echo '{
 }
 ```
 
-## Deploy to Production
+## Illustrative deployment command
 
-### EU-Only Deployment
+### EU-scoped example deployment
 
-Deploy only to EU-located edge nodes:
+To illustrate a location selector, deploy to an EU-labeled example node:
 
 ```bash
 # Deploy with region selector
 expanso-cli job deploy cross-border-gdpr.yaml \
   --selector region=eu \
-  --selector compliance=gdpr
+  --selector data_policy=review-required
 
 # Verify deployment location
-expanso-cli job describe eu-cross-border-compliance
+expanso-cli job describe eu-cross-border-minimization
 ```
 
 ### Schedule Hourly
@@ -122,8 +134,8 @@ expanso-cli job describe eu-cross-border-compliance
 Run every hour for near-real-time analytics:
 
 ```yaml title="cross-border-gdpr-scheduled.yaml"
-name: eu-cross-border-compliance
-schedule: "0 * * * *"  # Every hour
+name: eu-cross-border-minimization
+schedule: '0 * * * *' # Every hour
 
 input:
   sql_select:
@@ -177,7 +189,7 @@ CLUSTER BY merchant_country, customer_age_bucket;
 ```sql
 -- This query should return 0 rows
 SELECT * FROM `global_analytics.anonymized_transactions`
-WHERE 
+WHERE
   anonymized_customer_id IS NULL
   OR _gdpr_compliance.anonymization_verified != true
 LIMIT 10;
@@ -186,8 +198,8 @@ LIMIT 10;
 ### Audit Trail Query
 
 ```sql
--- Daily compliance report
-SELECT 
+-- Daily transformation report
+SELECT
   DATE(transaction_hour) as date,
   _data_origin.country as source_country,
   COUNT(*) as records_transferred,
@@ -200,7 +212,11 @@ ORDER BY 1 DESC, 2;
 
 ## Download
 
-<a href="/examples/data-security/cross-border-gdpr/cross-border-gdpr.yaml" download className="button button--primary">
+<a
+  href="/files/data-security/cross-border-gdpr.yaml"
+  download
+  className="button button--primary"
+>
   Download cross-border-gdpr.yaml
 </a>
 

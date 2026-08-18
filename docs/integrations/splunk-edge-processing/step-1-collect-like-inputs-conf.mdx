@@ -1,15 +1,25 @@
 ---
-title: "Step 1: Collect Data Like inputs.conf"
+title: 'Step 1: Collect Data Like inputs.conf'
 description: "Learn how Expanso input configuration maps to Splunk's inputs.conf"
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-integrations-splunk-edge-processing-step-1-collect-like-inputs-conf]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 1: Collect Data Like inputs.conf
 
-If you've configured Splunk before, you know `inputs.conf` is where data collection begins. Expanso pipelines use the same concepts but with more powerful capabilities.
+If you've configured Splunk before, you know `inputs.conf` is where data collection begins. This example uses related file path and metadata concepts.
 
-## Splunk inputs.conf vs. Expanso Pipeline Input
+## Configuration Examples
 
-### Traditional Splunk inputs.conf
+### Splunk inputs.conf Example
 
 In Splunk, you'd monitor files like this:
 
@@ -35,38 +45,39 @@ sourcetype = syslog
 index = main
 ```
 
-### Expanso Pipeline Input (Better!)
+### Expanso Pipeline Input
 
-Expanso consolidates this into a single, more flexible configuration:
+The example represents these settings in one pipeline configuration:
 
 ```yaml
 # pipeline.yaml
 input:
   file_watcher:
     paths:
-      - "/var/log/expanso-demo/*.log"
-    
-    # Advanced file handling (beyond basic Splunk)
+      - '/var/log/expanso-demo/*.log'
+
+    # File path and multiline options used in this example
     include_file_name: true
     multiline:
       pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}'
       negate: false
       match: after
-    
-    # Real-time parsing (Splunk does this at index time)
+
+    # Parse JSON at collection time
     auto_parse_json: true
-    
+
     # Metadata tagging
     metadata:
-      source_system: "expanso-edge"
-      collection_time: "${timestamp()}"
+      source_system: 'expanso-edge'
+      collection_time: '${timestamp()}'
 ```
 
-**Key Advantages:**
-- ✅ **Wildcard monitoring** — one config handles multiple log types
-- ✅ **Real-time parsing** — JSON/CEF parsed immediately, not at search time
-- ✅ **Automatic metadata** — timestamps, source info added automatically
-- ✅ **Multiline handling** — built-in support for stack traces, error blocks
+**Configured behavior in this example:**
+
+- The glob path selects the fixture log files.
+- JSON parsing runs before the records reach the output.
+- The mapping adds source and collection metadata.
+- The multiline rule groups records that match the configured timestamp pattern.
 
 ## Create Your First Expanso Pipeline
 
@@ -80,20 +91,20 @@ apiVersion: v1
 kind: Pipeline
 metadata:
   name: "splunk-edge-collection"
-  description: "Collect data like Splunk inputs.conf but better"
+description: "Collect data from the paths shown in the inputs.conf example"
 
 input:
   file_watcher:
     paths:
       - "/var/log/expanso-demo/app.log"
-      - "/var/log/expanso-demo/security.log" 
+      - "/var/log/expanso-demo/security.log"
       - "/var/log/expanso-demo/system.log"
-    
+
     # File monitoring settings
     poll_interval: "1s"
     start_from_beginning: true
     include_file_name: true
-    
+
     # Multiline support for stack traces
     multiline:
       pattern: '^(\d{4}-\d{2}-\d{2}T|\w{3}\s+\d{1,2}\s|\{"timestamp")'
@@ -107,15 +118,15 @@ processors:
       root.source_file = file.name
       root.collection_timestamp = timestamp()
       root.host = hostname()
-      
+
       # Determine sourcetype based on file name (like Splunk)
       root.sourcetype = match file.name {
         this.contains("app.log") => "json_logs"
-        this.contains("security.log") => "cef"  
+        this.contains("security.log") => "cef"
         this.contains("system.log") => "syslog"
         _ => "unknown"
       }
-      
+
       # Determine target index based on content
       root.target_index = match {
         this.sourcetype == "cef" => "security"
@@ -138,7 +149,7 @@ expanso pipeline deploy ~/splunk-edge-pipeline.yaml
 # Check pipeline status
 expanso pipeline status splunk-edge-collection
 
-# View real-time logs
+# Follow pipeline logs
 expanso pipeline logs splunk-edge-collection -f
 ```
 
@@ -147,7 +158,7 @@ expanso pipeline logs splunk-edge-collection -f
 In another terminal, generate some test events:
 
 ```bash
-# Add some new events to test real-time collection
+# Add events to test collection
 echo '{"timestamp":"'$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")'","level":"INFO","message":"New user registration","user":"test.user","source_ip":"192.168.1.150"}' >> $TEST_DATA_DIR/app.log
 
 echo 'CEF:0|Company|WebApp|1.0|600|New Security Event|Medium|src=192.168.1.150 suser=test.user act=register outcome=success' >> $TEST_DATA_DIR/security.log
@@ -158,7 +169,7 @@ You should see output like this:
 ```json
 {
   "timestamp": "2024-02-10T10:15:01.123Z",
-  "level": "INFO", 
+  "level": "INFO",
   "message": "New user registration",
   "user": "test.user",
   "source_ip": "192.168.1.150",
@@ -170,27 +181,27 @@ You should see output like this:
 }
 ```
 
-## Key Differences from Splunk inputs.conf
+## Configuration Represented by These Snippets
 
-| **Feature** | **Splunk inputs.conf** | **Expanso Pipeline** |
-|---|---|---|
-| **File Monitoring** | Individual stanza per path | Wildcard patterns, single config |
-| **Parsing** | At index time (expensive) | Real-time at collection |
-| **Metadata** | Limited host/source | Rich automatic tagging |
-| **Multiline** | Complex regex, per-sourcetype | Built-in intelligent detection |
-| **Routing Logic** | Static index assignment | Dynamic routing based on content |
-| **Performance** | Resource intensive | Lightweight, optimized |
+| **Concern**         | **inputs.conf snippet**        | **Pipeline snippet**                 |
+| ------------------- | ------------------------------ | ------------------------------------ |
+| **File selection**  | Explicit monitor stanzas       | Glob path                            |
+| **Parsing point**   | Index-time configuration       | Collection-time parsing              |
+| **Metadata**        | Host, source, and index fields | Metadata mapping                     |
+| **Multiline**       | Per-source settings            | One configured multiline pattern     |
+| **Routing**         | Index field per stanza         | Conditions in processors and outputs |
+| **Execution point** | Splunk-managed                 | Pipeline-managed                     |
 
-## Advanced File Collection Features
+## Additional Pipeline Options
 
-Expanso provides several features beyond basic Splunk file monitoring:
+The following snippets illustrate format selection, log-rotation windows, and error handling.
 
-### 1. Intelligent File Type Detection
+### 1. Format Selection
 
 ```yaml
 processors:
   - mapping: |
-      # Auto-detect log format beyond just filename
+      # Select a fixture log format from record content
       root.log_format = match {
         this.contains("CEF:") => "cef"
         this.contains("{") && this.contains("}") => "json" 
@@ -204,11 +215,11 @@ processors:
 ```yaml
 input:
   file_watcher:
-    # Handle log rotation better than Splunk
-    ignore_older: "24h"
-    close_inactive: "1h" 
-    clean_inactive: "72h"
-    scan_frequency: "10s"
+    # Configure log-rotation windows
+    ignore_older: '24h'
+    close_inactive: '1h'
+    clean_inactive: '72h'
+    scan_frequency: '10s'
 ```
 
 ### 3. Error Resilience
@@ -218,7 +229,7 @@ input:
   file_watcher:
     # Continue processing if one file has issues
     ignore_errors: true
-    retry_interval: "30s"
+    retry_interval: '30s'
     max_retries: 3
 ```
 
@@ -237,6 +248,7 @@ expanso pipeline logs splunk-edge-collection --level error
 ### Common Issues and Solutions
 
 1. **Permission Denied**
+
    ```bash
    # Ensure expanso user can read log files
    sudo chown -R expanso:expanso /var/log/expanso-demo
@@ -244,6 +256,7 @@ expanso pipeline logs splunk-edge-collection --level error
    ```
 
 2. **File Not Found**
+
    ```bash
    # Verify test data exists
    ls -la /var/log/expanso-demo/
@@ -257,10 +270,10 @@ expanso pipeline logs splunk-edge-collection --level error
 
 ## What's Next?
 
-Great! You're now collecting data just like Splunk's inputs.conf, but with enhanced capabilities. Next, we'll add parsing and field extraction that rivals Splunk's props.conf and transforms.conf.
+You are now collecting from the file paths represented in `inputs.conf`. Next, add parsing and field extraction corresponding to the `props.conf` and `transforms.conf` concepts used in this tutorial.
 
 → **Next Step:** [Step 2: Parse Data Like props.conf](/integrations/splunk-edge-processing/step-2-parse-like-props-conf)
 
 ---
 
-**Key Takeaway:** Expanso file collection gives you all the power of Splunk's inputs.conf plus real-time parsing, intelligent routing, and simplified configuration. If you can configure inputs.conf, you already know Expanso input configuration!
+**Key Takeaway:** This example expresses file collection, parsing, and routing in one pipeline. If you are familiar with `inputs.conf`, the path and metadata concepts should be recognizable.

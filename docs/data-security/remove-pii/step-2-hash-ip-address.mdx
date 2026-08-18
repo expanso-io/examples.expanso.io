@@ -1,52 +1,31 @@
 ---
-title: "Step 2: Hash IP Address"
-sidebar_label: "Step 2: Hash IP Address"
+title: 'Step 2: Replace the IP address'
+sidebar_label: 'Step 2: Replace IP address'
 sidebar_position: 5
-description: Convert IP addresses to irreversible SHA-256 hashes for GDPR compliance.
-keywords: [pii-removal, hashing, gdpr, sha256]
+description: Add a salted IP hash and remove the source address from the example record.
+keywords: [pii-removal, hashing, ip-address, mapping]
+contentArchetype: step
+executionStatus: offline-runnable
+operationalEvidence: not-assessed
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Technique 2: Hashing
+# Step 2: Replace the IP address
 
-Hashing is a one-way transformation perfect for fields where you need to check for uniqueness or track activity without needing to know the original value. A common use case is anonymizing IP addresses for GDPR compliance.
+Read the source value before deleting it, then add the derived field to the new root object.
 
-## The Goal
-
-You will use the `.hash()` function to replace the plaintext `ip_address` field with a salted `ip_hash`, and then delete the original.
-
-## Implementation
-
-1.  **Start with the Previous Pipeline:** Copy the `delete-payment.yaml` from Step 1 to a new file named `hash-ip.yaml`.
-    ```bash
-    cp delete-payment.yaml hash-ip.yaml
-    ```
-    *Note: Remember to set the `IP_SALT` environment variable as described in the setup guide.*
-
-2.  **Add the Hashing Logic:** Open `hash-ip.yaml` and add the hashing logic to the bottom of the existing `mapping` processor.
-
-    ```yaml title="Add this to the 'mapping' processor in hash-ip.yaml"
-    # --- Logic from Step 1 (Deletion) ---
-    root.payment_method = this.payment_method.without("full_number", "expiry")
-
-    # --- START: New additions for Hashing ---
-
-    # Hash the IP address with a secret salt for security
-    root.ip_hash = this.ip_address.hash("sha256", env("IP_SALT"))
-
-    # Delete the original IP address field
+```yaml title="IP mapping"
+- mapping: |
     root = this.without("ip_address")
+    root.ip_hash = this.ip_address.hash(
+      "hmac_sha256",
+      env("IP_SALT")
+    ).encode("hex")
+```
 
-    # --- END: New additions ---
-    ```
+A stable hash remains linkable across records. Define salt access, rotation, and retention for the actual environment, and decide whether stable linkage is required.
 
-3.  **Deploy and Test:**
-    ```bash
-    # Send the sample event data
-    curl -X POST http://localhost:8080/events/ingest \
-      -H "Content-Type: application/json" \
-      -d @~/expanso-remove-pii/sample-event.json
-    ```
-
-4.  **Verify:** Check your logs. The `ip_address` field will be gone, replaced by a 64-character `ip_hash`. Sending the same event again will produce the exact same hash, allowing you to count unique visitors or track user sessions without storing personal data.
-
-You have now applied the hashing pattern to make your data GDPR-compliant while preserving its value for abuse detection and session tracking.
+[Next: transform the email address](/data-security/remove-pii/step-3-hash-email).

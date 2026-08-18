@@ -4,6 +4,15 @@ sidebar_label: Troubleshooting
 sidebar_position: 8
 description: Common format transformation issues and solutions
 keywords: [troubleshooting, debug, format, avro, parquet]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-transform-formats-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Troubleshooting
@@ -35,6 +44,7 @@ docker logs transform-formats --tail 20 2>&1 | grep -i schema
 ```
 
 **Fix:** Coerce types before encoding:
+
 ```yaml
 - mapping: |
     root.temperature = this.temperature.number()
@@ -48,6 +58,7 @@ docker logs transform-formats --tail 20 2>&1 | grep -i schema
 **Cause:** Schema mismatch or incomplete batches
 
 **Fix:** Ensure consistent schema and proper batching:
+
 ```yaml
 batching:
   count: 1000
@@ -62,6 +73,7 @@ batching:
 **Cause:** Ambiguous input data
 
 **Fix:** Add explicit format hints:
+
 ```yaml
 - mapping: |
     root.input_format = if content().has_prefix("{") {
@@ -84,6 +96,7 @@ docker stats transform-formats --no-stream
 ```
 
 **Fix:** Process in smaller batches, add byte limits:
+
 ```yaml
 batching:
   byte_size: 5MB

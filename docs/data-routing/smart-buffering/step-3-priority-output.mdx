@@ -4,6 +4,15 @@ sidebar_label: Step 3 - Priority Output
 sidebar_position: 6
 description: Route messages to separate output paths with different batching policies.
 keywords: [buffer, routing, priority, batching, preemption]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-smart-buffering-step-3-priority-output]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 3: Priority-Based Output Routing
@@ -13,6 +22,7 @@ Sorting within a batch isn't enough. If 20 regular messages are already batched 
 ## The Problem
 
 With a single output path:
+
 1. 20 regular messages arrive and start batching (5s window)
 2. 1 important message arrives
 3. Important message waits for the batch to complete
@@ -21,6 +31,7 @@ With a single output path:
 ## The Solution
 
 Route each priority tier to its own output with tier-specific batching:
+
 - **Important:** `count: 1` - immediate send, no batching
 - **Regular:** `count: 50, period: 5s` - moderate batching
 - **Archive:** `count: 200, period: 30s` - heavy batching
@@ -118,7 +129,7 @@ config:
               timeout: 30s
               max_retries: 5
 
-        # ARCHIVE: Heavy batching - optimize for throughput
+        # ARCHIVE: Example larger-batch policy
         - check: this.priority_tier == 3
           output:
             http_client:
@@ -149,11 +160,11 @@ The important message doesn't wait for the regular batch—it has its own output
 
 After coming back online with a backlog:
 
-| Queue | Messages | Batching | Ships |
-|-------|----------|----------|-------|
-| Important | 5 | count: 1 | Immediately, one by one |
-| Regular | 100 | count: 50 | After important, in 2 batches |
-| Archive | 500 | count: 200 | Last, in 3 batches |
+| Queue     | Messages | Batching   | Ships                         |
+| --------- | -------- | ---------- | ----------------------------- |
+| Important | 5        | count: 1   | Immediately, one by one       |
+| Regular   | 100      | count: 50  | After important, in 2 batches |
+| Archive   | 500      | count: 200 | Last, in 3 batches            |
 
 Important messages ship first because their output has no batching delay.
 
@@ -179,8 +190,33 @@ Check your destination—the important message arrives before the regular batch 
 
 ## Next Step
 
-<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
-  <a href="./step-4-prevent-starvation" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
+<div
+  style={{
+    display: 'flex',
+    gap: '1.5rem',
+    marginTop: '2rem',
+    marginBottom: '3rem',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
+  }}
+>
+  <a
+    href="../step-4-prevent-starvation"
+    className="button button--primary button--lg"
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      textDecoration: 'none',
+      borderRadius: '8px',
+      padding: '1rem 2rem',
+      fontWeight: '600',
+      minWidth: '240px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    }}
+  >
     Step 4: Prevent Starvation
   </a>
 </div>

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://examples.expanso.io/tests/contracts/schemas/performance-evidence-v1.schema.json",
+  "title": "Expanso performance evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evidenceVersion",
+    "role",
+    "contractId",
+    "contractSha256",
+    "subjectSha",
+    "environmentId",
+    "startedAt",
+    "finishedAt",
+    "capability",
+    "fixtureIds",
+    "stageIds",
+    "toolVersions",
+    "artifacts"
+  ],
+  "properties": {
+    "evidenceVersion": { "const": "1.0.0" },
+    "role": { "enum": ["baseline", "candidate"] },
+    "contractId": { "const": "performance-v1" },
+    "contractSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "subjectSha": {
+      "type": "string",
+      "pattern": "^(?!0000000000000000000000000000000000000000$)[a-f0-9]{40}$"
+    },
+    "environmentId": { "type": "string", "minLength": 1 },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "finishedAt": { "type": "string", "format": "date-time" },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["AVAILABLE", "BLOCKED_CAPABILITY"] },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "fixtureIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "stageIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "toolVersions": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "artifacts": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "path", "bytes", "sha256", "mediaType"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "kind": {
+            "enum": [
+              "asset-inventory",
+              "browser-metrics",
+              "lighthouse-report",
+              "playwright-trace",
+              "production-manifest",
+              "production-asset"
+            ]
+          },
+          "path": { "type": "string", "minLength": 1 },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "mediaType": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

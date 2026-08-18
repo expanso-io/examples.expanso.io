@@ -1,525 +1,422 @@
-#!/usr/bin/env ts-node
+#!/usr/bin/env tsx
 
 /**
- * CLI tool to generate interactive explorer boilerplate
+ * Generate a fail-closed Explorer V2 draft.
  *
- * Usage:
- *   npm run create-explorer -- --name "my-example" --category "data-routing" --stages 4 --title "My Example Title"
- *
- * Generates:
- *   - docs/{category}/{name}-full.stages.ts
- *   - docs/{category}/{name}/explorer.mdx
- *   - Updates sidebars.ts
+ * The output is deliberately unpublished until catalog, fixture, provenance,
+ * fidelity, content, claims, browser, and accessibility gates pass.
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-interface ExplorerConfig {
+export type DraftExecutionStatus = 'requires-integration' | 'architecture-only';
+export type DraftPayloadFormat =
+  | 'json'
+  | 'text'
+  | 'binary'
+  | 'tabular'
+  | 'route';
+
+export interface ExplorerConfig {
   name: string;
   category: string;
   stages: number;
   title: string;
+  executionStatus: DraftExecutionStatus;
+  integration: string | null;
+  payloadFormat: DraftPayloadFormat;
 }
 
-function parseArgs(): ExplorerConfig {
-  const args = process.argv.slice(2);
-  const config: Partial<ExplorerConfig> = {};
+export interface ExplorerDraftFiles {
+  stages: string;
+  overview: string;
+  explorer: string;
+  reference: string;
+  pipeline: string;
+}
 
-  for (let i = 0; i < args.length; i += 2) {
-    const key = args[i].replace('--', '');
-    const value = args[i + 1];
+export interface ExplorerDraftResult {
+  status: 'DRAFT_CREATED';
+  exampleId: string;
+  files: string[];
+  catalogRecord: 'present' | 'required';
+  sidebar: 'registry-driven; no direct edit made';
+  publication: 'blocked until every listed gate passes';
+}
 
-    if (key === 'stages') {
-      config[key] = parseInt(value, 10);
-    } else {
-      config[key] = value;
+const CLAIMS_POLICY_DIGEST =
+  'sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281';
+
+const ALLOWED_ARGUMENTS = new Set([
+  'name',
+  'category',
+  'stages',
+  'title',
+  'execution-status',
+  'integration',
+  'payload-format',
+]);
+
+export function parseArguments(args: string[]): ExplorerConfig {
+  const values = new Map<string, string>();
+  for (let index = 0; index < args.length; index += 2) {
+    const flag = args[index];
+    const value = args[index + 1];
+    if (!flag?.startsWith('--') || !value) {
+      throw new Error(`Invalid argument pair at ${flag ?? '<end>'}`);
     }
+    const name = flag.slice(2);
+    if (!ALLOWED_ARGUMENTS.has(name)) {
+      throw new Error(`Unknown argument: --${name}`);
+    }
+    if (values.has(name)) {
+      throw new Error(`Duplicate argument: --${name}`);
+    }
+    values.set(name, value);
   }
 
-  if (!config.name || !config.category || !config.stages || !config.title) {
-    console.error('Usage: npm run create-explorer -- --name <name> --category <category> --stages <number> --title <title>');
-    console.error('\nExample:');
-    console.error('  npm run create-explorer -- --name "circuit-breakers" --category "data-routing" --stages 4 --title "Circuit Breaker Patterns"');
-    process.exit(1);
+  const name = values.get('name') ?? '';
+  const category = values.get('category') ?? '';
+  const title = values.get('title') ?? '';
+  const stages = Number(values.get('stages'));
+  const executionStatus = values.get('execution-status') ?? 'architecture-only';
+  const payloadFormat = values.get('payload-format') ?? 'json';
+  const integration = values.get('integration')?.trim() || null;
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
+    throw new Error('--name must be a kebab-case id');
   }
-
-  return config as ExplorerConfig;
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(category)) {
+    throw new Error('--category must be a kebab-case docs category');
+  }
+  if (!title.trim()) throw new Error('--title is required');
+  if (!Number.isInteger(stages) || stages < 1 || stages > 8) {
+    throw new Error('--stages must be an integer from 1 through 8');
+  }
+  if (
+    executionStatus !== 'requires-integration' &&
+    executionStatus !== 'architecture-only'
+  ) {
+    throw new Error(
+      '--execution-status must be requires-integration or architecture-only'
+    );
+  }
+  if (
+    payloadFormat !== 'json' &&
+    payloadFormat !== 'text' &&
+    payloadFormat !== 'binary' &&
+    payloadFormat !== 'tabular' &&
+    payloadFormat !== 'route'
+  ) {
+    throw new Error(
+      '--payload-format must be json, text, binary, tabular, or route'
+    );
+  }
+  if (executionStatus === 'requires-integration' && integration === null) {
+    throw new Error('--integration is required for requires-integration');
+  }
+  return {
+    name,
+    category,
+    stages,
+    title: title.trim(),
+    executionStatus,
+    integration,
+    payloadFormat,
+  };
 }
 
-function generateStagesFile(config: ExplorerConfig): string {
-  const exportName = config.name.split('-').map(word =>
-    word.charAt(0).toUpperCase() + word.slice(1)
-  ).join('') + 'Stages';
+function exportName(name: string): string {
+  return `${name
+    .split('-')
+    .map((part) => `${part[0]?.toUpperCase()}${part.slice(1)}`)
+    .join('')}Stages`;
+}
 
-  let content = `import type { Stage } from '@site/src/components/DataPipelineExplorer/types';
+function payloadPlaceholder(format: DraftPayloadFormat): {
+  input: string;
+  output: string;
+} {
+  switch (format) {
+    case 'json':
+      return {
+        input: '{"replace":"with generated fixture checkpoint"}',
+        output: '{"replace":"with verified output checkpoint"}',
+      };
+    case 'text':
+      return {
+        input: 'replace with generated text fixture checkpoint',
+        output: 'replace with verified text output checkpoint',
+      };
+    case 'binary':
+      return {
+        input: 'base64:cmVwbGFjZS13aXRoLWJpbmFyeS1maXh0dXJl',
+        output: 'base64:cmVwbGFjZS13aXRoLWJpbmFyeS1vdXRwdXQ=',
+      };
+    case 'tabular':
+      return {
+        input: 'device_id\tstatus\nreplace-me\traw',
+        output: 'device_id\tstatus\nreplace-me\tverified',
+      };
+    case 'route':
+      return {
+        input: 'source -> edge processor',
+        output: 'edge processor -> replace-with-verified-destination',
+      };
+  }
+}
 
-/**
- * ${config.stages}-Stage ${config.title} Pipeline
- * TODO: Add description of what this pipeline demonstrates
- */
+function quoteTypeScript(value: string): string {
+  return JSON.stringify(value);
+}
 
-export const ${exportName}: Stage[] = [\n`;
-
-  for (let i = 1; i <= config.stages; i++) {
-    content += `  // ============================================================================
-  // STAGE ${i}: TODO - Add stage title
-  // ============================================================================
-  {
-    id: ${i},
-    title: 'Stage ${i} Title',
-    description: 'TODO: Describe what happens in this stage',
-    yamlFilename: 'step-${i - 1}-description.yaml',
-    yamlCode: \`# TODO: Add YAML configuration
-pipeline:
-  processors:
-    - mapping: |
-        root = this
-        # Add your transformation here\`,
+export function stagesModule(config: ExplorerConfig): string {
+  const placeholder = payloadPlaceholder(config.payloadFormat);
+  const stages = Array.from({ length: config.stages }, (_, index) => {
+    const position = index + 1;
+    return `  {
+    slug: 'stage-${position}',
+    title: 'Name stage ${position}',
+    description: 'State the observable change and its limit.',
+    provenance: 'curated-explanation',
+    yamlFilename: 'pipeline.yaml',
+    yamlCode: '# Bind this fragment to the canonical pipeline before publishing.',
+    inputFormat: '${config.payloadFormat}',
+    outputFormat: '${config.payloadFormat}',
+    rawInput: ${quoteTypeScript(placeholder.input)},
+    rawOutput: ${quoteTypeScript(placeholder.output)},
     inputLines: [
-      { content: '{', indent: 0 },
-      { content: '"field": "value",', indent: 1, key: 'field', valueType: 'string' },
-      { content: '}', indent: 0 },
+      { content: ${quoteTypeScript(placeholder.input)}, indent: 0, state: 'unchanged' },
     ],
     outputLines: [
-      { content: '{', indent: 0 },
-      { content: '"field": "value",', indent: 1, key: 'field', valueType: 'string' },
-      { content: '}', indent: 0 },
+      { content: ${quoteTypeScript(placeholder.output)}, indent: 0, state: 'changed' },
     ],
-  },\n`;
-  }
+  }`;
+  });
 
-  content += '];\n';
-  return content;
+  return `import type { ExplorerStage } from '@site/src/components/ExplorerV2';
+
+type DraftPayloadFormat = 'json' | 'text' | 'binary' | 'tabular' | 'route';
+
+interface DraftExplorerStage extends ExplorerStage {
+  inputFormat: DraftPayloadFormat;
+  outputFormat: DraftPayloadFormat;
 }
 
-function generateExplorerMdx(config: ExplorerConfig): string {
-  const exportName = config.name.split('-').map(word =>
-    word.charAt(0).toUpperCase() + word.slice(1)
-  ).join('') + 'Stages';
-
-  return `---
-title: Interactive ${config.title} Explorer
-sidebar_label: Interactive Explorer
-sidebar_position: 2
-description: Explore ${config.stages} stages of ${config.title.toLowerCase()} with live before/after comparisons
-keywords: [${config.name}, interactive, pipeline, expanso]
----
-
-import DataPipelineExplorer from '@site/src/components/DataPipelineExplorer';
-import ExplorerSection from '@site/src/components/ExplorerSection';
-import { ${exportName} } from '../${config.name}-full.stages';
-
-# Interactive ${config.title} Explorer
-
-**See ${config.title.toLowerCase()} in action!** Use the interactive explorer below to step through ${config.stages} stages. Watch how data transforms at each step.
-
-## How to Use This Explorer
-
-1. **Navigate** using arrow keys (← →) or click the numbered stage buttons
-2. **Compare** the Input (left) and Output (right) showing transformations
-3. **Observe** how data changes at each stage
-4. **Inspect** the YAML code showing the pipeline configuration
-5. **Learn** from the stage description explaining each step
-
-## Interactive ${config.title} Explorer
-
-<DataPipelineExplorer
-  stages={${exportName}}
-  title="${config.title.toUpperCase()}"
-  subtitle="${config.stages}-Stage Implementation"
-/>
-
-## Understanding the Stages
-
-### Stage 1: TODO
-TODO: Describe first stage
-
-### Stage 2: TODO
-TODO: Describe second stage
-
-## What You've Learned
-
-After exploring all ${config.stages} stages, you now understand:
-
-✅ **TODO** - Add learning outcome 1
-
-✅ **TODO** - Add learning outcome 2
-
-✅ **TODO** - Add learning outcome 3
-
-## Try It Yourself
-
-Ready to build your own ${config.title.toLowerCase()} pipeline? Follow the step-by-step tutorial:
-
-<ExplorerSection
-  setupLink="./setup"
-  completeLink="./complete-pipeline"
-/>
-
-## Deep Dive into Each Step
-
-Want to understand each technique in depth?
-
-- [**Step 1: TODO**](./step-1-todo) - Description
-- [**Step 2: TODO**](./step-2-todo) - Description
-
-## Common Questions
-
-### Question 1?
-TODO: Answer common question about this pattern.
-
-### Question 2?
-TODO: Answer another common question.
-
----
-
-**Next:** [Set up your environment](./setup) to build ${config.title.toLowerCase()} pipelines yourself
+/** Draft display data. Publish only after the fidelity gate regenerates or verifies every checkpoint. */
+export const ${exportName(config.name)}: DraftExplorerStage[] = [
+${stages.join(',\n')},
+];
 `;
 }
 
-function generateIndexMdx(config: ExplorerConfig): string {
+function frontmatter(config: ExplorerConfig, archetype: string): string {
   return `---
-title: ${config.title}
-sidebar_label: Introduction
-sidebar_position: 1
-description: Learn how to implement ${config.title.toLowerCase()} in your data pipelines
-keywords: [${config.name}, pipeline, expanso]
----
-
-# ${config.title}
-
-## Overview
-
-TODO: Provide a compelling introduction to this pattern.
-
-**Problem:** Describe the problem this pattern solves.
-
-**Solution:** Explain how this pattern addresses the problem.
-
-**Business Impact:** Quantify the benefits (cost savings, performance improvement, compliance, etc.).
-
-## Use Cases
-
-Common scenarios where ${config.title.toLowerCase()} is valuable:
-
-1. **TODO: Use Case 1** - Description
-2. **TODO: Use Case 2** - Description
-3. **TODO: Use Case 3** - Description
-
-## How It Works
-
-TODO: Explain the core concept at a high level.
-
-### Key Components
-
-1. **Component 1**: Description
-2. **Component 2**: Description
-3. **Component 3**: Description
-
-## Real-World Example
-
-TODO: Provide a concrete example with realistic data.
-
-\`\`\`json
-{
-  "example": "data",
-  "field": "value"
+title: ${config.title}${archetype === 'explorer' ? ' Explorer' : ''}
+draft: true
+contentArchetype: ${archetype}
+executionStatus: ${config.executionStatus}
+operationalEvidence: not-assessed
+${archetype === 'overview' ? "difficulty: advanced\nverificationDate: '2026-07-18'\nexpectedTime: 5 minutes\n" : ''}localNavigation: true
+uniqueTasks: [complete-machine-draft]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: ${CLAIMS_POLICY_DIGEST}
+---`;
 }
-\`\`\`
 
-## Benefits
+function overviewPage(config: ExplorerConfig): string {
+  const executionLimit =
+    config.executionStatus === 'requires-integration'
+      ? `- This generated route requires ${config.integration}; no maintained-environment evidence is bound.`
+      : '- This generated route is architecture-only and has no runtime evidence.';
+  return `${frontmatter(config, 'overview')}
 
-✅ **Benefit 1** - Description and impact
+import { ExampleHeader, Limitations } from '@site/src/components/ExamplePage';
 
-✅ **Benefit 2** - Description and impact
+<ExampleHeader
+  title="${config.title}"
+  outcome="Replace this sentence with one bounded, inspectable outcome."
+  primaryAction={{ href: './explorer', label: 'Inspect the pipeline' }}
+  difficulty="advanced"
+  executionStatus="${config.executionStatus}"
+  operationalEvidence="not-assessed"
+  expectedTime={{ inspectMinutes: 5 }}
+  verifiedAt="2026-07-18"
+/>
 
-✅ **Benefit 3** - Description and impact
+## System boundary
 
-## Trade-offs
+Define native, adapter, custom-code, and external nodes in the typed catalog before publishing.
 
-⚠️ **Consideration 1** - When this pattern might not be ideal
+## Limitations
 
-⚠️ **Consideration 2** - Potential limitations or costs
+<Limitations>
 
-## Next Steps
+${executionLimit}
+- Replace placeholder content with machine-verified fixture, topology, and claim records.
 
-Ready to see ${config.title.toLowerCase()} in action?
-
-1. [**Interactive Explorer**](./explorer) - Step through ${config.stages} stages with live examples
-2. [**Setup Guide**](./setup) - Configure your environment
-3. [**Complete Solution**](./complete-pipeline) - Download working code
-
----
-
-**Continue:** [Explore the interactive demo](./explorer) to see ${config.title.toLowerCase()} in action
+</Limitations>
 `;
 }
 
-function generateSetupMdx(config: ExplorerConfig): string {
-  return `---
-title: ${config.title} - Setup Guide
-sidebar_label: Setup Guide
-sidebar_position: 3
-description: Set up your environment to build ${config.title.toLowerCase()} pipelines
-keywords: [${config.name}, setup, installation, configuration]
----
+function explorerPage(config: ExplorerConfig): string {
+  return `${frontmatter(config, 'explorer')}
 
-# Setup Guide
+import ExplorerV2 from '@site/src/components/ExplorerV2';
+import fullYaml from '!!raw-loader!@site/examples/${config.category}/${config.name}/pipeline.yaml';
+import { ${exportName(config.name)} } from '../${config.name}-full.stages';
 
-This guide will help you set up your environment to build ${config.title.toLowerCase()} pipelines.
+# ${config.title} Explorer
 
-## Prerequisites
+This unpublished ${config.payloadFormat} payload draft must be bound to canonical fixture checkpoints before it can enter discovery.
 
-Before you begin, ensure you have:
+<ExplorerV2
+  exampleId="${config.name}"
+  stages={${exportName(config.name)}}
+  title="${config.title}"
+  subtitle="Draft evidence surface"
+  fullYaml={fullYaml}
+  fullYamlFilename="pipeline.yaml"
+/>
+`;
+}
 
-- **TODO: List prerequisites** (e.g., Expanso CLI, Docker, Node.js, etc.)
-- **TODO: Minimum versions** (e.g., Expanso v1.0+, Node 20+)
-- **TODO: Access requirements** (e.g., API keys, credentials)
+function referencePage(config: ExplorerConfig): string {
+  const statusGate =
+    config.executionStatus === 'requires-integration'
+      ? `Bind a maintained-environment result for ${config.integration} before changing evidence state.`
+      : 'Keep architecture-only status until the required execution evidence exists.';
+  return `${frontmatter(config, 'reference')}
 
-## Installation
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!@site/examples/${config.category}/${config.name}/pipeline.yaml';
 
-### 1. Install Expanso CLI
+# ${config.title} Reference
 
-TODO: Provide installation instructions for Expanso.
+<CodeBlock language="yaml" title="pipeline.yaml">
+  {pipelineYaml}
+</CodeBlock>
 
-\`\`\`bash
-# Example installation command
-curl -sSL https://install.expanso.io | sh
-\`\`\`
+## Publication gates
 
-### 2. Configure Environment
+- Register the family, topology, fixture, and canonical pipeline.
+- Generate checkpoints and pass independent fidelity verification.
+- ${statusGate}
+- Pass content, claims, browser, accessibility, route, and privacy gates.
+`;
+}
 
-TODO: Explain any environment configuration needed.
-
-\`\`\`bash
-# Example configuration
-export EXPANSO_API_KEY="your-api-key"
-export EXPANSO_ENDPOINT="https://api.expanso.io"
-\`\`\`
-
-### 3. Verify Installation
-
-TODO: Provide verification steps.
-
-\`\`\`bash
-# Check version
-expanso --version
-
-# Test connectivity
-expanso status
-\`\`\`
-
-## Project Setup
-
-### Create Project Directory
-
-\`\`\`bash
-mkdir ${config.name}-example
-cd ${config.name}-example
-\`\`\`
-
-### Initialize Configuration
-
-TODO: Explain project initialization.
-
-\`\`\`bash
-# Example initialization
-expanso init
-\`\`\`
-
-## Configuration Files
-
-### Pipeline Configuration
-
-Create a basic pipeline configuration:
-
-\`\`\`yaml
-# TODO: Provide a minimal pipeline.yaml template
-name: ${config.name}-pipeline
-description: ${config.title} implementation
+function pipelineDraft(config: ExplorerConfig): string {
+  const placeholder = payloadPlaceholder(config.payloadFormat).input;
+  const mapping =
+    config.payloadFormat === 'json'
+      ? `'root = {"fixture": "replace-me"}'`
+      : `'root = ${JSON.stringify(placeholder).replaceAll("'", "''")}'`;
+  return `name: ${config.name}
 type: pipeline
-namespace: default
+description: Draft configuration; replace and verify before publication.
+namespace: examples
+# Draft payload format: ${config.payloadFormat}
 
 config:
   input:
-    # TODO: Configure input
-
+    generate:
+      mapping: ${mapping}
+      interval: 1s
+      count: 1
   pipeline:
     processors:
-      # TODO: Configure processors
-
+      - mapping: |
+          root = this
   output:
-    # TODO: Configure output
-\`\`\`
-
-## Testing Your Setup
-
-### Run the Pipeline
-
-TODO: Provide commands to test the setup.
-
-\`\`\`bash
-# Example test command
-expanso run pipeline.yaml
-\`\`\`
-
-### Expected Output
-
-TODO: Describe what users should see if setup is successful.
-
-## Troubleshooting
-
-### Common Issues
-
-**Problem: TODO Issue 1**
-- **Solution:** TODO solution
-
-**Problem: TODO Issue 2**
-- **Solution:** TODO solution
-
-## Next Steps
-
-Now that your environment is configured:
-
-1. [**Interactive Explorer**](./explorer) - See ${config.title.toLowerCase()} in action
-2. [**Step-by-Step Tutorial**](./step-1-todo) - Build your first pipeline
-3. [**Complete Solution**](./complete-pipeline) - Download reference implementation
-
----
-
-**Continue:** [Start the interactive explorer](./explorer) to see how ${config.title.toLowerCase()} works
+    stdout: {}
 `;
 }
 
-function updateSidebars(config: ExplorerConfig): void {
-  const sidebarsPath = path.join(process.cwd(), 'sidebars.ts');
-  let content = fs.readFileSync(sidebarsPath, 'utf8');
+function assertAbsent(paths: string[]): void {
+  const existing = paths.filter((path) => existsSync(path));
+  if (existing.length > 0) {
+    throw new Error(`Refusing to overwrite: ${existing.join(', ')}`);
+  }
+}
 
-  const categoryMap: Record<string, string> = {
-    'data-routing': 'Data Routing',
-    'data-security': 'Data Security',
-    'data-transformation': 'Data Transformation',
-    'log-processing': 'Log Processing',
+export function renderExplorerDraft(
+  config: ExplorerConfig
+): ExplorerDraftFiles {
+  return {
+    stages: stagesModule(config),
+    overview: overviewPage(config),
+    explorer: explorerPage(config),
+    reference: referencePage(config),
+    pipeline: pipelineDraft(config),
   };
+}
 
-  const categoryLabel = categoryMap[config.category];
-  if (!categoryLabel) {
-    console.warn(`Warning: Unknown category ${config.category}, sidebar not updated`);
-    return;
-  }
+export function createExplorerDraft(
+  args: string[],
+  repositoryRoot = process.cwd()
+): ExplorerDraftResult {
+  const config = parseArguments(args);
+  const catalog = readFileSync(
+    resolve(repositoryRoot, 'src/catalog/registry.ts'),
+    'utf8'
+  );
+  const docsDirectory = resolve(
+    repositoryRoot,
+    'docs',
+    config.category,
+    config.name
+  );
+  const exampleDirectory = resolve(
+    repositoryRoot,
+    'examples',
+    config.category,
+    config.name
+  );
+  const paths = {
+    stages: resolve(
+      repositoryRoot,
+      'docs',
+      config.category,
+      `${config.name}-full.stages.ts`
+    ),
+    overview: resolve(docsDirectory, 'index.mdx'),
+    explorer: resolve(docsDirectory, 'explorer.mdx'),
+    reference: resolve(docsDirectory, 'reference.mdx'),
+    pipeline: resolve(exampleDirectory, 'pipeline.yaml'),
+  };
+  assertAbsent(Object.values(paths));
+  const files = renderExplorerDraft(config);
+  mkdirSync(docsDirectory, { recursive: true });
+  mkdirSync(exampleDirectory, { recursive: true });
+  writeFileSync(paths.stages, files.stages);
+  writeFileSync(paths.overview, files.overview);
+  writeFileSync(paths.explorer, files.explorer);
+  writeFileSync(paths.reference, files.reference);
+  writeFileSync(paths.pipeline, files.pipeline);
 
-  // Find the category section
-  const categoryRegex = new RegExp(`label: '${categoryLabel}',[\\s\\S]*?items: \\[([\\s\\S]*?)\\],\\s*\\},`, 'm');
-  const match = content.match(categoryRegex);
-
-  if (match) {
-    const itemsSection = match[1];
-    const newEntry = `        {
-          type: 'category',
-          label: '${config.title}',
-          collapsible: true,
-          collapsed: true,
-          items: [
-            '${config.category}/${config.name}/index',
-            '${config.category}/${config.name}/explorer',
-            '${config.category}/${config.name}/setup',
-          ],
-        },`;
-
-    // Add the new entry at the end of the items array
-    const updatedItems = itemsSection.trim() + '\n' + newEntry;
-    const updatedContent = content.replace(itemsSection, '\n' + updatedItems + '\n      ');
-
-    fs.writeFileSync(sidebarsPath, updatedContent);
-    console.log('✅ Updated sidebars.ts');
-  } else {
-    console.warn(`Warning: Could not find category section for ${categoryLabel}`);
-  }
+  const catalogState = catalog.includes(`id: '${config.name}'`)
+    ? 'present'
+    : 'required';
+  return {
+    status: 'DRAFT_CREATED',
+    exampleId: config.name,
+    files: Object.values(paths),
+    catalogRecord: catalogState,
+    sidebar: 'registry-driven; no direct edit made',
+    publication: 'blocked until every listed gate passes',
+  };
 }
 
 function main(): void {
-  const config = parseArgs();
-
-  console.log('🚀 Creating interactive explorer...');
-  console.log(`   Name: ${config.name}`);
-  console.log(`   Category: ${config.category}`);
-  console.log(`   Stages: ${config.stages}`);
-  console.log(`   Title: ${config.title}`);
-  console.log('');
-
-  // Create directories
-  const docsDir = path.join(process.cwd(), 'docs', config.category);
-  const explorerDir = path.join(docsDir, config.name);
-
-  if (!fs.existsSync(docsDir)) {
-    fs.mkdirSync(docsDir, { recursive: true });
-  }
-
-  if (!fs.existsSync(explorerDir)) {
-    fs.mkdirSync(explorerDir, { recursive: true });
-  }
-
-  // Generate files
-  const stagesFile = path.join(docsDir, `${config.name}-full.stages.ts`);
-  const explorerFile = path.join(explorerDir, 'explorer.mdx');
-  const indexFile = path.join(explorerDir, 'index.mdx');
-  const setupFile = path.join(explorerDir, 'setup.mdx');
-
-  // Check if files already exist
-  if (fs.existsSync(stagesFile)) {
-    console.error(`❌ Error: ${stagesFile} already exists`);
-    process.exit(1);
-  }
-
-  if (fs.existsSync(explorerFile)) {
-    console.error(`❌ Error: ${explorerFile} already exists`);
-    process.exit(1);
-  }
-
-  if (fs.existsSync(indexFile)) {
-    console.error(`❌ Error: ${indexFile} already exists`);
-    process.exit(1);
-  }
-
-  if (fs.existsSync(setupFile)) {
-    console.error(`❌ Error: ${setupFile} already exists`);
-    process.exit(1);
-  }
-
-  // Generate all files
-  fs.writeFileSync(stagesFile, generateStagesFile(config));
-  console.log(`✅ Created ${stagesFile}`);
-
-  fs.writeFileSync(indexFile, generateIndexMdx(config));
-  console.log(`✅ Created ${indexFile}`);
-
-  fs.writeFileSync(explorerFile, generateExplorerMdx(config));
-  console.log(`✅ Created ${explorerFile}`);
-
-  fs.writeFileSync(setupFile, generateSetupMdx(config));
-  console.log(`✅ Created ${setupFile}`);
-
-  // Update sidebars
-  updateSidebars(config);
-
-  console.log('');
-  console.log('🎉 Explorer boilerplate created successfully!');
-  console.log('');
-  console.log('📦 Generated files:');
-  console.log(`   • ${config.name}-full.stages.ts - Stage definitions`);
-  console.log(`   • ${config.name}/index.mdx - Introduction page`);
-  console.log(`   • ${config.name}/explorer.mdx - Interactive explorer`);
-  console.log(`   • ${config.name}/setup.mdx - Setup guide`);
-  console.log('');
-  console.log('Next steps:');
-  console.log('  1. Edit the stages file to add your pipeline logic');
-  console.log('  2. Customize index.mdx with use cases and benefits');
-  console.log('  3. Update explorer.mdx with stage descriptions');
-  console.log('  4. Fill in setup.mdx with installation steps');
-  console.log('  5. Run `npm start` to preview your explorer');
-  console.log('  6. Run `npm run validate-stages` to check your work');
-  console.log('');
+  const result = createExplorerDraft(process.argv.slice(2));
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 
-main();
+const isEntrypoint =
+  process.argv[1] !== undefined &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isEntrypoint) main();

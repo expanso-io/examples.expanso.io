@@ -2,8 +2,17 @@
 title: Step 2 - Parse & Validate Logs
 sidebar_label: Step 2 - Parse & Validate
 sidebar_position: 5
-description: implement robust JSON parsing and schema validation to ensure data quality
+description: Implement JSON parsing and schema validation with failure routing
 keywords: [parsing, json, validation, schema, data-quality]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-production-pipeline-step-2-parse-validate-logs]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 import CodeBlock from '@theme/CodeBlock';
@@ -15,6 +24,7 @@ After securing the input, the next critical step is ensuring the data we receive
 ## Goal
 
 Ensure all processed data:
+
 - Is **valid JSON** (handling parsing errors gracefully)
 - Contains **required fields** (timestamp, level, service, message)
 - Conforms to the expected **schema**
@@ -36,7 +46,7 @@ pipeline:
         if root.type() != "object" {
            throw("input must be a JSON object")
         }
-      
+
     # Handle parsing failures (Optional: use a catch mechanism or let it fail to error output)
 ```
 
@@ -45,18 +55,18 @@ pipeline:
 We verify that critical fields exist. If they are missing, we can either drop the log or set default values. Here, we enforce their presence.
 
 ```yaml
-    # Validate required fields
-    - mapping: |
-        root = this
-        
-        # Check required fields
-        if !this.exists("timestamp") || !this.exists("level") || \
-           !this.exists("service") || !this.exists("message") {
-            throw("missing required fields: timestamp, level, service, message")
-        }
-        
-        # Normalize Level
-        root.level = this.level.uppercase()
+# Validate required fields
+- mapping: |
+    root = this
+
+    # Check required fields
+    if !this.exists("timestamp") || !this.exists("level") || \
+       !this.exists("service") || !this.exists("message") {
+        throw("missing required fields: timestamp, level, service, message")
+    }
+
+    # Normalize Level
+    root.level = this.level.uppercase()
 ```
 
 ## Complete Step 2 Configuration
@@ -64,13 +74,13 @@ We verify that critical fields exist. If they are missing, we can either drop th
 ```yaml title="production-pipeline-step-2.yaml"
 input:
   http_server:
-    address: "0.0.0.0:8080"
+    address: '0.0.0.0:8080'
     path: /logs/ingest
-    rate_limit: "1000/1s"
+    rate_limit: '1000/1s'
     auth:
       type: header
-      header: "X-API-Key"
-      required_value: "${LOG_API_KEY}"
+      header: 'X-API-Key'
+      required_value: '${LOG_API_KEY}'
 
 pipeline:
   processors:
@@ -103,12 +113,14 @@ output:
 ## Deployment & Verification
 
 1.  **Test Valid Data:**
+
     ```bash
     curl -X POST http://localhost:8080/logs/ingest \
       -H "X-API-Key: $LOG_API_KEY" \
       -d '{"timestamp": "2023-01-01T12:00:00Z", "level": "info", "service": "auth", "message": "Login success"}'
     ```
-    *Output should show normalized level: "INFO"*
+
+    _Output should show normalized level: "INFO"_
 
 2.  **Test Invalid Data (Plain Text):**
     ```bash
@@ -116,11 +128,10 @@ output:
       -H "X-API-Key: $LOG_API_KEY" \
       -d 'Just a text log'
     ```
-    *Output should show the wrapped error object.*
+    _Output should show the wrapped error object._
 
 ## Next Steps
 
 Now that we have valid structured data, let's add context to it.
 
 👉 [**Step 3: Enrich with Metadata**](/log-processing/production-pipeline/step-3-enrich-with-metadata)
-

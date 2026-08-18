@@ -4,6 +4,15 @@ sidebar_label: Troubleshooting
 sidebar_position: 11
 description: Common field encryption issues and solutions
 keywords: [troubleshooting, debug, encryption, aes, keys]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-encrypt-data-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Troubleshooting
@@ -35,6 +44,7 @@ echo ${ENCRYPTION_KEY:0:10}...
 ```
 
 **Fix:** Ensure key is proper length and format:
+
 ```bash
 # Generate a valid 256-bit key
 export ENCRYPTION_KEY=$(openssl rand -base64 32)
@@ -52,6 +62,7 @@ docker logs encrypt-data --tail 20 2>&1 | grep -E "(card|email|ssn)"
 ```
 
 **Fix:** Handle nested fields explicitly:
+
 ```yaml
 - mapping: |
     root.payment.card_number = this.payment.card_number.encrypt_aes("${ENCRYPTION_KEY}")
@@ -63,7 +74,8 @@ docker logs encrypt-data --tail 20 2>&1 | grep -E "(card|email|ssn)"
 
 **Cause:** Wrong key version or corrupted ciphertext
 
-**Fix:** Always store key version with encrypted data:
+**Fix:** Store the key version with encrypted data and test the lookup path:
+
 ```yaml
 root.card_encrypted = {
   "ciphertext": this.card_number.encrypt_aes("${KEY}"),
@@ -81,7 +93,8 @@ root.card_encrypted = {
 docker stats encrypt-data --no-stream
 ```
 
-**Fix:** Only encrypt truly sensitive fields, batch small messages:
+**Fix:** Review field selection and measure batching with representative synthetic messages:
+
 ```yaml
 batching:
   count: 100

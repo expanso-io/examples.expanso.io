@@ -1,0 +1,287 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://examples.expanso.io/tests/contracts/schemas/accessibility-result-v1.schema.json",
+  "title": "Expanso accessibility evidence result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "resultVersion",
+    "contractId",
+    "contractSha256",
+    "subjectSha",
+    "environmentId",
+    "startedAt",
+    "finishedAt",
+    "routeInventory",
+    "environmentArtifactId",
+    "environmentArtifactSha256",
+    "evidenceArtifactId",
+    "evidenceArtifactSha256",
+    "artifacts",
+    "cells",
+    "stateCells",
+    "assertedClaims",
+    "claimCells",
+    "harnessErrors",
+    "capabilityBlocks",
+    "status",
+    "coverageStatus",
+    "reasons"
+  ],
+  "properties": {
+    "resultVersion": { "const": "1.0.0" },
+    "contractId": { "const": "accessibility-v1" },
+    "contractSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "subjectSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "environmentId": { "type": "string", "minLength": 1 },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "finishedAt": { "type": "string", "format": "date-time" },
+    "routeInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "artifactId",
+        "sha256",
+        "capabilityArtifactId",
+        "capabilitySha256",
+        "routes"
+      ],
+      "properties": {
+        "source": { "type": "string", "minLength": 1 },
+        "artifactId": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "capabilityArtifactId": { "type": "string", "minLength": 1 },
+        "capabilitySha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "routes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "path", "capabilities"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "path": { "type": "string", "pattern": "^/" },
+              "capabilities": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["explorerV2"],
+                "properties": {
+                  "explorerV2": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "environmentArtifactId": { "type": "string", "minLength": 1 },
+    "environmentArtifactSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "evidenceArtifactId": { "type": "string", "minLength": 1 },
+    "evidenceArtifactSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 4,
+      "items": { "$ref": "#/$defs/artifact" }
+    },
+    "cells": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/resultCell" }
+    },
+    "stateCells": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/stateCell" }
+    },
+    "assertedClaims": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "claimCells": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/claimCell" }
+    },
+    "harnessErrors": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "capabilityBlocks": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "status": {
+      "enum": ["PASS", "FAIL", "UNKNOWN", "BLOCKED_CAPABILITY"]
+    },
+    "coverageStatus": {
+      "enum": ["PASS", "FAIL", "UNKNOWN", "BLOCKED_CAPABILITY"]
+    },
+    "reasons": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "path", "bytes", "sha256", "mediaType"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": {
+          "enum": [
+            "route-inventory",
+            "route-capabilities",
+            "playwright-observations",
+            "environment"
+          ]
+        },
+        "path": { "type": "string", "minLength": 1 },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "mediaType": { "type": "string", "minLength": 1 }
+      }
+    },
+    "coverageCell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "reasons", "evidenceArtifactIds"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "status": {
+          "enum": ["PASS", "FAIL", "UNKNOWN", "BLOCKED_CAPABILITY"]
+        },
+        "reasons": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "evidenceArtifactIds": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "resultCell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "oracleId",
+        "routeId",
+        "routePath",
+        "applicable",
+        "required",
+        "status",
+        "coverageStatus",
+        "reasons",
+        "evidenceArtifactIds",
+        "coverage"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "oracleId": { "type": "string", "minLength": 1 },
+        "routeId": { "type": "string", "minLength": 1 },
+        "routePath": { "type": "string", "pattern": "^/" },
+        "applicable": { "type": "boolean" },
+        "required": { "type": "boolean" },
+        "status": {
+          "enum": ["PASS", "FAIL", "UNKNOWN", "BLOCKED_CAPABILITY"]
+        },
+        "coverageStatus": {
+          "enum": ["PASS", "FAIL", "UNKNOWN", "BLOCKED_CAPABILITY"]
+        },
+        "reasons": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "evidenceArtifactIds": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["environments", "themes", "interactionModes"],
+          "properties": {
+            "environments": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/coverageCell" }
+            },
+            "themes": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/coverageCell" }
+            },
+            "interactionModes": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/coverageCell" }
+            }
+          }
+        }
+      }
+    },
+    "claimCell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "claim",
+        "required",
+        "status",
+        "reasons",
+        "evidenceArtifactIds"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "claim": { "type": "string", "minLength": 1 },
+        "required": { "const": false },
+        "status": { "const": "BLOCKED_CAPABILITY" },
+        "reasons": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "evidenceArtifactIds": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "stateCell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "required",
+        "status",
+        "reasons",
+        "evidenceArtifactIds"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "required": { "type": "boolean" },
+        "status": {
+          "enum": ["PASS", "FAIL", "UNKNOWN", "BLOCKED_CAPABILITY"]
+        },
+        "reasons": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "evidenceArtifactIds": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

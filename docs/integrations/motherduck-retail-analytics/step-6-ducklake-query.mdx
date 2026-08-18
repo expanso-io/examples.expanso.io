@@ -1,9 +1,19 @@
 ---
-title: "Step 6: Query with MotherDuck and DuckLake"
-sidebar_label: "Step 6: Query with DuckLake"
+title: 'Step 6: Query with MotherDuck and DuckLake'
+sidebar_label: 'Step 6: Query with DuckLake'
 sidebar_position: 8
-description: "Connect the example S3 dataset to DuckLake and run sample MotherDuck queries."
+description: 'Connect the example S3 dataset to DuckLake and run sample MotherDuck queries.'
 keywords: [motherduck, ducklake, retail, s3, parquet, sql]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-integrations-motherduck-retail-analytics-step-6-ducklake-query]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 6: Connect DuckLake and Query in MotherDuck
@@ -141,9 +151,9 @@ ORDER BY annual_rev_per_sqft DESC;
 
 For near-real-time queries, DuckLake's [data inlining](https://ducklake.select/docs/stable/duckdb/advanced_features/data_inlining) feature is key. Small Parquet files (like our micro-batches) get inlined directly into the catalog database rather than stored as separate files. DuckLake periodically flushes inlined data to full-size Parquet files — giving you:
 
-- **Instant availability**: Data is queryable the moment it's ingested
-- **No small-file overhead**: Automatic compaction handles the rest
-- **Best of both worlds**: Real-time inserts with analytical performance
+- **Catalog inlining**: Small writes can be represented in the catalog before a later flush
+- **Compaction behavior**: Confirm file handling against the selected DuckLake version and deployment
+- **Separate paths**: Inserts and analytical reads have distinct service behavior
 
 ## What You've Built
 
@@ -158,9 +168,7 @@ For near-real-time queries, DuckLake's [data inlining](https://ducklake.select/d
                └── Ship (Hive partitioned)
 ```
 
-**Edge processing**: ~3.6 GB/day of Parquet (down from ~90 GB raw JSON)
-**Query latency**: Sub-second on MotherDuck for most analytical queries
-**Data freshness**: ~10 seconds from POS terminal to queryable in MotherDuck
+This architecture sketch does not measure compression, query latency, or end-to-end freshness. Benchmark all three with the actual schema, data distribution, deployment, and service plan.
 
 ## Next Step
 

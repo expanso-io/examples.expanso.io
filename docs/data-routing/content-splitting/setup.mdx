@@ -1,116 +1,51 @@
 ---
-title: Setup Environment for Content Splitting
-sidebar_label: Setup
+title: Content Splitting Configuration Review
+sidebar_label: Configuration review
 sidebar_position: 3
-description: Configure environment variables and test data for content splitting.
-keywords: [setup, environment, configuration, deployment, content-splitting]
+description: Review input shapes and reference processors for splitting compound synthetic messages.
+keywords: [content-splitting, setup, arrays, csv, nested-data]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-content-splitting-configuration]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Setup Environment for Content Splitting
+import { ExampleSurface } from '@site/src/components/ExamplePage';
 
-Before building the content splitting pipeline, you'll set up test data and configure destinations.
+# Content Splitting Configuration Review
 
-## Prerequisites
+The reference patterns split authored arrays, delimited batches, and nested structures. A current machine fixture does not execute these configurations.
 
-This example requires the following services to be running:
+<ExampleSurface
+  kind="reference"
+  title="Before you adapt it"
+  description="Resolve the example boundary before changing processors or destinations."
+>
 
-*   **[Kafka](/getting-started/services/kafka)**
+- An Expanso environment for configuration inspection
+- Representative inputs with bounded collection sizes
+- An explicit rule for fields copied to each emitted record
 
-Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
+</ExampleSurface>
 
-## Step 1: Configure Example-Specific Variables
+## Review path
 
-After setting up the core services, configure content splitting-specific variables:
+1. [JSON arrays](/data-routing/content-splitting/step-1-split-json-arrays)
+2. [Delimited batches](/data-routing/content-splitting/step-2-split-csv-batches)
+3. [Nested structures](/data-routing/content-splitting/step-3-split-nested-structures)
+4. [Advanced variants](/data-routing/content-splitting/step-4-advanced-patterns)
 
-```bash
-# Kafka topics for split content (already created in local dev setup)
-export KAFKA_TOPIC_ALERTS="temperature-alerts"
-export KAFKA_TOPIC_STORAGE="temperature-storage"
+Then inspect the [Complete reference configuration](/data-routing/content-splitting/complete-content-splitting).
 
-# Optional: S3 configuration for archival
-export S3_BUCKET="your-sensor-data-bucket"
-export AWS_REGION="us-west-2"
+## Adaptation checks
 
-# Optional: HTTP endpoint for alerts
-export ALERT_WEBHOOK_URL="https://your-alerting-system.com/webhooks/temperature"
+- Validate the source collection before splitting.
+- Bound message and collection sizes for the target environment.
+- Test empty input, malformed input, partial processing, and downstream rejection.
 
-# Verify configuration
-echo "Kafka: $KAFKA_BROKERS"
-echo "S3 Bucket: ${S3_BUCKET:-not set}"
-```
-
-## Step 2: Create Sample Data Files
-
-Create test data files that simulate real-world splitting scenarios:
-
-```bash
-# Create test data directory
-mkdir -p /tmp/splitting-test-data
-
-# Create JSON array test file
-cat > /tmp/splitting-test-data/sensor-array.json << 'EOF'
-{
-  "device_id": "sensor-001",
-  "timestamp": "2025-10-20T10:00:00Z",
-  "location": "warehouse-a",
-  "readings": [
-    {"sensor": "temp-1", "value": 72.5, "unit": "F", "status": "normal"},
-    {"sensor": "temp-2", "value": 85.3, "unit": "F", "status": "high"},
-    {"sensor": "temp-3", "value": 68.1, "unit": "F", "status": "normal"},
-    {"sensor": "temp-4", "value": 92.7, "unit": "F", "status": "critical"},
-    {"sensor": "temp-5", "value": 75.2, "unit": "F", "status": "normal"}
-  ]
-}
-EOF
-
-# Create CSV batch test file
-cat > /tmp/splitting-test-data/transactions.csv << 'EOF'
-transaction_id,timestamp,amount,currency,country,customer_id
-txn-001,2025-10-20T10:00:00Z,150.00,USD,US,cust-123
-txn-002,2025-10-20T10:01:00Z,12500.00,EUR,DE,cust-456
-txn-003,2025-10-20T10:02:00Z,75.50,GBP,UK,cust-789
-txn-004,2025-10-20T10:03:00Z,25.99,USD,US,cust-101
-txn-005,2025-10-20T10:04:00Z,8750.00,JPY,JP,cust-202
-EOF
-
-# Create nested structure test file
-cat > /tmp/splitting-test-data/order.json << 'EOF'
-{
-  "order_id": "order-12345",
-  "customer": "customer-001",
-  "order_date": "2025-10-20T09:00:00Z",
-  "items": [
-    {"sku": "WIDGET-A", "quantity": 5, "price": 19.99, "warehouse": "US-EAST"},
-    {"sku": "GADGET-B", "quantity": 2, "price": 49.99, "warehouse": "EU-WEST"},
-    {"sku": "TOOL-C", "quantity": 1, "price": 129.99, "warehouse": "US-WEST"}
-  ],
-  "shipping": {
-    "address": "123 Main St, Anytown, CA 12345",
-    "country": "US",
-    "method": "standard"
-  }
-}
-EOF
-
-# Verify test files
-echo "Test files created:"
-ls -la /tmp/splitting-test-data/
-```
-
-## Step 3: Verify Optional Services
-
-If using optional services, verify connectivity:
-
-```bash
-# Test S3 connectivity (if using S3)
-aws s3 ls s3://$S3_BUCKET --region $AWS_REGION
-
-# Test HTTP webhook (if using webhooks)
-curl -X POST $ALERT_WEBHOOK_URL \
-  -H "Content-Type: application/json" \
-  -d '{"test": "connectivity", "timestamp": "'$(date -Iseconds)'"}'
-```
-
----
-
-**Next:** [Step 1: Split JSON Arrays](/data-routing/content-splitting/step-1-split-json-arrays) to implement your first content splitting transformation.
+This route is a configuration review, not a verified execution guide.

@@ -1,9 +1,18 @@
 ---
-title: "Step 1: Tumbling Windows"
-sidebar_label: "Step 1: Tumbling Windows"
+title: 'Step 1: Tumbling Windows'
+sidebar_label: 'Step 1: Tumbling Windows'
 sidebar_position: 4
 description: Implement fixed-size, non-overlapping time windows for basic aggregation.
 keywords: [tumbling-windows, aggregation, cache, group-by]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-aggregate-time-windows-step-1-tumbling-windows]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 1: Tumbling Windows
@@ -66,8 +75,8 @@ You will transform a continuous stream of individual sensor readings into a seri
 
           # 4. GROUP: When the cache TTL expires, group all events with the same key
           - group_by:
-            - key: ${! this.group_key }
-              value: ${! this }
+              - key: ${! this.group_key }
+                value: ${! this }
 
           # 5. AGGREGATE: Calculate statistics for the group
           - mapping: |
@@ -86,13 +95,14 @@ You will transform a continuous stream of individual sensor readings into a seri
           codec: lines
     ```
 
-2.  **Deploy and Observe:** After deploying, watch the logs. You will see individual events being generated, but the output will only show summary messages every 10 seconds, one for each `sensor_id`.
+2.  **Inspect the intended output:** The configuration emits a summary after its ten-second period for each `sensor_id` represented in that window.
 
 ## Verification
 
-The output will be a stream of aggregated JSON objects. Every 10 seconds, you will see a summary for `sensor-0` and `sensor-1` representing the data from the previous window.
+The authored output is a stream of summary objects for `sensor-0` and `sensor-1`. This page does not record an executed result.
 
 **Example Output:**
+
 ```json
 {"sensor_id":"sensor-0","window_start":"2025-11-22T20:49:10Z","event_count":50,"avg_temperature":24.4}
 {"sensor_id":"sensor-1","window_start":"2025-11-22T20:49:10Z","event_count":50,"avg_temperature":24.88}

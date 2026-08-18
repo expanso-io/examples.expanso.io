@@ -4,6 +4,15 @@ sidebar_label: Troubleshooting
 sidebar_position: 10
 description: Common content splitting issues and solutions
 keywords: [troubleshooting, debug, content-splitting, arrays]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-content-splitting-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Troubleshooting
@@ -35,10 +44,11 @@ docker logs content-splitting --tail 20 2>&1 | grep readings
 ```
 
 **Fix:** Verify the array field name matches your config:
+
 ```yaml
 - unarchive:
     format: json_array
-    field: readings  # Must match your data
+    field: readings # Must match your data
 ```
 
 ---
@@ -48,6 +58,7 @@ docker logs content-splitting --tail 20 2>&1 | grep readings
 **Cause:** Metadata not stored before split
 
 **Fix:** Store context in `meta()` before unarchive, restore after:
+
 ```yaml
 - mapping: |
     meta device_id = this.device_id
@@ -70,6 +81,7 @@ docker stats content-splitting --no-stream
 ```
 
 **Fix:** Add size validation before splitting:
+
 ```yaml
 - mapping: |
     if this.readings.length() > 10000 {

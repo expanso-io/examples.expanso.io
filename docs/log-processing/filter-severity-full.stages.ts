@@ -14,32 +14,69 @@ export const filterSeverityStages: Stage[] = [
   // ============================================================================
   {
     id: 1,
+    slug: 'all-log-levels-mixed',
     title: 'All Log Levels Mixed',
-    description: 'Raw logs arrive with all severity levels mixed together. DEBUG logs often outnumber ERROR logs 10-100x in production, consuming storage and hiding critical issues.',
-    yamlFilename: 'step-0-unfiltered.yaml',
-    yamlCode: `input:
-  http_server:
-    address: 0.0.0.0:8080
-    path: /logs
-
-# No filtering - all logs flow through`,
+    description:
+      'The synthetic input mixes DEBUG, INFO, WARN, and ERROR records before selection.',
     inputLines: [
-      { content: '{"level":"DEBUG","msg":"Cache hit","user_id":42}', indent: 0 },
-      { content: '{"level":"DEBUG","msg":"SQL query: SELECT *","user_id":42}', indent: 0 },
-      { content: '{"level":"INFO","msg":"User login","user_id":42}', indent: 0 },
-      { content: '{"level":"DEBUG","msg":"Memory usage: 45%","user_id":42}', indent: 0 },
-      { content: '{"level":"WARN","msg":"Slow query 2.3s","user_id":42}', indent: 0 },
-      { content: '{"level":"ERROR","msg":"Payment failed","user_id":42}', indent: 0 },
-      { content: '{"level":"DEBUG","msg":"Request finished","user_id":42}', indent: 0 },
+      {
+        content: '{"level":"DEBUG","msg":"Cache hit","user_id":42}',
+        indent: 0,
+      },
+      {
+        content: '{"level":"DEBUG","msg":"SQL query: SELECT *","user_id":42}',
+        indent: 0,
+      },
+      {
+        content: '{"level":"INFO","msg":"User login","user_id":42}',
+        indent: 0,
+      },
+      {
+        content: '{"level":"DEBUG","msg":"Memory usage: 45%","user_id":42}',
+        indent: 0,
+      },
+      {
+        content: '{"level":"WARN","msg":"Slow query 2.3s","user_id":42}',
+        indent: 0,
+      },
+      {
+        content: '{"level":"ERROR","msg":"Payment failed","user_id":42}',
+        indent: 0,
+      },
+      {
+        content: '{"level":"DEBUG","msg":"Request finished","user_id":42}',
+        indent: 0,
+      },
     ],
     outputLines: [
-      { content: '{"level":"DEBUG","msg":"Cache hit","user_id":42}', indent: 0 },
-      { content: '{"level":"DEBUG","msg":"SQL query: SELECT *","user_id":42}', indent: 0 },
-      { content: '{"level":"INFO","msg":"User login","user_id":42}', indent: 0 },
-      { content: '{"level":"DEBUG","msg":"Memory usage: 45%","user_id":42}', indent: 0 },
-      { content: '{"level":"WARN","msg":"Slow query 2.3s","user_id":42}', indent: 0 },
-      { content: '{"level":"ERROR","msg":"Payment failed","user_id":42}', indent: 0 },
-      { content: '{"level":"DEBUG","msg":"Request finished","user_id":42}', indent: 0 },
+      {
+        content: '{"level":"DEBUG","msg":"Cache hit","user_id":42}',
+        indent: 0,
+      },
+      {
+        content: '{"level":"DEBUG","msg":"SQL query: SELECT *","user_id":42}',
+        indent: 0,
+      },
+      {
+        content: '{"level":"INFO","msg":"User login","user_id":42}',
+        indent: 0,
+      },
+      {
+        content: '{"level":"DEBUG","msg":"Memory usage: 45%","user_id":42}',
+        indent: 0,
+      },
+      {
+        content: '{"level":"WARN","msg":"Slow query 2.3s","user_id":42}',
+        indent: 0,
+      },
+      {
+        content: '{"level":"ERROR","msg":"Payment failed","user_id":42}',
+        indent: 0,
+      },
+      {
+        content: '{"level":"DEBUG","msg":"Request finished","user_id":42}',
+        indent: 0,
+      },
     ],
   },
 
@@ -48,36 +85,34 @@ export const filterSeverityStages: Stage[] = [
   // ============================================================================
   {
     id: 2,
+    slug: 'parse-classify',
     title: 'Parse & Classify',
-    description: 'Extract severity level from each log message and normalize it (DEBUG, INFO, WARN, ERROR, CRITICAL). Add metadata to enable filtering and routing decisions based on log importance.',
-    yamlFilename: 'step-1-parse-classify.yaml',
-    yamlCode: `pipeline:
-  processors:
-    - mapping: |
-        root = this.parse_json()
-
-        # Extract and normalize severity
-        root.severity = this.level.uppercase()
-
-        # Classify log priority
-        root.priority = match this.severity {
-          "DEBUG" | "TRACE" => "low"
-          "INFO" => "medium"
-          "WARN" | "WARNING" => "high"
-          "ERROR" | "CRITICAL" | "FATAL" => "critical"
-          _ => "unknown"
-        }
-
-        # Add metadata
-        root.pipeline_timestamp = now()`,
+    description:
+      'Normalize the source level and assign the configured priority label.',
     inputLines: [
-      { content: '{"level":"DEBUG","msg":"Cache hit"}', indent: 0, type: 'removed' },
-      { content: '{"level":"DEBUG","msg":"SQL query"}', indent: 0, type: 'removed' },
+      {
+        content: '{"level":"DEBUG","msg":"Cache hit"}',
+        indent: 0,
+        type: 'removed',
+      },
+      {
+        content: '{"level":"DEBUG","msg":"SQL query"}',
+        indent: 0,
+        type: 'removed',
+      },
       { content: '{"level":"INFO","msg":"User login"}', indent: 0 },
-      { content: '{"level":"DEBUG","msg":"Memory usage"}', indent: 0, type: 'removed' },
+      {
+        content: '{"level":"DEBUG","msg":"Memory usage"}',
+        indent: 0,
+        type: 'removed',
+      },
       { content: '{"level":"WARN","msg":"Slow query"}', indent: 0 },
       { content: '{"level":"ERROR","msg":"Payment failed"}', indent: 0 },
-      { content: '{"level":"DEBUG","msg":"Request finished"}', indent: 0, type: 'removed' },
+      {
+        content: '{"level":"DEBUG","msg":"Request finished"}',
+        indent: 0,
+        type: 'removed',
+      },
     ],
     outputLines: [
       { content: '✅ Parsed & Classified:', indent: 0, type: 'highlighted' },
@@ -102,51 +137,34 @@ export const filterSeverityStages: Stage[] = [
   // ============================================================================
   {
     id: 3,
+    slug: 'filter-route',
     title: 'Filter & Route',
-    description: 'Drop DEBUG/TRACE logs at the edge (90% volume reduction). Route ERROR/WARN to real-time analytics (Elasticsearch), INFO to archival storage (S3). Save 90% on storage costs while improving query performance.',
-    yamlFilename: 'step-2-filter-route.yaml',
-    yamlCode: `pipeline:
-  processors:
-    - mapping: |
-        root = this.parse_json()
-        root.severity = this.level.uppercase()
-        root.priority = match this.severity {
-          "DEBUG" | "TRACE" => "low"
-          "INFO" => "medium"
-          "WARN" | "WARNING" => "high"
-          "ERROR" | "CRITICAL" | "FATAL" => "critical"
-          _ => "unknown"
-        }
-
-output:
-  switch:
-    cases:
-      # Drop DEBUG/TRACE logs (90% reduction)
-      - check: this.priority == "low"
-        output:
-          drop: {}
-
-      # ERROR/WARN → Elasticsearch (real-time alerts)
-      - check: this.priority == "critical" || this.priority == "high"
-        output:
-          elasticsearch:
-            urls: [http://localhost:9200]
-            index: logs-critical
-
-      # INFO → S3 (archival storage)
-      - check: this.priority == "medium"
-        output:
-          aws_s3:
-            bucket: logs-archive
-            path: info/\${!timestamp_unix()}.json`,
+    description:
+      'Apply the authored predicate, then configure separate outputs for retained severity groups.',
     inputLines: [
-      { content: '{"level":"DEBUG","msg":"Cache hit"}', indent: 0, type: 'removed' },
-      { content: '{"level":"DEBUG","msg":"SQL query"}', indent: 0, type: 'removed' },
+      {
+        content: '{"level":"DEBUG","msg":"Cache hit"}',
+        indent: 0,
+        type: 'removed',
+      },
+      {
+        content: '{"level":"DEBUG","msg":"SQL query"}',
+        indent: 0,
+        type: 'removed',
+      },
       { content: '{"level":"INFO","msg":"User login"}', indent: 0 },
-      { content: '{"level":"DEBUG","msg":"Memory usage"}', indent: 0, type: 'removed' },
+      {
+        content: '{"level":"DEBUG","msg":"Memory usage"}',
+        indent: 0,
+        type: 'removed',
+      },
       { content: '{"level":"WARN","msg":"Slow query"}', indent: 0 },
       { content: '{"level":"ERROR","msg":"Payment failed"}', indent: 0 },
-      { content: '{"level":"DEBUG","msg":"Request finished"}', indent: 0, type: 'removed' },
+      {
+        content: '{"level":"DEBUG","msg":"Request finished"}',
+        indent: 0,
+        type: 'removed',
+      },
     ],
     outputLines: [
       { content: '✅ Filtering Results:', indent: 0, type: 'highlighted' },
@@ -155,21 +173,20 @@ output:
       { content: 'WARN logs: 1 → Elasticsearch', indent: 1 },
       { content: 'ERROR logs: 1 → Elasticsearch', indent: 1 },
       { content: '', indent: 0 },
-      { content: '✅ Elasticsearch (Real-Time Alerts):', indent: 0, type: 'highlighted' },
+      {
+        content: '✅ Elasticsearch (Real-Time Alerts):',
+        indent: 0,
+        type: 'highlighted',
+      },
       { content: '{"severity":"WARN","msg":"Slow query"}', indent: 1 },
       { content: '{"severity":"ERROR","msg":"Payment failed"}', indent: 1 },
       { content: '', indent: 0 },
-      { content: '✅ S3 Archival (Long-Term Storage):', indent: 0, type: 'highlighted' },
+      {
+        content: '✅ S3 Archival (Long-Term Storage):',
+        indent: 0,
+        type: 'highlighted',
+      },
       { content: '{"severity":"INFO","msg":"User login"}', indent: 1 },
-      { content: '', indent: 0 },
-      { content: '💰 Cost Savings (1M logs/day):', indent: 0, type: 'highlighted' },
-      { content: 'Before: $8,500/month', indent: 1 },
-      { content: 'After: $1,200/month', indent: 1 },
-      { content: 'Savings: $7,300/month (86%)', indent: 1 },
-      { content: '', indent: 0 },
-      { content: '⚡ Query Performance:', indent: 0, type: 'highlighted' },
-      { content: 'Before: scan 7M logs to find errors', indent: 1 },
-      { content: 'After: scan 700k logs (10x faster)', indent: 1 },
     ],
   },
 ];

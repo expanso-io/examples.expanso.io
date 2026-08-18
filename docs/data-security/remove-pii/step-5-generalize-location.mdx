@@ -1,49 +1,31 @@
 ---
-title: "Step 5: Generalize Location Data"
-sidebar_label: "Step 5: Generalize Location"
+title: 'Step 5: Reduce location precision'
+sidebar_label: 'Step 5: Reduce location precision'
 sidebar_position: 8
-description: Remove precise GPS coordinates while preserving city and country for regional analytics.
-keywords: [pii-removal, generalization, gdpr, location]
+description: Remove latitude and longitude while retaining broader location fields from the fixture.
+keywords: [pii-removal, generalization, location, mapping]
+contentArchetype: step
+executionStatus: offline-runnable
+operationalEvidence: not-assessed
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Technique 5: Generalization
+# Step 5: Reduce location precision
 
-The final technique is **generalization**, where you reduce the precision of data to a level that is still useful for analytics but no longer identifies an individual. This is the perfect pattern for location data.
+Delete coordinates from the nested location object while retaining the fixture's city and country fields.
 
-## The Goal
+```yaml title="Location mapping"
+- mapping: |
+    root = this
+    root.location = this.location.without(
+      "latitude",
+      "longitude"
+    )
+```
 
-You will remove the precise `latitude` and `longitude` fields from the `location` object, while preserving the `city`, `state`, and `country` for regional analytics.
+City-level data can remain identifying for sparse populations or when joined with other attributes. Choose the retained geography from measured group sizes and the downstream purpose.
 
-## Implementation
-
-1.  **Start with the Previous Pipeline:** Copy the `pseudonymize-user.yaml` from Step 4 to a new file named `generalize-location.yaml`.
-    ```bash
-    cp pseudonymize-user.yaml generalize-location.yaml
-    ```
-
-2.  **Add the Generalization Logic:** Open `generalize-location.yaml` and add the location logic to the bottom of the existing `mapping` processor.
-
-    ```yaml title="Add this to your 'mapping' processor in generalize-location.yaml"
-    # --- Logic from previous steps ---
-    # (The existing logic for all other PII fields remains here)
-
-    # --- START: New additions for Generalization ---
-
-    # Remove the precise GPS coordinates to protect user privacy,
-    # but keep the city, state, and country for regional analytics.
-    root.location = this.location.without("latitude", "longitude")
-
-    # --- END: New additions ---
-    ```
-
-3.  **Deploy and Test:**
-    ```bash
-    # Send the sample event data
-    curl -X POST http://localhost:8080/events/ingest \
-      -H "Content-Type: application/json" \
-      -d @~/expanso-remove-pii/sample-event.json
-    ```
-
-4.  **Verify:** Check your logs. The `location` object will no longer contain `latitude` or `longitude`, but the other location fields remain.
-
-You have now built a comprehensive PII removal pipeline that applies different techniques—deletion, hashing, pseudonymization, and generalization—to different fields based on their specific privacy and analytics requirements.
+[Next: review extension risks](/data-security/remove-pii/step-6-advanced-patterns).

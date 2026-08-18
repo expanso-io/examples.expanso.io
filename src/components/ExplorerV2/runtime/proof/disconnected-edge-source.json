@@ -1,0 +1,75 @@
+{
+  "schemaVersion": "1.0.0",
+  "exampleId": "runtime-proof-disconnected-edge",
+  "timelineUnit": "event",
+  "modeledBehaviors": [
+    "link loss changes new records from direct delivery to an in-memory queue",
+    "critical queued records sort ahead of normal queued records",
+    "reconnect leaves the queue intact until the replay event",
+    "replay drains the modeled queue in its deterministic priority order"
+  ],
+  "scenarios": [
+    {
+      "id": "link-drop",
+      "label": "Link drops, then resumes",
+      "description": "One record is delivered, two are buffered during the modeled link loss, and replay drains the queue after reconnect.",
+      "deterministicSeed": "disconnected-edge-link-drop-v1",
+      "initialConnection": "online",
+      "events": [
+        {
+          "id": "accept-normal-001",
+          "kind": "record-arrived",
+          "at": 1,
+          "record": { "id": "normal-001", "priority": "normal" }
+        },
+        {
+          "id": "link-offline",
+          "kind": "link-state",
+          "at": 2,
+          "connection": "offline"
+        },
+        {
+          "id": "buffer-normal-002",
+          "kind": "record-arrived",
+          "at": 3,
+          "record": { "id": "normal-002", "priority": "normal" }
+        },
+        {
+          "id": "buffer-critical-001",
+          "kind": "record-arrived",
+          "at": 4,
+          "record": { "id": "critical-001", "priority": "critical" }
+        },
+        {
+          "id": "link-online",
+          "kind": "link-state",
+          "at": 5,
+          "connection": "online"
+        },
+        { "id": "replay-buffer", "kind": "replay-buffer", "at": 6 }
+      ]
+    },
+    {
+      "id": "steady-link",
+      "label": "Link remains available",
+      "description": "Two records use direct delivery and the replay event finds an empty modeled queue.",
+      "deterministicSeed": "disconnected-edge-steady-link-v1",
+      "initialConnection": "online",
+      "events": [
+        {
+          "id": "accept-critical-002",
+          "kind": "record-arrived",
+          "at": 1,
+          "record": { "id": "critical-002", "priority": "critical" }
+        },
+        {
+          "id": "accept-normal-003",
+          "kind": "record-arrived",
+          "at": 2,
+          "record": { "id": "normal-003", "priority": "normal" }
+        },
+        { "id": "replay-empty-buffer", "kind": "replay-buffer", "at": 3 }
+      ]
+    }
+  ]
+}

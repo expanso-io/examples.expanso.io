@@ -1,87 +1,52 @@
 ---
-title: Troubleshooting
+title: Troubleshoot the PII removal mapping
 sidebar_label: Troubleshooting
 sidebar_position: 10
-description: Common PII removal issues and solutions
-keywords: [troubleshooting, debug, pii, gdpr, privacy]
+description: Diagnose retained source fields, missing derived fields, and unstable hashes in an adapted mapping.
+keywords: [troubleshooting, mapping, pii, privacy]
+contentArchetype: troubleshooting
+executionStatus: offline-runnable
+operationalEvidence: not-assessed
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Troubleshooting
+# Troubleshoot the PII removal mapping
 
-## Quick Diagnosis
+## Source fields remain
+
+Compare the input schema with every configured path. Check nested objects and case differences; the example mappings do not discover fields dynamically.
+
+## Derived fields disappear
+
+A later `root = ...` assignment can replace fields added earlier in the same mapping. Build the new root first, or store derived values in variables before assigning them.
+
+## Hashes change between runs
+
+Confirm that every process receives the same non-empty salt without printing the secret:
 
 ```bash
-# Check container status
-docker ps | grep remove-pii
-
-# Check recent logs
-docker logs remove-pii --tail 50 2>&1 | grep -i error
-
-# Test PII removal
-curl -X POST http://localhost:8080/events \
-  -H "Content-Type: application/json" \
-  -d '{"user_name": "John Doe", "email": "john@example.com", "ip": "192.168.1.1"}'
+for key in IP_SALT EMAIL_SALT USER_SALT; do
+  if test -n "${!key}"; then
+    printf '%s=set\n' "$key"
+  else
+    printf '%s=missing\n' "$key"
+  fi
+done
 ```
 
-## Common Issues
+## Review an output file
 
-### PII still in output (compliance failure)
-
-**Cause:** Field names don't match or nested fields missed
+Use explicit field checks as a starting point, then add paths from the actual schema:
 
 ```bash
-# Check for PII patterns in output
-docker logs remove-pii --tail 50 2>&1 | grep -E "@|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"
+jq '{
+  direct: (has("email") or has("ip_address") or has("user_name")),
+  payment: (.payment_method | has("full_number") or has("expiry")),
+  coordinates: (.location | has("latitude") or has("longitude"))
+}' processed.json
 ```
 
-**Fix:** Add recursive PII detection:
-```yaml
-- mapping: |
-    root = this.map_each(item -> item.re_replace_all("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}", "REDACTED"))
-```
-
----
-
-### Hash values inconsistent
-
-**Cause:** Salt not set or varying between instances
-
-**Fix:** Use consistent salt from environment:
-```yaml
-root.email_hash = this.email.hash("sha256", env("HASH_SALT"))
-```
-
----
-
-### Domain/analytics data lost
-
-**Cause:** Deleting entire field instead of extracting useful parts first
-
-**Fix:** Extract analytics-safe data before removing:
-```yaml
-root.email_domain = this.email.split("@").index(1)
-root.email_hash = this.email.hash("sha256")
-root.email = deleted()
-```
-
----
-
-### Location generalization too aggressive
-
-**Cause:** Removing city/state when only GPS should be removed
-
-**Fix:** Keep geographic region, remove precise location:
-```yaml
-root.location = {
-  "city": this.location.city,
-  "state": this.location.state,
-  "country": this.location.country
-  # latitude, longitude, street deleted
-}
-```
-
-## Still stuck?
-
-1. Add debug logging: `logger: {level: DEBUG}`
-2. Check the [Complete Pipeline](/data-security/remove-pii/complete-pipeline) for reference config
-3. Review [Encrypt Data](/data-security/encrypt-data) for encryption instead of deletion
+This check covers named fields, not all identifying data. Compare the result with the [full configuration](/data-security/remove-pii/complete-pipeline) and the intended output contract.

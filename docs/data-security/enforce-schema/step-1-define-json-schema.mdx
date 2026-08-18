@@ -1,9 +1,18 @@
 ---
-title: "Step 1: Define and Apply a JSON Schema"
-sidebar_label: "Step 1: Define & Apply Schema"
+title: 'Step 1: Define and Apply a JSON Schema'
+sidebar_label: 'Step 1: Define & Apply Schema'
 sidebar_position: 3
 description: Create and apply a JSON Schema to validate incoming data.
 keywords: [json-schema, data-validation, schema]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-enforce-schema-step-1-define-json-schema]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 1: Define and Apply a JSON Schema
@@ -15,6 +24,7 @@ The foundation of data quality is **schema validation**. This step teaches you h
 You will create a simple schema to validate incoming sensor data and then use the `json_schema` processor to enforce it.
 
 **A Valid Message (Should Pass):**
+
 ```json
 {
   "sensor_id": "sensor-42",
@@ -24,6 +34,7 @@ You will create a simple schema to validate incoming sensor data and then use th
 ```
 
 **An Invalid Message (Should Fail):**
+
 ```json
 {
   "id": "sensor-42",
@@ -41,7 +52,7 @@ You will create a simple schema to validate incoming sensor data and then use th
       "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "Basic Sensor Reading",
       "type": "object",
-      "required": [ "sensor_id", "timestamp", "reading" ],
+      "required": ["sensor_id", "timestamp", "reading"],
       "properties": {
         "sensor_id": {
           "type": "string"
@@ -82,14 +93,16 @@ You will create a simple schema to validate incoming sensor data and then use th
         stdout:
           codec: lines
     ```
+
     If the incoming data does not match the schema, the `json_schema` processor will fail and the message will be rejected automatically.
 
 3.  **Deploy and Test:**
+
     ```bash
     # --- Test 1: Send VALID data ---
     curl -X POST http://localhost:8080/sensor/readings \
       -H "Content-Type: application/json" \
-      -d 
+      -d
       {
         "sensor_id": "sensor-42",
         "timestamp": "2025-10-20T14:30:00Z",
@@ -103,7 +116,7 @@ You will create a simple schema to validate incoming sensor data and then use th
     ```
 
 4.  **Verify:**
-    *   For the **valid** request, you will see the message in your output/logs with `validation_status: "passed"`.
-    *   For the **invalid** request, you will get an HTTP 400 Bad Request error, and the message will not proceed through the pipeline. Check the pipeline's logs to see the specific validation error message.
+    - For the **valid** request, you will see the message in your output/logs with `validation_status: "passed"`.
+    - For the **invalid** request, you will get an HTTP 400 Bad Request error, and the message will not proceed through the pipeline. Check the pipeline's logs to see the specific validation error message.
 
 You have now built a basic but powerful data validation pipeline. In the next steps, you will learn how to handle validation failures more gracefully.

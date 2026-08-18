@@ -1,9 +1,18 @@
 ---
-title: "Step 2: Add Backup Metadata"
-sidebar_label: "Step 2: Add Metadata"
+title: 'Step 2: Add Backup Metadata'
+sidebar_label: 'Step 2: Add Metadata'
 sidebar_position: 4
 description: Inject backup context for recovery and auditing
 keywords: [metadata, backup, recovery, context, audit]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-enterprise-migration-nightly-backup-step-2-add-metadata]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 2: Add Backup Metadata
@@ -13,6 +22,7 @@ Add context information to each record for recovery scenarios and audit trails.
 ## The Goal
 
 Add a `_backup_metadata` object containing:
+
 - Backup date (for organizing files)
 - Backup timestamp (exact time)
 - Source host and database
@@ -23,7 +33,7 @@ Add a `_backup_metadata` object containing:
 
 **Recovery Context:** Know exactly when and where data was backed up.
 
-**Audit Trail:** Prove backup compliance with timestamps.
+**Review context:** Retain timestamps for a separately designed audit process.
 
 **Debugging:** Identify which node processed which records.
 
@@ -47,14 +57,14 @@ pipeline:
 
 ## Understanding the Code
 
-| Field | Purpose | Example |
-|-------|---------|---------|
-| `backup_date` | File path organization | "2024-01-15" |
-| `backup_timestamp` | Exact backup time | "2024-01-15T02:00:00Z" |
-| `source_host` | Origin database server | "postgres.internal.corp" |
-| `source_database` | Database name | "ecommerce" |
-| `pipeline_version` | Config version tracking | "1.0.0" |
-| `node_id` | Processing node | "backup-node-1" |
+| Field              | Purpose                 | Example                  |
+| ------------------ | ----------------------- | ------------------------ |
+| `backup_date`      | File path organization  | "2024-01-15"             |
+| `backup_timestamp` | Exact backup time       | "2024-01-15T02:00:00Z"   |
+| `source_host`      | Origin database server  | "postgres.internal.corp" |
+| `source_database`  | Database name           | "ecommerce"              |
+| `pipeline_version` | Config version tracking | "1.0.0"                  |
+| `node_id`          | Processing node         | "backup-node-1"          |
 
 ## Expected Output
 
@@ -103,9 +113,9 @@ Add table row counts for validation:
 ```yaml
 root._backup_metadata.source_table = this._table
 root._backup_metadata.extraction_query = match this._table {
-  "orders" => "updated_at >= CURRENT_DATE - INTERVAL '1 day'",
-  "inventory" => "full_table",
-  _ => "unknown"
+"orders" => "updated_at >= CURRENT_DATE - INTERVAL '1 day'",
+"inventory" => "full_table",
+_ => "unknown"
 }
 ```
 
@@ -114,7 +124,10 @@ root._backup_metadata.extraction_query = match this._table {
 ## Next Step
 
 <div className="margin-top--lg margin-bottom--lg">
-  <a href="./step-3-calculate-checksum" className="button button--primary button--lg">
+  <a
+    href="../step-3-calculate-checksum"
+    className="button button--primary button--lg"
+  >
     📖 Step 3: Calculate Checksum →
   </a>
 </div>

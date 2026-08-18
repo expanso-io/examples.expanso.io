@@ -1,34 +1,56 @@
 ---
-title: "Step 2: Fingerprint-Based Deduplication"
-sidebar_label: "Step 2: Fingerprint-Based Deduplication"
+title: 'Step 2: Fingerprint-Based Deduplication'
+sidebar_label: 'Step 2: Fingerprint-Based Deduplication'
 sidebar_position: 5
-description: "Detect semantic duplicates using selective field fingerprinting."
+description: 'Detect semantic duplicates using selective field fingerprinting.'
 keywords: [deduplication, fingerprint-based, semantic-duplicates, hashing]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-deduplicate-events-step-2-fingerprint-semantic-duplicates]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 2: Fingerprint-Based Deduplication for Semantic Duplicates
 
-Hash-based deduplication is great for exact copies, but it fails if even one character is different. A more powerful technique is **fingerprint-based deduplication**, where you create a hash from only the fields that define a unique *business event*.
+Exact-content keys change when any serialized value changes. **Fingerprint-based deduplication** instead hashes a selected set of fields that defines equivalence for this example.
 
-This is perfect for catching "semantic" duplicates, like those from a load balancer retry, where the `event_id` and `timestamp` are different, but the core action is the same.
+The example treats two records with different identifiers and timestamps as equivalent when their configured business fields match.
 
 ## The Goal
 
-You will modify your pipeline to create a "fingerprint" based only on the core business fields (`event_type` and `user_id`). This will allow it to detect that the two messages below are duplicates, even though they are not identical.
+The fingerprint uses `event_type` and `user_id`. That field choice defines the example's duplicate policy.
 
 **Event 1:**
+
 ```json
-{"event_id": "abc-123", "timestamp": "10:30:01Z", "event_type": "login", "user_id": "alice"}
+{
+  "event_id": "abc-123",
+  "timestamp": "10:30:01Z",
+  "event_type": "login",
+  "user_id": "alice"
+}
 ```
 
 **Event 2 (Semantic Duplicate):**
+
 ```json
-{"event_id": "def-456", "timestamp": "10:30:03Z", "event_type": "login", "user_id": "alice"}
+{
+  "event_id": "def-456",
+  "timestamp": "10:30:03Z",
+  "event_type": "login",
+  "user_id": "alice"
+}
 ```
 
 ## Implementation
 
 1.  **Start with the Previous Pipeline:** Copy the `deduplicator.yaml` from Step 1 to a new file named `fingerprint-dedup.yaml`.
+
     ```bash
     cp deduplicator.yaml fingerprint-dedup.yaml
     ```
@@ -40,7 +62,7 @@ You will modify your pipeline to create a "fingerprint" based only on the core b
     - mapping: |
         root = this
 
-        # 1. Create a new object containing ONLY the business-critical fields.
+        # 1. Create an object containing the selected comparison fields.
         let business_fingerprint = {
           "event_type": this.event_type,
           "user_id": this.user_id
@@ -49,9 +71,11 @@ You will modify your pipeline to create a "fingerprint" based only on the core b
         # 2. Create the hash from this new object, not the whole message.
         root.dedup_hash = business_fingerprint.json_format().hash("sha256")
     ```
+
     The rest of the pipeline (`cache`, `check`, `drop`) remains exactly the same. It still uses `dedup_hash` to check for duplicates, but that hash is now much smarter.
 
 3.  **Deploy and Test:**
+
     ```bash
     # --- Send two SEMANTICALLY identical messages ---
     curl -X POST http://localhost:8080/ingest \
@@ -64,6 +88,6 @@ You will modify your pipeline to create a "fingerprint" based only on the core b
     ```
 
 4.  **Verify:**
-    Check your logs. Even though the two messages were different, only the **first one** was processed. The second one was correctly identified as a semantic duplicate and dropped because its business fingerprint was identical to the first.
+    The intended result retains the first record and drops the matching fingerprint. This page does not record an executed result.
 
-You have now implemented a more powerful deduplication strategy that can handle a wider range of real-world duplicate scenarios.
+Review false-match risk and field evolution before adapting this strategy.

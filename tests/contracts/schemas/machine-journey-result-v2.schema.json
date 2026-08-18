@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://examples.expanso.io/tests/contracts/schemas/machine-journey-result-v2.schema.json",
+  "title": "Expanso examples machine journey result v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "resultVersion",
+    "contractId",
+    "contractSha256",
+    "resultSchemaSha256",
+    "scorerSchemaSha256",
+    "subjectSha",
+    "environmentId",
+    "producerId",
+    "execution",
+    "startedAt",
+    "finishedAt",
+    "trials",
+    "verifierAttestation"
+  ],
+  "properties": {
+    "resultVersion": { "const": "2.0.0" },
+    "contractId": { "const": "machine-journey-v1" },
+    "contractSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "resultSchemaSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "scorerSchemaSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "subjectSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "environmentId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]+$"
+    },
+    "producerId": { "type": "string", "minLength": 1 },
+    "execution": { "$ref": "#/$defs/execution" },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "finishedAt": { "type": "string", "format": "date-time" },
+    "trials": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["trialId", "persona", "seed", "tasks"],
+        "properties": {
+          "trialId": { "type": "string", "minLength": 1 },
+          "persona": {
+            "enum": ["evaluator", "practitioner", "existing-user-context"]
+          },
+          "seed": { "type": "string", "minLength": 1 },
+          "tasks": {
+            "type": "array",
+            "minItems": 5,
+            "maxItems": 5,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "taskId",
+                "claimedStatus",
+                "elapsedMs",
+                "wrongTurns",
+                "abandonedRoutes",
+                "confidence",
+                "browserDevice",
+                "trace",
+                "oracleEvidence",
+                "scorerOutput",
+                "blockedReason"
+              ],
+              "properties": {
+                "taskId": { "type": "string", "minLength": 1 },
+                "claimedStatus": {
+                  "enum": ["PASS", "FAIL"]
+                },
+                "elapsedMs": { "type": "number", "minimum": 0 },
+                "wrongTurns": { "type": "integer", "minimum": 0 },
+                "abandonedRoutes": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "browserDevice": {
+                  "enum": ["desktop", "tablet", "mobile"]
+                },
+                "trace": { "$ref": "#/$defs/traceBindings" },
+                "oracleEvidence": { "$ref": "#/$defs/artifactEvidence" },
+                "scorerOutput": { "$ref": "#/$defs/artifactEvidence" },
+                "blockedReason": { "type": "null" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "verifierAttestation": { "$ref": "#/$defs/artifactEvidence" }
+  },
+  "$defs": {
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "toolVersions"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "toolVersions": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "artifactEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceVersion", "path", "sha256", "bytes"],
+      "properties": {
+        "evidenceVersion": { "const": "journey-artifact-v2" },
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "bytes": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "traceBindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dom", "network", "screenshot", "commands"],
+      "properties": {
+        "dom": { "$ref": "#/$defs/artifactEvidence" },
+        "network": { "$ref": "#/$defs/artifactEvidence" },
+        "screenshot": { "$ref": "#/$defs/artifactEvidence" },
+        "commands": { "$ref": "#/$defs/artifactEvidence" }
+      }
+    }
+  }
+}

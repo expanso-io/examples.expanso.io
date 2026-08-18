@@ -4,6 +4,15 @@ sidebar_label: Troubleshooting
 sidebar_position: 8
 description: Common schema validation issues and solutions
 keywords: [troubleshooting, debug, schema, validation, json-schema]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-enforce-schema-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Troubleshooting
@@ -35,14 +44,14 @@ docker logs enforce-schema --tail 20 2>&1 | grep validation
 ```
 
 **Fix:** Check for type coercion issues:
+
 ```yaml
 # Allow string or number for temperature
-"temperature": {
-  "oneOf": [
-    {"type": "number"},
-    {"type": "string", "pattern": "^[0-9.]+$"}
-  ]
-}
+'temperature':
+  {
+    'oneOf':
+      [{ 'type': 'number' }, { 'type': 'string', 'pattern': '^[0-9.]+$' }],
+  }
 ```
 
 ---
@@ -52,6 +61,7 @@ docker logs enforce-schema --tail 20 2>&1 | grep validation
 **Cause:** Schema missing required fields or validation rules
 
 **Fix:** Add `required` array and `additionalProperties`:
+
 ```yaml
 "required": ["sensor_id", "temperature", "timestamp"],
 "additionalProperties": false
@@ -64,12 +74,13 @@ docker logs enforce-schema --tail 20 2>&1 | grep validation
 **Cause:** Switch condition not routing to DLQ
 
 **Fix:** Ensure error path is configured:
+
 ```yaml
 - check: meta("validation_error") != ""
   output:
-    kafka: {topic: dlq}
+    kafka: { topic: dlq }
 - output:
-    kafka: {topic: valid-data}
+    kafka: { topic: valid-data }
 ```
 
 ---
@@ -79,13 +90,14 @@ docker logs enforce-schema --tail 20 2>&1 | grep validation
 **Cause:** Schema updated without version handling
 
 **Fix:** Support multiple schema versions:
+
 ```yaml
 - mapping: |
     root.schema_version = this.schema_version.or("v1")
 - switch:
     - check: this.schema_version == "v2"
-      processors: [{json_schema: {schema_path: "./schema-v2.json"}}]
-    - processors: [{json_schema: {schema_path: "./schema-v1.json"}}]
+      processors: [{ json_schema: { schema_path: './schema-v2.json' } }]
+    - processors: [{ json_schema: { schema_path: './schema-v1.json' } }]
 ```
 
 ## Still stuck?

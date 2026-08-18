@@ -4,17 +4,27 @@ sidebar_label: Step 3 - Enrich Metadata
 sidebar_position: 6
 description: Add operational context, lineage, and business data to your logs
 keywords: [enrichment, metadata, lineage, context, mapping]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-production-pipeline-step-3-enrich-with-metadata]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 import CodeBlock from '@theme/CodeBlock';
 
 # Enrich with Metadata
 
-Raw logs often lack context. To make them useful for debugging and auditing, we need to know *where* they were processed, *which* pipeline handled them, and *when*.
+Raw logs often lack context. To make them useful for debugging and auditing, we need to know _where_ they were processed, _which_ pipeline handled them, and _when_.
 
 ## Goal
 
 Add the following metadata to every log event:
+
 - **Processing Node:** ID and region of the edge node
 - **Pipeline Info:** Version and environment
 - **Audit:** Ingestion timestamp and trace ID
@@ -28,15 +38,15 @@ We use the `mapping` processor to inject environment variables and generated val
 We'll add a `metadata` object to keep things organized.
 
 ```yaml
-    - mapping: |
-        root = this
-        root.metadata = {
-          "ingest_timestamp": now(),
-          "trace_id": uuid_v4(),
-          "node_id": env("NODE_ID").or("unknown_node"),
-          "region": env("AWS_REGION").or("unknown_region"),
-          "environment": env("ENVIRONMENT").or("dev")
-        }
+- mapping: |
+    root = this
+    root.metadata = {
+      "ingest_timestamp": now(),
+      "trace_id": uuid_v4(),
+      "node_id": env("NODE_ID").or("unknown_node"),
+      "region": env("AWS_REGION").or("unknown_region"),
+      "environment": env("ENVIRONMENT").or("dev")
+    }
 ```
 
 ## Complete Step 3 Configuration
@@ -44,13 +54,13 @@ We'll add a `metadata` object to keep things organized.
 ```yaml title="production-pipeline-step-3.yaml"
 input:
   http_server:
-    address: "0.0.0.0:8080"
+    address: '0.0.0.0:8080'
     path: /logs/ingest
-    rate_limit: "1000/1s"
+    rate_limit: '1000/1s'
     auth:
       type: header
-      header: "X-API-Key"
-      required_value: "${LOG_API_KEY}"
+      header: 'X-API-Key'
+      required_value: '${LOG_API_KEY}'
 
 pipeline:
   processors:
@@ -68,7 +78,7 @@ pipeline:
           "processing_node": env("NODE_ID").or("local"),
           "pipeline_version": "1.0.0"
         }
-        
+
         # Example: Add 'urgent' flag for high severity
         if root.level == "ERROR" || root.level == "FATAL" {
            root.metadata.urgent = true
@@ -81,6 +91,7 @@ output:
 ## Deployment & Verification
 
 1.  **Set Env Vars:**
+
     ```bash
     export NODE_ID="node-01"
     ```
@@ -91,11 +102,10 @@ output:
       -H "X-API-Key: $LOG_API_KEY" \
       -d '{"level": "ERROR", "message": "DB fail"}'
     ```
-    *Result should include `metadata` with `processing_node: "node-01"` and `urgent: true`.*
+    _Result should include `metadata` with `processing_node: "node-01"` and `urgent: true`._
 
 ## Next Steps
 
 With enriched data, we can now make intelligent decisions about what to keep and how to prioritize it.
 
 👉 [**Step 4: Filter & Score Logs**](/log-processing/production-pipeline/step-4-filter-score-logs)
-

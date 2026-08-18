@@ -1,0 +1,16 @@
+pipeline:
+  processors:
+    - mapping: |
+        meta device_id = this.device_id
+        meta timestamp = this.timestamp
+        meta location = this.location
+        root = this
+
+    # Split the readings array
+    - unarchive:
+        format: json_array
+        field: readings
+
+output:
+  file:
+    path: /var/log/split-messages.jsonl

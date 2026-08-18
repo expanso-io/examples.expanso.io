@@ -1,0 +1,19 @@
+pipeline:
+  processors:
+    - mapping: |
+        root = this.parse_json()
+
+        # Extract and normalize severity
+        root.severity = this.level.uppercase()
+
+        # Classify log priority
+        root.priority = match this.severity {
+          "DEBUG" | "TRACE" => "low"
+          "INFO" => "medium"
+          "WARN" | "WARNING" => "high"
+          "ERROR" | "CRITICAL" | "FATAL" => "critical"
+          _ => "unknown"
+        }
+
+        # Add metadata
+        root.pipeline_timestamp = now()

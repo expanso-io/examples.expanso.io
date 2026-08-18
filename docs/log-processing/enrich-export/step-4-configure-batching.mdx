@@ -1,14 +1,23 @@
 ---
-title: "Step 4 - Configure Batching"
-sidebar_label: "Step 4: Configure Batching"
+title: 'Step 4 - Configure Batching'
+sidebar_label: 'Step 4: Configure Batching'
 sidebar_position: 7
-description: Optimize output performance by configuring a batching policy.
+description: Configure an authored batching policy and its flush conditions.
 keywords: [batching, performance, throughput, cost-optimization]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-enrich-export-step-4-configure-batching]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 4: Configure Batching
 
-Sending one message at a time can be inefficient, especially when writing to files or sending data over a network. **Batching** is the process of collecting a number of messages and sending them as a single group, which is much more efficient.
+**Batching** collects a number of messages and sends them as a group, reducing the number of output operations.
 
 ## The Goal
 
@@ -17,14 +26,16 @@ You will modify your pipeline's output to use a **batching policy**. Instead of 
 ## The `batching` Block
 
 Most output processors can be configured with a `batching` block that defines the policy. The two most common fields are:
--   `count`: The number of messages to collect before sending.
--   `period`: The maximum amount of time to wait before sending, even if the `count` has not been reached.
+
+- `count`: The number of messages to collect before sending.
+- `period`: The maximum amount of time to wait before sending, even if the `count` has not been reached.
 
 Whichever condition is met first triggers the send.
 
 ## Implementation
 
 1.  **Start with the Previous Pipeline:** Copy the `restructure-log.yaml` from Step 3 to a new file named `batched-output.yaml`.
+
     ```bash
     cp restructure-log.yaml batched-output.yaml
     ```
@@ -42,6 +53,7 @@ Whichever condition is met first triggers the send.
     ```
 
 3.  **Deploy and Test:**
+
     ```bash
     # Create the output file's directory if it doesn't exist
     mkdir -p /tmp

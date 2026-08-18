@@ -4,6 +4,15 @@ sidebar_label: Step 4 - Prevent Starvation
 sidebar_position: 7
 description: Add an age-based priority boost to prevent low-priority messages from being starved.
 keywords: [starvation, fairness, age-based, escalation, priority-boost]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-priority-queues-step-4-prevent-starvation]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Step 4: Prevent Priority Starvation
@@ -19,6 +28,7 @@ You will modify the scoring processor to calculate the age of a message and add 
 ## Implementation
 
 1.  **Start with the Previous Pipeline:** Copy the `multi-criteria-router.yaml` file you created in Step 3 to a new file named `anti-starvation-router.yaml`.
+
     ```bash
     cp multi-criteria-router.yaml anti-starvation-router.yaml
     ```
@@ -88,26 +98,26 @@ Deploy the new pipeline and send two identical low-priority events: one recent, 
 ```bash
 # Test a 'INFO' from a 'free' user (score: 20*1.0 + 0 + 0 = 20 => low)
 curl -X POST http://localhost:8080/logs -H "Content-Type: application/json" \
-  -d 
+  -d
     "severity": "INFO",
     "customer_tier": "free",
     "event_type": "user.login",
     "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
-  
+
 
 # Test the SAME event, but with an old timestamp
 # (score: 20*1.0 + 0 + 40 = 60 => normal)
 curl -X POST http://localhost:8080/logs -H "Content-Type: application/json" \
-  -d 
+  -d
     "severity": "INFO",
     "customer_tier": "free",
     "event_type": "user.login",
     "timestamp": "'$(date -u -d "2 hours ago" +%Y-%m-%dT%H:%M:%SZ)'"
-  
+
 ```
 
 ## 4. Verify
 
 Check your Kafka topics. The first, recent event is correctly routed to `logs-low`. The second, older event is **escalated to the `logs-normal` topic** because its age gave it a +40 point boost, pushing its score over the "normal" threshold.
 
-You have now built a fair and robust priority queue system that guarantees every message will eventually be processed.
+The example now includes an age-based adjustment. Measure real scheduling and eventual-processing behavior in the destination queue and worker system.

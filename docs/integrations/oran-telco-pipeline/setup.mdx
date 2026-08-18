@@ -1,195 +1,54 @@
 ---
-title: "Setup O-RAN Telemetry Pipeline"
-sidebar_label: "Setup"
+title: Review the O-RAN Telemetry Reference
+sidebar_label: Run path
 sidebar_position: 3
-description: "Review the illustrative infrastructure and credentials used in the O-RAN telemetry walkthrough."
-keywords: [oran, telecom, telemetry, setup, openshift, edge-processing]
+description: Inspect the checked-in telemetry architecture without connecting a RAN source or destination.
+keywords: [oran, telemetry, adapter, inspection]
+contentArchetype: run
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-run-path-integrations-oran-telco-pipeline]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
-# Setup and Prerequisites
+# Review the O-RAN Telemetry Reference
 
-Before building your O-RAN telemetry pipeline, ensure you have the required infrastructure components and access permissions.
+This path inspects repository artifacts. It does not collect an O-RAN protocol, deploy to OpenShift, or contact any destination.
 
-## Infrastructure Requirements
+## Prerequisites
 
-### Expanso Edge Platform
-- **Expanso Edge** v2.1+ installed on OpenShift SNO nodes
-- **Minimum resources**: 2 CPU cores, 4GB RAM per pipeline
-- **Storage**: 100GB local storage for buffering (NVMe preferred)
-- **Network**: Access to DU management interfaces and external destinations
+- A checkout of this repository
+- A shell with `sed` and `rg`
+- No RAN, cluster, broker, or analytics credentials
 
-### OpenShift Single Node OpenShift (SNO)
-- **OpenShift** v4.12+ with SNO configuration
-- **Node placement**: Co-located with RAN workloads for minimal latency
-- **Security context**: Expanso Edge operator with appropriate RBAC
-- **Storage classes**: Local storage for buffering, network storage for long-term retention
+## Run the inspection
 
-### Observability Stack
-- **Grafana** v9.0+ with dashboard import capability
-- **OTEL Collector** v0.70+ with Prometheus exporter
-- **Prometheus** v2.40+ with remote write configured
-- **Alert Manager** (optional) for PTP compliance notifications
-
-### Analytics Platform
-Choose one or more destinations:
-
-#### Option 1: Cloudera Data Platform (CDP)
-- **CDP** v7.2+ with Cloudera Data Flow (CDF)
-- **Kafka** endpoint for real-time ingestion
-- **HDFS/S3** access for Parquet storage
-- **Schema Registry** for schema evolution
-
-#### Option 2: Object Storage + Analytics
-- **S3/MinIO/HDFS** for Parquet storage
-- **Kafka** for streaming analytics
-- **Apache Spark** or similar for batch processing
-
-## Data Source Access
-
-### DU Telemetry Endpoints
-Configure access to O-RAN DU telemetry:
+From the repository root:
 
 ```bash
-# Option 1: File-based collection
-# Mount DU telemetry files to pipeline
-/mnt/du-telemetry/
-├── ptp4l_offset.log      # PTP timing data
-├── cpu_metrics.log       # System performance
-├── prb_utilization.log   # Resource block usage
-└── rf_measurements.log   # Radio measurements
-
-# Option 2: API-based collection  
-# HTTP endpoints for real-time polling
-curl http://du-001.oran.local:8080/api/v1/metrics/ptp
-curl http://du-001.oran.local:8080/api/v1/metrics/prb
-curl http://du-001.oran.local:8080/api/v1/metrics/system
+test -f static/pipelines/oran-telco-pipeline.yaml
+test -f examples/integrations/oran-input.yaml
+sed -n '1,80p' examples/integrations/oran-input.yaml
+rg -n 'input:|mapping:|broker:|kafka:|file:' \
+  static/pipelines/oran-telco-pipeline.yaml
 ```
 
-### Network Connectivity
-- **DU Management Network**: Access to O-RAN management plane
-- **External Egress**: HTTPS/443 for Grafana, Kafka ports for Cloudera
-- **Internal Communication**: Pod-to-pod within OpenShift cluster
-- **DNS Resolution**: External service discovery for cloud destinations
+## Expected output
 
-## Credentials and Authentication
+Both file checks exit successfully. The fixture shows authored telemetry, and the final command identifies source, transformation, and external destination boundaries.
 
-### Service Accounts
-Create dedicated service accounts for secure access:
+## Cleanup
 
-```yaml
-# Grafana/OTEL authentication
-apiVersion: v1
-kind: Secret
-metadata:
-  name: grafana-credentials
-  namespace: expanso-pipelines
-data:
-  username: <base64-encoded>
-  password: <base64-encoded>
-  endpoint: <base64-encoded>
+No files or external resources are created.
 
----
-# Cloudera credentials
-apiVersion: v1
-kind: Secret
-metadata:
-  name: cloudera-credentials
-  namespace: expanso-pipelines
-data:
-  kafka_bootstrap: <base64-encoded>
-  kafka_username: <base64-encoded>
-  kafka_password: <base64-encoded>
-  schema_registry_url: <base64-encoded>
-```
+## Common failures
 
-### DU Authentication
-Configure authentication for DU telemetry access:
+- A missing file means the checkout does not contain the referenced artifact.
+- An empty search means the combined reference changed; inspect it directly before updating the walkthrough.
+- The fixture and mappings do not validate network thresholds or destination contracts.
 
-```yaml
-# DU API credentials
-apiVersion: v1
-kind: Secret
-metadata:
-  name: du-telemetry-credentials
-  namespace: expanso-pipelines
-data:
-  api_key: <base64-encoded>
-  client_cert: <base64-encoded>
-  client_key: <base64-encoded>
-```
-
-## Storage Configuration
-
-### Local Buffer Storage
-Configure local storage for edge resilience:
-
-```yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: oran-buffer-storage
-  namespace: expanso-pipelines
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 100Gi
-  storageClassName: local-nvme
-```
-
-### Parquet Output Storage
-Set up storage for long-term Parquet files:
-
-```yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: oran-parquet-storage
-  namespace: expanso-pipelines
-spec:
-  accessModes:
-    - ReadWriteMany
-  resources:
-    requests:
-      storage: 1Ti
-  storageClassName: nfs-storage
-```
-
-## Validation Checklist
-
-Before proceeding to data collection, verify:
-
-- [ ] Expanso Edge operator running on OpenShift SNO
-- [ ] DU telemetry endpoints accessible from pipeline pods
-- [ ] Grafana/OTEL stack configured and healthy
-- [ ] Cloudera/Analytics platform credentials tested
-- [ ] Local storage available for buffering (greater than 100GB free)
-- [ ] Network connectivity to all destinations verified
-- [ ] Service account permissions configured
-
-## Environment Variables
-
-Set required environment variables for the pipeline:
-
-```bash
-# DU Configuration
-export DU_ENDPOINT="http://du-001.oran.local:8080"
-export DU_API_KEY="your-du-api-key"
-
-# Grafana/OTEL Configuration
-export OTEL_ENDPOINT="http://otel-collector:4318"
-export GRAFANA_ENDPOINT="http://grafana:3000"
-
-# Cloudera Configuration
-export KAFKA_BOOTSTRAP="cloudera-kafka:9092"
-export SCHEMA_REGISTRY_URL="http://schema-registry:8081"
-
-# Storage Configuration
-export BUFFER_PATH="/data/buffer"
-export PARQUET_PATH="/data/oran-telemetry"
-```
-
-## Next Steps
-
-With prerequisites in place, you're ready to [collect O-RAN metrics](/integrations/oran-telco-pipeline/step-1-collect-oran-metrics.mdx) from your DU nodes.
+**Next:** [Inspect the source boundary](/integrations/oran-telco-pipeline/step-1-collect-oran-metrics).

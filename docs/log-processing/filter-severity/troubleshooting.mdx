@@ -4,6 +4,15 @@ sidebar_label: Troubleshooting
 sidebar_position: 7
 description: Common log severity filtering issues and solutions
 keywords: [troubleshooting, debug, filtering, severity]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-filter-severity-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Troubleshooting
@@ -35,6 +44,7 @@ docker logs filter-severity --tail 20 2>&1 | grep -E "(level|severity)"
 ```
 
 **Fix:** Normalize severity field name and case:
+
 ```yaml
 - mapping: |
     root.severity = this.level.or(this.severity).or(this.log_level).uppercase()
@@ -47,6 +57,7 @@ docker logs filter-severity --tail 20 2>&1 | grep -E "(level|severity)"
 **Cause:** Severity classification incorrect
 
 **Fix:** Verify severity mapping:
+
 ```yaml
 - mapping: |
     root.priority = match this.severity {
@@ -63,6 +74,7 @@ docker logs filter-severity --tail 20 2>&1 | grep -E "(level|severity)"
 **Cause:** Filter condition not matching
 
 **Fix:** Use explicit drop:
+
 ```yaml
 - mapping: |
     if ["DEBUG", "TRACE"].contains(this.severity) {
@@ -77,6 +89,7 @@ docker logs filter-severity --tail 20 2>&1 | grep -E "(level|severity)"
 **Cause:** Too many regex operations
 
 **Fix:** Use simple string matching:
+
 ```yaml
 # Instead of regex
 - mapping: |

@@ -4,6 +4,15 @@ sidebar_label: Troubleshooting
 sidebar_position: 11
 description: Common production log pipeline issues and solutions
 keywords: [troubleshooting, debug, production, pipeline]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-production-pipeline-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:074699c58653998ab3cc614347cff3fa995c7651028692763a2b4d8a84d1a281
 ---
 
 # Troubleshooting
@@ -31,6 +40,7 @@ curl -X POST http://localhost:8080/logs \
 **Cause:** Authentication token missing or invalid
 
 **Fix:** Check auth configuration:
+
 ```yaml
 input:
   http_server:
@@ -56,11 +66,12 @@ curl -s http://localhost:9200/_cat/indices
 ```
 
 **Fix:** Add retry and fallback:
+
 ```yaml
 output:
   fallback:
-    - elasticsearch: {urls: ["http://localhost:9200"]}
-    - file: {path: "/var/fallback/logs.jsonl"}
+    - elasticsearch: { urls: ['http://localhost:9200'] }
+    - file: { path: '/var/fallback/logs.jsonl' }
 ```
 
 ---
@@ -75,6 +86,7 @@ docker logs production-pipeline --tail 50 2>&1 | grep -E "@|[0-9]{3}-[0-9]{2}-[0
 ```
 
 **Fix:** Add broader PII patterns:
+
 ```yaml
 - mapping: |
     root.message = this.message
@@ -93,6 +105,7 @@ docker stats production-pipeline --no-stream
 ```
 
 **Fix:** Tune batching and add backpressure:
+
 ```yaml
 batching:
   count: 500

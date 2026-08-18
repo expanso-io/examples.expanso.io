@@ -1,0 +1,2284 @@
+{
+  "$schema": "./schemas/quality-contract-v1.schema.json",
+  "contractId": "machine-journey-v1",
+  "contractVersion": "3.0.0",
+  "contractSha256": "b45cad48e8ae9d8250141cc49c03783576665e7e70456b8bf766695b5dd4f956",
+  "digest": {
+    "algorithm": "sha256",
+    "canonicalization": "sorted-json-utf8-v1",
+    "selfFieldValue": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "commands": {
+    "validate": "npm run quality:contracts",
+    "run": "npm run quality:journeys -- --input \"$JOURNEY_RESULT\""
+  },
+  "resultSchema": "tests/contracts/schemas/machine-journey-result-v2.schema.json",
+  "reducerBehavior": {
+    "missingManifest": "FAIL",
+    "schemaInvalid": "FAIL",
+    "digestMismatch": "FAIL",
+    "requiredResultMissing": "FAIL",
+    "contractMismatch": "FAIL",
+    "localFailure": "FAIL",
+    "optionalCapabilityUnavailable": "BLOCKED_CAPABILITY"
+  },
+  "tools": {
+    "node": "20.19.4",
+    "playwright": "1.55.1",
+    "chromium": "140.0.7339.186",
+    "scorer": "machine-journey-scorer@1.0.0"
+  },
+  "routes": {
+    "inventory": {
+      "source": "build/sitemap.xml",
+      "required": true
+    },
+    "required": [
+      {
+        "id": "catalog",
+        "path": "/"
+      },
+      {
+        "id": "remove-pii-overview",
+        "path": "/data-security/remove-pii"
+      },
+      {
+        "id": "remove-pii-explore",
+        "path": "/data-security/remove-pii/explorer"
+      }
+    ]
+  },
+  "fixtures": [
+    {
+      "id": "remove-pii-pipeline",
+      "path": "examples/data-security/remove-pii-complete.yaml",
+      "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+    },
+    {
+      "id": "remove-pii-input",
+      "path": "examples/data-security/remove-pii/sample-data.json",
+      "sha256": "f27d41e0954e0501730fd1c718b4b4c885fb839ba73af7971ea0351732d5dab2"
+    },
+    {
+      "id": "remove-pii-fixture-environment",
+      "path": "examples/data-security/remove-pii/fixture-environment.json",
+      "sha256": "4d2bec15465fdc8731c1d4e205e2aae834faf6ecdaa399f65c6f2c512ddb4c99"
+    },
+    {
+      "id": "remove-pii-expected-output",
+      "path": "examples/data-security/remove-pii/expected-output.jsonl",
+      "sha256": "189eeefe48eb725e12d480d67e87278db2f588b1b38d18a666e69499fbcf10e3"
+    }
+  ],
+  "scorer": {
+    "version": "machine-journey-scorer@2.0.0",
+    "outputSchema": {
+      "path": "tests/contracts/schemas/machine-journey-scorer-output-v2.schema.json",
+      "sha256": "a77ced1d1fc343fc2a6c6259d77e4b391aa658c8c7a442eb075c27ed005a9932"
+    },
+    "deterministic": true,
+    "contractDigestRequired": true,
+    "toolInterventionOutsideManifest": "FAIL",
+    "missingOracle": "FAIL",
+    "missingTrace": "FAIL",
+    "scorerMismatch": "FAIL"
+  },
+  "traceSchemas": {
+    "dom": {
+      "format": "journey-dom-trace-v1",
+      "path": "tests/contracts/schemas/machine-journey-dom-trace-v1.schema.json",
+      "sha256": "9d2e5680e5282bbebf9111c73a0ce3d720a3f5222e6a4431960764c29fa08b55"
+    },
+    "network": {
+      "format": "journey-network-trace-v1",
+      "path": "tests/contracts/schemas/machine-journey-network-trace-v1.schema.json",
+      "sha256": "d192a01e84a49ac7aff947fddd4b917e8de10ca55862903338226d539fde8d76"
+    },
+    "commands": {
+      "format": "journey-commands-trace-v1",
+      "path": "tests/contracts/schemas/machine-journey-commands-trace-v1.schema.json",
+      "sha256": "cafc89c13da026468ab52e337eb20829f44b1f327fb830bc1307831d7539be0f"
+    }
+  },
+  "sourceBindings": {
+    "scorer": {
+      "path": "scripts/quality/reduce-machine-journey.ts",
+      "sha256": "ff2caa66c4794a7a203fd76e47a3566b04ed82fd23f1b7de5ec81216e7b30930"
+    },
+    "runner": {
+      "path": "scripts/test-pipelines.ts",
+      "sha256": "7c0cf7b5ed4da9a147a7646ef1e9ca08cdc4d70a08efc958a8ccb09defef0e4b"
+    },
+    "harness": {
+      "path": "tests/quality/machine-journey-reducer.test.ts",
+      "sha256": "75215db60c0d34f8a63b0c3312911b2c7c263a9da9ab489214b3c9d0c9d0c869"
+    }
+  },
+  "capabilities": {
+    "run-offline-path": {
+      "status": "AVAILABLE",
+      "command": "npm run test-pipelines",
+      "runnerSourceBinding": "runner"
+    },
+    "journey-producer": {
+      "status": "BLOCKED_CAPABILITY",
+      "reasonCode": "NO_RAW_BROWSER_EVIDENCE_PRODUCER",
+      "reason": "No automated producer currently captures signed DOM, network, screenshot, and command evidence for all 45 journey cells. Reducer tests are release-gated; journey execution cannot claim PASS until that producer exists."
+    }
+  },
+  "trials": [
+    {
+      "trialId": "evaluator-1",
+      "persona": "evaluator",
+      "seed": "eval-boundary-01",
+      "tasks": [
+        {
+          "taskId": "find-example",
+          "prompt": "Find the example that removes personal data before records leave a site. Persona: evaluator. Deterministic seed: eval-boundary-01.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "explain-boundary",
+          "prompt": "Explain what stays local, what leaves the site, and where Expanso ends and adapters begin. Persona: evaluator. Deterministic seed: eval-boundary-01.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "open-shared-stage",
+          "prompt": "Open the shared Explorer stage named Hash email and identify the material data change. Persona: evaluator. Deterministic seed: eval-boundary-01.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-explore",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 30000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "retrieve-pipeline",
+          "prompt": "Retrieve the canonical complete pipeline directly, without site search or hints. Persona: evaluator. Deterministic seed: eval-boundary-01.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "run-offline-path",
+          "prompt": "Run the documented offline path and identify the expected sanitized output. Persona: evaluator. Deterministic seed: eval-boundary-01.",
+          "startUrl": "/",
+          "allowedTools": ["browser", "terminal"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 300000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        }
+      ]
+    },
+    {
+      "trialId": "evaluator-2",
+      "persona": "evaluator",
+      "seed": "eval-proof-02",
+      "tasks": [
+        {
+          "taskId": "find-example",
+          "prompt": "Find the example that removes personal data before records leave a site. Persona: evaluator. Deterministic seed: eval-proof-02.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "explain-boundary",
+          "prompt": "Explain what stays local, what leaves the site, and where Expanso ends and adapters begin. Persona: evaluator. Deterministic seed: eval-proof-02.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "open-shared-stage",
+          "prompt": "Open the shared Explorer stage named Hash email and identify the material data change. Persona: evaluator. Deterministic seed: eval-proof-02.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-explore",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 30000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "retrieve-pipeline",
+          "prompt": "Retrieve the canonical complete pipeline directly, without site search or hints. Persona: evaluator. Deterministic seed: eval-proof-02.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "run-offline-path",
+          "prompt": "Run the documented offline path and identify the expected sanitized output. Persona: evaluator. Deterministic seed: eval-proof-02.",
+          "startUrl": "/",
+          "allowedTools": ["browser", "terminal"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 300000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        }
+      ]
+    },
+    {
+      "trialId": "evaluator-3",
+      "persona": "evaluator",
+      "seed": "eval-comparison-03",
+      "tasks": [
+        {
+          "taskId": "find-example",
+          "prompt": "Find the example that removes personal data before records leave a site. Persona: evaluator. Deterministic seed: eval-comparison-03.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "explain-boundary",
+          "prompt": "Explain what stays local, what leaves the site, and where Expanso ends and adapters begin. Persona: evaluator. Deterministic seed: eval-comparison-03.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "open-shared-stage",
+          "prompt": "Open the shared Explorer stage named Hash email and identify the material data change. Persona: evaluator. Deterministic seed: eval-comparison-03.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-explore",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 30000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "retrieve-pipeline",
+          "prompt": "Retrieve the canonical complete pipeline directly, without site search or hints. Persona: evaluator. Deterministic seed: eval-comparison-03.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "run-offline-path",
+          "prompt": "Run the documented offline path and identify the expected sanitized output. Persona: evaluator. Deterministic seed: eval-comparison-03.",
+          "startUrl": "/",
+          "allowedTools": ["browser", "terminal"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 300000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        }
+      ]
+    },
+    {
+      "trialId": "practitioner-1",
+      "persona": "practitioner",
+      "seed": "practice-run-01",
+      "tasks": [
+        {
+          "taskId": "find-example",
+          "prompt": "Find the example that removes personal data before records leave a site. Persona: practitioner. Deterministic seed: practice-run-01.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "explain-boundary",
+          "prompt": "Explain what stays local, what leaves the site, and where Expanso ends and adapters begin. Persona: practitioner. Deterministic seed: practice-run-01.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "open-shared-stage",
+          "prompt": "Open the shared Explorer stage named Hash email and identify the material data change. Persona: practitioner. Deterministic seed: practice-run-01.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-explore",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 30000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "retrieve-pipeline",
+          "prompt": "Retrieve the canonical complete pipeline directly, without site search or hints. Persona: practitioner. Deterministic seed: practice-run-01.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "run-offline-path",
+          "prompt": "Run the documented offline path and identify the expected sanitized output. Persona: practitioner. Deterministic seed: practice-run-01.",
+          "startUrl": "/",
+          "allowedTools": ["browser", "terminal"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 300000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        }
+      ]
+    },
+    {
+      "trialId": "practitioner-2",
+      "persona": "practitioner",
+      "seed": "practice-adapt-02",
+      "tasks": [
+        {
+          "taskId": "find-example",
+          "prompt": "Find the example that removes personal data before records leave a site. Persona: practitioner. Deterministic seed: practice-adapt-02.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "explain-boundary",
+          "prompt": "Explain what stays local, what leaves the site, and where Expanso ends and adapters begin. Persona: practitioner. Deterministic seed: practice-adapt-02.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "open-shared-stage",
+          "prompt": "Open the shared Explorer stage named Hash email and identify the material data change. Persona: practitioner. Deterministic seed: practice-adapt-02.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-explore",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 30000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "retrieve-pipeline",
+          "prompt": "Retrieve the canonical complete pipeline directly, without site search or hints. Persona: practitioner. Deterministic seed: practice-adapt-02.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "run-offline-path",
+          "prompt": "Run the documented offline path and identify the expected sanitized output. Persona: practitioner. Deterministic seed: practice-adapt-02.",
+          "startUrl": "/",
+          "allowedTools": ["browser", "terminal"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 300000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        }
+      ]
+    },
+    {
+      "trialId": "practitioner-3",
+      "persona": "practitioner",
+      "seed": "practice-debug-03",
+      "tasks": [
+        {
+          "taskId": "find-example",
+          "prompt": "Find the example that removes personal data before records leave a site. Persona: practitioner. Deterministic seed: practice-debug-03.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "explain-boundary",
+          "prompt": "Explain what stays local, what leaves the site, and where Expanso ends and adapters begin. Persona: practitioner. Deterministic seed: practice-debug-03.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "open-shared-stage",
+          "prompt": "Open the shared Explorer stage named Hash email and identify the material data change. Persona: practitioner. Deterministic seed: practice-debug-03.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-explore",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 30000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "retrieve-pipeline",
+          "prompt": "Retrieve the canonical complete pipeline directly, without site search or hints. Persona: practitioner. Deterministic seed: practice-debug-03.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "run-offline-path",
+          "prompt": "Run the documented offline path and identify the expected sanitized output. Persona: practitioner. Deterministic seed: practice-debug-03.",
+          "startUrl": "/",
+          "allowedTools": ["browser", "terminal"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 300000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        }
+      ]
+    },
+    {
+      "trialId": "existing-user-1",
+      "persona": "existing-user-context",
+      "seed": "return-yaml-01",
+      "tasks": [
+        {
+          "taskId": "find-example",
+          "prompt": "Find the example that removes personal data before records leave a site. Persona: existing-user-context. Deterministic seed: return-yaml-01.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "explain-boundary",
+          "prompt": "Explain what stays local, what leaves the site, and where Expanso ends and adapters begin. Persona: existing-user-context. Deterministic seed: return-yaml-01.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "open-shared-stage",
+          "prompt": "Open the shared Explorer stage named Hash email and identify the material data change. Persona: existing-user-context. Deterministic seed: return-yaml-01.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-explore",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 30000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "retrieve-pipeline",
+          "prompt": "Retrieve the canonical complete pipeline directly, without site search or hints. Persona: existing-user-context. Deterministic seed: return-yaml-01.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "run-offline-path",
+          "prompt": "Run the documented offline path and identify the expected sanitized output. Persona: existing-user-context. Deterministic seed: return-yaml-01.",
+          "startUrl": "/",
+          "allowedTools": ["browser", "terminal"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 300000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        }
+      ]
+    },
+    {
+      "trialId": "existing-user-2",
+      "persona": "existing-user-context",
+      "seed": "return-stage-02",
+      "tasks": [
+        {
+          "taskId": "find-example",
+          "prompt": "Find the example that removes personal data before records leave a site. Persona: existing-user-context. Deterministic seed: return-stage-02.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "explain-boundary",
+          "prompt": "Explain what stays local, what leaves the site, and where Expanso ends and adapters begin. Persona: existing-user-context. Deterministic seed: return-stage-02.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "open-shared-stage",
+          "prompt": "Open the shared Explorer stage named Hash email and identify the material data change. Persona: existing-user-context. Deterministic seed: return-stage-02.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-explore",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 30000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "retrieve-pipeline",
+          "prompt": "Retrieve the canonical complete pipeline directly, without site search or hints. Persona: existing-user-context. Deterministic seed: return-stage-02.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "run-offline-path",
+          "prompt": "Run the documented offline path and identify the expected sanitized output. Persona: existing-user-context. Deterministic seed: return-stage-02.",
+          "startUrl": "/",
+          "allowedTools": ["browser", "terminal"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 300000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        }
+      ]
+    },
+    {
+      "trialId": "existing-user-3",
+      "persona": "existing-user-context",
+      "seed": "return-boundary-03",
+      "tasks": [
+        {
+          "taskId": "find-example",
+          "prompt": "Find the example that removes personal data before records leave a site. Persona: existing-user-context. Deterministic seed: return-boundary-03.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "explain-boundary",
+          "prompt": "Explain what stays local, what leaves the site, and where Expanso ends and adapters begin. Persona: existing-user-context. Deterministic seed: return-boundary-03.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "open-shared-stage",
+          "prompt": "Open the shared Explorer stage named Hash email and identify the material data change. Persona: existing-user-context. Deterministic seed: return-boundary-03.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-explore",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 30000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "retrieve-pipeline",
+          "prompt": "Retrieve the canonical complete pipeline directly, without site search or hints. Persona: existing-user-context. Deterministic seed: return-boundary-03.",
+          "startUrl": "/",
+          "allowedTools": ["browser"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 60000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        },
+        {
+          "taskId": "run-offline-path",
+          "prompt": "Run the documented offline path and identify the expected sanitized output. Persona: existing-user-context. Deterministic seed: return-boundary-03.",
+          "startUrl": "/",
+          "allowedTools": ["browser", "terminal"],
+          "intendedFamilyId": "remove-pii",
+          "intendedRouteId": "remove-pii-overview",
+          "acceptedAliases": [
+            "Remove PII",
+            "PII removal",
+            "redact personal data"
+          ],
+          "boundaryOracle": {
+            "local": [
+              "source fixture",
+              "deletion",
+              "hashing",
+              "pseudonymization",
+              "generalization"
+            ],
+            "remote": ["sanitized output"],
+            "product": ["Expanso pipeline runtime"],
+            "adapter": ["declared input and output components"]
+          },
+          "explorerOracle": {
+            "stageId": "hash-email",
+            "semanticChange": "email is replaced by a deterministic hash",
+            "sharedUrl": "/data-security/remove-pii/explorer?stage=hash-email"
+          },
+          "pipelineOracle": {
+            "path": "examples/data-security/remove-pii-complete.yaml",
+            "sha256": "d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96"
+          },
+          "localRunOracle": {
+            "command": "npm run test-pipelines",
+            "fixturePath": "examples/data-security/remove-pii/sample-data.json",
+            "expectedAssertions": [
+              "payment.card_number absent",
+              "email value differs from input",
+              "location precision reduced"
+            ]
+          },
+          "timeoutMs": 300000,
+          "timerStartEvent": "prompt-visible",
+          "timerStopEvent": "final-answer-submitted"
+        }
+      ]
+    }
+  ],
+  "aggregation": {
+    "successesRequiredPerTask": 7,
+    "successesRequiredPerPersona": 2,
+    "blockedTaskIds": [],
+    "record": [
+      "elapsed-time-distribution",
+      "wrong-turns",
+      "abandoned-routes",
+      "confidence",
+      "browser-device",
+      "dom-trace",
+      "network-trace",
+      "screenshots",
+      "commands"
+    ]
+  },
+  "baselineComparison": {
+    "required": true,
+    "promptOrOracleChangeRequiresNewContractVersion": true
+  }
+}
