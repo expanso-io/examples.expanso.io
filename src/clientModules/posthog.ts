@@ -1,4 +1,4 @@
-import { captureExampleEvent, capturePageView } from '@site/src/lib/analytics';
+import { captureExampleEvent, capturePageView } from '../lib/analytics';
 
 interface RouteUpdate {
   location: { pathname: string };
@@ -10,7 +10,9 @@ export function onRouteDidUpdate({
   previousLocation,
 }: RouteUpdate): void {
   if (previousLocation?.pathname === location.pathname) return;
-  void capturePageView(location.pathname);
+  void capturePageView(location.pathname).catch(() => {
+    // Collection failure must not break navigation.
+  });
 }
 
 export function onRouteUpdate(): void {
