@@ -155,10 +155,10 @@ function validatePerformance(contract: QualityContract): void {
   }
 
   const expectedTools = {
-    node: '20.19.4',
+    node: '22.23.2',
     playwright: '1.55.1',
     chromium: '140.0.7339.186',
-    lighthouse: '12.8.2',
+    lighthouse: '13.4.1',
   };
   if (
     !Object.entries(expectedTools).every(

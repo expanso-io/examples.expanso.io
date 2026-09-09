@@ -18,7 +18,16 @@ claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2
 
 # Step 5: Parquet Storage and Cloudera Integration
 
-Configure Parquet output and a Cloudera Data Platform endpoint for ML/AI insights and historical analysis.
+Review the Parquet conversion and Cloudera integration separately. These are architecture examples; deployment, credentials, and performance validation remain environment-specific.
+
+## Work through this step
+
+1. Choose the partition layout using representative queries. Confirm that input records contain the fields required by the converter schema.
+2. Inspect the [conversion service](#parquet-conversion-service), then test it with a small JSON Lines file before processing a batch.
+3. Read the generated Parquet files back and compare row counts, partition keys, timestamps, and numeric ranges with the source. Keep source files until that validation is complete.
+4. Configure the [Cloudera destination](#cloudera-data-platform-integration) only after the local conversion path is verified.
+
+Expand the configurations and service code as needed. A successful local conversion does not verify delivery to Cloudera.
 
 ## Long-Term Analytics Architecture
 
@@ -68,6 +77,9 @@ This example organizes Parquet files by authored dimensions. Validate the layout
 ### Enhanced Parquet Configuration
 
 Configure the pipeline for optimal Parquet output:
+
+<details>
+<summary style={{ minHeight: 44, paddingBlock: 12 }}>Show full YAML configuration</summary>
 
 ```yaml
 # Parquet output with advanced configuration
@@ -158,9 +170,14 @@ Configure the pipeline for optimal Parquet output:
           }
 ```
 
+</details>
+
 ### Parquet Conversion Service
 
-Create a dedicated service to convert JSON Lines to optimized Parquet:
+This illustrative converter expects flattened records matching the schema below. It uses pandas and PyArrow. It splits mixed input into separate partition directories and preserves source files by default. If a batch fails after writing some partitions, remove or reconcile those outputs before retrying; this sample is not an idempotent ingestion service.
+
+<details>
+<summary style={{ minHeight: 44, paddingBlock: 12 }}>Show full conversion service</summary>
 
 ```python
 # services/parquet-converter.py
@@ -172,7 +189,8 @@ from typing import Dict, List
 import json
 import glob
 import os
-from datetime import datetime
+from uuid import uuid4
+from urllib.parse import quote
 
 class ORANParquetConverter:
     def __init__(self, input_path: str, output_path: str):
@@ -246,52 +264,41 @@ class ORANParquetConverter:
                 # Data type optimization
                 df = self._optimize_datatypes(df)
 
-                # Create PyArrow table with schema
-                table = pa.Table.from_pandas(df, schema=self.schema, preserve_index=False)
-
-                # Add computed columns
-                table = self._add_computed_columns(table)
-
-                # Determine output path with partitioning
-                output_file = self._generate_output_path(table)
-
-                # Write with optimal settings
-                pq.write_table(
-                    table,
-                    output_file,
-                    compression='snappy',
-                    use_dictionary=['du_id', 'cell_id', 'sector', 'site_type'],
-                    row_group_size=50000,
-                    data_page_size=1024*1024  # 1MB pages
-                )
-
-                print(f"Converted {file_path} to {output_file}")
+                # One input file can span several dates, regions, or base stations.
+                # Write each partition separately instead of labeling every row
+                # with the first record's partition keys.
+                partition_keys = ['partition_year', 'partition_month', 'partition_day', 'region', 'gnb_id']
+                if df.empty:
+                    raise ValueError("Input contains no telemetry rows")
+                if df[partition_keys].isna().any().any():
+                    raise ValueError("Partition keys must not be null")
+                for _, partition in df.groupby(partition_keys, observed=True, sort=False):
+                    table = pa.Table.from_pandas(partition, schema=self.schema, preserve_index=False)
+                    table = self._add_computed_columns(table)
+                    output_file = self._generate_output_path(table)
+                    pq.write_table(
+                        table,
+                        output_file,
+                        compression='snappy',
+                        use_dictionary=['du_id', 'cell_id', 'sector', 'site_type'],
+                        row_group_size=50000,
+                        data_page_size=1024*1024  # 1MB pages
+                    )
+                    print(f"Converted {file_path} partition to {output_file}")
 
                 # Optional: Delete source file after successful conversion
                 if os.getenv('DELETE_SOURCE_AFTER_CONVERSION', 'false').lower() == 'true':
                     os.remove(file_path)
 
             except Exception as e:
-                print(f"Error converting {file_path}: {e}")
+                # Preserve the source and make batch failure visible to callers.
+                raise RuntimeError(f"Error converting {file_path}: {e}") from e
 
     def _optimize_datatypes(self, df: pd.DataFrame) -> pd.DataFrame:
         """Optimize pandas datatypes for memory efficiency"""
-        # Convert numeric columns to optimal types
-        numeric_optimizations = {
-            'ptp_score': 'int8',
-            'prb_dl_pct': 'int8',
-            'prb_ul_pct': 'int8',
-            'cpu_pct': 'int8',
-            'memory_pct': 'int8',
-            'disk_pct': 'int8',
-            'rf_health_score': 'int8',
-            'rsrp_dbm': 'int16',
-            'sinr_db': 'int8'
-        }
-
-        for col, dtype in numeric_optimizations.items():
-            if col in df.columns:
-                df[col] = df[col].astype(dtype)
+        # Preserve numeric values until Arrow applies its checked schema cast.
+        # pandas astype('int8') can wrap out-of-range integers or truncate
+        # fractions before Arrow has a chance to reject them.
 
         # Convert categorical columns
         categorical_cols = ['du_id', 'cell_id', 'sector', 'site_type', 'region']
@@ -330,15 +337,15 @@ class ORANParquetConverter:
             f"year={first_row['partition_year']}",
             f"month={first_row['partition_month']:02d}",
             f"day={first_row['partition_day']:02d}",
-            f"region={first_row['region']}",
-            f"gnb_id={first_row['gnb_id']}"
+            f"region={quote(str(first_row['region']), safe='')}",
+            f"gnb_id={quote(str(first_row['gnb_id']), safe='')}"
         )
 
         os.makedirs(partition_path, exist_ok=True)
 
         # Generate unique filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"oran_telemetry_{timestamp}_{os.getpid()}.parquet"
+        # Multiple batches can finish in the same second in one process.
+        filename = f"oran_telemetry_{uuid4().hex}.parquet"
 
         return os.path.join(partition_path, filename)
 
@@ -353,11 +360,16 @@ if __name__ == "__main__":
     converter.convert_batch("/data/oran-telemetry/raw/*.jsonl")
 ```
 
+</details>
+
 ## Cloudera Data Platform Integration
 
 ### Kafka Configuration for Cloudera
 
 Configure Kafka output optimized for Cloudera ingestion:
+
+<details>
+<summary style={{ minHeight: 44, paddingBlock: 12 }}>Show full YAML configuration</summary>
 
 ```yaml
 # Enhanced Kafka output for Cloudera
@@ -487,9 +499,14 @@ compression: 'lz4' # Example codec selection
           }
 ```
 
+</details>
+
 ### Cloudera Data Flow (CDF) Integration
 
 Create NiFi flow templates for processing O-RAN data:
+
+<details>
+<summary style={{ minHeight: 44, paddingBlock: 12 }}>Show full JSON configuration</summary>
 
 ```json
 {
@@ -573,9 +590,14 @@ Create NiFi flow templates for processing O-RAN data:
 }
 ```
 
+</details>
+
 ### Spark Analytics Jobs
 
 Create Spark jobs for advanced O-RAN analytics:
+
+<details>
+<summary style={{ minHeight: 44, paddingBlock: 12 }}>Show full conversion service</summary>
 
 ```python
 # spark/oran_analytics.py
@@ -713,6 +735,8 @@ if __name__ == "__main__":
 
     spark.stop()
 ```
+
+</details>
 
 ## Data Retention and Lifecycle
 

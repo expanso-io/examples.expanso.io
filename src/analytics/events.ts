@@ -1,3 +1,5 @@
+import { captureSemanticEvent } from '../lib/analytics';
+
 export const ANALYTICS_EVENT_SCHEMA_VERSION = '1.0.0' as const;
 
 export const CATALOG_ANALYTICS_FILTER_IDS = [
@@ -547,6 +549,7 @@ export function recordAnalyticsEvent(event: PublicExampleAnalyticsEvent): void {
   };
   analyticsWindow.dataLayer ??= [];
   analyticsWindow.dataLayer.push({ ...event });
+  captureSemanticEvent(event);
 }
 
 export function exampleIdFromCatalogPath(pathname: string): string | null {

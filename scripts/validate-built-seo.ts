@@ -36,6 +36,11 @@ for (const url of urls) {
     continue;
   }
   const html = readFileSync(path, 'utf8');
+  const guardIndex = html.indexOf('ga-disable-G-X1RJ0QGN3Z');
+  const loaderIndex = html.indexOf('gtm.start');
+  if (guardIndex < 0 || loaderIndex < 0 || guardIndex > loaderIndex) {
+    failures.push(`${url.pathname}: old GA destination guard must precede GTM`);
+  }
   const h1Count = countMatches(html, /<h1\b/gi);
   if (h1Count !== 1) {
     failures.push(`${url.pathname}: expected exactly one H1, got ${h1Count}`);

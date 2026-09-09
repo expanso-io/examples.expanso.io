@@ -70,7 +70,31 @@ test('stage controls expose names and a single current stage', async ({
   ).toBeEnabled();
 });
 
-test('arrow keys are scoped to the stage rail', async ({ page }) => {
+test('long stage labels stay inside their own controls', async ({ page }) => {
+  const explorer = page.locator('[data-explorer-version="2"]');
+  if (await usesCompactStageSelector(explorer)) return;
+  const labels = explorer.locator('button[aria-label^="Stage "] strong');
+  await expect(labels).toHaveCount(6);
+  const bounds = await labels.evaluateAll((elements) =>
+    elements.map((label) => {
+      const button = label.closest('button')!.getBoundingClientRect();
+      const text = document.createRange();
+      text.selectNodeContents(label);
+      return [...text.getClientRects()].map((rect) => ({
+        left: rect.left - button.left,
+        right: button.right - rect.right,
+      }));
+    })
+  );
+  for (const label of bounds) {
+    for (const line of label) {
+      expect(line.left).toBeGreaterThanOrEqual(0);
+      expect(line.right).toBeGreaterThanOrEqual(0);
+    }
+  }
+});
+
+test('stage navigation remains scoped to its controls', async ({ page }) => {
   const explorer = page.locator('[data-explorer-version="2"]');
   const compact = await usesCompactStageSelector(explorer);
   const current = compact
@@ -86,8 +110,13 @@ test('arrow keys are scoped to the stage rail', async ({ page }) => {
   if (compact) await expect(current).toHaveValue(initialValue ?? '');
   else await expect(current).toHaveAttribute('aria-label', initialValue ?? '');
 
-  await current.focus();
-  await page.keyboard.press(compact ? 'ArrowDown' : 'ArrowRight');
+  if (compact) {
+    // The browser owns the native popup; exercise our change handler directly.
+    await current.selectOption({ index: 1 });
+  } else {
+    await current.focus();
+    await page.keyboard.press('ArrowRight');
+  }
   await expectCurrentStage(explorer, 1);
   await expect(page).toHaveURL(/stage=delete-payment-data/);
 });
