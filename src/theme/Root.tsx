@@ -1,3 +1,4 @@
+import SocialDiscovery from '../components/SocialDiscovery';
 import React, { useEffect, useState, type ReactNode } from 'react';
 import { useLocation } from '@docusaurus/router';
 
@@ -110,6 +111,7 @@ export default function Root({ children }: RootProps): React.JSX.Element {
   return (
     <>
       {children}
+      <SocialDiscovery />
       {showConsent && (
         <aside
           className="analytics-consent"

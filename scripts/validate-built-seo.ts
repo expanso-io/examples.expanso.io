@@ -1,3 +1,4 @@
+import { validateSocialHtml } from './social-validation.mjs';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -36,6 +37,11 @@ for (const url of urls) {
     continue;
   }
   const html = readFileSync(path, 'utf8');
+  try {
+    validateSocialHtml(html, buildRoot);
+  } catch (error) {
+    failures.push(`${url.pathname}: ${String(error)}`);
+  }
   const guardIndex = html.indexOf('ga-disable-G-X1RJ0QGN3Z');
   const loaderIndex = html.indexOf('gtm.start');
   if (guardIndex < 0 || loaderIndex < 0 || guardIndex > loaderIndex) {

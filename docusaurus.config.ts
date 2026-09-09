@@ -1,3 +1,4 @@
+import socialDiscoveryPlugin from './plugins/social-discovery';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { themes as prismThemes } from 'prism-react-renderer';
@@ -137,6 +138,7 @@ const config: Config = {
   themes: ['@docusaurus/theme-mermaid'],
 
   plugins: [
+    socialDiscoveryPlugin,
     runtimeProofHarnessEnabled && runtimeProofHarnessPlugin,
     productionRouteGuardPlugin,
     './plugins/tailwind-config.cjs',
@@ -564,7 +566,7 @@ const config: Config = {
           items: [
             {
               label: 'Getting Started',
-              href: 'https://docs.expanso.io/getting-started/quick-start',
+              href: 'https://docs.expanso.io/getting-started/quickstart/',
             },
             {
               label: 'Components',
