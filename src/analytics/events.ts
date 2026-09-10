@@ -164,7 +164,66 @@ export interface RelatedExampleClickEvent extends AnalyticsEventBase {
   related_example_id: string;
 }
 
+export const OUTBOUND_DESTINATIONS: Readonly<
+  Record<string, readonly string[]>
+> = {
+  'expanso.io': [
+    '/',
+    '/about-us',
+    '/contact',
+    '/help-center',
+    '/security-and-governance',
+    '/faq',
+    '/privacy',
+  ],
+  'docs.expanso.io': [
+    '/',
+    '/getting-started/quickstart',
+    '/components',
+    '/use-cases',
+  ],
+  'cloud.expanso.io': ['/'],
+};
+
+export interface OutboundClickEvent extends AnalyticsEventBase {
+  event: 'outbound_click';
+  example_id: string;
+  destination_host: string;
+  destination_path: string;
+}
+
+/** Only public destinations are emitted; query strings, fragments, and credentials never enter analytics. */
+export function createOutboundClickEvent(
+  href: string,
+  exampleId: string
+): OutboundClickEvent | null {
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return null;
+  }
+  const path = url.pathname.replace(/\/$/, '') || '/';
+  if (
+    url.protocol !== 'https:' ||
+    url.port ||
+    url.username ||
+    url.password ||
+    !Object.hasOwn(OUTBOUND_DESTINATIONS, url.hostname) ||
+    !OUTBOUND_DESTINATIONS[url.hostname]?.includes(path)
+  )
+    return null;
+  return {
+    event: 'outbound_click',
+    ...base(),
+    example_id: normalizedId(exampleId, 'example_id'),
+    destination_host: url.hostname,
+    destination_path: path,
+  };
+}
+
 export type PublicExampleAnalyticsEvent =
+  | OutboundClickEvent
   | ExampleViewEvent
   | ExplorerStageViewEvent
   | ExplorerViewToggleEvent
@@ -189,9 +248,17 @@ export const PUBLIC_ANALYTICS_EVENT_NAMES = [
   'example_search',
   'run_local_click',
   'related_example_click',
+  'outbound_click',
 ] as const satisfies readonly PublicExampleAnalyticsEvent['event'][];
 
 const EVENT_FIELDS: Readonly<Record<PublicEventName, readonly string[]>> = {
+  outbound_click: [
+    'event',
+    'event_schema_version',
+    'example_id',
+    'destination_host',
+    'destination_path',
+  ],
   example_view: [
     'event',
     'event_schema_version',
@@ -460,6 +527,12 @@ export function assertPublicAnalyticsEvent(
     );
   }
 
+  if (eventName === 'outbound_click') {
+    const host = eventString(event.destination_host, 'destination_host');
+    const path = eventString(event.destination_path, 'destination_path');
+    if (!OUTBOUND_DESTINATIONS[host]?.includes(path))
+      throw new Error('outbound destination is not public');
+  }
   const idFields = ['example_id', 'stage_id', 'related_example_id'] as const;
   for (const field of idFields) {
     if (field in event) {

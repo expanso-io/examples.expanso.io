@@ -1,4 +1,5 @@
 import socialDiscoveryPlugin from './plugins/social-discovery';
+import familyNavigation from './plugins/family-navigation';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { themes as prismThemes } from 'prism-react-renderer';
@@ -139,6 +140,7 @@ const config: Config = {
 
   plugins: [
     socialDiscoveryPlugin,
+    familyNavigation,
     runtimeProofHarnessEnabled && runtimeProofHarnessPlugin,
     productionRouteGuardPlugin,
     './plugins/tailwind-config.cjs',

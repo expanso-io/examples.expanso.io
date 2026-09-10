@@ -85,7 +85,6 @@ export function createGoogleAnalyticsAdapter(
         typeof value === 'string' &&
         /^[a-zA-Z0-9][a-zA-Z0-9 _.-]{0,99}$/.test(value)
       ) {
-        campaign[source] = value;
         campaign[destination] = value;
       }
     }
@@ -139,6 +138,8 @@ export function createGoogleAnalyticsAdapter(
       'result_count',
       'query_length',
       'related_example_id',
+      'destination_host',
+      'destination_path',
       'site_id',
       'site_host',
       'environment',

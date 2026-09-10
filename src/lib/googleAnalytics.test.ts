@@ -170,3 +170,56 @@ test('GA marks either synthetic or internal traffic, while leaving ordinary traf
   assert.equal(events()[2][2].debug_mode, false);
   assert.equal(events()[2][2].traffic_type, undefined);
 });
+
+test('GA preserves allowlisted outbound destination and example context', () => {
+  const ga = createGoogleAnalyticsAdapter(EXAMPLES_GA_MEASUREMENT_ID, host);
+  ga.capture(
+    'outbound_click',
+    {
+      example_id: 'remove-pii',
+      destination_host: 'expanso.io',
+      destination_path: '/contact',
+      raw_url: 'https://expanso.io/contact?email=private',
+    },
+    'granted'
+  );
+  const props = events()[0][2];
+  assert.equal(props.example_id, 'remove-pii');
+  assert.equal(props.destination_host, 'expanso.io');
+  assert.equal(props.destination_path, '/contact');
+  assert.equal(props.raw_url, undefined);
+});
+
+test('full outbound context stays within a conservative 25-property budget without duplicating campaign labels', () => {
+  const ga = createGoogleAnalyticsAdapter(EXAMPLES_GA_MEASUREMENT_ID, host);
+  ga.capture(
+    'outbound_click',
+    {
+      event_schema_version: '1.0.0',
+      example_id: 'remove-pii',
+      destination_host: 'expanso.io',
+      destination_path: '/contact',
+      site_id: 'examples',
+      site_host: host,
+      environment: 'production',
+      analytics_schema_version: '1.0.0',
+      consent_state: 'granted',
+      identity_mode: 'persistent',
+      traffic_class: 'browser_unclassified',
+      traffic_classifier_version: '1.0.0',
+      is_synthetic: true,
+      is_internal: true,
+      utm_source: 'newsletter',
+      utm_medium: 'email',
+      utm_campaign: 'launch',
+      utm_term: 'pipelines',
+      utm_content: 'footer',
+    },
+    'granted'
+  );
+  const props = events()[0][2];
+  assert.ok(Object.keys(props).length <= 25);
+  assert.equal(props.campaign_source, 'newsletter');
+  assert.equal(props.campaign_name, 'launch');
+  assert.ok(Object.keys(props).every((key) => !key.startsWith('utm_')));
+});

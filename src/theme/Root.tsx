@@ -5,6 +5,7 @@ import { useLocation } from '@docusaurus/router';
 import {
   createExampleViewEvent,
   createRelatedExampleClickEvent,
+  createOutboundClickEvent,
   createRunLocalClickEvent,
   exampleAnalyticsClassification,
   exampleIdFromCatalogPath,
@@ -70,7 +71,15 @@ export default function Root({ children }: RootProps): React.JSX.Element {
       if (anchor === null) return;
 
       const destination = new URL(anchor.href, window.location.origin);
-      if (destination.origin !== window.location.origin) return;
+      if (destination.origin !== window.location.origin) {
+        const outbound = createOutboundClickEvent(
+          destination.href,
+          exampleIdFromCatalogPath(window.location.pathname) ??
+            'site-navigation'
+        );
+        if (outbound) recordAnalyticsEvent(outbound);
+        return;
+      }
 
       const currentExampleId = exampleIdFromCatalogPath(
         window.location.pathname
