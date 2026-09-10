@@ -4,6 +4,7 @@ import OriginalFooter from '@theme-original/DocItem/Footer';
 import { useLocation } from '@docusaurus/router';
 import { usePluginData } from '@docusaurus/useGlobalData';
 import type { FamilyNavigationData } from '../../../../plugins/family-navigation';
+import styles from './styles.module.css';
 
 export default function DocItemFooter() {
   const { pathname } = useLocation();
@@ -27,6 +28,7 @@ export default function DocItemFooter() {
               <li key={link.href}>
                 <Link
                   to={link.href}
+                  className={styles.guideLink}
                   aria-current={link.href === pathname ? 'page' : undefined}
                 >
                   {link.title}
