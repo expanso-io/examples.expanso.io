@@ -16,6 +16,7 @@ import {
   createExplorerViewChangeEvent,
   createPipelineDownloadEvent,
   createRelatedExampleClickEvent,
+  createOutboundClickEvent,
   createRunLocalClickEvent,
   type PublicExampleAnalyticsEvent,
 } from '../../src/analytics/events';
@@ -31,6 +32,7 @@ const events: PublicExampleAnalyticsEvent[] = [
   createExampleSearchEvent(12, 3),
   createRunLocalClickEvent('remove-pii'),
   createRelatedExampleClickEvent('remove-pii', 'encrypt-data'),
+  createOutboundClickEvent('https://expanso.io/contact', 'remove-pii')!,
 ];
 
 describe('analytics event schema v1', () => {
@@ -141,4 +143,58 @@ describe('analytics event schema v1', () => {
       'src/lib/analytics.ts',
     ]);
   });
+});
+
+describe('outbound privacy boundary', () => {
+  it('records public destination and source while removing query strings and fragments', () => {
+    const event = createOutboundClickEvent(
+      'https://expanso.io/contact/?email=private@example.com#token',
+      'remove-pii'
+    );
+    assert.deepEqual(event, {
+      event: 'outbound_click',
+      event_schema_version: ANALYTICS_EVENT_SCHEMA_VERSION,
+      example_id: 'remove-pii',
+      destination_host: 'expanso.io',
+      destination_path: '/contact',
+    });
+    assert.doesNotThrow(() => assertPublicAnalyticsEvent(event));
+  });
+  it('rejects arbitrary paths, hosts, protocols, ports and credentials', () => {
+    for (const url of [
+      'https://expanso.io/person/private',
+      'https://evil.test/contact',
+      'https://constructor/',
+      'https://expanso.io.evil.test/contact',
+      'http://expanso.io/contact',
+      'https://expanso.io:444/contact',
+      'https://user:secret@expanso.io/contact',
+      'mailto:private@example.com',
+    ])
+      assert.equal(createOutboundClickEvent(url, 'remove-pii'), null);
+    assert.throws(() =>
+      assertPublicAnalyticsEvent({
+        ...createOutboundClickEvent('https://expanso.io/', 'remove-pii'),
+        destination_path: '/private',
+      })
+    );
+  });
+});
+
+it('covers every authored company, docs and console destination', () => {
+  const source = [
+    'docusaurus.config.ts',
+    ...globSync(['docs/**/*.{md,mdx}', 'src/**/*.{ts,tsx}'], {
+      ignore: ['**/*.test.*'],
+      nodir: true,
+    }),
+  ]
+    .map((path) => readFileSync(path, 'utf8'))
+    .join('\n');
+  const destinations = [
+    ...source.matchAll(/https:\/\/(?:docs\.|cloud\.)?expanso\.io[^\s"'<>)]*/g),
+  ].map((match) => match[0]);
+  assert.ok(destinations.length >= 10);
+  for (const href of destinations)
+    assert.ok(createOutboundClickEvent(href, 'site-navigation'), href);
 });

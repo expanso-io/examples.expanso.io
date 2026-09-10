@@ -74,3 +74,7 @@ npm run coverage-report
 ```
 
 `check-health` and `coverage-report` inventory legacy file sets. They are observational compatibility tools; they do not establish catalog completeness, execution, operational evidence, claims validity, or release readiness.
+
+## Crawlable navigation
+
+`npm run build` validates that every sitemap page is reachable from the homepage through server-rendered anchors. Run `npm run test-static-navigation` to inspect an existing production build. Family guide links are generated from published Docusaurus documents; draft and unlisted pages are excluded.
