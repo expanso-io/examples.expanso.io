@@ -7,7 +7,7 @@ import type { ExampleAction, ExamplePageMeta } from './types';
 
 interface DirectExampleHeaderProps extends ExamplePageMeta {
   eyebrow?: string;
-  headingLevel?: 1 | 2;
+  explorer?: boolean;
   outcome: string;
   problem: string;
   primaryAction: ExampleAction;
@@ -154,6 +154,11 @@ function InlineExplorer({
   );
 }
 
+export function ExampleExplorer({ exampleId }: { exampleId: string }) {
+  const { title } = getCatalogOverviewProjection(exampleId).header;
+  return <InlineExplorer exampleId={exampleId} title={title} />;
+}
+
 export function resolveExampleHeaderProjection(
   props: ExampleHeaderProps
 ): ExampleHeaderProjection {
@@ -167,27 +172,25 @@ export function resolveExampleHeaderProjection(
 export function ExampleHeader(props: ExampleHeaderProps) {
   const { outcome, problem, title } = resolveExampleHeaderProjection(props);
   const eyebrow = props.eyebrow ?? 'Expanso example';
-  const Title = props.headingLevel === 2 ? 'h2' : 'h1';
-  const Subtitle = props.headingLevel === 2 ? 'h3' : 'h2';
   const exampleId = 'exampleId' in props ? props.exampleId : null;
 
   return (
     <>
       <header className={styles.header} data-example-surface="overview">
         <p className={styles.eyebrow}>{eyebrow}</p>
-        <Title className={styles.title}>{title}</Title>
+        <h1 className={styles.title}>{title}</h1>
         <div className={styles.intro}>
           <section>
-            <Subtitle>The problem</Subtitle>
+            <h2>The problem</h2>
             <p>{problem}</p>
           </section>
           <section>
-            <Subtitle>How Expanso solves it</Subtitle>
+            <h2>How Expanso solves it</h2>
             <p>{outcome}</p>
           </section>
         </div>
       </header>
-      {exampleId ? (
+      {exampleId && props.explorer !== false ? (
         <InlineExplorer exampleId={exampleId} title={title} />
       ) : null}
     </>
