@@ -1,0 +1,19 @@
+name: first-result-process-locally
+type: pipeline
+config:
+  input:
+    generate:
+      count: 1
+      interval: 1s
+      mapping: |
+        root = {"sensor_id":"demo-sensor-1","site":"demo-lab","temperature_c":31.5,"raw_payload":"synthetic diagnostic bytes"}
+  pipeline:
+    processors:
+      - mapping: |
+          root.sensor_id = this.sensor_id
+          root.site = this.site
+          root.temperature_c = this.temperature_c
+          root.alert = this.temperature_c > 30
+  output:
+    stdout:
+      codec: lines

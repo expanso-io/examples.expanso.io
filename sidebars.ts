@@ -40,6 +40,7 @@ const sidebars: SidebarsConfig = {
       collapsible: true,
       collapsed: true,
       items: [
+        'getting-started/process-data-locally',
         'getting-started/local-development',
         {
           type: 'category',

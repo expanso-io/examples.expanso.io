@@ -10,6 +10,7 @@ import {
   createExampleFilterChangeEvent,
   createExampleSearchEvent,
   createExampleViewEvent,
+  firstResultDownloadEvent,
   createExplorerCopyEvent,
   createExplorerShareEvent,
   createExplorerStageChangeEvent,
@@ -197,4 +198,41 @@ it('covers every authored company, docs and console destination', () => {
   assert.ok(destinations.length >= 10);
   for (const href of destinations)
     assert.ok(createOutboundClickEvent(href, 'site-navigation'), href);
+});
+
+it('measures first-result Docs links without retaining query or fragment data', () => {
+  for (const path of [
+    '/getting-started/installation',
+    '/getting-started/local-mode/quick-start',
+  ]) {
+    const event = createOutboundClickEvent(
+      'https://docs.expanso.io' + path + '/?email=private@example.com#token',
+      'remove-pii'
+    );
+    assert.ok(event);
+    assert.equal(event.destination_host, 'docs.expanso.io');
+    assert.equal(event.destination_path, path);
+    assertPublicAnalyticsEvent(event);
+  }
+});
+
+it('attributes only the three bounded downloads to stable first-result journeys', () => {
+  for (const [file, id] of [
+    ['remove-pii', 'remove-pii'],
+    ['filter-logs', 'filter-severity'],
+    ['process-locally', 'process-data-locally'],
+  ]) {
+    assert.deepEqual(
+      firstResultDownloadEvent('/files/first-results/' + file + '.yaml'),
+      createPipelineDownloadEvent(id, 'first-result', 'full')
+    );
+  }
+  for (const path of [
+    '/files/private.yaml',
+    '/files/first-results/unknown.yaml',
+    '/files/first-results/remove-pii.yaml/private',
+    '/files/first-results/remove-pii.yaml?email=private',
+  ]) {
+    assert.equal(firstResultDownloadEvent(path), null);
+  }
 });
