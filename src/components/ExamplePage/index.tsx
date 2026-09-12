@@ -7,6 +7,7 @@ import type { ExampleAction, ExamplePageMeta } from './types';
 
 interface DirectExampleHeaderProps extends ExamplePageMeta {
   eyebrow?: string;
+  explorer?: boolean;
   outcome: string;
   problem: string;
   primaryAction: ExampleAction;
@@ -153,6 +154,11 @@ function InlineExplorer({
   );
 }
 
+export function ExampleExplorer({ exampleId }: { exampleId: string }) {
+  const { title } = getCatalogOverviewProjection(exampleId).header;
+  return <InlineExplorer exampleId={exampleId} title={title} />;
+}
+
 export function resolveExampleHeaderProjection(
   props: ExampleHeaderProps
 ): ExampleHeaderProjection {
@@ -184,7 +190,7 @@ export function ExampleHeader(props: ExampleHeaderProps) {
           </section>
         </div>
       </header>
-      {exampleId ? (
+      {exampleId && props.explorer !== false ? (
         <InlineExplorer exampleId={exampleId} title={title} />
       ) : null}
     </>

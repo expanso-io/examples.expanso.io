@@ -1,7 +1,7 @@
 ---
-title: Remove PII from Data Streams
+title: Remove PII from logs before forwarding them
 sidebar_position: 1
-description: Review field deletion, salted hashing, pseudonymization, and location generalization on synthetic data.
+description: Run a local Expanso pipeline that keeps only event ID and action fields from a synthetic event. Inspect the input and expected output.
 keywords: [pii, privacy, data-minimization, hashing, pseudonymization]
 hide_title: true
 contentArchetype: overview
@@ -18,19 +18,127 @@ claimsVerifiedAt: '2026-07-18'
 claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-import { ExampleHeader } from '@site/src/components/ExamplePage';
+import {
+  ExampleExplorer,
+  ExampleHeader,
+} from '@site/src/components/ExamplePage';
 
 <ExampleHeader
   exampleId="remove-pii"
+  explorer={false}
   primaryAction={{
-    href: '/data-security/remove-pii/explorer',
-    label: 'Inspect each stage',
-  }}
-  secondaryAction={{
-    href: '/data-security/remove-pii/complete-pipeline',
-    label: 'Open the configuration',
+    href: '#run-your-first-result',
+    label: 'Run the small example',
   }}
 />
+
+Remove sensitive fields before forwarding an event by explicitly selecting the fields your destination needs. This first run keeps only the event ID and action from one synthetic event, then prints that smaller record locally.
+
+## Run your first result
+
+You need [Expanso Edge and the CLI installed](https://docs.expanso.io/getting-started/installation/) and two terminals. No Cloud account or external data service is required. Use only synthetic data for this first check.
+
+In terminal one, start a dedicated local node. Keep it open to see the output:
+
+```bash
+expanso-edge run --local --no-watch --api-listen 127.0.0.1:19031 --data-dir ./expanso-first-result-data
+```
+
+In terminal two, download and inspect the job, validate its pipeline configuration, then submit it explicitly to the local node:
+
+```bash
+curl -fsSLo remove-pii.yaml https://examples.expanso.io/files/first-results/remove-pii.yaml
+cat remove-pii.yaml
+expanso-edge validate remove-pii.yaml
+expanso-cli --endpoint http://127.0.0.1:19031 job deploy remove-pii.yaml
+```
+
+Validation checks pipeline syntax and components. Submission alone is not success: confirm the JSON result in terminal one.
+
+### The complete job
+
+The generated input is finite: one batch, then completion.
+
+<a href="/files/first-results/remove-pii.yaml">Download the job file</a>
+
+```yaml
+name: first-result-remove-pii
+type: pipeline
+config:
+  input:
+    generate:
+      count: 1
+      interval: 1s
+      mapping: |
+        root = {"event_id":"demo-001","email":"alex@example.invalid","ip_address":"192.0.2.10","payment_card":"SYNTHETIC-CARD","action":"checkout"}
+  pipeline:
+    processors:
+      - mapping: |
+          root.event_id = this.event_id
+          root.action = this.action
+  output:
+    stdout:
+      codec: lines
+```
+
+### Input
+
+```json
+{
+  "event_id": "demo-001",
+  "email": "alex@example.invalid",
+  "ip_address": "192.0.2.10",
+  "payment_card": "SYNTHETIC-CARD",
+  "action": "checkout"
+}
+```
+
+### Expected output
+
+The local node prints the following JSON record alongside its service logs. JSON key order can differ.
+
+```json
+{ "action": "checkout", "event_id": "demo-001" }
+```
+
+This bounded job was executed with Expanso Edge 2.1.21 on September 10, 2026; the output matched this record. This proof covers local synthetic execution only.
+
+### If you do not see the result
+
+- Connection refused: start the local node; check both ports match.
+- Port occupied: use another unused port in both commands.
+- No output: inspect terminal one for errors.
+- Rerun: change the completed job’s `name` before submitting again.
+
+When finished, press Ctrl+C in terminal one to stop the local node. Its state remains in `./expanso-first-result-data`; use a fresh directory for an independent later session.
+
+## What this proves, and what to check next
+
+This example allowlists only event_id and action. Other input fields, including newly introduced fields, are omitted. It does not detect personal data inside the retained values; validate those fields against your schema and privacy requirements. Regulatory requirements need a separate assessment. The extended guide below covers separate deletion and hashing patterns.
+
+## Common questions
+
+### Does hashing make personal data anonymous?
+
+Not necessarily. Stable hashes can remain linkable, and guessable values can be recovered through enumeration. The extended guide explores hashing and pseudonymization separately; this first run selects two permitted fields.
+
+### How do I move from this result to my own data?
+
+Keep the transformation small, replace the generated fixture with a representative non-sensitive sample, and compare the output against explicit expectations. Then configure your real source and destination, authentication, error handling, and retention policy. Follow the [Local Mode Quick Start](https://docs.expanso.io/getting-started/local-mode/quick-start/) for local workflow details and the [Expanso Cloud Quickstart](https://docs.expanso.io/getting-started/quickstart/) to manage a deployed node. Cloud deployment and destination receipt require separate verification.
+
+## Try another first result
+
+- [Filter logs before shipping](/log-processing/filter-severity/)
+- [Process data locally](/getting-started/process-data-locally/)
+
+## Explore the extended example
+
+The extended example explores deletion, salted hashing, pseudonymization, and location generalization. Its fixture and verification scope are separate from this first result.
+
+<ExampleExplorer exampleId="remove-pii" />
+
+- [Inspect the stages](/data-security/remove-pii/explorer/)
+- [Open the extended configuration](/data-security/remove-pii/complete-pipeline/)
 
 ## Related examples
 

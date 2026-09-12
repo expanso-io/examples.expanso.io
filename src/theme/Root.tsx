@@ -4,6 +4,7 @@ import { useLocation } from '@docusaurus/router';
 
 import {
   createExampleViewEvent,
+  firstResultDownloadEvent,
   createRelatedExampleClickEvent,
   createOutboundClickEvent,
   createRunLocalClickEvent,
@@ -75,11 +76,17 @@ export default function Root({ children }: RootProps): React.JSX.Element {
         const outbound = createOutboundClickEvent(
           destination.href,
           exampleIdFromCatalogPath(window.location.pathname) ??
-            'site-navigation'
+            (window.location.pathname.replace(/\/$/, '') ===
+            '/getting-started/process-data-locally'
+              ? 'process-data-locally'
+              : 'site-navigation')
         );
         if (outbound) recordAnalyticsEvent(outbound);
         return;
       }
+
+      const download = firstResultDownloadEvent(destination.pathname);
+      if (download) recordAnalyticsEvent(download);
 
       const currentExampleId = exampleIdFromCatalogPath(
         window.location.pathname

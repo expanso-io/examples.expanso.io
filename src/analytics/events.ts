@@ -179,6 +179,8 @@ export const OUTBOUND_DESTINATIONS: Readonly<
   'docs.expanso.io': [
     '/',
     '/getting-started/quickstart',
+    '/getting-started/installation',
+    '/getting-started/local-mode/quick-start',
     '/components',
     '/use-cases',
   ],
@@ -623,6 +625,20 @@ export function recordAnalyticsEvent(event: PublicExampleAnalyticsEvent): void {
   analyticsWindow.dataLayer ??= [];
   analyticsWindow.dataLayer.push({ ...event });
   captureSemanticEvent(event);
+}
+
+export function firstResultDownloadEvent(
+  path: string
+): PipelineDownloadEvent | null {
+  const id =
+    path === '/files/first-results/remove-pii.yaml'
+      ? 'remove-pii'
+      : path === '/files/first-results/filter-logs.yaml'
+        ? 'filter-severity'
+        : path === '/files/first-results/process-locally.yaml'
+          ? 'process-data-locally'
+          : null;
+  return id ? createPipelineDownloadEvent(id, 'first-result', 'full') : null;
 }
 
 export function exampleIdFromCatalogPath(pathname: string): string | null {
