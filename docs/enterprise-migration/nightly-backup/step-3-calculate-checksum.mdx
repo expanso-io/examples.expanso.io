@@ -1,9 +1,19 @@
 ---
-title: "Step 3: Calculate Checksum"
-sidebar_label: "Step 3: Calculate Checksum"
+title: 'Step 3: Calculate Checksum'
+sidebar_label: 'Step 3: Calculate Checksum'
 sidebar_position: 5
 description: Add row-level checksums for integrity verification during recovery
 keywords: [checksum, integrity, verification, md5, hash]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-enterprise-migration-nightly-backup-step-3-calculate-checksum]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 3: Calculate Checksum
@@ -22,7 +32,7 @@ Add a checksum to each row so you can verify data integrity during recovery.
 
 **Recovery Validation:** Confirm restored data matches original.
 
-**Compliance:** Prove data integrity for audits.
+**Review context:** Compare serialized rows during a restore exercise.
 
 ## Implementation
 
@@ -51,18 +61,18 @@ pipeline:
 
 ## Understanding the Code
 
-| Expression | Purpose |
-|------------|---------|
-| `this.without(...)` | Exclude metadata fields |
-| `.format_json()` | Serialize to consistent JSON string |
-| `.hash("md5")` | Calculate MD5 hash |
+| Expression          | Purpose                             |
+| ------------------- | ----------------------------------- |
+| `this.without(...)` | Exclude metadata fields             |
+| `.format_json()`    | Serialize to consistent JSON string |
+| `.hash("md5")`      | Calculate MD5 hash                  |
 
 ## Why Exclude Metadata?
 
 The checksum should represent the **original data**, not backup artifacts:
 
 ```json
-// This data should always produce the same checksum:
+// Compare the checksum for this exact serialized input:
 {"order_id": 12345, "customer_id": "CUST-001", "total": 99.99}
 
 // Regardless of when/where it was backed up:
@@ -93,14 +103,14 @@ import json
 
 def verify_row(row):
     # Extract data fields (exclude metadata)
-    data = {k: v for k, v in row.items() 
+    data = {k: v for k, v in row.items()
             if not k.startswith('_')}
-    
+
     # Calculate checksum
     calculated = hashlib.md5(
         json.dumps(data, sort_keys=True).encode()
     ).hexdigest()
-    
+
     # Compare
     return calculated == row['_checksum']
 ```
@@ -109,7 +119,7 @@ def verify_row(row):
 
 ### SHA-256 for Stronger Integrity
 
-For compliance requirements needing cryptographic strength:
+For environments that require a cryptographic digest:
 
 ```yaml
 root._checksum = $data_fields.format_json().hash("sha256")
@@ -145,7 +155,10 @@ output:
 ## Next Step
 
 <div className="margin-top--lg margin-bottom--lg">
-  <a href="./step-4-route-to-storage" className="button button--primary button--lg">
+  <a
+    href="../step-4-route-to-storage"
+    className="button button--primary button--lg"
+  >
     📖 Step 4: Route to Storage →
   </a>
 </div>

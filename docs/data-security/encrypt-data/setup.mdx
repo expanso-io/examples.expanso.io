@@ -1,190 +1,51 @@
 ---
-title: Setup Environment for Field Encryption
-sidebar_label: Setup
+title: Sensitive Data Encryption Review
+sidebar_label: Configuration review
 sidebar_position: 3
-description: Configure encryption keys and environment variables for field-level encryption.
-keywords: [setup, encryption-keys, aes, environment, key-management]
+description: Review field selection, key dependencies, and output shape for the encryption example.
+keywords: [encryption, setup, keys, sensitive-data]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-encrypt-data-configuration]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Setup Environment for Field Encryption
+import { ExampleSurface } from '@site/src/components/ExamplePage';
 
-Before building the field encryption pipeline, you'll set up secure encryption keys and configure environment variables.
+# Sensitive Data Encryption Review
 
-## Prerequisites
+The reference pipeline selects fields and applies configured encryption processors. Key custody, authorization, rotation, and recovery are not included.
 
-This example requires the following services to be running:
+<ExampleSurface
+  kind="reference"
+  title="Before you adapt it"
+  description="Resolve the example boundary before changing processors or destinations."
+>
 
-*   **[Kafka](/getting-started/services/kafka)**
+- An Expanso environment for configuration inspection
+- Environment-managed key material and a documented access model
+- Representative synthetic inputs and an expected output schema
 
-Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
-## Step 1: Generate Encryption Keys
+</ExampleSurface>
 
-Generate secure AES-256 encryption keys for different data types. Using separate keys allows granular access control and meets compliance requirements.
+## Review path
 
-```bash title="Generate encryption keys"
-# Generate master encryption key for credit card data (32 bytes = 256 bits)
-export CARD_ENCRYPTION_KEY=$(openssl rand -hex 32)
-echo "Card encryption key generated: ${CARD_ENCRYPTION_KEY:0:8}..."
+1. [Payment fields](/data-security/encrypt-data/step-1-encrypt-payment-data)
+2. [Customer fields](/data-security/encrypt-data/step-2-encrypt-customer-data)
+3. [Location fields](/data-security/encrypt-data/step-3-encrypt-location-data)
+4. [Advanced variants](/data-security/encrypt-data/step-4-advanced-patterns)
 
-# Generate key for PII data (SSN, email, phone)
-export PII_ENCRYPTION_KEY=$(openssl rand -hex 32)
-echo "PII encryption key generated: ${PII_ENCRYPTION_KEY:0:8}..."
+Then inspect the [Complete reference configuration](/data-security/encrypt-data/complete-pipeline).
 
-# Generate key for address data
-export ADDRESS_ENCRYPTION_KEY=$(openssl rand -hex 32)
-echo "Address encryption key generated: ${ADDRESS_ENCRYPTION_KEY:0:8}..."
+## Adaptation checks
 
-# Generate key version for rotation tracking
-export KEY_VERSION="v1_$(date +%Y%m%d)"
-echo "Key version: $KEY_VERSION"
+- Verify processor and algorithm behavior in the target version.
+- Test key lookup, unavailable-key, malformed-input, rotation, and recovery paths.
+- Review retained and derived fields independently of encrypted fields.
 
-# Generate node identifier
-export NODE_ID="edge-encryption-$(hostname -s)"
-echo "Node ID: $NODE_ID"
-```
-
-:::danger Protect Your Encryption Keys
-These keys are the most critical security components. If compromised, all encrypted data can be decrypted. **Never:**
-- Store keys in source code or configuration files
-- Commit keys to version control  
-- Log keys in application logs
-- Share keys between environments (dev/staging/prod)
-
-**Always:**
-- Use a key management system (HashiCorp Vault, AWS KMS)
-- Rotate keys every 90 days for high-sensitivity data
-- Implement key versioning for seamless rotation
-- Audit all key access operations
-:::
-
-## Step 2: Secure Key Storage (Production)
-
-For production deployments, store keys in a dedicated key management system:
-
-```bash title="Store keys in HashiCorp Vault"
-# Store card encryption key
-vault kv put secret/expanso/encryption/card \
-  key=$CARD_ENCRYPTION_KEY \
-  version=$KEY_VERSION \
-  created=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
-  purpose="credit_card_data" \
-  compliance="PCI_DSS"
-
-# Store PII encryption key
-vault kv put secret/expanso/encryption/pii \
-  key=$PII_ENCRYPTION_KEY \
-  version=$KEY_VERSION \
-  created=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
-  purpose="personal_data" \
-  compliance="GDPR_HIPAA"
-
-# Store address encryption key
-vault kv put secret/expanso/encryption/address \
-  key=$ADDRESS_ENCRYPTION_KEY \
-  version=$KEY_VERSION \
-  created=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
-  purpose="location_data" \
-  compliance="privacy_regulation"
-
-# Verify keys are stored
-vault kv get secret/expanso/encryption/card
-```
-
-**Alternative: AWS KMS setup:**
-
-```bash title="Store keys in AWS KMS"
-# Create customer managed keys
-aws kms create-key \
-  --description "Expanso Card Encryption Key v1" \
-  --key-usage ENCRYPT_DECRYPT \
-  --key-spec SYMMETRIC_DEFAULT \
-  --tags TagKey=Purpose,TagValue=CardEncryption TagKey=Compliance,TagValue=PCI_DSS
-
-# Create alias for easy reference
-aws kms create-alias \
-  --alias-name alias/expanso-card-encryption-v1 \
-  --target-key-id <key-id-from-previous-command>
-```
-
-## Step 3: Configure Sample Data
-
-Create sample payment transaction data for testing:
-
-```bash title="Create test data"
-mkdir -p /tmp/encryption-test
-
-cat > /tmp/encryption-test/sample-payment.json <<'EOF'
-{
-  "transaction_id": "txn_20251020_001",
-  "timestamp": "2025-10-20T14:30:00Z",
-  "merchant_id": "merchant_789",
-  "amount": 127.50,
-  "currency": "USD",
-  "payment": {
-    "card_number": "4532-1234-5678-9010",
-    "cvv": "123",
-    "expiration": "12/27",
-    "cardholder_name": "Sarah Johnson"
-  },
-  "customer": {
-    "email": "sarah.johnson@example.com",
-    "phone": "+1-415-555-0123",
-    "ssn": "123-45-6789",
-    "date_of_birth": "1985-03-15"
-  },
-  "billing_address": {
-    "street": "123 Main St",
-    "city": "San Francisco",
-    "state": "CA",
-    "zip": "94102",
-    "country": "US"
-  },
-  "metadata": {
-    "terminal_id": "pos_42",
-    "transaction_type": "card_present",
-    "merchant_category": "5814"
-  }
-}
-EOF
-
-echo "Sample data created at /tmp/encryption-test/sample-payment.json"
-```
-
-## Step 4: Verify Encryption Dependencies
-
-Before proceeding to full encryption, verify all required components are available:
-
-```bash title="Verify encryption capabilities"
-# Test OpenSSL encryption (simulates what Expanso will do)
-echo "test data" | openssl enc -aes-256-gcm -e -K "$CARD_ENCRYPTION_KEY" -iv $(openssl rand -hex 12) | base64
-
-# Verify environment variables are set
-echo "Environment check:"
-echo "- CARD_ENCRYPTION_KEY: ${CARD_ENCRYPTION_KEY:+SET} ${CARD_ENCRYPTION_KEY:-NOT_SET}"
-echo "- PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY:+SET} ${PII_ENCRYPTION_KEY:-NOT_SET}"
-echo "- ADDRESS_ENCRYPTION_KEY: ${ADDRESS_ENCRYPTION_KEY:+SET} ${ADDRESS_ENCRYPTION_KEY:-NOT_SET}"
-echo "- KEY_VERSION: $KEY_VERSION"
-echo "- NODE_ID: $NODE_ID"
-
-# Test TLS certificates exist
-if [[ -f "/etc/expanso/certs/server.crt" ]]; then
-  echo "✅ TLS certificates found"
-else
-  echo "❌ TLS certificates missing - check Expanso installation"
-fi
-```
-
----
-
-## Next Steps
-
-Your environment is now configured for field-level encryption. Choose your next step:
-
-<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
-  <a href="./step-1-encrypt-payment-data" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Step 1: Encrypt Credit Card Data
-  </a>
-  <a href="./complete-pipeline" className="button button--secondary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Skip to Complete Pipeline
-  </a>
-</div>
+This route is a configuration review, not a verified execution guide.

@@ -5,7 +5,8 @@
 
 set -e  # Exit on error
 
-REPO_DIR="/Users/daaronch/code/examples.expanso.io"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="${EXAMPLES_REPO_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 cd "$REPO_DIR"
 
 echo "🚀 Starting Interactive Examples Improvement Plan Implementation"

@@ -1,20 +1,30 @@
 ---
-title: Step 1 - Configure Secure HTTP Input
+title: Step 1 - Configure Authenticated HTTP Input
 sidebar_label: Step 1 - Configure HTTP Input
 sidebar_position: 4
-description: Configure a secure, rate-limited HTTP endpoint for log ingestion with API key authentication
+description: Configure a rate-limited HTTP endpoint for log ingestion with an API-key check
 keywords: [http, input, security, authentication, rate-limit, cors]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-production-pipeline-step-1-configure-http-input]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 import CodeBlock from '@theme/CodeBlock';
 
-# Configure Secure HTTP Input
+# Configure Authenticated HTTP Input
 
-The first line of defense in any production pipeline is a secure and robust input configuration. In this step, we'll set up a rate-limited HTTP server that authenticates requests using API keys and handles CORS for web-based clients.
+This step configures a rate-limited HTTP server with an API-key check and CORS for browser-based clients. The wildcard CORS origin is a permissive demonstration setting, not a deployment security baseline.
 
 ## Goal
 
-Create a secure entry point for log ingestion that:
+Create an HTTP entry point for log ingestion that:
+
 - **Authenticates** clients using API keys
 - **Rate limits** requests to prevent abuse
 - **Validates** request size and timeouts
@@ -31,27 +41,27 @@ First, let's define the basic server structure listening on port 8080.
 ```yaml
 input:
   http_server:
-    address: "0.0.0.0:8080"
+    address: '0.0.0.0:8080'
     path: /logs/ingest
     timeout: 10s
 ```
 
-### 2. Adding Security
+### 2. Add Request Controls
 
 Now we add API key authentication and CORS headers.
 
 ```yaml
-    # Authentication
-    auth:
-      type: header
-      header: "X-API-Key"
-      required_value: "${LOG_API_KEY}"
-    
-    # Security headers (CORS)
-    cors:
-      enabled: true
-      allowed_origins: ["*"]
-      allowed_methods: ["POST"]
+# Authentication
+auth:
+  type: header
+  header: 'X-API-Key'
+  required_value: '${LOG_API_KEY}'
+
+# Browser access policy (permissive demo setting)
+cors:
+  enabled: true
+  allowed_origins: ['*']
+  allowed_methods: ['POST']
 ```
 
 ### 3. Performance & Protection
@@ -59,13 +69,13 @@ Now we add API key authentication and CORS headers.
 Finally, we add rate limiting and size constraints to protect the pipeline.
 
 ```yaml
-    # Rate Limiting
-    rate_limit: "1000/1s"
-    
-    # Resource Protection
-    max_request_size: 1048576  # 1MB
-    max_connections: 1000
-    keepalive: true
+# Rate Limiting
+rate_limit: '1000/1s'
+
+# Resource Protection
+max_request_size: 1048576 # 1MB
+max_connections: 1000
+keepalive: true
 ```
 
 ## Complete Step 1 Configuration
@@ -73,25 +83,25 @@ Finally, we add rate limiting and size constraints to protect the pipeline.
 Combine these into a single configuration file.
 
 ```yaml title="production-pipeline-step-1.yaml"
-# Step 1: Secure HTTP Input
+# Step 1: Authenticated HTTP Input
 input:
   http_server:
-    address: "0.0.0.0:8080"
+    address: '0.0.0.0:8080'
     path: /logs/ingest
     timeout: 10s
-    rate_limit: "1000/1s"
-    
-    # Security
+    rate_limit: '1000/1s'
+
+    # Request authentication
     auth:
       type: header
-      header: "X-API-Key"
-      required_value: "${LOG_API_KEY}"
-    
+      header: 'X-API-Key'
+      required_value: '${LOG_API_KEY}'
+
     cors:
       enabled: true
-      allowed_origins: ["*"]
-      allowed_methods: ["POST"]
-      
+      allowed_origins: ['*']
+      allowed_methods: ['POST']
+
     # Protection
     max_request_size: 1048576
     max_connections: 1000
@@ -101,7 +111,7 @@ pipeline:
     # Temporary passthrough for testing
     - log:
         level: INFO
-        message: "Received log event"
+        message: 'Received log event'
 
 output:
   stdout: {}
@@ -110,17 +120,20 @@ output:
 ## Deployment & Verification
 
 1.  **Set the API Key:**
+
     ```bash
     export LOG_API_KEY="secret-key-123"
     ```
 
 2.  **Test Access (Success):**
+
     ```bash
     curl -X POST http://localhost:8080/logs/ingest \
       -H "X-API-Key: secret-key-123" \
       -d '{"message": "hello"}'
     ```
-    *Expected: 200 OK*
+
+    _Expected: 200 OK_
 
 3.  **Test Access (Failure - Wrong Key):**
     ```bash
@@ -128,10 +141,10 @@ output:
       -H "X-API-Key: wrong-key" \
       -d '{"message": "hello"}'
     ```
-    *Expected: 401 Unauthorized*
+    _Expected: 401 Unauthorized_
 
 ## Next Steps
 
-Now that we have a secure door, we need to ensure the data coming through it is valid.
+Now that the input checks an API key, validate the data that passes through it.
 
 👉 [**Step 2: Parse & Validate Logs**](/log-processing/production-pipeline/step-2-parse-validate-logs)

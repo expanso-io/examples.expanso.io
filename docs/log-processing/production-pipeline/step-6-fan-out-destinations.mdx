@@ -4,19 +4,28 @@ sidebar_label: Step 6 - Fan-Out Destinations
 sidebar_position: 9
 description: Route logs to multiple destinations (Elasticsearch, S3, Backup) in parallel
 keywords: [routing, fan-out, elasticsearch, s3, backup, multi-destination]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-production-pipeline-step-6-fan-out-destinations]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 import CodeBlock from '@theme/CodeBlock';
 
 # Fan-Out Destinations
 
-A single destination is rarely enough. You need real-time search for debugging (Elasticsearch), cheap long-term storage for compliance (S3), and perhaps a local backup. The Fan-Out pattern sends data to all of them in parallel.
+This architecture configures Elasticsearch, S3, and a local file as parallel destinations. Each destination remains an external dependency with its own delivery and retention contract.
 
 ## Goal
 
-- **Elasticsearch:** Hot storage for recent logs (searchable)
-- **S3:** Cold storage for all logs (cheap, compressed)
-- **Local File:** Backup in case of network issues
+- **Elasticsearch:** Configured searchable destination
+- **S3:** Configured object-storage destination
+- **Local File:** Configured on-site destination
 
 ## Configuration
 
@@ -31,17 +40,17 @@ output:
     outputs:
       # Destination 1: Elasticsearch
       - elasticsearch:
-          urls: ["${ELASTICSEARCH_URL}"]
-          index: "logs-${!timestamp_unix_date()}"
-          
+          urls: ['${ELASTICSEARCH_URL}']
+          index: 'logs-${!timestamp_unix_date()}'
+
       # Destination 2: S3
       - aws_s3:
-          bucket: "${S3_BUCKET}"
-          path: "logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz"
+          bucket: '${S3_BUCKET}'
+          path: 'logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz'
           batching:
-             count: 1000
-             period: 30s
-             processors: [ { compress: { algorithm: gzip } } ]
+            count: 1000
+            period: 30s
+            processors: [{ compress: { algorithm: gzip } }]
 ```
 
 ### 2. Handling Failures
@@ -53,13 +62,13 @@ In a fan-out, if one output fails, we don't want to block the others. The `fan_o
 ```yaml title="production-pipeline-step-6.yaml"
 input:
   http_server:
-    address: "0.0.0.0:8080"
+    address: '0.0.0.0:8080'
     path: /logs/ingest
-    rate_limit: "1000/1s"
+    rate_limit: '1000/1s'
     auth:
       type: header
-      header: "X-API-Key"
-      required_value: "${LOG_API_KEY}"
+      header: 'X-API-Key'
+      required_value: '${LOG_API_KEY}'
 
 pipeline:
   processors:
@@ -75,20 +84,21 @@ output:
 
       # 2. Local File (Simulating S3/Archive)
       - file:
-          path: "./output_logs/${!timestamp_unix_date()}_logs.jsonl"
+          path: './output_logs/${!timestamp_unix_date()}_logs.jsonl'
           codec: lines
-          
+
       # 3. Metrics (Simulating observability)
       - http_client:
-          url: "http://localhost:8080/metrics_endpoint" # Mock endpoint
+          url: 'http://localhost:8080/metrics_endpoint' # Mock endpoint
           verb: POST
           # Use 'drop_on_error' to prevent pipeline blocking
-          drop_on_error: true 
+          drop_on_error: true
 ```
 
 ## Deployment & Verification
 
 1.  **Send Data:**
+
     ```bash
     curl -X POST http://localhost:8080/logs/ingest \
       -H "X-API-Key: $LOG_API_KEY" \
@@ -101,15 +111,14 @@ output:
 
 ## Troubleshooting
 
-| Issue | Solution |
-|-------|----------|
-| One output blocks others | Use `drop_on_error: true` on unreliable outputs |
-| S3 connection fails | Check credentials and bucket permissions |
-| File output missing | Verify the output directory exists and is writable |
+| Issue                    | Solution                                           |
+| ------------------------ | -------------------------------------------------- |
+| One output blocks others | Use `drop_on_error: true` on unreliable outputs    |
+| S3 connection fails      | Check credentials and bucket permissions           |
+| File output missing      | Verify the output directory exists and is writable |
 
 ## Conclusion
 
-You have built a complete, production-grade log processing pipeline! You started with a basic HTTP server, added security, validated data, enriched it with context, filtered noise, redacted PII, and routed it to multiple destinations.
+You have assembled the complete tutorial pipeline. You started with a basic HTTP server, added the tutorial's security controls, validated data, enriched it with context, filtered noise, redacted PII, and routed it to multiple destinations.
 
 👉 [**View Complete Pipeline**](/log-processing/production-pipeline/complete-production-pipeline)
-

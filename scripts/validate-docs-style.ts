@@ -5,7 +5,7 @@
  *
  * Validates documentation files against our "Less is More" style guide:
  * - Introduction pages: 40-50 lines max
- * - Tutorial pages: 100 lines max
+ * - Tutorial length is unrestricted; runnable examples may require long code blocks
  * - Detects duplication (installation steps, setup instructions)
  * - Flags verbose anti-patterns
  *
@@ -53,7 +53,10 @@ const DUPLICATION_KEYWORDS = [
 /**
  * Detect page type based on file path and frontmatter
  */
-function detectPageType(filePath: string, content: string): 'intro' | 'tutorial' | 'reference' | 'unknown' {
+function detectPageType(
+  filePath: string,
+  content: string
+): 'intro' | 'tutorial' | 'reference' | 'unknown' {
   const fileName = path.basename(filePath);
 
   if (fileName === 'index.mdx' || fileName === 'index.md') {
@@ -64,7 +67,11 @@ function detectPageType(filePath: string, content: string): 'intro' | 'tutorial'
     return 'tutorial';
   }
 
-  if (filePath.includes('/reference/') || content.includes('## Syntax') || content.includes('## API')) {
+  if (
+    filePath.includes('/reference/') ||
+    content.includes('## Syntax') ||
+    content.includes('## API')
+  ) {
     return 'reference';
   }
 
@@ -80,18 +87,21 @@ function countContentLines(content: string): number {
 
   // Count non-empty lines
   const lines = withoutFrontmatter.split('\n');
-  return lines.filter(line => line.trim().length > 0).length;
+  return lines.filter((line) => line.trim().length > 0).length;
 }
 
 /**
  * Check for verbose anti-patterns
  */
-function checkVerbosePatterns(content: string, filePath: string): ValidationIssue[] {
+function checkVerbosePatterns(
+  content: string,
+  filePath: string
+): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const lines = content.split('\n');
 
   lines.forEach((line, index) => {
-    VERBOSE_PATTERNS.forEach(pattern => {
+    VERBOSE_PATTERNS.forEach((pattern) => {
       if (pattern.test(line)) {
         issues.push({
           file: filePath,
@@ -110,16 +120,20 @@ function checkVerbosePatterns(content: string, filePath: string): ValidationIssu
 /**
  * Check for potential content duplication
  */
-function checkDuplication(content: string, filePath: string): ValidationIssue[] {
+function checkDuplication(
+  content: string,
+  filePath: string
+): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
-  DUPLICATION_KEYWORDS.forEach(keyword => {
+  DUPLICATION_KEYWORDS.forEach((keyword) => {
     if (content.includes(keyword)) {
       issues.push({
         file: filePath,
         severity: 'info',
         message: `Potential duplication: Found "${keyword}"`,
-        suggestion: 'If this content exists elsewhere, link to it instead of duplicating',
+        suggestion:
+          'If this content exists elsewhere, link to it instead of duplicating',
       });
     }
   });
@@ -142,14 +156,8 @@ function validateFile(filePath: string): ValidationResult {
       file: filePath,
       severity: 'error',
       message: `Introduction page too long: ${lineCount} lines (max 50)`,
-      suggestion: 'Cut to 40-50 lines. Focus on value prop, key points, and clear next steps',
-    });
-  } else if (pageType === 'tutorial' && lineCount > 100) {
-    issues.push({
-      file: filePath,
-      severity: 'warning',
-      message: `Tutorial page too long: ${lineCount} lines (max 100)`,
-      suggestion: 'Break into smaller steps or remove verbose explanations',
+      suggestion:
+        'Cut to 40-50 lines. Focus on value prop, key points, and clear next steps',
     });
   }
 
@@ -159,7 +167,7 @@ function validateFile(filePath: string): ValidationResult {
   // Check for duplication
   issues.push(...checkDuplication(content, filePath));
 
-  const hasErrors = issues.some(i => i.severity === 'error');
+  const hasErrors = issues.some((i) => i.severity === 'error');
 
   return {
     file: filePath,
@@ -179,10 +187,7 @@ async function main(): Promise<void> {
   console.log('📋 Validating documentation style...\n');
 
   // Find all MDX files
-  const patterns = [
-    'docs/**/*.mdx',
-    'docs/**/*.md',
-  ];
+  const patterns = ['docs/**/*.mdx', 'docs/**/*.md'];
 
   let allFiles: string[] = [];
   for (const pattern of patterns) {
@@ -191,7 +196,9 @@ async function main(): Promise<void> {
   }
 
   // Filter out backup files
-  allFiles = allFiles.filter(f => !f.includes('.bak') && !f.includes('.backup'));
+  allFiles = allFiles.filter(
+    (f) => !f.includes('.bak') && !f.includes('.backup')
+  );
 
   console.log(`Found ${allFiles.length} documentation files\n`);
 
@@ -205,21 +212,28 @@ async function main(): Promise<void> {
     results.push(result);
 
     totalIssues += result.issues.length;
-    totalErrors += result.issues.filter(i => i.severity === 'error').length;
-    totalWarnings += result.issues.filter(i => i.severity === 'warning').length;
+    totalErrors += result.issues.filter((i) => i.severity === 'error').length;
+    totalWarnings += result.issues.filter(
+      (i) => i.severity === 'warning'
+    ).length;
   }
 
   // Print results
-  const failedFiles = results.filter(r => !r.passed);
+  const failedFiles = results.filter((r) => !r.passed);
 
   if (failedFiles.length > 0) {
     console.log('❌ Files with issues:\n');
 
-    failedFiles.forEach(result => {
+    failedFiles.forEach((result) => {
       console.log(`\n📄 ${result.file} (${result.lineCount} lines)`);
 
-      result.issues.forEach(issue => {
-        const icon = issue.severity === 'error' ? '❌' : issue.severity === 'warning' ? '⚠️' : 'ℹ️';
+      result.issues.forEach((issue) => {
+        const icon =
+          issue.severity === 'error'
+            ? '❌'
+            : issue.severity === 'warning'
+              ? '⚠️'
+              : 'ℹ️';
         const location = issue.line ? `:${issue.line}` : '';
         console.log(`  ${icon} ${issue.message}${location}`);
         if (issue.suggestion) {
@@ -240,7 +254,9 @@ async function main(): Promise<void> {
   console.log('');
 
   if (totalErrors > 0) {
-    console.log('💡 Tip: Review DOCS_STYLE_GUIDE.md for guidelines on writing terse, effective docs\n');
+    console.log(
+      '💡 Tip: Review DOCS_STYLE_GUIDE.md for guidelines on writing terse, effective docs\n'
+    );
     process.exit(1);
   } else if (totalWarnings > 0) {
     console.log('✅ No blocking errors, but consider addressing warnings\n');
@@ -251,7 +267,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch(error => {
+main().catch((error) => {
   console.error('❌ Validation failed:', error);
   process.exit(1);
 });

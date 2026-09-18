@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import CodeBlock from '@theme/CodeBlock';
 import type { ProgressivePipelineExplorerProps } from './types';
 import { JSONViewer } from './JSONViewer';
 import { Slider } from '../ui/slider';
 import styles from './styles.module.css';
+import { captureExampleEvent } from '@site/src/lib/analytics';
 
 /**
  * Progressive Pipeline Explorer
@@ -18,6 +19,19 @@ export default function ProgressivePipelineExplorer({
   initialStage = 1,
 }: ProgressivePipelineExplorerProps): React.JSX.Element {
   const [currentStage, setCurrentStage] = useState(initialStage);
+  const hasCapturedEngagement = useRef(false);
+
+  const setStageWithAnalytics = (stageId: number, control: string) => {
+    setCurrentStage(stageId);
+    if (!hasCapturedEngagement.current) {
+      hasCapturedEngagement.current = true;
+      captureExampleEvent('example_explorer_engaged', {
+        control,
+        destination_stage: stageId,
+        stage_count: stages.length,
+      });
+    }
+  };
 
   const stage = stages.find(s => s.id === currentStage);
 
@@ -42,7 +56,9 @@ export default function ProgressivePipelineExplorer({
         <div className={styles.sliderContainer}>
           <button
             className={styles.navButton}
-            onClick={() => setCurrentStage(Math.max(1, currentStage - 1))}
+            onClick={() =>
+              setStageWithAnalytics(Math.max(1, currentStage - 1), 'previous')
+            }
             disabled={currentStage === 1}
             aria-label="Previous stage"
           >
@@ -52,7 +68,9 @@ export default function ProgressivePipelineExplorer({
           <div className={styles.sliderWrapper}>
             <Slider
               value={[currentStage]}
-              onValueChange={(value) => setCurrentStage(value[0])}
+              onValueChange={(value) =>
+                setStageWithAnalytics(value[0], 'slider')
+              }
               min={1}
               max={stages.length}
               step={1}
@@ -65,7 +83,7 @@ export default function ProgressivePipelineExplorer({
                   className={`${styles.stageLabel} ${
                     s.id === currentStage ? styles.active : ''
                   } ${s.id < currentStage ? styles.completed : ''}`}
-                  onClick={() => setCurrentStage(s.id)}
+                  onClick={() => setStageWithAnalytics(s.id, 'stage_button')}
                   title={s.title}
                   aria-label={`Stage ${s.id}`}
                 >
@@ -77,7 +95,12 @@ export default function ProgressivePipelineExplorer({
 
           <button
             className={styles.navButton}
-            onClick={() => setCurrentStage(Math.min(stages.length, currentStage + 1))}
+            onClick={() =>
+              setStageWithAnalytics(
+                Math.min(stages.length, currentStage + 1),
+                'next'
+              )
+            }
             disabled={currentStage === stages.length}
             aria-label="Next stage"
           >

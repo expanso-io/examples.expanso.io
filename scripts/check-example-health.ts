@@ -1,13 +1,13 @@
 #!/usr/bin/env ts-node
 
 /**
- * Example Health Check Script
+ * Interactive Scaffold Inventory
  *
- * Analyzes all interactive examples and reports completion status:
- * - Which examples exist in each category
- * - What files each example has (stage file, explorer, index, setup)
- * - Completion percentage for each example
- * - Overall health metrics
+ * Finds examples that have a *-full.stages.ts file in the four original
+ * interactive categories and verifies their required scaffold files. This is
+ * a structural repository check only. It does not inventory every published
+ * example family or assess runtime behavior, content quality, operational
+ * evidence, or production readiness.
  *
  * Usage:
  *   npm run check-health
@@ -19,7 +19,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { glob } from 'glob';
 
-interface ExampleHealth {
+interface ExampleScaffold {
   name: string;
   category: string;
   files: {
@@ -29,27 +29,28 @@ interface ExampleHealth {
     setup: boolean;
   };
   missingFiles: string[];
-  completionPercent: number;
-  status: 'complete' | 'partial' | 'minimal';
+  fileCoveragePercent: number;
+  status: 'structurally-complete' | 'partial' | 'minimal';
 }
 
-interface CategoryHealth {
+interface CategoryInventory {
   category: string;
-  exampleCount: number;
-  completeExamples: number;
-  partialExamples: number;
-  minimalExamples: number;
-  averageCompletion: number;
+  scaffoldCount: number;
+  structurallyCompleteScaffolds: number;
+  partialScaffolds: number;
+  minimalScaffolds: number;
+  averageFileCoverage: number;
 }
 
-interface HealthReport {
-  totalExamples: number;
-  completeExamples: number;
-  partialExamples: number;
-  minimalExamples: number;
-  overallCompletion: number;
-  categories: CategoryHealth[];
-  examples: ExampleHealth[];
+interface ScaffoldInventory {
+  scope: string;
+  totalScaffolds: number;
+  structurallyCompleteScaffolds: number;
+  partialScaffolds: number;
+  minimalScaffolds: number;
+  overallFileCoverage: number;
+  categories: CategoryInventory[];
+  scaffolds: ExampleScaffold[];
 }
 
 const CATEGORIES = ['data-routing', 'data-security', 'data-transformation', 'log-processing'];
@@ -76,7 +77,7 @@ async function findExamples(): Promise<Map<string, string>> {
 /**
  * Check health of a single example
  */
-function checkExampleHealth(name: string, category: string): ExampleHealth {
+function checkExampleScaffold(name: string, category: string): ExampleScaffold {
   const docsDir = path.join(process.cwd(), 'docs', category);
   const exampleDir = path.join(docsDir, name);
 
@@ -94,12 +95,12 @@ function checkExampleHealth(name: string, category: string): ExampleHealth {
   if (!files.setup) missingFiles.push(`${name}/setup.mdx`);
 
   const fileCount = Object.values(files).filter(Boolean).length;
-  const completionPercent = Math.round((fileCount / 4) * 100);
+  const fileCoveragePercent = Math.round((fileCount / 4) * 100);
 
-  let status: 'complete' | 'partial' | 'minimal';
-  if (completionPercent === 100) {
-    status = 'complete';
-  } else if (completionPercent >= 50) {
+  let status: 'structurally-complete' | 'partial' | 'minimal';
+  if (fileCoveragePercent === 100) {
+    status = 'structurally-complete';
+  } else if (fileCoveragePercent >= 50) {
     status = 'partial';
   } else {
     status = 'minimal';
@@ -110,7 +111,7 @@ function checkExampleHealth(name: string, category: string): ExampleHealth {
     category,
     files,
     missingFiles,
-    completionPercent,
+    fileCoveragePercent,
     status,
   };
 }
@@ -118,108 +119,112 @@ function checkExampleHealth(name: string, category: string): ExampleHealth {
 /**
  * Generate category health summary
  */
-function summarizeCategory(examples: ExampleHealth[], category: string): CategoryHealth {
-  const categoryExamples = examples.filter(e => e.category === category);
-  const completeExamples = categoryExamples.filter(e => e.status === 'complete').length;
-  const partialExamples = categoryExamples.filter(e => e.status === 'partial').length;
-  const minimalExamples = categoryExamples.filter(e => e.status === 'minimal').length;
+function summarizeCategory(scaffolds: ExampleScaffold[], category: string): CategoryInventory {
+  const categoryScaffolds = scaffolds.filter(e => e.category === category);
+  const structurallyCompleteScaffolds = categoryScaffolds.filter(e => e.status === 'structurally-complete').length;
+  const partialScaffolds = categoryScaffolds.filter(e => e.status === 'partial').length;
+  const minimalScaffolds = categoryScaffolds.filter(e => e.status === 'minimal').length;
 
-  const totalCompletion = categoryExamples.reduce((sum, e) => sum + e.completionPercent, 0);
-  const averageCompletion = categoryExamples.length > 0
-    ? Math.round(totalCompletion / categoryExamples.length)
+  const totalFileCoverage = categoryScaffolds.reduce((sum, e) => sum + e.fileCoveragePercent, 0);
+  const averageFileCoverage = categoryScaffolds.length > 0
+    ? Math.round(totalFileCoverage / categoryScaffolds.length)
     : 0;
 
   return {
     category,
-    exampleCount: categoryExamples.length,
-    completeExamples,
-    partialExamples,
-    minimalExamples,
-    averageCompletion,
+    scaffoldCount: categoryScaffolds.length,
+    structurallyCompleteScaffolds,
+    partialScaffolds,
+    minimalScaffolds,
+    averageFileCoverage,
   };
 }
 
 /**
  * Generate full health report
  */
-async function generateHealthReport(categoryFilter?: string): Promise<HealthReport> {
+async function generateScaffoldInventory(categoryFilter?: string): Promise<ScaffoldInventory> {
   const exampleMap = await findExamples();
-  const examples: ExampleHealth[] = [];
+  const scaffolds: ExampleScaffold[] = [];
 
   for (const [name, category] of exampleMap.entries()) {
     if (categoryFilter && category !== categoryFilter) {
       continue;
     }
-    examples.push(checkExampleHealth(name, category));
+    scaffolds.push(checkExampleScaffold(name, category));
   }
 
-  const completeExamples = examples.filter(e => e.status === 'complete').length;
-  const partialExamples = examples.filter(e => e.status === 'partial').length;
-  const minimalExamples = examples.filter(e => e.status === 'minimal').length;
+  const structurallyCompleteScaffolds = scaffolds.filter(e => e.status === 'structurally-complete').length;
+  const partialScaffolds = scaffolds.filter(e => e.status === 'partial').length;
+  const minimalScaffolds = scaffolds.filter(e => e.status === 'minimal').length;
 
-  const totalCompletion = examples.reduce((sum, e) => sum + e.completionPercent, 0);
-  const overallCompletion = examples.length > 0
-    ? Math.round(totalCompletion / examples.length)
+  const totalFileCoverage = scaffolds.reduce((sum, e) => sum + e.fileCoveragePercent, 0);
+  const overallFileCoverage = scaffolds.length > 0
+    ? Math.round(totalFileCoverage / scaffolds.length)
     : 0;
 
   const categories = CATEGORIES
     .filter(cat => !categoryFilter || cat === categoryFilter)
-    .map(cat => summarizeCategory(examples, cat))
-    .filter(cat => cat.exampleCount > 0);
+    .map(cat => summarizeCategory(scaffolds, cat))
+    .filter(cat => cat.scaffoldCount > 0);
 
   return {
-    totalExamples: examples.length,
-    completeExamples,
-    partialExamples,
-    minimalExamples,
-    overallCompletion,
+    scope: 'Stage-backed interactive scaffolds in data-routing, data-security, data-transformation, and log-processing',
+    totalScaffolds: scaffolds.length,
+    structurallyCompleteScaffolds,
+    partialScaffolds,
+    minimalScaffolds,
+    overallFileCoverage,
     categories,
-    examples,
+    scaffolds,
   };
 }
 
 /**
  * Print health report in human-readable format
  */
-function printHealthReport(report: HealthReport): void {
-  console.log('\n📊 Example Health Report\n');
+function printScaffoldInventory(report: ScaffoldInventory): void {
+  console.log('\n📊 Interactive Scaffold Inventory\n');
   console.log('='.repeat(80));
+  console.log('\nScope: stage-backed interactive scaffolds in four original categories.');
+  console.log('This check verifies four required files only; it does not assess all published');
+  console.log('examples, runtime behavior, content quality, or production readiness.');
 
   // Overall summary
-  console.log('\n📈 Overall Statistics:');
-  console.log(`   Total Examples: ${report.totalExamples}`);
-  console.log(`   ✅ Complete (100%): ${report.completeExamples}`);
-  console.log(`   ⚠️  Partial (50-99%): ${report.partialExamples}`);
-  console.log(`   ❌ Minimal (<50%): ${report.minimalExamples}`);
-  console.log(`   📊 Average Completion: ${report.overallCompletion}%`);
+  console.log('\n📈 Structural Statistics:');
+  console.log(`   Total Scaffolds: ${report.totalScaffolds}`);
+  console.log(`   ✅ Required Files Present: ${report.structurallyCompleteScaffolds}`);
+  console.log(`   ⚠️  Partial File Sets (50-99%): ${report.partialScaffolds}`);
+  console.log(`   ❌ Minimal File Sets (<50%): ${report.minimalScaffolds}`);
+  console.log(`   📊 Average File Coverage: ${report.overallFileCoverage}%`);
 
   // Category breakdown
   console.log('\n📂 Category Breakdown:\n');
   for (const cat of report.categories) {
-    const icon = cat.averageCompletion === 100 ? '✅' : cat.averageCompletion >= 75 ? '⚠️' : '❌';
+    const icon = cat.averageFileCoverage === 100 ? '✅' : cat.averageFileCoverage >= 75 ? '⚠️' : '❌';
     console.log(`${icon} ${cat.category}:`);
-    console.log(`   Examples: ${cat.exampleCount}`);
-    console.log(`   Complete: ${cat.completeExamples}, Partial: ${cat.partialExamples}, Minimal: ${cat.minimalExamples}`);
-    console.log(`   Average Completion: ${cat.averageCompletion}%`);
+    console.log(`   Scaffolds: ${cat.scaffoldCount}`);
+    console.log(`   Required files present: ${cat.structurallyCompleteScaffolds}, Partial: ${cat.partialScaffolds}, Minimal: ${cat.minimalScaffolds}`);
+    console.log(`   Average file coverage: ${cat.averageFileCoverage}%`);
     console.log('');
   }
 
   // Detailed example status
-  console.log('📋 Example Details:\n');
+  console.log('📋 Scaffold Details:\n');
 
-  const grouped = new Map<string, ExampleHealth[]>();
-  for (const example of report.examples) {
-    if (!grouped.has(example.category)) {
-      grouped.set(example.category, []);
+  const grouped = new Map<string, ExampleScaffold[]>();
+  for (const scaffold of report.scaffolds) {
+    if (!grouped.has(scaffold.category)) {
+      grouped.set(scaffold.category, []);
     }
-    grouped.get(example.category)!.push(example);
+    grouped.get(scaffold.category)!.push(scaffold);
   }
 
   for (const [category, examples] of grouped.entries()) {
     console.log(`\n${category}:`);
     for (const example of examples) {
-      const statusIcon = example.status === 'complete' ? '✅' : example.status === 'partial' ? '⚠️' : '❌';
-      console.log(`  ${statusIcon} ${example.name} (${example.completionPercent}%)`);
+      const statusIcon = example.status === 'structurally-complete' ? '✅' : example.status === 'partial' ? '⚠️' : '❌';
+      console.log(`  ${statusIcon} ${example.name} (${example.fileCoveragePercent}% of required files)`);
 
       if (example.missingFiles.length > 0) {
         console.log(`     Missing: ${example.missingFiles.join(', ')}`);
@@ -234,7 +239,7 @@ function printHealthReport(report: HealthReport): void {
 /**
  * Print health report in JSON format
  */
-function printJsonReport(report: HealthReport): void {
+function printJsonReport(report: ScaffoldInventory): void {
   console.log(JSON.stringify(report, null, 2));
 }
 
@@ -256,16 +261,25 @@ async function main(): Promise<void> {
     }
   }
 
-  const report = await generateHealthReport(categoryFilter);
+  const report = await generateScaffoldInventory(categoryFilter);
+
+  if (categoryFilter && !CATEGORIES.includes(categoryFilter)) {
+    throw new Error(
+      `Unknown category "${categoryFilter}". Expected one of: ${CATEGORIES.join(', ')}`
+    );
+  }
 
   if (format === 'json') {
     printJsonReport(report);
   } else {
-    printHealthReport(report);
+    printScaffoldInventory(report);
   }
 
-  // Exit with error code if there are incomplete examples
-  if (report.completeExamples < report.totalExamples) {
+  // Enforce the structural contract for every discovered scaffold.
+  if (
+    report.totalScaffolds === 0 ||
+    report.structurallyCompleteScaffolds < report.totalScaffolds
+  ) {
     process.exit(1);
   }
 }

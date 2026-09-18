@@ -1,9 +1,19 @@
 ---
-title: "Step 1: Add Lineage Metadata"
-sidebar_label: "Step 1: Add Lineage"
+title: 'Step 1: Add Lineage Metadata'
+sidebar_label: 'Step 1: Add Lineage'
 sidebar_position: 3
-description: Inject automatic lineage tracking for regulatory compliance and audit trails
-keywords: [lineage, audit, compliance, metadata, tracking]
+description: Add authored source and pipeline fields for downstream lineage review.
+keywords: [lineage, audit, metadata, tracking]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-enterprise-migration-db2-to-bigquery-step-1-add-lineage-metadata]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 1: Add Lineage Metadata
@@ -13,6 +23,7 @@ Every record needs an audit trail showing where it came from, when it was proces
 ## The Goal
 
 Add a `_lineage` object to every record containing:
+
 - Source system identifier
 - Source table name
 - Pipeline name
@@ -21,7 +32,7 @@ Add a `_lineage` object to every record containing:
 
 ## Why This Matters
 
-**Regulatory Compliance:** Financial regulators require complete data lineage for audit purposes.
+**Review context:** Source and pipeline fields can support a separately designed lineage process.
 
 **Debugging:** When data looks wrong in BigQuery, trace it back to the exact source record.
 
@@ -30,6 +41,7 @@ Add a `_lineage` object to every record containing:
 ## DataStage Equivalent
 
 In DataStage, you'd typically:
+
 1. Create custom annotations in job properties
 2. Use a Transformer to add metadata columns
 3. Maintain a separate lineage table
@@ -39,6 +51,7 @@ In DataStage, you'd typically:
 ## Implementation
 
 1. **Copy the foundation pipeline:**
+
    ```bash
    cp db2-foundation.yaml step-1-lineage.yaml
    ```
@@ -66,17 +79,18 @@ In DataStage, you'd typically:
 
 ## Understanding the Code
 
-| Expression | What It Does |
-|------------|--------------|
-| `root = this` | Start with the original record |
-| `root._lineage = {...}` | Add a new nested object |
-| `now()` | Current UTC timestamp |
-| `env("NODE_ID")` | Read environment variable |
-| `.or("unknown")` | Fallback if env var not set |
+| Expression              | What It Does                   |
+| ----------------------- | ------------------------------ |
+| `root = this`           | Start with the original record |
+| `root._lineage = {...}` | Add a new nested object        |
+| `now()`                 | Current UTC timestamp          |
+| `env("NODE_ID")`        | Read environment variable      |
+| `.or("unknown")`        | Fallback if env var not set    |
 
 ## Expected Output
 
 **Input:**
+
 ```json
 {
   "TRANSACTION_ID": "TXN-2024-00123456",
@@ -86,6 +100,7 @@ In DataStage, you'd typically:
 ```
 
 **Output:**
+
 ```json
 {
   "TRANSACTION_ID": "TXN-2024-00123456",
@@ -133,7 +148,10 @@ root._lineage.config_hash = "a1b2c3d4"
 ## Next Step
 
 <div className="margin-top--lg margin-bottom--lg">
-  <a href="./step-2-normalize-currency" className="button button--primary button--lg">
+  <a
+    href="../step-2-normalize-currency"
+    className="button button--primary button--lg"
+  >
     📖 Step 2: Normalize Currency →
   </a>
 </div>

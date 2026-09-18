@@ -1,173 +1,43 @@
 ---
-title: "SCADA Edge Processing for Power Grids"
-sidebar_label: "Overview"
+title: SCADA Energy Edge
 sidebar_position: 1
-description: "Stop shipping 50,000 sensor reads/minute. With Expanso Edge at the substation, ship 12 KPIs/minute and immediate fault alerts — with NERC CIP compliance by design."
-keywords: [scada, modbus, energy, power-grid, iec-61850, nerc-cip, edge-processing, ot-it, substation, fault-detection]
-tags: [scada, modbus, energy, nerc-cip, edge-processing, ot-it, substation]
+description: Inspect an architecture for transforming synthetic, adapter-decoded SCADA telemetry and routing selected events.
+keywords: [scada, energy, gateway, edge-processing, kafka]
+tags:
+  [scada, modbus, energy, nerc-cip, edge-processing, ot-it, substation, kafka]
+hide_title: true
+contentArchetype: overview
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+difficulty: advanced
+verificationDate: '2026-07-18'
+expectedTime: 6 minutes
+localNavigation: true
+uniqueTasks: [inspect-scada-architecture]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# SCADA Edge Processing for Power Grids
+import { ExampleHeader } from '@site/src/components/ExamplePage';
 
-## The Blind Spot: Data Trapped Behind the OT Fence
+<ExampleHeader
+  exampleId="scada-energy-edge"
+  title="SCADA Energy Edge"
+  outcome="Transform adapter-decoded synthetic SCADA telemetry and route selected events."
+  primaryAction={{
+    href: '/integrations/scada-energy-edge/explorer',
+    label: 'Inspect the pipeline',
+  }}
+  difficulty="advanced"
+  executionStatus="architecture-only"
+  operationalEvidence="not-assessed"
+  expectedTime={{ inspectMinutes: 6 }}
+  verifiedAt="2026-07-18"
+/>
 
-Every substation is an analytics goldmine. RTUs and PLCs poll sensors every second — voltage, current, frequency, temperature, active power — generating **50,000+ readings per minute** across a single substation. In theory, this data could drive real-time grid stability analysis, predictive maintenance, and fault prevention. In practice, almost none of it reaches your analytics systems.
+## Related examples
 
-Why? Three compounding problems:
-
-- **OT/IT air gaps** — SCADA networks are isolated for security. Getting data out requires crossing a carefully guarded boundary, which operations teams resist for good reason.
-- **Volume economics** — Shipping 50,000 raw Modbus register reads per minute to a SCADA historian or cloud is expensive, slow, and fills storage with noise. 99% of readings are nominal — "voltage is fine, frequency is fine" repeated forever.
-- **NERC CIP compliance** — Critical Infrastructure Protection standards restrict what topology data can leave the substation. Substation bus topology, protection relay configurations, and network maps are CIP-sensitive. Sending them to cloud systems creates compliance exposure.
-
-The result: your SCADA historian sees alarm events and operator actions. Your analytics platform sees almost nothing. The rich real-time telemetry that could catch a transformer failure three days before it happens stays locked in the OT network.
-
-**That's the opportunity.** Not "send more data." It's **"send the right data — processed at the edge, compliant by design."**
-
-## Four Wins, One Pipeline
-
-Expanso Edge runs at the substation — on an industrial PC, a hardened edge gateway, or a Kubernetes node in the substation DMZ. It processes Modbus data before it crosses the OT/IT boundary, unlocking four simultaneous wins:
-
-### Win #1: Unlock Data Trapped in OT Networks
-
-Modbus TCP, DNP3, and IEC 61850 are the languages of operational technology. SCADA historians understand them, but cloud analytics platforms don't. Traditional approaches require protocol converters, data historians, and bespoke middleware — each adding latency, cost, and another system to maintain.
-
-Expanso Edge speaks OT natively and translates to cloud-friendly JSON:
-
-✅ **Modbus TCP socket input** — reads directly from RTU/PLC polling streams on port 502  
-✅ **Register-to-field mapping** — REG 40001 becomes `voltage_kv`, with scaling applied automatically  
-✅ **Semicolon-delimited to structured JSON** — raw `REG=40001;VAL=14823` becomes `{ "voltage_kv": 148.23 }`  
-✅ **No middleware required** — one pipeline YAML replaces a protocol converter + historian adapter  
-
-### Win #2: Edge ML for Fault Classification at Source
-
-A thermal overload event caught 60 seconds earlier is the difference between a controlled load shed and an unplanned outage. Traditional SCADA alarming uses static thresholds configured in the historian — which can't adapt to operating context, load conditions, or seasonal variations.
-
-Expanso Bloblang processors run fault classification logic directly at the substation:
-
-✅ **VOLTAGE_DEVIATION** — transmission voltage outside ±10% of 132 kV nominal (110–145 kV band)  
-✅ **FREQUENCY_DRIFT** — grid frequency outside NERC reliability standard ±0.5 Hz (59.95–60.05 Hz)  
-✅ **THERMAL_OVERLOAD** — transformer or line temperature exceeding thermal rating (75°C threshold)  
-✅ **LINE_FAULT** — current spike combined with voltage drop indicating fault current path  
-
-Classification happens in milliseconds at the edge. Fault events arrive at the historian pre-tagged and pre-prioritized — no post-hoc analysis required.
-
-### Win #3: NERC CIP Compliance by Design
-
-NERC CIP §R1.4 requires that electronic security perimeter (ESP) data — including network topology, protection relay configurations, and access control lists — be protected from unauthorized disclosure. Sending raw substation data to cloud systems risks including CIP-sensitive topology information.
-
-Expanso Edge handles this at the pipeline level:
-
-✅ **Strip before egress** — topology fields (`bus_topology`, `relay_config`, `esp_network_map`) are deleted in the Bloblang processor before any data crosses the substation boundary  
-✅ **Aggregate, don't export** — instead of raw register values, send KPI summaries. Cloud systems get `voltage_avg_kv`, `fault_count`, and `uptime_pct` — not the raw topology that generated them  
-✅ **Audit trail stays local** — full raw telemetry is archived locally for NERC CIP audit purposes; only processed summaries leave the fence  
-✅ **Configurable by policy** — which fields are CIP-sensitive is configurable in the pipeline YAML, not hardcoded in application logic  
-
-### Win #4: Better Data Reaches the Historian
-
-For data you *do* send to the SCADA historian, Expanso makes it arrive cleaner, faster, and more useful:
-
-✅ **Pre-parsed fields** — historian receives `voltage_kv: 148.23` instead of raw `REG=40001;VAL=14823`  
-✅ **Normalized units** — all values scaled and typed consistently before arrival  
-✅ **Deduplicated readings** — consecutive identical readings suppressed; historian sees state changes, not noise  
-✅ **Enriched context** — `substation_id`, `region`, `device_id` added automatically from environment  
-
-## Architecture: Traditional SCADA vs With Expanso Edge
-
-<div style={{display: 'flex', gap: '2rem', flexWrap: 'wrap', margin: '2rem 0'}}>
-
-<div style={{flex: '1', minWidth: '280px', padding: '1.5rem', borderRadius: '12px', border: '1px solid var(--ifm-color-emphasis-300)', background: 'var(--ifm-background-surface-color)'}}>
-<div style={{fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--ifm-font-color-secondary)', marginBottom: '1rem'}}>Traditional SCADA</div>
-<div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem'}}>
-<div style={{padding: '0.6rem 1.5rem', borderRadius: '8px', background: 'var(--ifm-color-emphasis-200)', fontWeight: 500, textAlign: 'center', width: '100%'}}>RTU / PLC</div>
-<div style={{fontSize: '0.7rem', color: 'var(--ifm-font-color-secondary)'}}>50,000 Modbus reads/min</div>
-<div style={{fontSize: '1.2rem'}}>↓ ALL data crosses OT/IT boundary</div>
-<div style={{padding: '0.6rem 1.5rem', borderRadius: '8px', background: 'var(--ifm-color-emphasis-200)', fontWeight: 500, textAlign: 'center', width: '100%'}}>Protocol Converter</div>
-<div style={{fontSize: '0.7rem', color: 'var(--ifm-font-color-secondary)'}}>Modbus → proprietary format</div>
-<div style={{fontSize: '1.2rem'}}>↓ raw, unparsed, unfiltered</div>
-<div style={{padding: '0.6rem 1.5rem', borderRadius: '8px', background: 'var(--ifm-color-emphasis-300)', fontWeight: 500, textAlign: 'center', width: '100%'}}>SCADA Historian</div>
-<div style={{fontSize: '0.7rem', color: 'var(--ifm-font-color-secondary)'}}>stores everything, alarming at query time</div>
-<div style={{fontSize: '1.2rem'}}>↓</div>
-<div style={{padding: '0.6rem 1.5rem', borderRadius: '8px', background: 'var(--ifm-color-emphasis-200)', fontWeight: 500, textAlign: 'center', width: '100%'}}>Cloud? Blocked by NERC CIP</div>
-</div>
-</div>
-
-<div style={{flex: '1', minWidth: '280px', padding: '1.5rem', borderRadius: '12px', border: '2px solid var(--ifm-color-primary)', background: 'var(--ifm-background-surface-color)'}}>
-<div style={{fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--ifm-color-primary)', marginBottom: '1rem'}}>✅ With Expanso Edge</div>
-<div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem'}}>
-<div style={{padding: '0.6rem 1.5rem', borderRadius: '8px', background: 'var(--ifm-color-emphasis-200)', fontWeight: 500, textAlign: 'center', width: '100%'}}>RTU / PLC</div>
-<div style={{fontSize: '0.7rem', color: 'var(--ifm-font-color-secondary)'}}>50,000 Modbus reads/min</div>
-<div style={{fontSize: '1.2rem'}}>↓</div>
-<div style={{padding: '0.75rem 1.5rem', borderRadius: '8px', background: 'var(--ifm-color-primary)', color: 'white', fontWeight: 600, textAlign: 'center', width: '100%', boxShadow: '0 2px 8px rgba(107,70,193,0.3)'}}>Expanso Edge (at substation)</div>
-<div style={{fontSize: '0.7rem', color: 'var(--ifm-color-primary)'}}>parse → filter → classify → strip CIP fields</div>
-<div style={{display: 'flex', gap: '1rem', width: '100%', justifyContent: 'center'}}>
-<div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1}}>
-<div style={{fontSize: '1rem'}}>↓ faults only</div>
-<div style={{padding: '0.5rem 0.75rem', borderRadius: '8px', background: '#16a34a', color: 'white', fontWeight: 600, textAlign: 'center', width: '100%', fontSize: '0.85rem'}}>SCADA Historian</div>
-<div style={{fontSize: '0.7rem', color: '#16a34a'}}>pre-parsed fault events</div>
-</div>
-<div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1}}>
-<div style={{fontSize: '1rem'}}>↓ KPIs only</div>
-<div style={{padding: '0.5rem 0.75rem', borderRadius: '8px', background: '#2563eb', color: 'white', fontWeight: 600, textAlign: 'center', width: '100%', fontSize: '0.85rem'}}>Cloud Dashboard</div>
-<div style={{fontSize: '0.7rem', color: '#2563eb'}}>12 KPIs/min, CIP-safe</div>
-</div>
-</div>
-<div style={{fontSize: '0.7rem', color: 'var(--ifm-font-color-secondary)', marginTop: '0.5rem'}}>📦 Full archive stays local for NERC CIP audit</div>
-</div>
-</div>
-
-</div>
-
-**What changes:**
-- **50,000 reads/min → 12 KPIs/min** — 99.9% volume reduction at the edge
-- **Fault classification** — VOLTAGE_DEVIATION, FREQUENCY_DRIFT, THERMAL_OVERLOAD tagged before historian ingestion
-- **NERC CIP compliance** — topology fields never cross the OT/IT boundary
-- **Immediate alerting** — critical faults reach PagerDuty in milliseconds, not historian polling intervals
-
-## If You Know SCADA, You Already Know Expanso
-
-Expanso uses familiar SCADA concepts — but as a programmable pipeline:
-
-| **SCADA Concept** | **Expanso Equivalent** | **What's Better** |
-|---|---|---|
-| RTU/PLC polling | Pipeline `socket` input (Modbus TCP) | Real-time streaming vs. cyclic polling |
-| Protocol converter | Bloblang register mapping | One YAML, no hardware appliance |
-| SCADA historian | Pipeline `output` (http_client) | Multi-destination + pre-filtering |
-| Manual alarm thresholds | Bloblang `match` processors | Dynamic, programmable, version-controlled |
-| OT/IT data diode | Expanso edge + field deletion | Selective egress with audit trail |
-| Proprietary historian format | Structured JSON | Open, queryable by any analytics tool |
-
-## What You'll Build
-
-In this tutorial, you'll create a complete SCADA edge pipeline that:
-
-1. **Receives raw Modbus register data** via TCP socket from RTU/PLC polling
-2. **Parses and normalizes** register addresses to engineering units (kV, A, Hz, °C, MW)
-3. **Filters nominal readings** and classifies fault events at the edge
-4. **Routes fault alerts** to the SCADA historian and PagerDuty; KPI summaries to Grafana cloud
-
-## Prerequisites
-
-- Expanso Edge installed ([quick start](https://docs.expanso.io/getting-started/quick-start/))
-- Access to a Modbus TCP simulator or physical RTU on your OT network
-- Environment variables for historian URL, PagerDuty webhook, and Grafana Cloud
-
-## Get Started
-
-Choose your path:
-
-### [Interactive Explorer](/integrations/scada-energy-edge/explorer)
-Step through all 4 pipeline stages with live before/after comparisons — see raw Modbus data transform into classified fault events
-
-### [Step-by-Step Tutorial](/integrations/scada-energy-edge/setup)
-Build the pipeline incrementally:
-1. [Parse Modbus Register Data](/integrations/scada-energy-edge/step-1-parse-modbus-registers)
-2. [Filter Nominal Readings at the Edge](/integrations/scada-energy-edge/step-2-filter-normalize-readings)
-3. [Classify Fault Types with Bloblang](/integrations/scada-energy-edge/step-3-classify-fault-events)
-4. [Route to SCADA Historian and Alerting](/integrations/scada-energy-edge/step-4-route-to-destinations)
-
-### [Complete Pipeline](/integrations/scada-energy-edge/complete-scada-integration)
-Download the production-ready solution — tested at 50,000 readings/minute
-
----
-
-*Expanso Edge turns your substation from a data silo into a real-time analytics source — while keeping CIP-sensitive topology where it belongs: local.*
+- [O-RAN edge telemetry](/integrations/oran-telco-pipeline)
+- [Splunk edge processing](/integrations/splunk-edge-processing)

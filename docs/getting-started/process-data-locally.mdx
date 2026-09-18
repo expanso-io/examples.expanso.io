@@ -1,0 +1,120 @@
+---
+title: Process data locally before sending it elsewhere
+description: Run an Expanso pipeline on your machine with synthetic sensor data. Select useful fields, flag a threshold, and inspect stdout without a Cloud account.
+keywords: [local-data-processing, edge-processing, data-minimization]
+hide_title: true
+contentArchetype: reference
+localNavigation: true
+uniqueTasks: [run-local-data-first-result]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Process data locally before sending it elsewhere
+
+Process data locally by running Expanso Edge beside the data source and applying transformations before an output sends records elsewhere. This first run generates one synthetic sensor record, flags a temperature above 30°C, drops the raw diagnostic field, and prints the selected fields on your machine.
+
+## Run your first result
+
+You need [Expanso Edge and the CLI installed](https://docs.expanso.io/getting-started/installation/) and two terminals. No Cloud account or external data service is required. Use only synthetic data for this first check.
+
+In terminal one, start a dedicated local node. Keep it open to see the output:
+
+```bash
+expanso-edge run --local --no-watch --api-listen 127.0.0.1:19031 --data-dir ./expanso-first-result-data
+```
+
+In terminal two, download and inspect the job, validate its pipeline configuration, then submit it explicitly to the local node:
+
+```bash
+curl -fsSLo process-locally.yaml https://examples.expanso.io/files/first-results/process-locally.yaml
+cat process-locally.yaml
+expanso-edge validate process-locally.yaml
+expanso-cli --endpoint http://127.0.0.1:19031 job deploy process-locally.yaml
+```
+
+Validation checks pipeline syntax and components. Submission alone is not success: confirm the JSON result in terminal one.
+
+### The complete job
+
+The generated input is finite: one batch, then completion.
+
+<a href="/files/first-results/process-locally.yaml">Download the job file</a>
+
+```yaml
+name: first-result-process-locally
+type: pipeline
+config:
+  input:
+    generate:
+      count: 1
+      interval: 1s
+      mapping: |
+        root = {"sensor_id":"demo-sensor-1","site":"demo-lab","temperature_c":31.5,"raw_payload":"synthetic diagnostic bytes"}
+  pipeline:
+    processors:
+      - mapping: |
+          root.sensor_id = this.sensor_id
+          root.site = this.site
+          root.temperature_c = this.temperature_c
+          root.alert = this.temperature_c > 30
+  output:
+    stdout:
+      codec: lines
+```
+
+### Input
+
+```json
+{
+  "sensor_id": "demo-sensor-1",
+  "site": "demo-lab",
+  "temperature_c": 31.5,
+  "raw_payload": "synthetic diagnostic bytes"
+}
+```
+
+### Expected output
+
+The local node prints the following JSON record alongside its service logs. JSON key order can differ.
+
+```json
+{
+  "alert": true,
+  "sensor_id": "demo-sensor-1",
+  "site": "demo-lab",
+  "temperature_c": 31.5
+}
+```
+
+This bounded job was executed with Expanso Edge 2.1.21 on September 10, 2026; the output matched this record. This proof covers local synthetic execution only.
+
+### If you do not see the result
+
+- Connection refused: start the local node; check both ports match.
+- Port occupied: use another unused port in both commands.
+- No output: inspect terminal one for errors.
+- Rerun: change the completed job’s `name` before submitting again.
+
+When finished, press Ctrl+C in terminal one to stop the local node. Its state remains in `./expanso-first-result-data`; use a fresh directory for an independent later session.
+
+## What this proves, and what to check next
+
+This job generates synthetic data in memory and writes to local stdout. It does not connect to a real sensor, prove network isolation, implement durable buffering, or validate a production deployment. Where data goes is determined by the inputs, processors, and outputs you configure.
+
+## Common questions
+
+### Do I need Expanso Cloud for this first run?
+
+No. Local mode accepts the job on a loopback API without a Cloud connection. Cloud setup is a separate next step for managing deployed nodes and jobs.
+
+### How do I move from this result to my own data?
+
+Start with a non-sensitive sample from the intended source. Define the selected fields and threshold behavior, then check normal, boundary, and malformed readings. Read the [Local Mode Quick Start](https://docs.expanso.io/getting-started/local-mode/quick-start/) to extend this local workflow. Follow the [Expanso Cloud Quickstart](https://docs.expanso.io/getting-started/quickstart/) when you need managed nodes. Verify the real output destination after deployment.
+
+## Try another first result
+
+- [Remove sensitive fields](/data-security/remove-pii/)
+- [Filter logs before shipping](/log-processing/filter-severity/)

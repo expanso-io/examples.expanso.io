@@ -1,175 +1,54 @@
 ---
-title: Setup Environment for DB2 Migration
-sidebar_label: Setup
+title: Review the DB2 to BigQuery Reference
+sidebar_label: Run path
 sidebar_position: 2
-description: Configure DB2 connectivity, GCP credentials, and sample data for migration testing
-keywords: [setup, db2, bigquery, odbc, gcp, environment]
+description: Inspect the checked-in DB2 mapping and synthetic fixture without connecting external services.
+keywords: [db2, bigquery, setup, inspection]
+contentArchetype: run
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-run-path-enterprise-migration-db2-to-bigquery]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Setup Environment for DB2 Migration
+# Review the DB2 to BigQuery Reference
 
-Before building the migration pipeline, configure your DB2 connection, GCP credentials, and test data.
+This path inspects repository artifacts. It does not connect to DB2, write to BigQuery, or execute the configuration.
 
 ## Prerequisites
 
-- **DB2 Server:** Network accessible from your edge node
-- **ODBC Driver:** IBM DB2 ODBC Driver installed
-- **GCP Project:** BigQuery dataset created
-- **Expanso Edge:** Installed and running
+- A checkout of this repository
+- A shell with `sed` and `rg`
+- No database or cloud credentials
 
-## Step 1: Configure DB2 Connection
+## Run the inspection
 
-Set environment variables for your DB2 database:
-
-```bash
-# DB2 connection details
-export DB2_HOST=db2.internal.corp
-export DB2_PORT=50000
-export DB2_DATABASE=FINPROD
-export DB2_USER=etl_reader
-export DB2_PASSWORD=<your-password>
-```
-
-:::danger Protect Your Credentials
-Never commit database credentials to version control.
-
-**Production best practices:**
-- Use a secrets manager (HashiCorp Vault, AWS Secrets Manager)
-- Configure service accounts with minimal required permissions
-- Rotate credentials on a schedule (90 days recommended)
-:::
-
-### Verify DB2 Connectivity
+From the repository root:
 
 ```bash
-# Test ODBC connection
-isql -v DB2_FINPROD $DB2_USER $DB2_PASSWORD
-
-# Or use db2cli
-db2cli validate -dsn FINPROD -connect -user $DB2_USER -passwd $DB2_PASSWORD
+test -f examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml
+test -f examples/enterprise-migration/db2-to-bigquery/sample-input.json
+sed -n '1,80p' examples/enterprise-migration/db2-to-bigquery/sample-input.json
+rg -n 'sql_select|mapping|gcp_bigquery' \
+  examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml
 ```
 
-## Step 2: Configure GCP Credentials
+## Expected output
 
-Set up BigQuery access:
+Both `test` commands exit successfully. The fixture prints a synthetic transaction, and the final command identifies the source, transformation, and destination sections.
 
-```bash
-# GCP project for BigQuery
-export GCP_PROJECT=my-analytics-project
+## Cleanup
 
-# Node identifier for lineage tracking
-export NODE_ID=edge-node-datacenter-1
+No files or external resources are created.
 
-# Authenticate with GCP (if not using workload identity)
-gcloud auth application-default login
-```
+## Common failures
 
-### Create BigQuery Dataset
+- A missing file means the checkout does not contain the referenced artifact.
+- No `rg` matches means the configuration structure changed; inspect the complete file and update the reference before using it.
+- Treat syntax inspection as architecture review, not runtime verification.
 
-```bash
-# Create dataset if it doesn't exist
-bq mk --dataset ${GCP_PROJECT}:financial_data
-
-# Verify access
-bq ls ${GCP_PROJECT}:financial_data
-```
-
-## Step 3: Download Sample Data
-
-For local testing without DB2 access:
-
-```bash
-# Create working directory
-mkdir -p ~/db2-migration-tutorial
-cd ~/db2-migration-tutorial
-
-# Download sample DB2 record
-curl -L -o sample-input.json \
-  https://raw.githubusercontent.com/expanso-io/examples.expanso.io/main/examples/enterprise-migration/db2-to-bigquery/sample-input.json
-
-# Verify download
-cat sample-input.json | jq .
-```
-
-**Sample Input (DB2 Record):**
-```json
-{
-  "TRANSACTION_ID": "TXN-2024-00123456",
-  "ACCOUNT_NUMBER": "4532-1234-5678-9012",
-  "CUSTOMER_ID": "CUST-789012",
-  "TRANSACTION_DATE": "2024-01-15",
-  "TRANSACTION_TYPE": "PURCHASE",
-  "AMOUNT": 125.50,
-  "CURRENCY": "EUR",
-  "MERCHANT_NAME": "ACME Electronics GmbH",
-  "MERCHANT_CATEGORY_CODE": "5411",
-  "SOURCE_SYSTEM": "CORE_BANKING_EU",
-  "CREATED_AT": "2024-01-15T14:32:17Z"
-}
-```
-
-## Step 4: Create Foundation Pipeline
-
-Start with a minimal pipeline that reads and writes without transformation:
-
-```yaml title="db2-foundation.yaml"
-name: db2-migration-foundation
-
-input:
-  # For testing: read from file
-  file:
-    paths: ["./sample-input.json"]
-    codec: json_documents
-
-pipeline:
-  processors:
-    # Placeholder for transformations
-    - mapping: |
-        root = this
-
-output:
-  # For testing: write to stdout
-  stdout:
-    codec: json_pretty
-```
-
-```bash
-# Test the foundation pipeline
-expanso-edge run --config db2-foundation.yaml
-```
-
-## Step 5: Verify Environment
-
-Run this checklist before proceeding:
-
-```bash
-# Check environment variables are set
-echo "DB2_HOST: ${DB2_HOST:-NOT SET}"
-echo "GCP_PROJECT: ${GCP_PROJECT:-NOT SET}"
-echo "NODE_ID: ${NODE_ID:-NOT SET}"
-
-# Check Expanso Edge is installed
-expanso-edge --version
-
-# Check GCP authentication
-gcloud auth list
-```
-
----
-
-## Next Steps
-
-Environment ready! Now build the pipeline step-by-step:
-
-<div className="margin-top--lg margin-bottom--lg">
-  <a href="./step-1-add-lineage-metadata" className="button button--primary button--lg">
-    📖 Step 1: Add Lineage Metadata →
-  </a>
-</div>
-
-Or jump to a specific step:
-- [**Step 2: Normalize Currency**](/enterprise-migration/db2-to-bigquery/step-2-normalize-currency)
-- [**Step 3: Mask Account Numbers**](/enterprise-migration/db2-to-bigquery/step-3-mask-account-numbers)
-- [**Step 4: Categorize Transactions**](/enterprise-migration/db2-to-bigquery/step-4-categorize-transactions)
-- [**Step 5: Standardize Schema**](/enterprise-migration/db2-to-bigquery/step-5-standardize-schema)
-- [**Step 6: Validate Required Fields**](/enterprise-migration/db2-to-bigquery/step-6-validate-required-fields)
+**Next:** [Inspect lineage mapping](/enterprise-migration/db2-to-bigquery/step-1-add-lineage-metadata).

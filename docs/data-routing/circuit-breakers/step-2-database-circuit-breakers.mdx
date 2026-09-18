@@ -4,6 +4,15 @@ sidebar_label: Step 2 - Database Circuit Breakers
 sidebar_position: 4
 description: Implement circuit breaker protection for database connections.
 keywords: [database-circuit-breaker, sql, try-catch, postgres]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-circuit-breakers-step-2-database-circuit-breakers]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 2: Database Circuit Breakers
@@ -19,17 +28,19 @@ This pipeline is fragile. If the database is down, the `sql_select` processor wi
 ## 2. See It Fail
 
 1.  **Start the Mock Database:** Make sure the PostgreSQL service is running.
+
     ```bash
     # (From the services/postgres.yml guide)
     docker compose -f services/postgres.yml up -d
     ```
 
 2.  **Stop the Database:** Now, simulate an outage.
+
     ```bash
     docker compose -f services/postgres.yml stop
     ```
 
-4.  **Send a Request:**
+3.  **Send a Request:**
     ```bash
     curl -X POST http://localhost:8084/user-events \
       -H "Content-Type: application/json" \
@@ -42,59 +53,58 @@ This pipeline is fragile. If the database is down, the `sql_select` processor wi
 You will now add a `try`/`catch` block to handle the database failure gracefully.
 
 1.  **Copy the Foundation:**
+
     ```bash
     cp examples/data-routing/database-circuit-breaker-foundation.yaml database-circuit-breaker.yaml
     ```
 
 2.  **Modify the Pipeline:** Open `database-circuit-breaker.yaml` and replace the `pipeline` section with the one below. This wraps the database call in a `try` block and adds a `catch` block for error handling.
 
-    ```yaml title="Insert this into database-circuit-breaker.yaml"
-pipeline:
-  processors:
-    - try:
-        # This processor will attempt to run. If it fails,
-        # the 'catch' block is executed.
-        - sql_select:
-            driver: postgres
-            data_source_name: $\{DB_CONNECTION_STRING\}
-            query: |
-              SELECT user_name, user_tier FROM users WHERE user_id = $1
-            args_mapping: |
-              root = [ this.user_id ]
-            # These settings help fail faster
-            timeout: 3s
-            max_open_connections: 5
+        ```yaml title="Insert this into database-circuit-breaker.yaml"
 
-        # This mapping only runs if the SQL query succeeds.
-        - mapping: |
-            root = this
-            root.user_profile.name = this.user_name
-            root.user_profile.tier = this.user_tier
-            root.db_enriched = true
-            root.db_status = "success"
+    pipeline:
+    processors: - try: # This processor will attempt to run. If it fails, # the 'catch' block is executed. - sql_select:
+    driver: postgres
+    data_source_name: $\{DB_CONNECTION_STRING\}
+    query: |
+    SELECT user_name, user_tier FROM users WHERE user_id = $1
+    args_mapping: |
+    root = [ this.user_id ] # These settings help fail faster
+    timeout: 3s
+    max_open_connections: 5
 
-      catch:
-        # This block runs ONLY if the 'sql_select' processor fails.
-        - mapping: |
-            root = this
-            root.db_enriched = false
-            root.db_status = "failed"
-            root.fallback_reason = "database_circuit_breaker_open"
-    ```
+            # This mapping runs after a successful SQL query.
+            - mapping: |
+                root = this
+                root.user_profile.name = this.user_name
+                root.user_profile.tier = this.user_tier
+                root.db_enriched = true
+                root.db_status = "success"
+
+          catch:
+            # This block runs when the 'sql_select' processor fails.
+            - mapping: |
+                root = this
+                root.db_enriched = false
+                root.db_status = "failed"
+                root.fallback_reason = "database_circuit_breaker_open"
+        ```
 
 ## 4. Deploy and Test Again
 
 1.  **Restart the Database (optional):** You can test with the database running first to see the success path.
+
     ```bash
     docker compose -f services/postgres.yml start
     ```
 
 2.  **Stop the Database Again:**
+
     ```bash
     docker compose -f services/postgres.yml stop
     ```
 
-4.  **Send the Same Request:**
+3.  **Send the Same Request:**
     ```bash
     curl -X POST http://localhost:8084/user-events \
       -H "Content-Type: application/json" \

@@ -1,14 +1,23 @@
 ---
-title: "Step 1: Hash-Based Deduplication"
-sidebar_label: "Step 1: Hash-Based Deduplication"
+title: 'Step 1: Hash-Based Deduplication'
+sidebar_label: 'Step 1: Hash-Based Deduplication'
 sidebar_position: 4
-description: "Implement SHA-256 content hashing to detect and eliminate exact duplicate events."
+description: 'Implement SHA-256 content hashing to detect and eliminate exact duplicate events.'
 keywords: [deduplication, hash-based, sha256, cache]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-deduplicate-events-step-1-hash-based-exact-duplicates]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 1: Hash-Based Deduplication for Exact Duplicates
 
-This step teaches the most common deduplication technique: **hash-based deduplication**. This pattern is perfect for catching exact duplicates, such as those caused by network retries where the same message is sent multiple times.
+This step builds a **hash-based deduplication** key from the serialized event. A byte-equivalent event produces the same key within the configured cache window.
 
 ## The Goal
 
@@ -77,6 +86,7 @@ You will build a pipeline that generates a unique "fingerprint" (a hash) for eac
     ```
 
 2.  **Deploy and Test:**
+
     ```bash
     # --- Send the SAME message twice ---
     curl -X POST http://localhost:8080/ingest \
@@ -89,6 +99,6 @@ You will build a pipeline that generates a unique "fingerprint" (a hash) for eac
     ```
 
 3.  **Verify:**
-    Check your logs or output. You will only see the message **once**. The first request was processed and its hash was cached. The second request generated the same hash, the cache found a match, and the message was dropped.
+    The intended result retains the first message and drops the repeated hash. This page does not record an executed result.
 
-You have now implemented a robust deduplication pipeline for handling exact duplicates.
+Review serialization order, cache lifetime, and restart behavior before adapting this pattern.

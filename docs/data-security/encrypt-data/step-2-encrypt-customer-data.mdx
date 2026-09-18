@@ -1,9 +1,18 @@
 ---
-title: "Step 2 - Encrypt Customer PII Data"
-sidebar_label: "Step 2: Customer Data Encryption"
+title: 'Step 2 - Encrypt Customer PII Data'
+sidebar_label: 'Step 2: Customer Data Encryption'
 sidebar_position: 5
 description: Encrypt other PII like SSN and email while preserving analytics utility.
 keywords: [pii, ssn, email, gdpr, encryption]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-encrypt-data-step-2-encrypt-customer-data]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 2: Encrypt Customer PII Data
@@ -13,6 +22,7 @@ The pattern you used to encrypt credit card numbers can be applied to any piece 
 ## The Goal
 
 You will enhance your existing processor to also:
+
 1.  Encrypt the `ssn` and `email` fields.
 2.  Extract `ssn_last_four` and `email_domain` for analytics.
 3.  Delete the original `ssn` and `email` fields.
@@ -20,11 +30,12 @@ You will enhance your existing processor to also:
 ## Implementation
 
 1.  **Start with the Previous Pipeline:** Copy the `encrypt-card.yaml` file from Step 1 to a new file named `encrypt-pii.yaml`.
+
     ```bash
     cp encrypt-card.yaml encrypt-pii.yaml
     ```
 
-2.  **Enhance the Encryption Processor:** Open `encrypt-pii.yaml`. You will add more logic to the *single existing `mapping` processor* to handle the new fields. This is more efficient than creating separate processors for each field.
+2.  **Enhance the Encryption Processor:** Open `encrypt-pii.yaml`. Add the new field transformations to the existing `mapping` processor so this example keeps related encryption logic together.
 
     ```yaml title="Replace the 'mapping' processor in encrypt-pii.yaml"
     - mapping: |
@@ -58,9 +69,11 @@ You will enhance your existing processor to also:
 
         # --- END: New additions ---
     ```
-    *Note: This step uses a separate `PII_ENCRYPTION_KEY`. Ensure you have generated it and set it as an environment variable as described in the `setup.mdx` guide.*
+
+    _Note: This step uses a separate `PII_ENCRYPTION_KEY`. Ensure you have generated it and set it as an environment variable as described in the `setup.mdx` guide._
 
 3.  **Deploy and Test:**
+
     ```bash
     # Send the sample payment data, which includes a customer object
     curl -X POST http://localhost:8080/events/payment \
@@ -70,4 +83,4 @@ You will enhance your existing processor to also:
 
 4.  **Verify:** Check your logs. You will see that in addition to the encrypted card number, the `customer` object now contains `ssn_encrypted`, `ssn_last_four`, `email_encrypted`, and `email_domain`, while the original `ssn` and `email` fields have been removed.
 
-By extending the existing processor, you have efficiently added more PII protection to your pipeline. This pattern can be repeated for any number of sensitive fields.
+The existing processor now handles the additional PII fields. You can repeat this pattern for other sensitive fields.

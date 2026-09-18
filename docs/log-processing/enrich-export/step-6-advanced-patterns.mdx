@@ -1,14 +1,23 @@
 ---
-title: "Advanced Enrichment & Export Patterns"
-sidebar_label: "Step 6: Advanced Patterns"
+title: 'Advanced Enrichment & Export Patterns'
+sidebar_label: 'Step 6: Advanced Patterns'
 sidebar_position: 9
 description: Explore advanced log enrichment and export patterns.
 keywords: [log-enrichment, advanced-patterns, s3, partitioning, compression]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-enrich-export-step-6-advanced-patterns]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Advanced Enrichment & Export Patterns
 
-Once you have mastered the basic "enrich, restructure, batch, export" pattern, you can implement more sophisticated, production-grade features.
+Once you have mastered the basic "enrich, restructure, batch, export" pattern, you can implement more advanced features.
 
 ## Pattern 1: Hive-Style S3 Partitioning
 
@@ -22,17 +31,18 @@ output:
     path: "logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/hour=${!timestamp("15")}/${!uuid_v4()}.jsonl.gz"
     # ... other config
 ```
-A query like `WHERE year=2025 AND month=10` would now only scan files within that specific folder, ignoring all other data.
+
+This key layout exposes year and month prefixes that a compatible query engine may use for pruning. Verify the behavior in the selected engine.
 
 ## Pattern 2: Compression
 
-To save on storage costs and improve query performance, you should compress your batches before sending them to S3. This can be done with a `compress` processor inside the `batching` block.
+To configure gzip output, place a `compress` processor inside the `batching` block. Measure storage and query effects in the target environment.
 
 ```yaml title="S3 Output with Gzip Compression"
 output:
   aws_s3:
     bucket: ${S3_BUCKET_NAME}
-    path: "logs/.../${!uuid_v4()}.jsonl.gz" # Note the .gz extension
+    path: 'logs/.../${!uuid_v4()}.jsonl.gz' # Note the .gz extension
     batching:
       count: 100
       period: 60s
@@ -55,7 +65,7 @@ output:
     outputs:
       # --- Output 1: ERROR logs to a priority bucket ---
       - processors:
-          # This processor filters the batch to only include errors
+        # This processor retains error records in this branch
           - mapping: `root = this.filter(log -> log.event.level == "ERROR")`
         aws_s3:
           bucket: "my-priority-error-logs"
@@ -70,6 +80,9 @@ output:
           path: "logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz"
           # ... use a larger, more cost-effective batching policy here
 ```
+
 This pattern uses a `broker` to fan out the data, with each output having its own processor to filter the batch for the appropriate log level before sending it to S3.
+
+```
 
 ```

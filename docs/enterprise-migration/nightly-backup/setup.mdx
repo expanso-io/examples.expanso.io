@@ -1,149 +1,53 @@
 ---
-title: Setup Environment for Nightly Backup
-sidebar_label: Setup
+title: Review the Nightly Backup Reference
+sidebar_label: Run path
 sidebar_position: 2
-description: Configure database connectivity and cloud storage for backups
-keywords: [setup, postgres, gcs, backup, environment]
+description: Inspect the checked-in backup configuration without connecting a database or object store.
+keywords: [backup, postgres, object-storage, inspection]
+contentArchetype: run
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-run-path-enterprise-migration-nightly-backup]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Setup Environment for Nightly Backup
+# Review the Nightly Backup Reference
 
-Before building the backup pipeline, configure your database connection and cloud storage destination.
+This path inspects repository artifacts. It does not query PostgreSQL, write objects, schedule a job, or test recovery.
 
 ## Prerequisites
 
-- **PostgreSQL Database:** Network accessible from edge node
-- **GCP Cloud Storage:** Bucket created with appropriate permissions
-- **Expanso Edge:** Installed with database connectivity
+- A checkout of this repository
+- A shell with `sed` and `rg`
+- No database or cloud credentials
 
-## Step 1: Configure Database Connection
+## Run the inspection
 
-```bash
-# Database connection
-export DB_HOST=postgres.internal.corp
-export DB_NAME=ecommerce
-export DB_USER=backup_reader
-export DB_PASSWORD=<your-password>
-
-# Node identifier for tracking
-export NODE_ID=backup-node-1
-```
-
-:::tip Dedicated Backup User
-Create a read-only database user specifically for backups:
-```sql
-CREATE USER backup_reader WITH PASSWORD 'secure-password';
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO backup_reader;
-```
-:::
-
-### Verify Database Connectivity
+From the repository root:
 
 ```bash
-psql "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}" \
-  -c "SELECT COUNT(*) FROM orders LIMIT 1;"
+test -f examples/enterprise-migration/nightly-backup/nightly-backup.yaml
+sed -n '1,100p' examples/enterprise-migration/nightly-backup/nightly-backup.yaml
+rg -n 'sql_select|_backup_metadata|_checksum|gcp_cloud_storage' \
+  examples/enterprise-migration/nightly-backup/nightly-backup.yaml
 ```
 
-## Step 2: Configure Cloud Storage
+## Expected output
 
-```bash
-# GCS bucket for backups
-export GCS_BACKUP_BUCKET=my-backup-bucket
+The file check exits successfully. The final command identifies the database inputs, recovery-context fields, checksum mapping, and cloud-storage output.
 
-# Authenticate with GCP
-gcloud auth application-default login
-```
+## Cleanup
 
-### Create Backup Bucket
+No files or external resources are created.
 
-```bash
-# Create bucket with Nearline default storage class
-gsutil mb -c NEARLINE -l US gs://${GCS_BACKUP_BUCKET}
+## Common failures
 
-# Verify bucket
-gsutil ls gs://${GCS_BACKUP_BUCKET}
-```
+- A missing file means the checkout does not contain the referenced artifact.
+- No `rg` matches means the configuration structure changed; inspect the complete file and update this route.
+- A readable configuration does not establish snapshot consistency, object delivery, or recovery behavior.
 
-### Set Lifecycle Policy (Optional)
-
-Automatically transition to Coldline after 90 days:
-
-```bash
-cat > lifecycle.json << 'EOF'
-{
-  "lifecycle": {
-    "rule": [
-      {
-        "action": {"type": "SetStorageClass", "storageClass": "COLDLINE"},
-        "condition": {"age": 90}
-      },
-      {
-        "action": {"type": "Delete"},
-        "condition": {"age": 365}
-      }
-    ]
-  }
-}
-EOF
-
-gsutil lifecycle set lifecycle.json gs://${GCS_BACKUP_BUCKET}
-```
-
-## Step 3: Create Foundation Pipeline
-
-Test with a simple single-table backup:
-
-```yaml title="backup-foundation.yaml"
-name: backup-foundation
-
-input:
-  sql_select:
-    driver: postgres
-    dsn: "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}"
-    table: orders
-    columns: ["*"]
-    where: "updated_at >= CURRENT_DATE - INTERVAL '1 day'"
-
-pipeline:
-  processors:
-    - mapping: |
-        root = this
-        root._table = "orders"
-
-output:
-  stdout:
-    codec: json_pretty
-```
-
-```bash
-# Test foundation
-expanso-edge run --config backup-foundation.yaml | head -20
-```
-
-## Step 4: Verify Environment
-
-```bash
-echo "=== Backup Pipeline Environment Check ==="
-echo "DB_HOST: ${DB_HOST:-NOT SET}"
-echo "DB_NAME: ${DB_NAME:-NOT SET}"
-echo "DB_USER: ${DB_USER:-NOT SET}"
-echo "GCS_BACKUP_BUCKET: ${GCS_BACKUP_BUCKET:-NOT SET}"
-echo "NODE_ID: ${NODE_ID:-NOT SET}"
-
-# Test GCS write access
-echo '{"test": true}' | gsutil cp - gs://${GCS_BACKUP_BUCKET}/test-write.json
-gsutil rm gs://${GCS_BACKUP_BUCKET}/test-write.json
-echo "GCS write access: OK"
-```
-
----
-
-## Next Steps
-
-Environment ready! Now build the backup pipeline:
-
-<div className="margin-top--lg margin-bottom--lg">
-  <a href="./step-1-extract-tables" className="button button--primary button--lg">
-    📖 Step 1: Extract Tables →
-  </a>
-</div>
+**Next:** [Inspect table extraction](/enterprise-migration/nightly-backup/step-1-extract-tables).

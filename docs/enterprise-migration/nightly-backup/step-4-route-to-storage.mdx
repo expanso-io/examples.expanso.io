@@ -1,9 +1,19 @@
 ---
-title: "Step 4: Route to Storage"
-sidebar_label: "Step 4: Route to Storage"
+title: 'Step 4: Route to Storage'
+sidebar_label: 'Step 4: Route to Storage'
 sidebar_position: 6
 description: Send each table to organized cloud storage paths with compression
 keywords: [routing, storage, gcs, parquet, compression, nearline]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-enterprise-migration-nightly-backup-step-4-route-to-storage]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 4: Route to Storage
@@ -27,8 +37,8 @@ output:
       - check: this._table == "orders"
         output:
           gcp_cloud_storage:
-            bucket: "${GCS_BACKUP_BUCKET}"
-            path: "backups/orders/${!this._backup_metadata.backup_date}/orders-${!timestamp_unix()}.parquet"
+            bucket: '${GCS_BACKUP_BUCKET}'
+            path: 'backups/orders/${!this._backup_metadata.backup_date}/orders-${!timestamp_unix()}.parquet'
             content_type: application/octet-stream
             storage_class: NEARLINE
             batching:
@@ -41,8 +51,8 @@ output:
       - check: this._table == "inventory"
         output:
           gcp_cloud_storage:
-            bucket: "${GCS_BACKUP_BUCKET}"
-            path: "backups/inventory/${!this._backup_metadata.backup_date}/inventory-full.parquet"
+            bucket: '${GCS_BACKUP_BUCKET}'
+            path: 'backups/inventory/${!this._backup_metadata.backup_date}/inventory-full.parquet'
             content_type: application/octet-stream
             storage_class: NEARLINE
             batching:
@@ -55,8 +65,8 @@ output:
       - check: this._table == "order_items"
         output:
           gcp_cloud_storage:
-            bucket: "${GCS_BACKUP_BUCKET}"
-            path: "backups/order_items/${!this._backup_metadata.backup_date}/items-${!timestamp_unix()}.parquet"
+            bucket: '${GCS_BACKUP_BUCKET}'
+            path: 'backups/order_items/${!this._backup_metadata.backup_date}/items-${!timestamp_unix()}.parquet'
             content_type: application/octet-stream
             storage_class: NEARLINE
             batching:
@@ -68,8 +78,8 @@ output:
       # Fallback for unknown tables
       - output:
           gcp_cloud_storage:
-            bucket: "${GCS_BACKUP_BUCKET}"
-            path: "backups/unknown/${!this._table}/${!this._backup_metadata.backup_date}/data-${!timestamp_unix()}.json"
+            bucket: '${GCS_BACKUP_BUCKET}'
+            path: 'backups/unknown/${!this._table}/${!this._backup_metadata.backup_date}/data-${!timestamp_unix()}.json'
             content_type: application/json
             storage_class: NEARLINE
             batching:
@@ -79,34 +89,21 @@ output:
 
 ## Understanding the Code
 
-| Component | Purpose |
-|-----------|---------|
-| `switch.cases` | Route based on `_table` field |
-| `${!this._backup_metadata.backup_date}` | Dynamic path from record |
-| `${!timestamp_unix()}` | Unique file suffix |
-| `storage_class: NEARLINE` | Cost-optimized cold storage |
-| `parquet_encoding.compression: SNAPPY` | Fast compression |
+| Component                               | Purpose                       |
+| --------------------------------------- | ----------------------------- |
+| `switch.cases`                          | Route based on `_table` field |
+| `${!this._backup_metadata.backup_date}` | Dynamic path from record      |
+| `${!timestamp_unix()}`                  | Unique file suffix            |
+| `storage_class: NEARLINE`               | Authored storage-class choice |
+| `parquet_encoding.compression: SNAPPY`  | Authored codec choice         |
 
-## Storage Class Comparison
+## Choose a Storage Class
 
-| Class | Cost/GB/month | Access Fee | Use For |
-|-------|---------------|------------|---------|
-| Standard | $0.020 | None | Active data |
-| Nearline | $0.010 | $0.01/GB | Monthly access |
-| Coldline | $0.004 | $0.02/GB | Quarterly access |
-| Archive | $0.0012 | $0.05/GB | Yearly access |
+Provider pricing changes by region, operation, retention period, retrieval pattern, and contract. Use the current provider calculator and your measured access pattern; this repository does not pin a price table.
 
-**For backups:** Nearline is ideal—accessed only during recovery.
+## Evaluate Parquet
 
-## Why Parquet?
-
-| Format | 1M Rows Size | Query Speed |
-|--------|--------------|-------------|
-| JSON | 500 MB | Slow (full scan) |
-| CSV | 300 MB | Slow (full scan) |
-| Parquet | 50-100 MB | Fast (columnar) |
-
-**70-90% compression** + columnar queries = major cost savings.
+Measure object size, encode/decode behavior, restore behavior, and downstream query plans with representative records before choosing an encoding. This example supplies no compression or query benchmark.
 
 ## Path Organization
 
@@ -134,9 +131,9 @@ gs://backup-bucket/
 ```yaml
 output:
   aws_s3:
-    bucket: "${S3_BACKUP_BUCKET}"
-    path: "backups/orders/${!this._backup_metadata.backup_date}/orders-${!timestamp_unix()}.parquet"
-    storage_class: GLACIER_IR  # Similar to Nearline
+    bucket: '${S3_BACKUP_BUCKET}'
+    path: 'backups/orders/${!this._backup_metadata.backup_date}/orders-${!timestamp_unix()}.parquet'
+    storage_class: GLACIER_IR # Similar to Nearline
     batching:
       count: 10000
 ```
@@ -148,7 +145,7 @@ Enable server-side encryption:
 ```yaml
 gcp_cloud_storage:
   # GCS encrypts by default, but for customer-managed keys:
-  kms_key_name: "projects/.../cryptoKeys/backup-key"
+  kms_key_name: 'projects/.../cryptoKeys/backup-key'
 ```
 
 ### Retention with Object Lifecycle
@@ -165,7 +162,7 @@ gsutil lifecycle set lifecycle.json gs://${GCS_BACKUP_BUCKET}
 You've built all 4 backup steps! See the complete configuration:
 
 <div className="margin-top--lg margin-bottom--lg">
-  <a href="./complete-pipeline" className="button button--primary button--lg">
+  <a href="../complete-pipeline" className="button button--primary button--lg">
     📖 Complete Pipeline →
   </a>
 </div>

@@ -1,81 +1,34 @@
 ---
-title: Complete PII Removal Pipeline
-sidebar_label: Complete Pipeline
+title: PII removal configuration
+sidebar_label: Full configuration
 sidebar_position: 9
-description: The complete 5-step PII removal pipeline for GDPR/PCI-DSS compliance
-keywords: [complete, pii-removal, gdpr, pci-dss]
+description: Inspect and copy the canonical YAML used by the PII removal walkthrough.
+keywords: [pii, yaml, configuration, privacy]
+contentArchetype: reference
+executionStatus: offline-runnable
+operationalEvidence: not-assessed
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 import CodeBlock from '@theme/CodeBlock';
 import pipelineYaml from '!!raw-loader!../../../examples/data-security/remove-pii-complete.yaml';
 import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
 
-# Complete Pipeline
+# PII removal configuration
+
+This is the canonical configuration referenced by the Explorer and machine journey. Review every input, processor, secret, and output before adapting it.
 
 <CopyPipelineButton pipeline={pipelineYaml} />
 
-This pipeline combines all 5 PII removal techniques from this tutorial:
+<CodeBlock language="yaml" title="remove-pii.yaml">
+  {pipelineYaml}
+</CodeBlock>
 
-1. **Delete payment data** - Remove card numbers, CVV, expiry (PCI-DSS)
-2. **Hash IP addresses** - SHA-256 hash for abuse detection without tracking
-3. **Hash emails** - Hash email, extract domain for org analytics
-4. **Pseudonymize names** - Create consistent user_id without identity
-5. **Generalize location** - Remove GPS, keep city/state/country
+## Limits
 
-**Result:** GDPR + PCI-DSS compliant data with 90% analytics value preserved.
+The machine fixture gate executes this exact `config` with one synthetic input, fixed test salts, the pinned Benthos image, and an exact expected JSONL output. That single core-path check does not establish deployment readiness, broad input coverage, failure behavior, or an operating envelope. The Explorer remains a curated walkthrough.
 
-## Full Configuration
-
-<CodeBlock language="yaml" title="remove-pii.yaml">{pipelineYaml}</CodeBlock>
-
-## Quick Test
-
-```bash
-# Send event with PII
-curl -X POST http://localhost:8080/events \
-  -H "Content-Type: application/json" \
-  -d '{
-    "event_id": "evt_001",
-    "user_name": "Sarah Johnson",
-    "email": "sarah.johnson@example.com",
-    "ip_address": "192.168.1.100",
-    "payment_method": {
-      "full_number": "4532-1234-5678-9010",
-      "expiry": "12/25"
-    },
-    "location": {
-      "latitude": 37.7749,
-      "longitude": -122.4194,
-      "city": "San Francisco",
-      "state": "California"
-    }
-  }'
-
-# Output:
-# - payment_method.full_number → deleted (last_four preserved)
-# - ip_address → "sha256:a1b2c3..."
-# - email → "sha256:d4e5f6...", email_domain: "example.com"
-# - user_name → deleted, user_id: "usr_abc123"
-# - latitude/longitude → deleted (city/state preserved)
-```
-
-## Deploy
-
-```bash
-# Deploy to Expanso orchestrator
-expanso-cli job deploy remove-pii.yaml
-
-# Or run locally with expanso-edge
-expanso-edge run --config remove-pii.yaml
-```
-
-## Download
-
-<a href="/examples/data-security/remove-pii-complete.yaml" download className="button button--primary">
-  Download remove-pii.yaml
-</a>
-
-## What's Next?
-
-- [Troubleshooting](/data-security/remove-pii/troubleshooting) - Common issues and solutions
-- [Encrypt Data](/data-security/encrypt-data) - Encrypt instead of delete
+[Return to the interactive Explorer](/data-security/remove-pii/explorer).

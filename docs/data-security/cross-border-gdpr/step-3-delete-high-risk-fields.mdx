@@ -1,9 +1,18 @@
 ---
-title: "Step 3: Delete High-Risk Fields"
-sidebar_label: "Step 3: Delete Fields"
+title: 'Step 3: Delete High-Risk Fields'
+sidebar_label: 'Step 3: Delete Fields'
 sidebar_position: 5
 description: Remove fields with no analytics value and high privacy risk
 keywords: [delete, remove, pii, high-risk, anonymization]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-cross-border-gdpr-step-3-delete-high-risk-fields]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 3: Delete High-Risk Fields
@@ -18,11 +27,11 @@ Some personal data has no analytics value but high privacy risk. Delete it entir
 
 ## Why Delete vs. Hash?
 
-| Treatment | Use When | Result |
-|-----------|----------|--------|
-| **Delete** | No analytics value, high risk | Field removed entirely |
-| **Hash** | Need to count unique values | Irreversible pseudonym |
-| **Generalize** | Need distribution analysis | Reduced precision |
+| Treatment      | Use When                      | Result                 |
+| -------------- | ----------------------------- | ---------------------- |
+| **Delete**     | No analytics value, high risk | Field removed entirely |
+| **Hash**       | Need to count unique values   | Irreversible pseudonym |
+| **Generalize** | Need distribution analysis    | Reduced precision      |
 
 Names and addresses have no meaningful aggregate analytics value—you can't sum them or count unique patterns. Delete them.
 
@@ -32,17 +41,17 @@ Names and addresses have no meaningful aggregate analytics value—you can't sum
 pipeline:
   processors:
     # Steps 1-2 from previous...
-    
+
     # Step 3: Delete high-risk fields
     - mapping: |
         root = this
-        
+
         # Full name - no analytics value, high risk
         root = root.without("customer_name")
-        
+
         # Full address - no analytics value
         root = root.without("customer_address")
-        
+
         # Date of birth - convert to age bucket before deleting
         root.customer_age_bucket = match {
           this.customer_dob == null => "unknown",
@@ -58,16 +67,17 @@ pipeline:
 
 ## Understanding the Code
 
-| Expression | What It Does |
-|------------|--------------|
-| `root.without("field")` | Remove field from record |
-| `now().ts_unix()` | Current time as Unix timestamp |
-| `.ts_parse("2006-01-02")` | Parse date string |
-| `match {...}` | Pattern matching for age calculation |
+| Expression                | What It Does                         |
+| ------------------------- | ------------------------------------ |
+| `root.without("field")`   | Remove field from record             |
+| `now().ts_unix()`         | Current time as Unix timestamp       |
+| `.ts_parse("2006-01-02")` | Parse date string                    |
+| `match {...}`             | Pattern matching for age calculation |
 
 ### Age Calculation Logic
 
 The age bucket calculation:
+
 1. Parse DOB as timestamp
 2. Subtract from current time (gives age in seconds)
 3. Compare against thresholds (years × 365 × 24 × 3600)
@@ -76,6 +86,7 @@ The age bucket calculation:
 ## Expected Output
 
 **Input:**
+
 ```json
 {
   "customer_name": "Hans Schmidt",
@@ -86,6 +97,7 @@ The age bucket calculation:
 ```
 
 **Output:**
+
 ```json
 {
   "customer_age_bucket": "35-44",
@@ -95,11 +107,11 @@ The age bucket calculation:
 
 Note: `customer_name`, `customer_address`, and `customer_dob` are completely removed.
 
-## Production Considerations
+## Adaptation checks
 
 ### Audit What Was Deleted
 
-Track deleted fields for compliance:
+Track the selected deletions for debugging and review:
 
 ```yaml
 root._gdpr_compliance.fields_deleted = ["customer_name", "customer_address", "customer_dob"]
@@ -148,7 +160,10 @@ root.customer_age_bucket = match {
 ## Next Step
 
 <div className="margin-top--lg margin-bottom--lg">
-  <a href="./step-4-hash-identifiers" className="button button--primary button--lg">
+  <a
+    href="../step-4-hash-identifiers"
+    className="button button--primary button--lg"
+  >
     📖 Step 4: Hash Identifiers →
   </a>
 </div>

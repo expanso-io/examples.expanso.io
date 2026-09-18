@@ -1,9 +1,19 @@
 ---
-title: "Advanced Splitting Patterns"
-sidebar_label: "Step 4: Advanced Patterns"
+title: 'Advanced Splitting Patterns'
+sidebar_label: 'Step 4: Advanced Patterns'
 sidebar_position: 7
 description: Explore advanced splitting patterns like multi-array, conditional, and hierarchical splitting.
-keywords: [advanced-splitting, multi-array, conditional, hierarchical, production]
+keywords:
+  [advanced-splitting, multi-array, conditional, hierarchical, adaptation]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-content-splitting-step-4-advanced-patterns]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Advanced Splitting Patterns
@@ -49,7 +59,7 @@ pipeline:
 
 ## Pattern 2: Conditional Splitting
 
-You may only want to split an array if it meets a certain condition (e.g., it contains more than one item).
+You may want to split an array when it meets a condition, such as containing more than one item.
 
 **Use Case:** Process single-item orders as a whole, but split multi-item orders for individual fulfillment.
 
@@ -79,16 +89,16 @@ pipeline:
 
 ## Pattern 3: Handling Commas in CSV Fields
 
-The simple `.split(",")` method fails if your text fields contain commas. For properly formatted CSVs that quote these fields, a more robust parsing approach is needed.
+The simple `.split(",")` method fails if text fields contain commas. Properly quoted CSV requires a parser that implements CSV quoting rules.
 
 **Use Case:** Parsing a `description` field that contains commas.
 
 **Input:** `txn-005,2025-10-20T11:00:00Z,89.99,"Restaurant Purchase, Table 5"`
 
-A simple `split` would incorrectly create 5 fields. While Expanso doesn't have a built-in CSV parser that handles quotes, for production you would typically use a small script processor (e.g., in JavaScript or Python) with a dedicated CSV library to handle these edge cases robustly.
+A simple `split` creates five fields for this quoted sample. Use a script processor with a tested CSV library when the input permits quoting, escaping, multiline values, or malformed records.
 
-## Production Considerations
+## Adaptation checks
 
-*   **Validation is Key:** Before splitting, always validate the input. Ensure the array field exists, is actually an array, and is not excessively large, to prevent memory exhaustion.
-*   **Error Handling:** Wrap your splitting logic in a `try/catch` block to handle malformed data gracefully without crashing the entire pipeline.
-*   **Performance:** For very large arrays or files, consider the memory implications. The `unarchive` and `file` processors are highly optimized for streaming, but complex mappings on very large messages can still consume significant memory.
+- **Validate input:** Before splitting, check that the array field exists, has the expected type, and stays within a size bound chosen for the target environment.
+- **Error Handling:** Wrap your splitting logic in a `try/catch` block to handle malformed data gracefully without crashing the entire pipeline.
+- **Performance:** For very large arrays or files, consider the memory implications. The `unarchive` and `file` processors are highly optimized for streaming, but complex mappings on very large messages can still consume significant memory.

@@ -1,18 +1,21 @@
 # Medical Device Field Report Intelligence Pipeline
 #
-# Collects maintenance logs, error events, and technician notes from
-# hospital edge nodes. Batches them hourly, runs Claude-powered analysis
-# to extract structured incident reports, stores results locally for
-# compliance, and pushes summaries to the central fleet dashboard.
+# Illustrates reading synthetic maintenance logs, error events, and
+# technician notes at a remote site. A custom Python command reloads the
+# fixture files and produces candidate review JSON. Expanso then writes
+# a local copy and forwards the same output to a fleet endpoint.
 
 input:
   broker:
     inputs:
       # Source 1: Structured maintenance logs (CSV)
       - csv:
-          paths: ["./data/maintenance-logs.csv"]
+          paths:
+            [
+              '../../../examples/integrations/medical-device-intelligence/maintenance-logs.csv',
+            ]
           parse_header_row: true
-          batch_count: 0  # read all rows
+          batch_count: 0 # read all rows
         processors:
           - mapping: |
               root.source = "maintenance_log"
@@ -22,7 +25,10 @@ input:
 
       # Source 2: Device error events (JSON)
       - file:
-          paths: ["./data/error-events.json"]
+          paths:
+            [
+              '../../../examples/integrations/medical-device-intelligence/error-events.json',
+            ]
           codec: all-bytes
         processors:
           - mapping: |
@@ -31,7 +37,10 @@ input:
 
       # Source 3: Freeform technician notes (text)
       - file:
-          paths: ["./data/technician-notes.txt"]
+          paths:
+            [
+              '../../../examples/integrations/medical-device-intelligence/technician-notes.txt',
+            ]
           codec: all-bytes
         processors:
           - mapping: |
@@ -40,23 +49,21 @@ input:
 
 pipeline:
   processors:
-    # --- Stage 1: Batch all sources together ---
-    # In production, this would use a time-based window (e.g. hourly).
-    # For the demo, we batch everything that arrived.
+    # --- Stage 1: Tag each input message ---
+    # This mapping does not create a multi-source batch. The custom analyzer
+    # below independently reloads all three checked-in fixture files.
     - mapping: |
         root = this
         meta batch_id = "BATCH-" + now().format_timestamp("20060102-1504")
-        meta site = "General Hospital — Main Campus"
+        meta site = "Synthetic lab"
 
-    # --- Stage 2: Run Claude-powered analysis ---
-    # Calls analyze_reports.py which:
-    #   - Merges all three data sources
-    #   - Sends to Claude API (or mock if no key)
-    #   - Returns structured incident reports
+    # --- Stage 2: Invoke custom analysis code ---
+    # analyze_reports.py owns fixture loading, optional Claude access, and
+    # the authored mock response used when credentials are absent.
     - command:
         name: python3
         args:
-          - "./scripts/analyze_reports.py"
+          - './scripts/analyze_reports.py'
 
     # --- Stage 3: Shape the output ---
     # Ensure consistent structure for downstream consumers
@@ -69,14 +76,14 @@ output:
   broker:
     pattern: fan_out
     outputs:
-      # Output 1: Store locally for compliance/audit
+      # Output 1: Write a local review copy
       - file:
-          path: "./output/incident-reports.json"
+          path: './output/review-candidates.json'
           codec: lines
 
-      # Output 2: Push to central fleet management dashboard
+      # Output 2: Forward the same candidate JSON to a fleet endpoint
       - http_client:
-          url: "http://localhost:8089/api/v1/incidents"
+          url: 'http://localhost:8089/api/v1/review-candidates'
           verb: POST
           headers:
             Content-Type: application/json

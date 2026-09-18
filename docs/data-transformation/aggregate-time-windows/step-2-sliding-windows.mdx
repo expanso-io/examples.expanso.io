@@ -1,9 +1,18 @@
 ---
-title: "Step 2: Sliding Windows"
-sidebar_label: "Step 2: Sliding Windows"
+title: 'Step 2: Sliding Windows'
+sidebar_label: 'Step 2: Sliding Windows'
 sidebar_position: 5
 description: Implement overlapping time windows for smooth trending and moving averages.
 keywords: [sliding-windows, moving-average, trends, aggregation]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-aggregate-time-windows-step-2-sliding-windows]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Step 2: Sliding Windows
@@ -18,6 +27,7 @@ You will modify your pipeline to calculate a **30-second moving average, updated
 - The **Slide Interval** is 10 seconds.
 
 This means an event that occurs at `10:00:15` will be included in three different windows:
+
 1.  The `10:00:00 - 10:00:30` window.
 2.  The `10:00:10 - 10:00:40` window.
 3.  The `10:00:20 - 10:00:50` window.
@@ -25,7 +35,8 @@ This means an event that occurs at `10:00:15` will be included in three differen
 ## The "Generate Keys -> Unarchive -> Aggregate" Pattern
 
 The implementation is very similar to tumbling windows, with two key differences:
-1.  **Generate Keys:** Instead of one `group_key`, you will generate an *array* of keys for each message, one for each overlapping window it belongs to.
+
+1.  **Generate Keys:** Instead of one `group_key`, you will generate an _array_ of keys for each message, one for each overlapping window it belongs to.
 2.  **Unarchive:** You will use the `unarchive` processor to create a copy of the message for each key in the array.
 
 From there, the `cache`, `group_by`, and `aggregate` steps work exactly as they did for tumbling windows.
@@ -33,6 +44,7 @@ From there, the `cache`, `group_by`, and `aggregate` steps work exactly as they 
 ## Implementation
 
 1.  **Start with the Tumbling Window Pipeline:** Copy `tumbling-windows.yaml` to a new file named `sliding-windows.yaml`.
+
     ```bash
     cp tumbling-windows.yaml sliding-windows.yaml
     ```
@@ -70,8 +82,8 @@ From there, the `cache`, `group_by`, and `aggregate` steps work exactly as they 
 
       # 4. GROUP (same as before)
       - group_by:
-        - key: ${! this.group_key }
-          value: ${! this }
+          - key: ${! this.group_key }
+            value: ${! this }
 
       # 5. AGGREGATE (same as before)
       - mapping: |
@@ -84,7 +96,8 @@ From there, the `cache`, `group_by`, and `aggregate` steps work exactly as they 
             "moving_avg_temp": temperatures.mean().round(2)
           }
     ```
-    *Note: You may also want to increase the `default_ttl` on the `window_cache` resource to `32s` to account for the longer window size.*
+
+    _Note: You may also want to increase the `default_ttl` on the `window_cache` resource to `32s` to account for the longer window size._
 
 3.  **Deploy and Observe:** Watch the logs. You will now see output messages appearing every 10 seconds (the slide interval), and the `event_count` for each will be larger, as it includes events from a 30-second window.
 
@@ -93,6 +106,7 @@ From there, the `cache`, `group_by`, and `aggregate` steps work exactly as they 
 The output will be a stream of moving average calculations. Because the windows overlap, the change from one output to the next will be much smoother than with tumbling windows.
 
 **Example Output:**
+
 ```json
 {"sensor_id":"sensor-0","window_start":"2025-11-22T21:15:00Z","event_count":150,"moving_avg_temp":24.5}
 // ...10 seconds later, with 20 seconds of overlapping data...

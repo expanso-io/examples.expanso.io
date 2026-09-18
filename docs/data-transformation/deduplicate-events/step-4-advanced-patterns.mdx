@@ -1,9 +1,18 @@
 ---
-title: "Advanced Deduplication Patterns"
-sidebar_label: "Step 4: Advanced Patterns"
+title: 'Advanced Deduplication Patterns'
+sidebar_label: 'Step 4: Advanced Patterns'
 sidebar_position: 7
-description: "Explore advanced deduplication patterns like distributed caching and dynamic field selection."
+description: 'Explore advanced deduplication patterns like distributed caching and dynamic field selection.'
 keywords: [deduplication, advanced-patterns, distributed-cache, dynamic-fields]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-deduplicate-events-step-4-advanced-patterns]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Advanced Deduplication Patterns
@@ -33,6 +42,7 @@ config:
           key: ${! this.dedup_key }
       # ... rest of the deduplication logic
 ```
+
 This simple change makes your deduplication strategy scalable and resilient across a fleet of processing nodes.
 
 ## Pattern 2: Dynamic Fingerprint Field Selection
@@ -63,10 +73,10 @@ In a complex system, the fields that define a unique business event can change d
 
 ## Pattern 3: Multi-Layered Deduplication
 
-For maximum accuracy, you can combine all three techniques in order, from fastest to slowest.
+You can layer the three checks when each one has a distinct equivalence contract.
 
-1.  **ID-Based:** First, check for an exact `event_id` match. This is the fastest and will catch most simple retries.
-2.  **Fingerprint-Based:** If the ID is new, then calculate and check the business fingerprint. This will catch more complex semantic duplicates.
-3.  **Hash-Based:** If the fingerprint is also new, as a final catch-all, check the full content hash.
+1.  **ID-Based:** Check for an `event_id` match.
+2.  **Fingerprint-Based:** If the ID is new, calculate and check the selected-field fingerprint.
+3.  **Hash-Based:** If that fingerprint is also new, compare the serialized content hash.
 
-This layered approach provides the performance of ID-based checking for the common case, while still providing the deep inspection of fingerprinting and hashing for more complex duplicate scenarios. Implementing this requires a more complex pipeline with multiple `cache` lookups and conditional logic.
+Layering increases cache lookups and policy complexity. Define which match takes precedence and how false matches are diagnosed.

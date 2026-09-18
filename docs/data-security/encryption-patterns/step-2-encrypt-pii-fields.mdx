@@ -1,9 +1,18 @@
 ---
-title: "Step 2: Encrypt PII Fields"
-sidebar_label: "Step 2: PII Encryption"
+title: 'Step 2: Encrypt PII Fields'
+sidebar_label: 'Step 2: PII Encryption'
 sidebar_position: 5
-description: Encrypt personal identifiers like email and SSN for GDPR/CCPA compliance.
+description: Inspect encryption field selection for synthetic email and identity values.
 keywords: [encryption, pii, gdpr, ccpa, pattern]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-encryption-patterns-step-2-encrypt-pii-fields]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Pattern 2: Encrypting General PII
@@ -13,17 +22,18 @@ Beyond payment data, many other fields are considered Personally Identifiable In
 ## The Pattern
 
 For any PII field:
+
 1.  **Encrypt** the full value using a dedicated `PII_ENCRYPTION_KEY`.
 2.  **Extract** a non-sensitive, analytics-safe portion (e.g., the email domain or the last 4 digits of an ID).
 3.  **Delete** the original plaintext field.
 
 ## Implementation
 
-You can add this logic directly to the same `mapping` processor you used for payment data, making your pipeline more efficient.
+Add this logic to the same `mapping` processor used for payment data.
 
 1.  **Start with your Pipeline:** Open the `encrypt-card.yaml` file from Step 1.
 
-2.  **Add the PII Encryption Logic:** Add the logic for `email` and `ssn` to the *bottom* of the existing `mapping` processor.
+2.  **Add the PII Encryption Logic:** Add the logic for `email` and `ssn` to the _bottom_ of the existing `mapping` processor.
 
     ```yaml title="Add this to your 'mapping' processor"
     # --- Logic from Step 1 (Card Encryption) ---
@@ -50,7 +60,8 @@ You can add this logic directly to the same `mapping` processor you used for pay
     # Remove the original plaintext PII fields
     root.customer = this.customer.without("ssn", "email")
     ```
-    *Note: This step uses a separate `PII_ENCRYPTION_KEY`. Ensure you have set it as an environment variable.*
+
+    _Note: This step uses a separate `PII_ENCRYPTION_KEY`. Ensure you have set it as an environment variable._
 
 ## Verification
 

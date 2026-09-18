@@ -1,0 +1,46 @@
+# Production distributed configuration
+cache_resources:
+  - label: distributed_cache
+    redis:
+      cluster_addresses:
+        - "redis-node-1:7001"
+        - "redis-node-2:7002"
+        - "redis-node-3:7003"
+      default_ttl: "1h"
+      pool_size: 50
+
+  - label: local_fallback_cache
+    memory:
+      default_ttl: "5m"
+      cap: 50000
+
+http:
+  address: "0.0.0.0:9090"
+  enabled: true
+  path: "/metrics"
+
+pipeline:
+  processors:
+    # Auto-strategy selection
+    - mapping: |
+        root.dedup_strategy = if this.event_id.match("^[0-9a-fA-F-]{36}$") {
+          "id-based"
+        } else if this.event_type.in(["user_signup", "purchase"]) {
+          "fingerprint-based"
+        } else {
+          "hash-based"
+        }
+
+    # Circuit breaker with fallback
+    - branch:
+        request_map: |
+          root = if env("CIRCUIT_STATE") == "closed" {
+            this
+          } else {
+            deleted()  # Use local cache
+          }
+        processors:
+          - cache:
+              resource: distributed_cache
+              operator: get
+              key: ${! this.dedup_key }

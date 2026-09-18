@@ -1,76 +1,52 @@
 ---
-title: Setup Environment for Priority Queues
-sidebar_label: Setup
+title: Priority Queue Configuration Review
+sidebar_label: Configuration review
 sidebar_position: 3
-description: Configure environment variables and Kafka brokers for a priority queue pipeline.
-keywords: [setup, environment, configuration, deployment, kafka, priority-queues]
+description: Review the scoring inputs and output labels used by the priority-routing pattern.
+keywords: [priority-queues, setup, scoring, routing, fairness]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-priority-queues-configuration]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Setup Environment for Priority Queues
+import { ExampleSurface } from '@site/src/components/ExamplePage';
 
-Before building the priority queue system, you'll set up your Kafka environment and configure routing credentials.
+# Priority Queue Configuration Review
 
-## Prerequisites
+The reference pipeline computes priority labels from synthetic fields. It does not include a queue scheduler, workers, or a maintained broker fixture.
 
-This example requires the following services to be running:
+<ExampleSurface
+  kind="reference"
+  title="Before you adapt it"
+  description="Resolve the example boundary before changing processors or destinations."
+>
 
-*   **[Kafka](/getting-started/services/kafka)**
+- An Expanso environment for configuration inspection
+- A documented schema for every scoring field
+- A destination system that implements the intended queue behavior
 
-Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
+</ExampleSurface>
 
-## Step 1: Configure Example-Specific Variables
+## Review path
 
-After setting up the core services, configure priority queue-specific variables:
+1. [Severity routing](/data-routing/priority-queues/step-1-severity-routing)
+2. [Customer-tier routing](/data-routing/priority-queues/step-2-customer-tier-routing)
+3. [Combined score](/data-routing/priority-queues/step-3-multi-criteria-scoring)
+4. [Age adjustment](/data-routing/priority-queues/step-4-prevent-starvation)
+5. [Advanced variants](/data-routing/priority-queues/step-5-advanced-patterns)
 
-```bash
-# Set edge node identifier for tracking
-export NODE_ID="edge-node-01"
+Then inspect the [Complete reference configuration](/data-routing/priority-queues/complete-priority-pipeline).
 
-# Verify environment variables
-echo "Kafka Brokers: $KAFKA_BROKERS"
-echo "Node ID: $NODE_ID"
-```
+## Adaptation checks
 
-## Step 2: Verify Priority Topics
+- Document field precedence and score ranges.
+- Test missing, malformed, and conflicting priority inputs.
+- Measure queue capacity and starvation behavior in the destination system.
 
-Before proceeding, verify all required priority topics exist and are accessible:
-
-```bash
-# Run this verification script
-for topic in critical high normal low; do
-  echo "Testing topic: logs-$topic"
-  
-  # Test producer
-  echo '{"test": "message", "topic": "logs-'$topic'"}' | \
-    $KAFKA_HOME/bin/kafka-console-producer.sh \
-      --bootstrap-server $KAFKA_BROKERS \
-      --topic logs-$topic
-  
-  # Test consumer (read the test message back)
-  timeout 5s $KAFKA_HOME/bin/kafka-console-consumer.sh \
-    --bootstrap-server $KAFKA_BROKERS \
-    --topic logs-$topic \
-    --from-beginning \
-    --max-messages 1
-  
-  echo "✅ Topic logs-$topic is accessible"
-  echo
-done
-```
-
-## Next Steps
-
-With your environment configured, you're ready to implement priority-based routing:
-
-<div style={{display: 'flex', gap: '1.5rem', marginTop: '2rem', marginBottom: '3rem', flexWrap: 'wrap', justifyContent: 'flex-start'}}>
-  <a href="./step-1-severity-routing" className="button button--primary button--lg" style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', borderRadius: '8px', padding: '1rem 2rem', fontWeight: '600', minWidth: '240px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'all 0.2s ease'}}>
-    Step 1: Severity Routing
-  </a>
-</div>
-
-## What's Next
-
-- **Step 1:** Replace shell pipeline with severity-based routing (CRITICAL → immediate, INFO → batched)
-- **Step 2:** Add customer tier prioritization (enterprise → dedicated queue, free → bulk processing)  
-- **Step 3:** Implement multi-criteria scoring combining severity, tier, and event type
-- **Step 4:** Add age-based escalation to prevent message starvation
+This route is a configuration review, not a verified execution guide.

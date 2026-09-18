@@ -1,0 +1,19 @@
+output:
+  switch:
+    cases:
+      # Critical alerts to PagerDuty
+      - check: this.severity == "CRITICAL"
+        output:
+          http_client:
+            url: https://events.pagerduty.com/v2/enqueue
+
+      # Warnings to Slack
+      - check: this.severity == "WARN"
+        output:
+          http_client:
+            url: https://hooks.slack.com/warning
+
+      # Default: Info to Elasticsearch
+      - output:
+          elasticsearch:
+            index: application-logs

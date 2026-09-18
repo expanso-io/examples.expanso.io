@@ -1,21 +1,21 @@
 # Production multi-level aggregation with reliability
 input:
   kafka:
-    addresses: ["kafka-broker-1:9092", "kafka-broker-2:9092"]
-    topics: ["sensor-events"]
-    consumer_group: "aggregation-pipeline"
+    addresses: ['kafka-broker-1:9092', 'kafka-broker-2:9092']
+    topics: ['sensor-events']
+    consumer_group: 'aggregation-pipeline'
 
 resources:
   caches:
     production_cache:
       redis:
-        url: "redis://redis-cluster:6379"
+        url: 'redis://redis-cluster:6379'
         sentinel:
-          master_name: "aggregation-cache"
+          master_name: 'aggregation-cache'
   rate_limits:
     input_limit:
       count: 100000
-      per: "1s"
+      per: '1s'
 
 pipeline:
   processors:
@@ -31,7 +31,7 @@ pipeline:
               root.processing_instance = "aggregation-instance-1"
         catch:
           - http_client:
-              url: "https://errors.company.com/validation-errors"
+              url: 'https://errors.company.com/validation-errors'
           - mapping: 'deleted()'
 
     - branch:
@@ -44,11 +44,11 @@ pipeline:
         processors:
           - cache:
               resource: production_cache
-              key: \${! this.group_key + "|" + this.aggregation_level }
-              value: \${! this }
+              key: ${! this.group_key + "|" + this.aggregation_level }
+              value: ${! this }
           - group_by:
-              - key: \${! this.group_key }
-                value: \${! this }
+              - key: ${! this.group_key }
+                value: ${! this }
           - mapping: |
               let level = this[0].aggregation_level
               if level == "global" {
@@ -66,16 +66,16 @@ output:
     failure_threshold: 5
     outputs:
       - http_client:
-          url: "https://analytics.company.com/aggregations"
+          url: 'https://analytics.company.com/aggregations'
           batching:
             count: 500
-            period: "10s"
-      fallback:
-        - file:
-            path: "/var/buffer/aggregations.jsonl"
+            period: '10s'
+    fallback:
+      - file:
+          path: '/var/buffer/aggregations.jsonl'
 
 metrics:
   prometheus:
     use_histogram_timing: true
     static_labels:
-      service: "time-window-aggregation"
+      service: 'time-window-aggregation'

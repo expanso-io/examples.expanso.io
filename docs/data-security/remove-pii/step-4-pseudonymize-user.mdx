@@ -1,51 +1,32 @@
 ---
-title: "Step 4: Pseudonymize User Names"
-sidebar_label: "Step 4: Pseudonymize User Names"
+title: 'Step 4: Replace the user name'
+sidebar_label: 'Step 4: Replace user name'
 sidebar_position: 7
-description: Replace user names with consistent pseudonymous IDs for tracking.
-keywords: [pii-removal, pseudonymization, gdpr, hashing]
+description: Derive a shortened pseudonymous identifier and remove the source name.
+keywords: [pii-removal, pseudonymization, user-name, mapping]
+contentArchetype: step
+executionStatus: offline-runnable
+operationalEvidence: not-assessed
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Technique 4: Pseudonymization
+# Step 4: Replace the user name
 
-Pseudonymization is the process of replacing a direct identifier (like a name) with a consistent but meaningless ID. This is a powerful technique for tracking user activity across sessions without storing their real-world identity.
+Derive an identifier from the source name, remove the name, then attach the identifier to the new root object.
 
-## The Goal
-
-You will use a salted hash of the `user_name` to create a stable `user_id`, and then delete the original name. This ensures the same user always gets the same ID.
-
-## Implementation
-
-1.  **Start with the Previous Pipeline:** Copy the `hash-email.yaml` from Step 3 to a new file named `pseudonymize-user.yaml`.
-    ```bash
-    cp hash-email.yaml pseudonymize-user.yaml
-    ```
-    *Note: Remember to set the `USER_SALT` environment variable as described in the setup guide.*
-
-2.  **Add the Pseudonymization Logic:** Open `pseudonymize-user.yaml` and add the logic for `user_name` to the bottom of the existing `mapping` processor.
-
-    ```yaml title="Add this to your 'mapping' processor in pseudonymize-user.yaml"
-    # --- Logic from previous steps ---
-    # (The existing logic for payment, IP, and email remains here)
-
-    # --- START: New additions for Pseudonymization ---
-
-    # Create a consistent, pseudonymous user ID from the name.
-    # We hash the name and take the first 12 characters for a shorter ID.
-    root.user_id = "user_" + this.user_name.hash("sha256", env("USER_SALT")).slice(0, 12)
-
-    # Delete the original user name field
+```yaml title="User-name mapping"
+- mapping: |
     root = this.without("user_name")
 
-    # --- END: New additions ---
-    ```
+    root.user_id = "user_" + this.user_name.hash(
+      "hmac_sha256",
+      env("USER_SALT")
+    ).encode("hex").slice(0, 12)
+```
 
-3.  **Deploy and Test:**
-    ```bash
-    # Send the sample event data
-    curl -X POST http://localhost:8080/events/ingest \
-      -H "Content-Type: application/json" \
-      -d @~/expanso-remove-pii/sample-event.json
-    ```
+Truncation increases collision risk, and names are weak source identifiers. Evaluate both properties before using this pattern for joins.
 
-4.  **Verify:** Check your logs. The `user_name` field will be gone, replaced by a `user_id` that starts with `user_` followed by 12 random-looking characters. If you send the same event again, you will get the exact same `user_id`, which is the key to this technique.
+[Next: reduce location precision](/data-security/remove-pii/step-5-generalize-location).

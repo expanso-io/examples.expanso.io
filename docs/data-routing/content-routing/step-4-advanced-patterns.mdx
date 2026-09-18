@@ -1,9 +1,18 @@
 ---
-title: "Advanced Content Routing Patterns"
-sidebar_label: "Step 4: Advanced Patterns"
+title: 'Advanced Content Routing Patterns'
+sidebar_label: 'Step 4: Advanced Patterns'
 sidebar_position: 7
 description: Explore advanced content routing patterns for complex business logic.
 keywords: [routing, advanced-patterns, multi-condition, fan-out]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-content-routing-step-4-advanced-patterns]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
 # Advanced Content Routing Patterns
@@ -12,7 +21,7 @@ Once you have mastered the basic `switch` for routing, you can combine condition
 
 ## Pattern 1: Multi-Condition Routing
 
-A `check` can evaluate multiple conditions. For example, you can route a message that is both `CRITICAL` in `severity` AND from the `EU` region to a special high-priority compliance queue.
+A `check` can evaluate multiple conditions. For example, route a message with `CRITICAL` severity and an `EU` region label to a separately named priority output.
 
 ```yaml title="Multi-Condition Check"
 output:
@@ -20,7 +29,7 @@ output:
     cases:
       - check: 'this.severity == "CRITICAL" && this.region == "EU"'
         output:
-          # Special GDPR-compliant high-priority destination
+          # Separate high-priority destination for the authored EU label
           file:
             path: /tmp/eu-critical-alerts.jsonl
             codec: lines
@@ -38,15 +47,17 @@ output:
             path: /tmp/critical.jsonl
             codec: lines
 ```
+
 The order is important. The multi-condition check must come first, otherwise the single-condition checks would match the event first.
 
 ## Pattern 2: Multi-Criteria Scoring
 
-For very complex logic, instead of writing complex `check` conditions, it's often better to calculate a `priority_score` in a `mapping` processor first, and then use the `switch` to route based on that score.
+For complex logic, calculate a `priority_score` in a `mapping` processor first, then use the `switch` to route based on that score.
 
-This is the core pattern used in the **[Priority Queues tutorial](/data-routing/priority-queues/step-1-severity-routing)** and is the most powerful and scalable way to handle complex routing.
+The **[Priority Queues tutorial](/data-routing/priority-queues/step-1-severity-routing)** uses the same pattern for multi-criteria routing.
 
 **Processor:**
+
 ```yaml
 - mapping: |
     root = this
@@ -58,6 +69,7 @@ This is the core pattern used in the **[Priority Queues tutorial](/data-routing/
 ```
 
 **Output:**
+
 ```yaml
 output:
   switch:
@@ -72,4 +84,5 @@ output:
 
       # ... and so on
 ```
+
 This pattern makes your routing logic much easier to read, manage, and test.

@@ -15,21 +15,40 @@ export const enforceSchemaStages: Stage[] = [
   // ============================================================================
   {
     id: 1,
+    slug: 'no-validation',
     title: 'No Validation',
-    description: 'Without schema validation, malformed data reaches your analytics systems, causing downstream failures, corrupted dashboards, and broken alerts. Invalid types, missing fields, and out-of-range values pollute your data lake.',
-    yamlFilename: 'step-0-no-validation.yaml',
-    yamlCode: `pipeline:
-  processors: []
-  # ❌ No validation
-  # ❌ No schema checking
-  # ❌ Malformed data flows through`,
+    description:
+      'Start with authored records that include missing fields, unexpected types, and out-of-range values.',
     inputLines: [
       { content: '{', indent: 0 },
-      { content: '"sensor_id": "sensor-42",', indent: 1, key: 'sensor_id', valueType: 'string' },
-      { content: '"timestamp": "not-a-valid-timestamp",', indent: 1, key: 'timestamp', valueType: 'string', type: 'highlighted' },
+      {
+        content: '"sensor_id": "sensor-42",',
+        indent: 1,
+        key: 'sensor_id',
+        valueType: 'string',
+      },
+      {
+        content: '"timestamp": "not-a-valid-timestamp",',
+        indent: 1,
+        key: 'timestamp',
+        valueType: 'string',
+        type: 'highlighted',
+      },
       { content: '"readings": {', indent: 1 },
-      { content: '"temperature_celsius": "twenty-three",', indent: 2, key: 'temperature_celsius', valueType: 'string', type: 'highlighted' },
-      { content: '"humidity_percent": 150', indent: 2, key: 'humidity_percent', valueType: 'number', type: 'highlighted' },
+      {
+        content: '"temperature_celsius": "twenty-three",',
+        indent: 2,
+        key: 'temperature_celsius',
+        valueType: 'string',
+        type: 'highlighted',
+      },
+      {
+        content: '"humidity_percent": 150',
+        indent: 2,
+        key: 'humidity_percent',
+        valueType: 'number',
+        type: 'highlighted',
+      },
       { content: '}', indent: 1 },
       { content: '}', indent: 0 },
     ],
@@ -52,39 +71,40 @@ export const enforceSchemaStages: Stage[] = [
   // ============================================================================
   {
     id: 2,
+    slug: 'define-json-schema',
     title: 'Define JSON Schema',
-    description: 'Create a strict data contract with JSON Schema defining required fields, valid types, and acceptable ranges. Schema acts as documentation and enforcement - any data violating this contract gets rejected at the edge.',
-    yamlFilename: 'step-1-define-schema.yaml',
-    yamlCode: `pipeline:
-  processors:
-    - mapping: |
-        # Define JSON Schema for sensor data
-        let schema = {
-          "type": "object",
-          "required": ["sensor_id", "timestamp", "readings"],
-          "properties": {
-            "sensor_id": {"type": "string"},
-            "timestamp": {"type": "string", "format": "date-time"},
-            "readings": {
-              "type": "object",
-              "required": ["temperature_celsius", "humidity_percent"],
-              "properties": {
-                "temperature_celsius": {"type": "number", "minimum": -50, "maximum": 100},
-                "humidity_percent": {"type": "number", "minimum": 0, "maximum": 100}
-              }
-            }
-          }
-        }
-
-        # Validate message against schema
-        root = this.validate_json_schema(schema)`,
+    description:
+      'Define the required fields, types, and ranges in the example JSON Schema.',
     inputLines: [
       { content: '{', indent: 0 },
-      { content: '"sensor_id": "sensor-42",', indent: 1, key: 'sensor_id', valueType: 'string' },
-      { content: '"timestamp": "not-a-valid-timestamp",', indent: 1, key: 'timestamp', valueType: 'string', type: 'highlighted' },
+      {
+        content: '"sensor_id": "sensor-42",',
+        indent: 1,
+        key: 'sensor_id',
+        valueType: 'string',
+      },
+      {
+        content: '"timestamp": "not-a-valid-timestamp",',
+        indent: 1,
+        key: 'timestamp',
+        valueType: 'string',
+        type: 'highlighted',
+      },
       { content: '"readings": {', indent: 1 },
-      { content: '"temperature_celsius": "twenty-three",', indent: 2, key: 'temperature_celsius', valueType: 'string', type: 'highlighted' },
-      { content: '"humidity_percent": 150', indent: 2, key: 'humidity_percent', valueType: 'number', type: 'highlighted' },
+      {
+        content: '"temperature_celsius": "twenty-three",',
+        indent: 2,
+        key: 'temperature_celsius',
+        valueType: 'string',
+        type: 'highlighted',
+      },
+      {
+        content: '"humidity_percent": 150',
+        indent: 2,
+        key: 'humidity_percent',
+        valueType: 'number',
+        type: 'highlighted',
+      },
       { content: '}', indent: 1 },
       { content: '}', indent: 0 },
     ],
@@ -107,40 +127,40 @@ export const enforceSchemaStages: Stage[] = [
   // ============================================================================
   {
     id: 3,
+    slug: 'validate-route',
     title: 'Validate & Route',
-    description: 'Valid messages flow to analytics, invalid messages route to Dead Letter Queue (DLQ) for investigation. This prevents malformed data from corrupting downstream systems while preserving it for debugging.',
-    yamlFilename: 'step-2-validate-route-dlq.yaml',
-    yamlCode: `pipeline:
-  processors:
-    - switch:
-        - check: this.validate_json_schema(schema)
-          processors:
-            - mapping: 'root = this.with("status", "valid")'
-        - processors:
-            - mapping: 'root = this.with("status", "invalid")'
-            - mapping: 'root.error = error()'
-
-output:
-  switch:
-    cases:
-      - check: this.status == "valid"
-        output:
-          kafka:
-            addresses: [localhost:9092]
-            topic: sensor-data-valid
-
-      - check: this.status == "invalid"
-        output:
-          kafka:
-            addresses: [localhost:9092]
-            topic: sensor-data-dlq`,
+    description:
+      'Route matching and rejected records to separate named outputs for inspection.',
     inputLines: [
       { content: '{', indent: 0 },
-      { content: '"sensor_id": "sensor-42",', indent: 1, key: 'sensor_id', valueType: 'string' },
-      { content: '"timestamp": "not-a-valid-timestamp",', indent: 1, key: 'timestamp', valueType: 'string', type: 'highlighted' },
+      {
+        content: '"sensor_id": "sensor-42",',
+        indent: 1,
+        key: 'sensor_id',
+        valueType: 'string',
+      },
+      {
+        content: '"timestamp": "not-a-valid-timestamp",',
+        indent: 1,
+        key: 'timestamp',
+        valueType: 'string',
+        type: 'highlighted',
+      },
       { content: '"readings": {', indent: 1 },
-      { content: '"temperature_celsius": "twenty-three",', indent: 2, key: 'temperature_celsius', valueType: 'string', type: 'highlighted' },
-      { content: '"humidity_percent": 150', indent: 2, key: 'humidity_percent', valueType: 'number', type: 'highlighted' },
+      {
+        content: '"temperature_celsius": "twenty-three",',
+        indent: 2,
+        key: 'temperature_celsius',
+        valueType: 'string',
+        type: 'highlighted',
+      },
+      {
+        content: '"humidity_percent": 150',
+        indent: 2,
+        key: 'humidity_percent',
+        valueType: 'number',
+        type: 'highlighted',
+      },
       { content: '}', indent: 1 },
       { content: '}', indent: 0 },
     ],
@@ -168,56 +188,59 @@ output:
   // ============================================================================
   {
     id: 4,
+    slug: 'monitor-quality',
     title: 'Monitor Quality',
-    description: 'Track validation success/failure rates, common schema violations, and data quality trends. Emit metrics to detect degrading data quality from faulty devices, malicious payloads, or schema drift.',
-    yamlFilename: 'step-3-monitor-quality-metrics.yaml',
-    yamlCode: `pipeline:
-  processors:
-    - switch:
-        - check: this.validate_json_schema(schema)
-          processors:
-            - mapping: 'root = this.with("status", "valid")'
-            - metric:
-                type: counter
-                name: schema_validation_success
-                labels:
-                  sensor_id: \${! this.sensor_id }
-        - processors:
-            - mapping: 'root = this.with("status", "invalid")'
-            - metric:
-                type: counter
-                name: schema_validation_failure
-                labels:
-                  sensor_id: \${! this.sensor_id }
-                  error_type: \${! error() }
-
-metrics:
-  prometheus:
-    enabled: true
-    path: /metrics
-  # Export validation metrics every 10s`,
+    description:
+      'Illustrate metadata and metrics fields that a deployment could connect to its own observability system.',
     inputLines: [
       { content: '{', indent: 0 },
-      { content: '"sensor_id": "sensor-42",', indent: 1, key: 'sensor_id', valueType: 'string' },
-      { content: '"timestamp": "not-a-valid-timestamp",', indent: 1, key: 'timestamp', valueType: 'string', type: 'highlighted' },
+      {
+        content: '"sensor_id": "sensor-42",',
+        indent: 1,
+        key: 'sensor_id',
+        valueType: 'string',
+      },
+      {
+        content: '"timestamp": "not-a-valid-timestamp",',
+        indent: 1,
+        key: 'timestamp',
+        valueType: 'string',
+        type: 'highlighted',
+      },
       { content: '"readings": {', indent: 1 },
-      { content: '"temperature_celsius": "twenty-three",', indent: 2, key: 'temperature_celsius', valueType: 'string', type: 'highlighted' },
-      { content: '"humidity_percent": 150', indent: 2, key: 'humidity_percent', valueType: 'number', type: 'highlighted' },
+      {
+        content: '"temperature_celsius": "twenty-three",',
+        indent: 2,
+        key: 'temperature_celsius',
+        valueType: 'string',
+        type: 'highlighted',
+      },
+      {
+        content: '"humidity_percent": 150',
+        indent: 2,
+        key: 'humidity_percent',
+        valueType: 'number',
+        type: 'highlighted',
+      },
       { content: '}', indent: 1 },
       { content: '}', indent: 0 },
     ],
     outputLines: [
-      { content: '📊 Quality Metrics Emitted:', indent: 0, type: 'highlighted' },
+      {
+        content: '📊 Quality Metrics Emitted:',
+        indent: 0,
+        type: 'highlighted',
+      },
       { content: 'schema_validation_failure{', indent: 1 },
       { content: 'sensor_id="sensor-42"', indent: 2 },
       { content: 'error_type="timestamp_format_invalid"', indent: 2 },
       { content: '} 1', indent: 1 },
       { content: '', indent: 0 },
       { content: '📈 Prometheus Dashboard:', indent: 0, type: 'highlighted' },
-      { content: 'Validation Success Rate: 87.3%', indent: 1 },
+      { content: 'Validation summary: illustrative', indent: 1 },
       { content: 'Top Failing Sensors: sensor-42 (15 failures)', indent: 1 },
-      { content: 'Common Errors: timestamp_format (40%)', indent: 1 },
-      { content: '                temperature_type (35%)', indent: 1 },
+      { content: 'Common Errors: timestamp_format', indent: 1 },
+      { content: '               temperature_type', indent: 1 },
       { content: '', indent: 0 },
       { content: '✅ Alert Triggered:', indent: 0, type: 'highlighted' },
       { content: 'sensor-42: >10 failures in 5 min', indent: 1 },
