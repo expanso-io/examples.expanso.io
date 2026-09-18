@@ -1,0 +1,48 @@
+---
+title: SOC pre-filter with Jev
+sidebar_label: Introduction
+sidebar_position: 1
+description: Auth and access events get a threat classification and escalation judgment at the edge. Only real escalations reach the SIEM; everything else lands in cheap storage with scores attached.
+keywords: [jev, ai, data-security, soc, siem, threat-detection, decisions-at-the-edge]
+---
+
+# SOC pre-filter: your SIEM stops drowning
+
+Your SIEM charges by ingest, and 99% of auth events are benign. This pipeline judges every authentication event at the edge — what threat pattern is this, does an analyst need to see it now — and only the escalations reach the SIEM.
+
+## The problem
+
+- SIEM ingest pricing punishes volume; auth logs are the biggest volume
+- Analysts triage thousands of alerts; most are noise
+- Threat patterns (impossible travel, credential stuffing) need *judgment*, not just rules
+
+## How it works
+
+```
+POST /auth-events ──▶ Jev (1 call, 2 questions) ──▶ cascade
+                                                        │
+                    ┌───────────────┬───────────────────┴───────────────┐
+                    ▼               ▼                                   ▼
+              escalate ≥ 0.85   threat ≠ benign                   benign
+              → SIEM            → warm storage                   → cold storage
+                                  (scores attached)                (scores attached)
+```
+
+## The Jev questions
+
+| Question | Type | What it decides |
+|---|---|---|
+| `threat` | Choice (benign / brute_force / credential_stuffing / impossible_travel / token_abuse / other) | Which attack pattern matches? |
+| `escalate` | Noul | Does an analyst need this immediately? |
+
+## The confidence cascade
+
+- **siem** — escalate ≥ 0.85: straight to the SIEM, now
+- **warm** — non-benign threat: warm storage with Jev's classification and scores attached, queryable for hunts
+- **cold** — benign: cheap cold storage, scores attached for forensics
+
+Nothing is dropped — every event keeps its Jev judgment, so a future hunt can re-examine the warm and cold tiers with full context.
+
+## Cost math
+
+SIEM ingest runs dollars per GB, while Jev judgment on an auth event costs roughly **$0.00001** at TypeSafe's published price — so the unit economics favor pre-filtering whenever most of your auth volume is benign. How much it saves depends on your benign-event ratio and your SIEM contract; the sample fixtures (5 events: 2 cold, 2 warm, 1 SIEM-bound) demonstrate the routing pattern against the included mock, not production savings.

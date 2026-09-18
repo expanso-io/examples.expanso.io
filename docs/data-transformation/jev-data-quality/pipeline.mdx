@@ -1,0 +1,57 @@
+---
+title: Data quality firewall pipeline
+sidebar_label: Pipeline
+sidebar_position: 2
+description: The complete Jev data-quality pipeline — YAML, stage walkthrough, quick test, and deploy
+keywords: [jev, ai, data-transformation, data-quality, pipeline, yaml]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/data-transformation/jev-data-quality.yaml';
+import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
+
+# Complete pipeline
+
+<CopyPipelineButton pipeline={pipelineYaml} />
+
+- **HTTP input** — rows arrive at `POST /rows`
+- **Jev branch** — quality score + conformance check in one call
+- **Confidence cascade** — quarantine / warehouse
+- **Fan-out** — stdout plus quarantine/warehouse files
+
+## Full configuration
+
+<CodeBlock language="yaml" title="jev-data-quality.yaml">{pipelineYaml}</CodeBlock>
+
+## How it works, stage by stage
+
+1. **Parse** — `json_documents` parses the row.
+2. **Ask Jev** — the row is the state; the conformance question carries the expected schema in its instructions.
+3. **Cascade** — quality < 1 or conformance < 0.3 quarantines the row with scores attached; the rest flow to the warehouse file.
+4. **Route** — stdout plus per-decision files. In production, point the warehouse branch at your actual sink (`kafka`, `aws_s3`, Snowflake via `http_client`).
+
+## Try it
+
+```bash
+# 1. Mock Jev (no API key needed)
+python3 examples/jev-mock-server.py &
+
+# 2. Run the pipeline
+JEV_API_URL=http://localhost:8099/v1/systemone \
+  expanso-edge run --config examples/data-transformation/jev-data-quality.yaml
+
+# 3. Send the sample rows
+while read -r line; do
+  curl -s -X POST http://localhost:8080/rows \
+    -H "Content-Type: application/json" -d "$line" > /dev/null
+done < examples/data-transformation/jev-data-quality-input.jsonl
+```
+
+The negative amount, the garbage row, and the $99M order should land in `quarantine-*.jsonl` — each with its Jev scores explaining why. The two clean orders flow to `warehouse-*.jsonl`.
+
+## With a real Jev key
+
+```bash
+export TYPESAFE_API_KEY="your-key"
+expanso-edge run --config examples/data-transformation/jev-data-quality.yaml
+```
