@@ -51,7 +51,7 @@ NEGATIVE = {
     "fraud", "angry", "furious", "threatening", "hate", "cancel", "churn",
     "broken", "smoke", "grinding", "unreachable", "declined", "escalating",
     "legal", "slow", "query", "error", "terrible", "awful", "disappointed",
-    "ridiculous", "unacceptable", "duplicate", "refund", "charged", "twice",
+    "ridiculous", "unacceptable", "spike", "spiked",
     "waiting", "annoyed", "frustrated", "overheating", "bearing",
 }
 POSITIVE = {
@@ -99,12 +99,12 @@ CHOICE_LEXICON = {
 
 # Signal words per noul question: P(yes) is high when any appear.
 NOUL_LEXICON = {
-    "dispatch": {"smoke", "fire", "burning", "flames", "explosion"},
+    "dispatch": {"smoke", "fire", "burning", "flames", "explosion", "grinding"},
     "escalate": {"failed", "failure", "failures", "brute", "attack", "breach", "intrusion"},
     "actionable": {"action", "failed", "failure", "exhausted", "declined",
                    "unusual", "attack", "breach", "error", "investigate"},
     "urgent": {"urgent", "immediately", "asap", "critical", "fatal", "outage",
-               "emergency", "blocking", "third", "fourth"},
+               "emergency", "blocking"},
     "contains_credentials": {"password", "passwd", "secret", "token", "key",
                              "credential", "api"},
     "contains_pii": {"email", "ssn", "phone", "address", "personal", "dob"},
@@ -221,7 +221,7 @@ def answer_noul(qid, q, state_words, state_text, state):
                 variants(w) & sw and not (variants(w) & key_words)
                 for w in instr_words if len(w) > 3
             )
-        if not hit and "THIRD" in state_text:
+        if not hit and "THIRD" in state_text and ("today" in state_text.lower() or "legal" in state_text.lower()):
             hit = True
     return {"type": "noul", "noul": 0.92 if hit else 0.12}
 
