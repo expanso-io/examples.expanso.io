@@ -1,0 +1,49 @@
+---
+title: Agent guardrail with Jev
+sidebar_label: Introduction
+sidebar_position: 1
+description: A 0.4-second safety check on every AI agent tool call. Calls matching user intent pass through; risky or off-intent calls are blocked or held for approval.
+keywords: [jev, ai, data-security, agents, guardrails, tool-calls, safety, decisions-at-the-edge]
+---
+
+# Agent guardrail: a safety check on every tool call
+
+AI agents act through tools — and every tool call is a moment where judgment matters. This pipeline sits between your agents and their tools: Jev checks each call against the user's stated intent and classifies its risk, in ~0.4s, for ~$0.0004.
+
+## The problem
+
+- Agent safety reviews happen on *some* calls, by heuristics, after the fact
+- Chat-model review of every tool call is too slow (seconds) and too expensive (cents)
+- Off-intent calls — the agent freelancing beyond what the user asked — are the failure mode nobody gates on
+
+## How it works
+
+```
+agent tool call ──▶ POST /tool-calls ──▶ Jev (1 call, 2 questions)
+                                                    │
+                    ┌───────────────┬───────────────┴───────────────┐
+                    ▼               ▼                               ▼
+            off-intent or     risky, uncertain               safe + on-intent
+            confidently       → hold for                    → allow
+            risky → block     human approval                (pass through)
+            + alert
+```
+
+## The Jev questions
+
+| Question | Type | What it decides |
+|---|---|---|
+| `intent_match` | Noul | Does this call match the user's stated intent? |
+| `risk` | Choice (safe / irreversible / data_exfiltration / privilege_escalation / other) | What's the risk class? |
+
+## The confidence cascade — fail closed
+
+- **block** — intent match < 0.3, or non-safe risk with confidence ≥ 0.7: denied, security alerted
+- **hold** — risky but uncertain, or intent match < 0.7: held for human approval
+- **allow** — safe with confidence, clearly on-intent: passes through untouched
+
+Note the asymmetry: this pipeline **fails closed**. If Jev is unreachable, every call degrades to `hold`, not `allow`. For a guardrail, an outage must never become an open door.
+
+## Why this matters
+
+This is TypeSafe's own recommended Jev pattern — fast typed judgment as a gate — deployed as infrastructure. Expanso becomes the policy enforcement point for your agent fleet: every tool call, judged, logged, and auditable, with the decision attached to the call record.

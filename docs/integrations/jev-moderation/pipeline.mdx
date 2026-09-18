@@ -1,0 +1,57 @@
+---
+title: Moderation pre-filter pipeline
+sidebar_label: Pipeline
+sidebar_position: 2
+description: The complete Jev moderation pipeline — YAML, stage walkthrough, quick test, and deploy
+keywords: [jev, ai, integrations, moderation, pipeline, yaml]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/integrations/jev-moderation.yaml';
+import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
+
+# Complete pipeline
+
+<CopyPipelineButton pipeline={pipelineYaml} />
+
+- **HTTP input** — content arrives at `POST /content`
+- **Jev branch** — category + human-need in one call
+- **Confidence cascade** — allow / review (priority-ordered)
+- **Fan-out** — stdout plus allowed/review files
+
+## Full configuration
+
+<CodeBlock language="yaml" title="jev-moderation.yaml">{pipelineYaml}</CodeBlock>
+
+## How it works, stage by stage
+
+1. **Parse** — `json_documents` parses the content item.
+2. **Ask Jev** — category classification and human-review probability come back as `jev.answers`.
+3. **Cascade** — safe with high confidence and low human-need publishes; everything else queues with `review_priority = 1 − confidence`.
+4. **Route** — stdout plus per-decision files. Downstream, sort the review queue by `review_priority` descending.
+
+## Try it
+
+```bash
+# 1. Mock Jev (no API key needed)
+python3 examples/jev-mock-server.py &
+
+# 2. Run the pipeline
+JEV_API_URL=http://localhost:8099/v1/systemone \
+  expanso-edge run --config examples/integrations/jev-moderation.yaml
+
+# 3. Send the sample content
+while read -r line; do
+  curl -s -X POST http://localhost:8080/content \
+    -H "Content-Type: application/json" -d "$line" > /dev/null
+done < examples/integrations/jev-moderation-input.jsonl
+```
+
+The onboarding praise and the API question should land in `allowed-*.jsonl`; the crypto spam, the hate post, and the self-harm post in `review-*.jsonl` with priorities attached.
+
+## With a real Jev key
+
+```bash
+export TYPESAFE_API_KEY="your-key"
+expanso-edge run --config examples/integrations/jev-moderation.yaml
+```

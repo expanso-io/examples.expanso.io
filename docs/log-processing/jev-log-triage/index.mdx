@@ -1,0 +1,56 @@
+---
+title: Edge log triage with Jev
+sidebar_label: Introduction
+sidebar_position: 1
+description: Every log line gets a typed AI decision at the edge — actionable? how severe? which team? — before it leaves the source. Critical pages, uncertain goes to review, noise archives.
+keywords: [jev, ai, log-processing, triage, alerting, pagerduty, decisions-at-the-edge]
+---
+
+# Edge log triage: noise in, pages out
+
+Your log pipeline already parses and routes. Now it can *judge*. Every log event gets one Jev call — is it actionable, how severe, which team owns it, how much customer impact — and the pipeline acts on the answer, gated by confidence.
+
+## The problem
+
+- Log volume grows 30%+ a year; human triage doesn't scale
+- Regex severity routing misses novel failures and pages on noise
+- Chat-model triage is too slow and too expensive to run per log line
+
+## How it works
+
+```
+POST /logs ──▶ json parse ──▶ stamp ──▶ Jev (1 call, 4 questions)
+                                                │
+                    ┌───────────────┬───────────┴───────────┬───────────────┐
+                    ▼               ▼                       ▼               ▼
+              critical+conf    actionable              uncertain        routine
+              → page          → notify                → review queue   → archive
+```
+
+One Jev call carries four questions, so the per-event cost stays flat while the decision gets richer. The `branch` processor builds the Jev request from the event, POSTs to `api.typesafe.ai/v1/systemone`, and merges the typed answers back onto the event as `jev.answers`.
+
+## The Jev questions
+
+| Question | Type | What it decides |
+|---|---|---|
+| `actionable` | Noul | Does a human need to act? |
+| `severity` | Choice (info / warning / critical / other) | How severe is it? |
+| `team` | Choice (backend / frontend / infra / security / data / other) | Who owns it? |
+| `customer_impact` | Score (0–4) | How much customer impact? |
+
+Every Choice includes an explicit `other` — Jev must always have an honest out.
+
+## The confidence cascade
+
+Jev decides; code acts on confidence:
+
+- **page** — severity is `critical` with confidence ≥ 0.85
+- **notify** — actionable ≥ 0.7 with severity confidence ≥ 0.5
+- **review** — severity confidence < 0.5 (Jev isn't sure — a human looks)
+- **archive** — everything else
+
+If Jev is unreachable, the pipeline degrades gracefully: answers come back empty, confidence reads 0, and every event lands in `review`. Nothing is silently dropped.
+
+## Cost math
+
+One Jev call per event, four questions in the batch. At TypeSafe's published pricing ($0.042 per million input tokens, output free), a typical 200-token log event costs roughly **$0.00001** — about 8,000× cheaper than asking a chat model to triage the same line, at ~0.4s instead of ~30s.

@@ -1,0 +1,146 @@
+name: jev-log-triage
+type: pipeline
+description: Edge log triage with Jev — every log line gets a typed AI decision (actionable? severity? owning team?) before it leaves the source. Critical pages, uncertain goes to review, noise archives.
+namespace: production
+labels:
+  category: log-processing
+  pattern: ai-decision
+  model: jev
+
+config:
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /logs
+      allowed_verbs: ["POST"]
+
+  pipeline:
+    processors:
+      # Parse the incoming log event
+      - mapping: |
+          # http_server already parses JSON bodies; only parse raw strings
+          root = if this.type() == "string" { this.parse_json() } else { this }
+
+      # Stamp the event with receipt metadata
+      - mapping: |
+          root = this
+          root.received_at = now()
+          root.node_id = env("NODE_ID").or("edge-001")
+
+      # ── Ask Jev: one typed decision per log event ──
+      - mutation: |
+          meta jev_start = timestamp_unix_milli()
+
+      - branch:
+          request_map: |
+            root = {
+              "state": this.string(),
+              "model": "jev-latest",
+              "questions": {
+                "actionable": {
+                  "type": "noul",
+                  "instructions": "Does this log event require a human to take action?"
+                },
+                "severity": {
+                  "type": "choice",
+                  "instructions": "How severe is this log event?",
+                  "criteria": {
+                    "info": "Routine operational message, no action needed",
+                    "warning": "Needs attention soon but is not urgent",
+                    "critical": "Service-impacting right now, page someone",
+                    "other": "Does not fit any category above"
+                  }
+                },
+                "team": {
+                  "type": "choice",
+                  "instructions": "Which team owns the system described in this event?",
+                  "criteria": {
+                    "backend": "API, services, application logic",
+                    "frontend": "UI, web, mobile clients",
+                    "infra": "Hosts, network, Kubernetes, storage",
+                    "security": "Auth, access control, vulnerabilities",
+                    "data": "Pipelines, warehouses, ML systems",
+                    "other": "Cannot tell from this event"
+                  }
+                },
+                "customer_impact": {
+                  "type": "score",
+                  "instructions": "How much customer impact does this event indicate?",
+                  "criteria": [
+                    "No customer impact",
+                    "Minor degradation for some users",
+                    "Significant impact, workaround exists",
+                    "Major outage, no workaround",
+                    "Complete service loss"
+                  ]
+                }
+              }
+            }
+          processors:
+            - http:
+                url: "${JEV_API_URL:https://api.typesafe.ai/v1/systemone}"
+                verb: POST
+                headers:
+                  Content-Type: application/json
+                  Authorization: "Bearer ${TYPESAFE_API_KEY}"
+                timeout: 2s
+                retries: 1
+            - catch:
+              # Jev unreachable: degrade gracefully, everything goes to review
+              - mapping: |
+                  root = {"answers": {}, "model": "jev-unavailable"}
+          result_map: |
+            root.jev = {
+              "answers": this.answers,
+              "model": this.model.or("jev-latest"),
+              "ms": timestamp_unix_milli() - metadata("jev_start")
+            }
+
+      # ── Confidence-gated cascade: Jev decides, code acts on confidence ──
+      - mapping: |
+          root = this
+          let sev = this.jev.answers.severity.choice.or("other")
+          let conf = this.jev.answers.severity.confidence.or(0)
+          let actionable = this.jev.answers.actionable.noul.or(0)
+
+          root.jev_decision = if $sev == "critical" && $conf >= 0.85 {
+            "page"
+          } else if $actionable >= 0.7 && $conf >= 0.5 {
+            "notify"
+          } else if $conf < 0.5 {
+            "review"
+          } else {
+            "archive"
+          }
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # Always visible during the demo
+        - stdout:
+            codec: lines
+        - switch:
+            cases:
+              # Production: swap for http_client -> https://events.pagerduty.com/v2/enqueue
+              - check: this.jev_decision == "page"
+                output:
+                  file:
+                    path: ./data/jev-log-triage/page-${! now().ts_format("2006-01-02") }.jsonl
+                    codec: lines
+              # Production: swap for http_client -> ${SLACK_WEBHOOK_URL}
+              - check: this.jev_decision == "notify"
+                output:
+                  file:
+                    path: ./data/jev-log-triage/notify-${! now().ts_format("2006-01-02") }.jsonl
+                    codec: lines
+              - check: this.jev_decision == "review"
+                output:
+                  file:
+                    path: ./data/jev-log-triage/review-${! now().ts_format("2006-01-02") }.jsonl
+                    codec: lines
+              - check: "true"
+                output:
+                  file:
+                    path: ./data/jev-log-triage/archive-${! now().ts_format("2006-01-02") }.jsonl
+                    codec: lines
