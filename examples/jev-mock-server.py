@@ -74,6 +74,16 @@ CHOICE_LEXICON = {
                       "diagnosis", "medical", "confidential", "band"},
     "spam": {"spam", "crypto", "doubling", "guaranteed", "shady", "promo",
              "scam", "winner", "prize", "unsolicited"},
+    # jev-inbox-triage trays (jevmail-style)
+    "needs_reply": {"reply", "question", "help", "callback", "call",
+                    "answer", "respond", "request", "follow"},
+    "updates": {"receipt", "payment", "paid", "shipped", "delivered",
+                "notification", "reminder", "statement", "invoice",
+                "automated", "noreply"},
+    "promos": {"sale", "discount", "off", "deal", "offer", "promo",
+               "coupon", "clearance", "sitewide", "shop", "unsubscribe"},
+    "sales": {"pricing", "plans", "demo", "trial", "seats", "annual",
+              "partnership", "vendor", "pitch"},
     "hate": {"hate", "shouldn", "ruining", "demean", "attack"},
     "self_harm": {"suicide", "disappeared", "harm", "kill", "die", "worthless"},
     "brute_force": {"brute", "failed", "failure", "failures", "login",
@@ -207,6 +217,18 @@ def answer_noul(qid, q, state_words, state_text, state):
         hit = any(variants(w) & tool_words for w in intent if len(w) > 3)
     elif qid == "conformant" and isinstance(state, dict):
         hit = record_issues(state) == 0
+    elif qid == "human_written":
+        # Inbox-triage judgment: automated senders mark their own mail
+        # (automated receipts, no-reply headers, unsubscribe footers).
+        # An automation marker overrides human-tone signals; otherwise a
+        # personal greeting/request counts as human.
+        auto = {"automated", "noreply", "auto-generated", "unsubscribe"}
+        human = {"dear", "regards", "sincerely", "hello", "please", "thanks"}
+        swx = expanded(state_words)
+        if any(variants(w) & swx for w in auto):
+            hit = False
+        else:
+            hit = any(variants(w) & swx for w in human)
     else:
         lex = NOUL_LEXICON.get(qid, set())
         sw = expanded(state_words)

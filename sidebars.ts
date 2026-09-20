@@ -120,6 +120,8 @@ const sidebars: SidebarsConfig = {
             'integrations/jev-moderation/pipeline',
             'integrations/jev-feedback-miner/index',
             'integrations/jev-feedback-miner/pipeline',
+            'integrations/jev-inbox-triage/index',
+            'integrations/jev-inbox-triage/pipeline',
           ],
         },
       ],
