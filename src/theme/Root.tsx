@@ -128,6 +128,17 @@ export default function Root({ children }: RootProps): React.JSX.Element {
     <>
       {children}
       <SocialDiscovery />
+      {/* Scarf pixel is cookieless, so it is not gated on analytics consent.
+          Absolute positioning keeps the 0x0 image from creating a line box. */}
+      <img
+        referrerPolicy="no-referrer-when-downgrade"
+        src="https://static.scarf.sh/a.png?x-pxid=82d5c930-f525-4047-bb21-25a09e68ed2d"
+        alt=""
+        width="0"
+        height="0"
+        aria-hidden="true"
+        style={{ position: 'absolute', border: 0 }}
+      />
       {showConsent && (
         <aside
           className="analytics-consent"
