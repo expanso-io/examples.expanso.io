@@ -1,0 +1,12 @@
+pipeline:
+  processors:
+    - cache:
+        operator: get
+        key: \${! this.sensor_id }
+        # Database circuit breaker settings
+        timeout: 2s          # Fast query timeout
+        max_connections: 10  # Connection pool limit
+
+    - catch:
+        - log:
+            message: "Cache lookup failed, using default"

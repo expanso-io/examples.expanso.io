@@ -1,0 +1,105 @@
+---
+title: 'Aggregate Time Windows Troubleshooting'
+sidebar_label: Troubleshooting
+sidebar_position: 10
+description: Common time-windowed aggregation issues and solutions
+keywords: [troubleshooting, debug, aggregation, windows]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-aggregate-time-windows-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Troubleshooting
+
+## Quick Diagnosis
+
+```bash
+# Check container status
+docker ps | grep aggregate
+
+# Check recent logs
+docker logs aggregate-time-windows --tail 50 2>&1 | grep -i error
+
+# Test with sample data
+curl -X POST http://localhost:8080/sensors \
+  -H "Content-Type: application/json" \
+  -d '{"sensor_id": "temp-001", "temperature": 72, "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}'
+```
+
+## Common Issues
+
+### Windows not closing / no output
+
+**Cause:** Not enough data or timestamp field not recognized
+
+**Fix:** Check timestamp field name and ensure window period is short enough for testing:
+
+```yaml
+window:
+  tumbling:
+    size: 1m # Short for testing
+    timestamp_field: timestamp
+```
+
+---
+
+### Aggregates are wrong
+
+**Cause:** Data arriving out of order or timestamps in wrong timezone
+
+**Fix:** Add allowed lateness and normalize timestamps:
+
+```yaml
+window:
+  tumbling:
+    size: 5m
+    allowed_lateness: 30s
+- mapping: |
+    root.timestamp = this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_format("2006-01-02T15:04:05Z")
+```
+
+---
+
+### Memory growing over time
+
+**Cause:** Window state not being cleaned up
+
+```bash
+docker stats aggregate-time-windows --no-stream
+```
+
+**Fix:** Add window expiry and limit group cardinality:
+
+```yaml
+window:
+  tumbling:
+    size: 5m
+    expiry: 1h # Clean up old state
+```
+
+---
+
+### Late data being dropped
+
+**Cause:** allowed_lateness too short
+
+**Fix:** Increase allowed lateness:
+
+```yaml
+window:
+  tumbling:
+    size: 5m
+    allowed_lateness: 5m # Increase from default
+```
+
+## Still stuck?
+
+1. Add debug logging: `logger: {level: DEBUG}`
+2. Check the [Complete Pipeline](/data-transformation/aggregate-time-windows/complete-aggregation-pipeline) for reference config
+3. Review [Deduplicate Events](/data-transformation/deduplicate-events) for handling duplicates

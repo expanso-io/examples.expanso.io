@@ -1,0 +1,143 @@
+---
+title: Setup Environment for Timestamp Normalization
+sidebar_label: Setup
+sidebar_position: 2
+description: Configure Expanso Edge and sample data for timestamp normalization.
+keywords: [setup, environment, configuration, deployment, timestamp, edge]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-normalize-timestamps-setup]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Setup Environment for Timestamp Normalization
+
+Before building the timestamp normalization pipeline, you'll set up your Expanso Edge environment and prepare sample data.
+
+## Prerequisites
+
+This example requires the following services to be running:
+
+- **[Kafka](/getting-started/services/kafka)**
+
+Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
+
+## Step 1: Create Sample Timestamp Data
+
+Generate diverse timestamp formats for testing:
+
+```bash
+# Create sample data directory
+mkdir -p ~/timestamp-samples
+
+# Create mixed timestamp formats file
+cat > ~/timestamp-samples/mixed-timestamps.jsonl << 'EOF'
+{"event_id": "evt_001", "event_type": "user_login", "timestamp": "2025-10-20T19:23:45.123+01:00", "user_id": "user_12345"}
+{"event_id": "evt_002", "event_type": "user_login", "timestamp": 1729450425, "user_id": "user_67890"}
+{"event_id": "evt_003", "event_type": "purchase", "timestamp": "2025-10-20 14:23:45", "timezone": "America/New_York", "user_id": "user_24680", "amount": 99.99}
+{"event_id": "evt_004", "event_type": "page_view", "timestamp": "2025-10-20T18:23:45.000Z", "user_id": "user_13579", "page": "/home"}
+{"event_id": "evt_005", "event_type": "user_logout", "timestamp": 1729450425123, "user_id": "user_97531"}
+{"event_id": "evt_006", "event_type": "api_call", "timestamp": "20/Oct/2025:14:23:45 +0000", "user_id": "user_86420", "endpoint": "/api/users"}
+{"event_id": "evt_007", "event_type": "error", "timestamp": "20251020142345", "user_id": "user_75319", "error_code": 500}
+EOF
+
+# Verify sample data
+echo "Sample data created with $(wc -l < ~/timestamp-samples/mixed-timestamps.jsonl) events"
+```
+
+## Step 2: Configure Environment Variables
+
+Set up configuration for the timestamp normalization pipeline:
+
+```bash
+# Set environment variables
+export EXPANSO_PROJECT="timestamp-normalization"
+export EXPANSO_ENVIRONMENT="dev"
+export TIMESTAMP_SECRET_SALT="your-secret-salt-here-$(openssl rand -hex 16)"
+
+# Create .env file for persistence
+cat > ~/.expanso-timestamps.env << EOF
+EXPANSO_PROJECT=${EXPANSO_PROJECT}
+EXPANSO_ENVIRONMENT=${EXPANSO_ENVIRONMENT}
+TIMESTAMP_SECRET_SALT=${TIMESTAMP_SECRET_SALT}
+EOF
+
+# Source environment
+source ~/.expanso-timestamps.env
+
+echo "Environment configured for project: ${EXPANSO_PROJECT}"
+```
+
+## Step 3: Verify Timezone Database
+
+Confirm your system has up-to-date timezone information:
+
+```bash
+# Check timezone database version
+zdump -v America/New_York | head -1
+
+# Verify common timezones work
+zdump -v Europe/London | head -1
+zdump -v Asia/Tokyo | head -1
+```
+
+---
+
+## Next Steps
+
+Environment setup complete! Now you can start building the timestamp normalization pipeline:
+
+<div
+  style={{
+    display: 'flex',
+    gap: '1.5rem',
+    marginTop: '2rem',
+    marginBottom: '3rem',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
+  }}
+>
+  <a
+    href="../step-1-parse-formats"
+    className="button button--primary button--lg"
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      textDecoration: 'none',
+      borderRadius: '8px',
+      padding: '1rem 2rem',
+      fontWeight: '600',
+      minWidth: '240px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    }}
+  >
+    Step 1: Parse Formats
+  </a>
+  <a
+    href="../"
+    className="button button--secondary button--lg"
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      textDecoration: 'none',
+      borderRadius: '8px',
+      padding: '1rem 2rem',
+      fontWeight: '600',
+      minWidth: '240px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    }}
+  >
+    Back to Overview
+  </a>
+</div>

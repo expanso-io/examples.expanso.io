@@ -1,0 +1,43 @@
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        root.priority = if this.priority.exists() {
+          this.priority
+        } else if this.severity == "CRITICAL" {
+          "critical"
+        } else if this.user_tier == "premium" {
+          "high"
+        } else {
+          "normal"
+        }
+
+output:
+  switch:
+    cases:
+      # Critical: immediate delivery
+      - check: this.priority == "critical"
+        output:
+          kafka:
+            topic: critical-queue
+            batching:
+              count: 1
+              period: 0s
+
+      # High: fast delivery
+      - check: this.priority == "high"
+        output:
+          kafka:
+            topic: high-priority-queue
+            batching:
+              count: 10
+              period: 1s
+
+      # Low: efficient batching
+      - check: this.priority == "low"
+        output:
+          kafka:
+            topic: low-priority-queue
+            batching:
+              count: 1000
+              period: 1m

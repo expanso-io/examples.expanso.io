@@ -1,0 +1,14 @@
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        # Assign priority score
+        root.priority = match {
+          this.msg.contains("error") => 10
+          this.msg.contains("warn") => 7
+          this.msg.contains("login") => 5
+          _ => 3
+        }
+    - bloblang: |
+        # Drop low-priority logs
+        root = if this.priority < 4 { deleted() }

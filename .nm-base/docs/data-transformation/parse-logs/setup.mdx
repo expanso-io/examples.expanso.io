@@ -1,0 +1,142 @@
+---
+title: Setup Environment for Log Parsing
+sidebar_label: Setup
+sidebar_position: 3
+description: Configure environment variables and sample log data for parsing.
+keywords:
+  [setup, environment, log files, expanso cli, deployment, configuration]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-parse-logs-setup]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Setup Environment for Log Parsing
+
+Before building the multi-format log parser, you'll set up sample log data and environment variables.
+
+## Prerequisites
+
+This example requires the following services to be running:
+
+- **[Kafka](/getting-started/services/kafka)**
+
+Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
+
+## Step 1: Create Sample Log Data
+
+Create sample log files representing different formats you'll encounter in production:
+
+```bash
+# Create log directory structure
+mkdir -p ~/expanso-logs/{app,sensors,nginx,system}
+
+# JSON application logs
+cat > ~/expanso-logs/app/application.jsonl << 'EOF'
+{"timestamp":"2025-10-20T14:23:45.123Z","level":"error","service":"api","message":"Database connection failed","duration_ms":5000}
+{"timestamp":"2025-10-20T14:24:12.456Z","level":"info","service":"web","message":"Request processed successfully","duration_ms":45}
+{"timestamp":"2025-10-20T14:24:33.789Z","level":"warning","service":"auth","message":"Login attempt from unknown IP","client_ip":"203.0.113.45"}
+EOF
+
+# CSV sensor data
+cat > ~/expanso-logs/sensors/temperature.csv << 'EOF'
+timestamp,metric_name,sensor_id,value,unit
+2025-10-20T14:23:45Z,temperature,temp-sensor-01,35.5,celsius
+2025-10-20T14:24:45Z,temperature,temp-sensor-02,22.1,celsius
+2025-10-20T14:25:45Z,humidity,humid-sensor-01,85.2,percent
+EOF
+
+# Nginx access logs
+cat > ~/expanso-logs/nginx/access.log << 'EOF'
+203.0.113.45 - user123 [20/Oct/2025:14:23:45 +0000] "GET /api/users HTTP/1.1" 200 1234 "https://example.com" "Mozilla/5.0 Chrome/91.0"
+198.51.100.67 - - [20/Oct/2025:14:24:12 +0000] "POST /api/auth HTTP/1.1" 401 89 "-" "curl/7.68.0"
+192.0.2.123 - admin [20/Oct/2025:14:24:33 +0000] "GET /admin/dashboard HTTP/1.1" 200 5678 "https://admin.example.com" "Mozilla/5.0 Firefox/91.0"
+EOF
+
+# Syslog messages
+cat > ~/expanso-logs/system/syslog << 'EOF'
+&lt;134&gt;Oct 20 14:23:45 edge-node-01 app[12345]: Database connection established
+&lt;131&gt;Oct 20 14:24:12 edge-node-01 nginx[8901]: Server started on port 80
+&lt;132&gt;Oct 20 14:24:33 edge-node-02 kernel: Memory usage at 85%
+EOF
+
+echo "✅ Sample log data created in ~/expanso-logs/"
+```
+
+## Step 2: Set Environment Variables
+
+Configure variables for log destinations and secrets:
+
+```bash
+# Export environment variables for the session
+export LOG_ENDPOINT="https://your-log-service.com/api"
+export TIMESERIES_ENDPOINT="https://your-metrics-service.com/api"
+export ANALYTICS_ENDPOINT="https://your-analytics-service.com/api"
+export ALERT_ENDPOINT="https://your-alerts-service.com/api"
+export IP_SALT="your-secure-salt-string"
+
+# Verify variables are set
+echo "LOG_ENDPOINT: $LOG_ENDPOINT"
+echo "IP_SALT configured: ${IP_SALT:+Yes}"
+```
+
+---
+
+## Next Steps
+
+Your environment is now configured! Time to add format-specific parsing:
+
+<div
+  style={{
+    display: 'flex',
+    gap: '1.5rem',
+    marginTop: '2rem',
+    marginBottom: '3rem',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
+  }}
+>
+  <a
+    href="../step-1-parse-json-logs"
+    className="button button--primary button--lg"
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      textDecoration: 'none',
+      borderRadius: '8px',
+      padding: '1rem 2rem',
+      fontWeight: '600',
+      minWidth: '240px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    }}
+  >
+    Step 1: Parse JSON Logs
+  </a>
+  <a
+    href="../troubleshooting"
+    className="button button--secondary button--lg"
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      textDecoration: 'none',
+      borderRadius: '8px',
+      padding: '1rem 2rem',
+      fontWeight: '600',
+      minWidth: '240px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    }}
+  >
+    Troubleshooting Guide
+  </a>
+</div>

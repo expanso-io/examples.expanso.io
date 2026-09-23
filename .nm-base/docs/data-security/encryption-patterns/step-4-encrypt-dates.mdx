@@ -1,0 +1,67 @@
+---
+title: 'Step 4: Encrypt Dates'
+sidebar_label: 'Step 4: Date Encryption'
+sidebar_position: 7
+description: Encrypt temporal data like birth dates while preserving age analytics.
+keywords: [encryption, dates, temporal, hipaa, age]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-encryption-patterns-step-4-encrypt-dates]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Pattern 4: Encrypting Temporal Data
+
+The final core pattern is handling sensitive dates, such as a date of birth. This is critical for regulations like HIPAA. The pattern is the same: encrypt the precise value but extract and preserve a less-sensitive derivative for analytics.
+
+## The Pattern
+
+For a sensitive date field:
+
+1.  **Encrypt** the full `date_of_birth`.
+2.  **Calculate and Preserve** a useful but less precise value, such as the `age_range`.
+3.  **Delete** the original plaintext date.
+
+## Implementation
+
+You will add this final piece of logic to your existing `mapping` processor.
+
+1.  **Start with your Pipeline:** Open the `encrypt-pii.yaml` file from Step 2. (Note: for simplicity, we are skipping the address step for this example).
+
+2.  **Add the Date Encryption Logic:** Add the logic for the `date_of_birth` field to the _bottom_ of the existing `mapping` processor.
+
+    ```yaml title="Add this to your 'mapping' processor"
+    # --- Logic from previous steps ---
+    # (The existing logic for card numbers, ssn, and email remains here)
+
+    # --- START: New additions for Date Data ---
+
+    if this.customer.date_of_birth.exists() {
+      # 1. ENCRYPT the full date of birth
+      root.customer.date_of_birth_encrypted = this.customer.date_of_birth.encrypt_aes("gcm", env("TEMPORAL_ENCRYPTION_KEY"))
+
+      # 2. PRESERVE an analytics-safe age range
+      let birth_year = this.customer.date_of_birth.parse_timestamp("2006-01-02").ts_year()
+      let age = now().ts_year() - birth_year
+      root.customer.age_range = if age < 18 { "under_18" }
+                                else if age < 35 { "18-34" }
+                                else if age < 55 { "35-54" }
+                                else { "55+" }
+
+      # 3. DELETE the original field
+      root.customer = this.customer.without("date_of_birth")
+    }
+    ```
+
+    _Note: This step uses a separate `TEMPORAL_ENCRYPTION_KEY`. Ensure you have set it as an environment variable._
+
+## Verification
+
+When you run your data through the updated pipeline, the `customer` object will now be fully protected. The sensitive `date_of_birth` is encrypted, but a useful `age_range` has been preserved for demographic analysis.
+
+You have now learned the four core patterns for encrypting different types of sensitive data while preserving business value.

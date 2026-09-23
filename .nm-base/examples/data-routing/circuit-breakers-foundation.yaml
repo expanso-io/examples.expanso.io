@@ -1,0 +1,30 @@
+name: circuit-breaker-foundation
+description: A fragile pipeline that enriches data from an external API without error handling.
+type: pipeline
+namespace: circuit-breaker-test
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /sensor-data
+
+  pipeline:
+    processors:
+      # Step 1: Call external API (no protection)
+      - http:
+          url: ${MOCK_API_URL}/metadata/${!this.sensor_id}
+          verb: GET
+          headers:
+            Authorization: Bearer ${!env("API_TOKEN")}
+
+      # Step 2: Process successful API response
+      - mapping: |
+          root = this
+          let api_response = content().parse_json()
+          root.metadata = api_response.metadata
+          root.enriched = true
+
+  output:
+    stdout:
+      codec: lines

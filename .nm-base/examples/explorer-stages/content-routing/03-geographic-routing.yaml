@@ -1,0 +1,20 @@
+output:
+  switch:
+    cases:
+      # EU data to EU systems (GDPR)
+      - check: this.region == "eu-west"
+        output:
+          broker:
+            pattern: fan_out
+            outputs:
+              - kafka:
+                  addresses: [eu-kafka.example.com:9092]
+              - aws_s3:
+                  bucket: eu-data-archive
+                  region: eu-west-1
+
+      # US East to regional cluster
+      - check: this.region == "us-east"
+        output:
+          kafka:
+            addresses: [us-east-kafka.example.com:9092]

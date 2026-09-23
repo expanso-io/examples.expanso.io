@@ -1,0 +1,20 @@
+name: order-processing-foundation
+description: A foundation pipeline that passes through a complex JSON order without splitting.
+type: pipeline
+namespace: production
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /orders
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+          root.processed_at = now()
+
+  output:
+    stdout:
+      codec: lines

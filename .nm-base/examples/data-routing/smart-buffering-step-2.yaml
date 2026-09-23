@@ -1,0 +1,72 @@
+name: smart-buffering-step-2
+description: Step 2 - Add priority scoring for buffer ordering
+type: pipeline
+namespace: default
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+      timeout: 5s
+
+  pipeline:
+    processors:
+      - json_documents:
+          parts: []
+
+      - mapping: |
+          root = this
+
+          let category = this.category.or("").string().lowercase()
+          let severity = this.severity.or("info").string().lowercase()
+          let event_type = this.event_type.or("").string().lowercase()
+
+          let is_important = match {
+            category == "important" => true,
+            severity == "critical" => true,
+            event_type.has_prefix("payment.failed") => true,
+            _ => false
+          }
+
+          let is_archive = match {
+            category == "archive" => true,
+            severity == "debug" => true,
+            event_type.has_prefix("analytics.") => true,
+            _ => false
+          }
+
+          root.priority_tier = match {
+            is_important => 1,
+            is_archive => 3,
+            _ => 2
+          }
+
+          root.priority_label = match root.priority_tier {
+            1 => "important",
+            2 => "regular",
+            3 => "archive"
+          }
+
+          # Priority score determines buffer ordering
+          # Higher score = sent first
+          root.priority_score = match root.priority_tier {
+            1 => 1000,  # Important: always first
+            2 => 500,   # Regular: second
+            3 => 100    # Archive: last
+          }
+
+          # Add sub-priority within tiers for fine-grained ordering
+          let severity_bonus = match severity {
+            "critical" => 50,
+            "error" => 30,
+            "warn" => 10,
+            _ => 0
+          }
+
+          root.priority_score = root.priority_score + severity_bonus
+          root.classified_at = now()
+
+  output:
+    stdout:
+      codec: lines

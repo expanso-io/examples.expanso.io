@@ -1,0 +1,67 @@
+---
+title: Review the SCADA Energy Edge Inputs
+sidebar_label: Setup
+sidebar_position: 3
+description: Inspect the synthetic adapter output and reference configuration without connecting an OT system.
+keywords: [scada, energy, synthetic-data, setup]
+contentArchetype: run
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-scada-inputs]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Review the SCADA Energy Edge Inputs
+
+This route inspects repository artifacts. It does not start a protocol client, connect to a gateway, or deploy a pipeline.
+
+## Prerequisites
+
+- A checkout of this repository
+- A shell with `sed` and `wc`
+- No connection to an OT network
+
+The fixture represents output from a separate gateway. Each line contains one decoded register reading:
+
+```text
+REG=40001;VAL=14823;UNIT=V_x100;TS=1708290845;DEVICE=RTU-07A;STATUS=0
+```
+
+## Run the inspection
+
+From the repository root:
+
+```bash
+sed -n '1,5p' examples/integrations/scada-energy-edge/input.txt
+wc -l examples/integrations/scada-energy-edge/input.txt
+sed -n '1,80p' examples/integrations/scada-energy-edge/scada-edge-complete.yaml
+```
+
+Review three site-owned inputs before any implementation work:
+
+1. The gateway's decoded record schema and timestamp semantics
+2. The device register map, units, and scaling
+3. The approved selection rules and destination contract
+
+## Expected output
+
+The fixture contains 20 synthetic line records. The first five show voltage, current, frequency, temperature, and power readings for `RTU-07A`. The configuration begins with a TCP line input and a mapping processor.
+
+No runtime result is expected. The reference has not been executed as an end-to-end integration, and Kafka delivery remains untested.
+
+## Cleanup
+
+None. These commands do not modify checked-in files.
+
+## Common failures
+
+- **File not found:** run the commands from the repository root.
+- **Treating the socket as protocol support:** it receives decoded lines; it does not issue protocol requests.
+- **Assuming status meanings:** confirm the gateway's status contract before adapting the labels.
+- **Deploying the combined file:** review Kafka credentials, topic policy, archive path, and delivery behavior first.
+
+**Next:** [Inspect the parsing stage](/integrations/scada-energy-edge/step-1-parse-modbus-registers).

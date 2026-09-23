@@ -1,0 +1,76 @@
+---
+title: Complete Priority Queues Pipeline
+sidebar_label: Complete Pipeline
+sidebar_position: 8
+description: The complete priority queue pipeline with severity routing
+keywords: [complete, priority-queues, severity, routing]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-priority-queues-complete-priority-pipeline]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/data-routing/priority-queues.yaml';
+import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
+
+# Complete Pipeline
+
+<CopyPipelineButton pipeline={pipelineYaml} />
+
+This pipeline combines all priority queue techniques from this tutorial:
+
+- **Severity-based routing** - CRITICAL → immediate, ERROR → high, WARN → normal, INFO/DEBUG → low
+- **Priority scoring** - Numeric scores map to queue assignments
+- **Queue-specific batching** - Critical: no batching (count: 1), Low: large batches (count: 1000)
+- **Per-branch settings** - The critical branch requests `ack_replicas: true` and additional retries
+
+## Full Configuration
+
+<CodeBlock language="yaml" title="priority-queues.yaml">
+  {pipelineYaml}
+</CodeBlock>
+
+## Quick Test
+
+```bash
+# Send critical event (immediate delivery, no batching)
+curl -X POST http://localhost:8080/logs \
+  -H "Content-Type: application/json" \
+  -d '{"severity": "CRITICAL", "message": "Database connection lost"}'
+
+# Send info event (batched delivery to low-priority queue)
+curl -X POST http://localhost:8080/logs \
+  -H "Content-Type: application/json" \
+  -d '{"severity": "INFO", "message": "User logged in"}'
+```
+
+## Deploy
+
+```bash
+# Deploy to Expanso orchestrator
+expanso-cli job deploy priority-queues.yaml
+
+# Or run locally with expanso-edge
+expanso-edge run --config priority-queues.yaml
+```
+
+## Download
+
+<a
+  href="/files/data-routing/priority-queues.yaml"
+  download
+  className="button button--primary"
+>
+  Download priority-queues.yaml
+</a>
+
+## What's Next?
+
+- [Troubleshooting](/data-routing/priority-queues/troubleshooting) - Common issues and solutions
+- [Circuit Breakers](/data-routing/circuit-breakers) - Add fault tolerance

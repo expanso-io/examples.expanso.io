@@ -1,0 +1,90 @@
+---
+title: 'Step 2: Route by Geographic Region'
+sidebar_label: 'Step 2: Geographic Routing'
+sidebar_position: 5
+description: Route synthetic data to different destination labels from an authored region field.
+keywords: [routing, switch, conditional, geographic, gdpr]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-content-routing-step-2-route-by-region]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Step 2: Route by Geographic Region
+
+In addition to fields such as `severity`, a pipeline can branch on an authored **region** value. The field and destination label do not establish where a service runs or whether a real transfer is permitted.
+
+This step teaches you how to add a geographic routing rule that takes precedence over your existing severity-based rules.
+
+## The Goal
+
+Modify the `switch` output so a message with `region: "EU"` uses a dedicated example destination before the severity branches are evaluated. Other records continue through the severity cases.
+
+## Implementation
+
+1.  **Start with the Previous Pipeline:** Copy the `severity-router.yaml` from Step 1 to a new file named `geo-router.yaml`.
+
+    ```bash
+    cp severity-router.yaml geo-router.yaml
+    ```
+
+2.  **Add the Geographic Routing Rule:** Open `geo-router.yaml` and add a new `case` to the **top** of your `switch` block. Because the `switch` stops at the first match, placing this rule at the top gives it the highest priority.
+
+    ```yaml title="Modify the 'output' in geo-router.yaml"
+    output:
+      switch:
+        cases:
+          # --- START: New addition ---
+          # Case 1: Handle the authored EU label before severity branches.
+          - check: this.region == "EU"
+            output:
+              file:
+                path: /tmp/eu-data.jsonl # A dedicated example destination
+                codec: lines
+          # --- END: New addition ---
+
+          # Case 2: Handle CRITICAL events (for non-EU data)
+          - check: this.severity == "CRITICAL"
+            output:
+              file: # Your PagerDuty/alerting output from Step 1
+                path: /tmp/critical.jsonl
+                codec: lines
+
+          # Case 3: Handle WARN events (for non-EU data)
+          - check: this.severity == "WARN"
+            output:
+              file: # Your Slack/monitoring output from Step 1
+                path: /tmp/warnings.jsonl
+                codec: lines
+
+          # Case 4 (Default): Handle all other non-EU events
+          - output:
+              file: # Your Elasticsearch/logging output from Step 1
+                path: /tmp/other.jsonl
+                codec: lines
+    ```
+
+3.  **Deploy and Test:**
+
+    ```bash
+    # Send a CRITICAL event from the EU region
+    curl -X POST http://localhost:8080/events \
+      -H "Content-Type: application/json" \
+      -d '{"region": "EU", "severity": "CRITICAL", "message": "This must go to the EU file"}'
+
+    # Send a CRITICAL event from the US region
+    curl -X POST http://localhost:8080/events \
+      -H "Content-Type: application/json" \
+      -d '{"region": "US", "severity": "CRITICAL", "message": "This must go to the critical file"}'
+    ```
+
+4.  **Verify:** Check your output files.
+    - The first event, despite being `CRITICAL`, will be in `eu-data.jsonl` because the first rule in the `switch` matched it.
+    - The second event will be in `critical.jsonl` because it did not match the EU rule and fell through to the severity-based routing.
+
+The resulting branch order evaluates the region case before the remaining business rules.

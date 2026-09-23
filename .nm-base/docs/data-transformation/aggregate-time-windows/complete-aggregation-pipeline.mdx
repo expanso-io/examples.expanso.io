@@ -1,0 +1,80 @@
+---
+title: Complete Aggregation Pipeline
+sidebar_label: Complete Pipeline
+sidebar_position: 9
+description: The complete time-windowed aggregation pipeline
+keywords: [complete, aggregation, time-windows, tumbling, sliding]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-aggregate-time-windows-complete-aggregation-pipeline]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/data-transformation/aggregate-time-windows-complete.yaml';
+import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
+
+# Complete Pipeline
+
+<CopyPipelineButton pipeline={pipelineYaml} />
+
+This pipeline combines all time-windowed aggregation techniques from this tutorial:
+
+- **Tumbling windows** - Fixed, non-overlapping time buckets (e.g., 5-minute windows)
+- **Sliding windows** - Overlapping windows for smoother trends
+- **Session windows** - Activity-based grouping with timeouts
+- **Multi-level aggregation** - Combine window types for different use cases
+
+## Full Configuration
+
+<CodeBlock language="yaml" title="aggregate-time-windows.yaml">
+  {pipelineYaml}
+</CodeBlock>
+
+## Quick Test
+
+```bash
+# Send sensor readings over time
+for i in {1..10}; do
+  curl -X POST http://localhost:8080/sensors \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"sensor_id\": \"temp-001\",
+      \"temperature\": $((70 + RANDOM % 10)),
+      \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+    }"
+  sleep 1
+done
+
+# Wait for window to close, then check aggregated output
+```
+
+## Deploy
+
+```bash
+# Deploy to Expanso orchestrator
+expanso-cli job deploy aggregate-time-windows.yaml
+
+# Or run locally with expanso-edge
+expanso-edge run --config aggregate-time-windows.yaml
+```
+
+## Download
+
+<a
+  href="/files/data-transformation/aggregate-time-windows.yaml"
+  download
+  className="button button--primary"
+>
+  Download aggregate-time-windows.yaml
+</a>
+
+## What's Next?
+
+- [Troubleshooting](/data-transformation/aggregate-time-windows/troubleshooting) - Common issues and solutions
+- [Deduplicate Events](/data-transformation/deduplicate-events) - Remove duplicate messages

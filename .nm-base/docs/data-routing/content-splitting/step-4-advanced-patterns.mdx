@@ -1,0 +1,104 @@
+---
+title: 'Advanced Splitting Patterns'
+sidebar_label: 'Step 4: Advanced Patterns'
+sidebar_position: 7
+description: Explore advanced splitting patterns like multi-array, conditional, and hierarchical splitting.
+keywords:
+  [advanced-splitting, multi-array, conditional, hierarchical, adaptation]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-content-splitting-step-4-advanced-patterns]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Advanced Splitting Patterns
+
+Once you've mastered the basic "Store -> Split -> Restore" pattern, you can apply it to more complex scenarios. This section covers advanced techniques for handling diverse and complex data structures.
+
+## Pattern 1: Multi-Array Splitting
+
+Some messages contain multiple arrays that each need to be split into different event types. Use the `branch` processor to split each array in isolation.
+
+**Use Case:** An order message that contains both `items` and `applied_discounts` arrays.
+
+```yaml title="multi-array-splitter.yaml"
+pipeline:
+  processors:
+    # Store the context that is common to ALL branches
+    - mapping: `meta order_id = this.order_id`
+
+    # Process the 'items' array in the first branch
+    - branch:
+        request_map: `root = {"items": this.items}`
+        processors:
+          - unarchive:
+              format: json_array
+              field: items
+          - mapping: |
+              root = this
+              root.order_id = meta("order_id")
+              root.type = "line_item"
+
+    # Process the 'discounts' array in a second branch
+    - branch:
+        request_map: `root = {"discounts": this.applied_discounts}`
+        processors:
+          - unarchive:
+              format: json_array
+              field: discounts
+          - mapping: |
+              root = this
+              root.order_id = meta("order_id")
+              root.type = "discount_application"
+```
+
+## Pattern 2: Conditional Splitting
+
+You may want to split an array when it meets a condition, such as containing more than one item.
+
+**Use Case:** Process single-item orders as a whole, but split multi-item orders for individual fulfillment.
+
+```yaml title="conditional-splitter.yaml"
+pipeline:
+  processors:
+    - switch:
+        cases:
+          # If 1 or fewer items, process as a single batch
+          - check: this.items.length() <= 1
+            processors:
+              - mapping: `root.processing_type = "batch"`
+
+          # Otherwise, use the standard splitting pattern
+          - processors:
+              - mapping: |
+                  meta order_id = this.order_id
+                  root = this
+              - unarchive:
+                  format: json_array
+                  field: items
+              - mapping: |
+                  root = this
+                  root.order_id = meta("order_id")
+                  root.processing_type = "individual"
+```
+
+## Pattern 3: Handling Commas in CSV Fields
+
+The simple `.split(",")` method fails if text fields contain commas. Properly quoted CSV requires a parser that implements CSV quoting rules.
+
+**Use Case:** Parsing a `description` field that contains commas.
+
+**Input:** `txn-005,2025-10-20T11:00:00Z,89.99,"Restaurant Purchase, Table 5"`
+
+A simple `split` creates five fields for this quoted sample. Use a script processor with a tested CSV library when the input permits quoting, escaping, multiline values, or malformed records.
+
+## Adaptation checks
+
+- **Validate input:** Before splitting, check that the array field exists, has the expected type, and stays within a size bound chosen for the target environment.
+- **Error Handling:** Wrap your splitting logic in a `try/catch` block to handle malformed data gracefully without crashing the entire pipeline.
+- **Performance:** For very large arrays or files, consider the memory implications. The `unarchive` and `file` processors are highly optimized for streaming, but complex mappings on very large messages can still consume significant memory.

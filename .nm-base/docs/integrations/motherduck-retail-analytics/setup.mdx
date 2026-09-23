@@ -1,0 +1,53 @@
+---
+title: Review the MotherDuck Retail Reference
+sidebar_label: Run path
+sidebar_position: 2
+description: Inspect the checked-in POS-to-Parquet architecture without provisioning storage or analytics services.
+keywords: [motherduck, ducklake, parquet, inspection]
+contentArchetype: run
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-run-path-integrations-motherduck-retail-analytics]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Review the MotherDuck Retail Reference
+
+This path inspects repository artifacts. It does not write to S3, register a DuckLake table, or query MotherDuck.
+
+## Prerequisites
+
+- A checkout of this repository
+- A shell with `sed` and `rg`
+- No AWS or MotherDuck credentials
+
+## Run the inspection
+
+From the repository root:
+
+```bash
+test -f static/pipelines/motherduck-retail-pipeline.yaml
+sed -n '1,100p' static/pipelines/motherduck-retail-pipeline.yaml
+rg -n 'generate|mapping|parquet|aws_s3' \
+  static/pipelines/motherduck-retail-pipeline.yaml
+```
+
+## Expected output
+
+The file check exits successfully. The final command identifies synthetic generation, transformation, encoding, and the external S3 handoff.
+
+## Cleanup
+
+No files or external resources are created.
+
+## Common failures
+
+- A missing file means the checkout does not contain the referenced artifact.
+- No `rg` matches means the pipeline shape changed; inspect the complete file before updating the walkthrough.
+- Artifact inspection does not verify object format, table registration, or query behavior.
+
+**Next:** [Inspect synthetic event generation](/integrations/motherduck-retail-analytics/step-1-generate-pos-data).

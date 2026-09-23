@@ -1,0 +1,41 @@
+# Tumbling window aggregation (1-minute windows)
+resources:
+  caches:
+    tumbling_cache:
+      memory:
+        default_ttl: "90s"
+        max_items: 50000
+
+pipeline:
+  processors:
+    - json: {}
+    - mapping: |
+        root = this
+        let parsed_time = this.timestamp.parse_timestamp("2006-01-02T15:04:05.000Z")
+        let window_start = parsed_time.ts_format("2006-01-02T15:04:00Z")
+        root.group_key = this.sensor_id + "|" + window_start
+        root.window_start = window_start
+        root.window_end = (parsed_time + duration("1m")).ts_format("2006-01-02T15:04:00Z")
+
+    - cache:
+        resource: tumbling_cache
+        key: \${! this.group_key }
+        value: \${! this }
+
+    - group_by:
+        - key: \${! this.group_key }
+          value: \${! this }
+
+    - mapping: |
+        let events = this
+        let first_event = events[0]
+        root.sensor_id = first_event.sensor_id
+        root.time_bucket = first_event.window_start
+        root.window_start = first_event.window_start
+        root.window_end = first_event.window_end
+        root.event_count = events.length()
+
+        let temperatures = events.map_each(e -> e.temperature)
+        root.temperature_avg = temperatures.mean().round(2)
+        root.temperature_min = temperatures.min()
+        root.temperature_max = temperatures.max()

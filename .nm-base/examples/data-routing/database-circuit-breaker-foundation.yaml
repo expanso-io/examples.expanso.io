@@ -1,0 +1,32 @@
+name: database-circuit-breaker-foundation
+description: A fragile pipeline that enriches data from a database without error handling.
+type: pipeline
+namespace: circuit-breaker-test
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8084
+      path: /user-events
+
+  pipeline:
+    processors:
+      - sql_select:
+          driver: postgres
+          data_source_name: ${DB_CONNECTION_STRING}
+          query: |
+            SELECT user_name, user_tier FROM users WHERE user_id = $1
+          args_mapping: |
+            root = [ this.user_id ]
+
+      - mapping: |
+          root = this
+          root.user_profile = {
+            "name": this.user_name,
+            "tier": this.user_tier
+          }
+          root.db_enriched = true
+
+  output:
+    stdout:
+      codec: lines

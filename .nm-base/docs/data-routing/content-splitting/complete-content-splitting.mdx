@@ -1,0 +1,81 @@
+---
+title: Complete Content Splitting Pipeline
+sidebar_label: Complete Pipeline
+sidebar_position: 9
+description: The complete content splitting pipeline for JSON arrays
+keywords: [complete, content-splitting, arrays, batch]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-content-splitting-complete-content-splitting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/data-routing/content-splitting.yaml';
+import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
+
+# Complete Pipeline
+
+<CopyPipelineButton pipeline={pipelineYaml} />
+
+This pipeline combines all content splitting techniques from this tutorial:
+
+- **Array splitting** - Split JSON arrays into individual messages using `unarchive`
+- **Context preservation** - Store parent metadata before split, restore after
+- **Conditional routing** - Route split messages by value (e.g., temperature thresholds)
+
+## Full Configuration
+
+<CodeBlock language="yaml" title="content-splitting.yaml">
+  {pipelineYaml}
+</CodeBlock>
+
+## Quick Test
+
+```bash
+# Send a batch of sensor readings
+curl -X POST http://localhost:8080/sensors/bulk \
+  -H "Content-Type: application/json" \
+  -d '{
+    "device_id": "sensor-001",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "readings": [
+      {"sensor_type": "temperature", "value": 72.5, "unit": "F"},
+      {"sensor_type": "temperature", "value": 85.0, "unit": "F"},
+      {"sensor_type": "humidity", "value": 45.2, "unit": "%"}
+    ]
+  }'
+
+# High temp (85F) goes to alert service
+# Normal readings go to Kafka or local file
+```
+
+## Deploy
+
+```bash
+# Deploy to Expanso orchestrator
+expanso-cli job deploy content-splitting.yaml
+
+# Or run locally with expanso-edge
+expanso-edge run --config content-splitting.yaml
+```
+
+## Download
+
+<a
+  href="/files/data-routing/content-splitting.yaml"
+  download
+  className="button button--primary"
+>
+  Download content-splitting.yaml
+</a>
+
+## What's Next?
+
+- [Troubleshooting](/data-routing/content-splitting/troubleshooting) - Common issues and solutions
+- [Fan-Out Pattern](/data-routing/fan-out-pattern) - Send to multiple destinations

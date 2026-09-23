@@ -1,0 +1,33 @@
+---
+title: 'Step 3: Transform the email address'
+sidebar_label: 'Step 3: Transform email'
+sidebar_position: 6
+description: Extract an email domain, add a salted hash, and remove the source address.
+keywords: [pii-removal, hashing, email, mapping]
+contentArchetype: step
+executionStatus: offline-runnable
+operationalEvidence: not-assessed
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Step 3: Transform the email address
+
+Extract the domain while the source value is available, remove the address, then add the derived fields.
+
+```yaml title="Email mapping"
+- mapping: |
+    root = this.without("email")
+
+    root.email_hash = this.email.hash(
+      "hmac_sha256",
+      env("EMAIL_SALT")
+    ).encode("hex")
+    root.email_domain = this.email.split("@").index(1)
+```
+
+Validate missing and malformed addresses before adapting this fragment. A domain or stable hash may still be sensitive in a particular dataset.
+
+[Next: replace the user name](/data-security/remove-pii/step-4-pseudonymize-user).

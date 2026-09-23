@@ -1,0 +1,114 @@
+---
+title: 'Enrich and Export Logs Troubleshooting'
+sidebar_label: Troubleshooting
+sidebar_position: 10
+description: Common log enrichment and S3 export issues and solutions
+keywords: [troubleshooting, debug, enrichment, s3]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-enrich-export-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Troubleshooting
+
+## Quick Diagnosis
+
+```bash
+# Check container status
+docker ps | grep enrich
+
+# Check recent logs
+docker logs enrich-export --tail 50 2>&1 | grep -i error
+
+# Test enrichment
+curl -X POST http://localhost:8080/logs \
+  -H "Content-Type: application/json" \
+  -d '{"level": "INFO", "message": "test", "service": "api"}'
+
+# Check S3 output
+aws s3 ls s3://$BUCKET/logs/$(date +%Y/%m/%d)/ --max-items 5
+```
+
+## Common Issues
+
+### Metadata not being added
+
+**Cause:** Mapping not executing or overwriting
+
+**Fix:** Ensure metadata is merged, not replaced:
+
+```yaml
+- mapping: |
+    root = this
+    root.metadata.processed_at = now()
+    root.metadata.pipeline = "enrich-export"
+```
+
+---
+
+### S3 uploads failing
+
+**Cause:** Credentials or bucket permissions
+
+```bash
+# Test S3 access
+aws s3 ls s3://$BUCKET/ --max-items 1
+```
+
+**Fix:** Verify AWS credentials and bucket policy:
+
+```yaml
+output:
+  aws_s3:
+    bucket: ${S3_BUCKET}
+    region: ${AWS_REGION}
+    credentials:
+      id: ${AWS_ACCESS_KEY_ID}
+      secret: ${AWS_SECRET_ACCESS_KEY}
+```
+
+---
+
+### Small files being created
+
+**Cause:** Batching too aggressive
+
+**Fix:** Increase batch size and period:
+
+```yaml
+batching:
+  count: 10000
+  period: 5m
+  byte_size: 50MB
+```
+
+---
+
+### High S3 costs
+
+**Cause:** Too many small objects
+
+**Inspect:** Batch size, flush period, codec support, and representative payloads:
+
+```yaml
+output:
+  aws_s3:
+    bucket: ${BUCKET}
+    path: logs/${!timestamp_unix()}.json.gz
+    batching:
+      count: 50000
+      period: 10m
+    compression: gzip
+```
+
+## Still stuck?
+
+1. Add debug logging: `logger: {level: DEBUG}`
+2. Check the [Complete Pipeline](/log-processing/enrich-export/complete-log-enrichment) for reference config
+3. Review [Filter Severity](/log-processing/filter-severity) for reducing log volume

@@ -1,0 +1,92 @@
+---
+title: 'Step 3: Session Windows'
+sidebar_label: 'Step 3: Session Windows'
+sidebar_position: 6
+description: Implement dynamic, activity-based windows for behavioral analytics.
+keywords:
+  [session-windows, activity-clustering, behavioral-analytics, aggregation]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-aggregate-time-windows-step-3-session-windows]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Step 3: Session Windows
+
+Unlike fixed time buckets, a **session window** groups events until the configured inactivity period is reached.
+
+The boundary can represent a user interaction period or a sensor activity period when its source semantics support that interpretation.
+
+## The Goal
+
+You will group a stream of events into "sessions" based on a **5-second inactivity timeout**. If events for the same sensor arrive within 5 seconds of each other, they are part of the same session. If more than 5 seconds pass, the next event starts a new session.
+
+## The `group_by` Session Window
+
+Expanso's `group_by` processor has built-in support for session windows, which simplifies this pattern significantly. You don't need to manage the timeout logic manually.
+
+## Implementation
+
+1.  **Create the Session Pipeline:** Copy the following configuration into a file named `session-windows.yaml`.
+
+    ```yaml title="session-windows.yaml"
+    name: session-windows-aggregator
+    description: A pipeline that groups sensor data into sessions.
+
+    config:
+      input:
+        generate: # Generate a stream of mock sensor data with random gaps
+          interval: 'if random_int() % 10 > 7 { "6s" } else { "1s" }'
+          mapping: |
+            root = {
+              "sensor_id": "sensor-" + (random_int() % 2).string(),
+              "activity": "detected",
+              "timestamp": now().ts_format_iso8601()
+            }
+
+      pipeline:
+        processors:
+          # The group_by processor handles the session logic automatically.
+          # It will group all events by 'sensor_id' and wait for a 5-second
+          # gap in events for that sensor_id before releasing the group.
+          - group_by:
+              - session:
+                  timeout: 5s
+                processors:
+                  # This mapping runs once for each completed session
+                  - mapping: |
+                      let first_event = this[0]
+                      let last_event = this[-1]
+                      root = {
+                        "sensor_id": first_event.sensor_id,
+                        "session_start": first_event.timestamp,
+                        "session_end": last_event.timestamp,
+                        "events_in_session": this.length()
+                      }
+
+      output:
+        stdout:
+          codec: lines
+    ```
+
+2.  **Inspect the intended output:** The configuration releases a group after a five-second inactivity gap for the corresponding sensor.
+
+## Verification
+
+The authored session summaries vary in `events_in_session`, `session_start`, and `session_end`. This page does not record an executed result.
+
+**Example Output:**
+
+```json
+{"sensor_id":"sensor-1","session_start":"2025-11-22T22:10:05Z","session_end":"2025-11-22T22:10:08Z","events_in_session":4}
+{"sensor_id":"sensor-0","session_start":"2025-11-22T22:10:04Z","session_end":"2025-11-22T22:10:10Z","events_in_session":6}
+// ... a gap of more than 5 seconds occurs ...
+{"sensor_id":"sensor-1","session_start":"2025-11-22T22:10:15Z","session_end":"2025-11-22T22:10:16Z","events_in_session":2}
+```
+
+You have now implemented session windows to analyze data based on natural activity patterns rather than fixed time intervals.

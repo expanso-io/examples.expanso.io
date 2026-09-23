@@ -1,0 +1,106 @@
+---
+title: 'Normalize Timestamps Troubleshooting'
+sidebar_label: Troubleshooting
+sidebar_position: 7
+description: Common timestamp normalization issues and solutions
+keywords: [troubleshooting, debug, timestamps, timezone]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-normalize-timestamps-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Troubleshooting
+
+## Quick Diagnosis
+
+```bash
+# Check container status
+docker ps | grep normalize
+
+# Check recent logs
+docker logs normalize-timestamps --tail 50 2>&1 | grep -i error
+
+# Test timestamp normalization
+curl -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{"event": "test", "timestamp": "2024-01-15T10:30:00-08:00"}'
+```
+
+## Common Issues
+
+### Timestamps not being parsed
+
+**Cause:** Format not recognized
+
+```bash
+# Check what formats are failing
+docker logs normalize-timestamps --tail 20 2>&1 | grep timestamp
+```
+
+**Fix:** Add format to detection list:
+
+```yaml
+- mapping: |
+    root.timestamp = this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00")
+      .catch(this.timestamp.ts_parse("01/02/2006 3:04 PM"))
+      .catch(this.timestamp.ts_unix())
+```
+
+---
+
+### Wrong timezone after conversion
+
+**Cause:** Input timezone not specified or detected
+
+**Fix:** Explicitly set timezone for known sources:
+
+```yaml
+- mapping: |
+    root.timestamp = this.timestamp
+      .ts_parse("2006-01-02 15:04:05", "America/Los_Angeles")
+      .ts_format("2006-01-02T15:04:05Z", "UTC")
+```
+
+---
+
+### Unix timestamps failing
+
+**Cause:** Milliseconds vs seconds confusion
+
+**Fix:** Handle both:
+
+```yaml
+- mapping: |
+    root.timestamp = if this.timestamp > 9999999999 {
+      this.timestamp.ts_unix_milli()
+    } else {
+      this.timestamp.ts_unix()
+    }
+```
+
+---
+
+### Future timestamps being accepted
+
+**Cause:** No validation on timestamp range
+
+**Fix:** Add validation:
+
+```yaml
+- mapping: |
+    if this.timestamp.ts_unix() > now().ts_unix() + 300 {
+      throw("Timestamp too far in future")
+    }
+```
+
+## Still stuck?
+
+1. Add debug logging: `logger: {level: DEBUG}`
+2. Check the [Complete Pipeline](/data-transformation/normalize-timestamps/complete-pipeline) for reference config
+3. Review [Parse Logs](/data-transformation/parse-logs) for format detection patterns

@@ -1,0 +1,43 @@
+pipeline:
+  processors:
+    - mapping: |
+        meta device_id = this.device_id
+        meta timestamp = this.timestamp
+        meta location = this.location
+        root = this
+        
+    - unarchive:
+        format: json_array
+        field: readings
+        
+    - mapping: |
+        root = this
+        root.device_id = meta("device_id")
+        root.timestamp = meta("timestamp")
+        root.location = meta("location")
+        
+        # Add alert classification
+        root.alert_level = match {
+          this.value >= 80 => "critical"
+          this.value >= 75 => "warning"  
+          _ => "normal"
+        }
+
+# Route based on individual temperature values
+output:
+  switch:
+    cases:
+      - check: this.alert_level == "critical"
+        output:
+          http_client:
+            url: http://alerts.company.com/critical
+            verb: POST
+      - check: this.alert_level == "warning" 
+        output:
+          kafka:
+            topic: temperature-warnings
+            addresses: ["kafka:9092"]
+      - output:
+          s3:
+            bucket: temperature-storage
+            path: normal/\${timestamp_date()}/

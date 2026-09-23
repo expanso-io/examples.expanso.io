@@ -1,0 +1,46 @@
+---
+title: 'Step 3: Label Selected Statuses'
+sidebar_label: 'Step 3: Label Statuses'
+sidebar_position: 6
+description: Add neutral review labels to selected synthetic adapter statuses.
+keywords: [scada, classification, status-labeling, bloblang]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-event-labels]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Step 3: Label Selected Statuses
+
+The mapping assigns a neutral `review_class` to records retained by the previous stage.
+
+## Reference configuration
+
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        root.review_class = match {
+          this.adapter_status == 2 => "status-2"
+          this.adapter_status == 1 => "status-1"
+          _ => "unclassified-status"
+        }
+```
+
+These strings are deterministic grouping labels, not a diagnostic model. They deliberately avoid assigning physical fault or severity meaning.
+
+## Review before implementation
+
+- Replace the status mapping with site-owned definitions.
+- Define handling for missing, malformed, and undocumented status values.
+- Keep review labels separate from protection and control functions.
+- Add a correlation stage before any rule that depends on several registers.
+
+Source artifact: `examples/integrations/scada-energy-edge/step-3-classify-faults.yaml`.
+
+**Next:** [Inspect the destination contract](/integrations/scada-energy-edge/step-4-route-to-destinations).

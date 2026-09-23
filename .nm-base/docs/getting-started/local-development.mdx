@@ -1,0 +1,94 @@
+---
+title: Local Development Setup
+sidebar_label: Local Development
+sidebar_position: 3
+description: Set up a local development environment for running Expanso examples.
+keywords: [local-development, docker, setup]
+contentArchetype: reference
+localNavigation: true
+uniqueTasks: [configure-local-example-services]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Local Development Setup
+
+This guide helps you set up a local development environment with all the services needed to run the Expanso examples.
+
+## Philosophy
+
+Each example is designed to be self-contained. To support this, we provide individual Docker Compose files for each required service, such as Kafka, PostgreSQL, or Redis. Start the services required for the specific example you are working on.
+
+## Available Services
+
+Each of the following services has a dedicated setup page with instructions and the necessary Docker Compose configuration file content.
+
+- **[Kafka](/getting-started/services/kafka)**: A distributed event streaming platform.
+- **[PostgreSQL](/getting-started/services/postgres)**: A powerful, open-source object-relational database system.
+- **[Redis](/getting-started/services/redis)**: An in-memory data structure store, used as a database, cache, and message broker.
+
+Please refer to the `setup.mdx` file for the example you are interested in to see which services are required.
+
+## General Setup
+
+The following steps are common to all examples.
+
+### Environment Variables
+
+Set these environment variables for use across examples. You can add them to your `~/.bashrc` or `~/.zshrc` to make them permanent.
+
+```bash
+# Kafka
+export KAFKA_BROKERS="localhost:9092"
+
+# PostgreSQL
+export DB_CONNECTION_STRING="postgresql://expanso:expanso@localhost:5432/expanso_dev"
+
+# Redis
+export REDIS_URL="redis://localhost:6379"
+
+# Verify configuration
+echo "Kafka: $KAFKA_BROKERS"
+echo "PostgreSQL: $DB_CONNECTION_STRING"
+echo "Redis: $REDIS_URL"
+```
+
+## Install Expanso CLI Tools
+
+Install the Expanso command-line tools to deploy and manage pipelines:
+
+```bash
+# Install expanso-cli (control plane interaction)
+curl -fsSL https://get.expanso.io/cli/install.sh | bash
+
+# Install expanso-edge (local pipeline execution)
+curl -fsSL https://get.expanso.io/edge/install.sh | bash
+
+# Verify installation
+expanso-cli version
+expanso-edge version
+```
+
+### Configure CLI Profile
+
+```bash
+# Save your profile (get token from Expanso dashboard)
+expanso-cli profile save --name default --endpoint https://api.expanso.io
+
+# Verify connection
+expanso-cli health
+```
+
+### Verify Services
+
+Ensure all required services are running for your specific example. Each example's setup page will list the required services.
+
+```bash
+# Check orchestrator status
+expanso-cli status
+
+# List available nodes
+expanso-cli node list
+```

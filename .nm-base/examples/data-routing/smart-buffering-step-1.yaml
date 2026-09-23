@@ -1,0 +1,58 @@
+name: smart-buffering-step-1
+description: Step 1 - Classify messages into priority tiers
+type: pipeline
+namespace: default
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+      timeout: 5s
+
+  pipeline:
+    processors:
+      - json_documents:
+          parts: []
+
+      # Classify priority based on message attributes
+      - mapping: |
+          root = this
+
+          let category = this.category.or("").string().lowercase()
+          let severity = this.severity.or("info").string().lowercase()
+          let event_type = this.event_type.or("").string().lowercase()
+
+          # Important: critical alerts, payment failures, security events
+          let is_important = match {
+            category == "important" => true,
+            severity == "critical" => true,
+            event_type.has_prefix("payment.failed") => true,
+            event_type.has_prefix("security.") => true,
+            _ => false
+          }
+
+          # Archive: debug logs, analytics, audit trails
+          let is_archive = match {
+            category == "archive" => true,
+            severity == "debug" => true,
+            event_type.has_prefix("analytics.") => true,
+            _ => false
+          }
+
+          # Assign priority tier
+          root.priority_tier = match {
+            is_important => 1,
+            is_archive => 3,
+            _ => 2
+          }
+
+          root.priority_label = match root.priority_tier {
+            1 => "important",
+            2 => "regular",
+            3 => "archive"
+          }
+
+  output:
+    stdout:
+      codec: lines

@@ -1,0 +1,78 @@
+---
+title: Complete Format Transformation Pipeline
+sidebar_label: Complete Pipeline
+sidebar_position: 7
+description: The complete data format transformation pipeline
+keywords: [complete, format-transformation, json, avro, parquet]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-transform-formats-complete-pipeline]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/data-transformation/transform-formats-complete.yaml';
+import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
+
+# Complete Pipeline
+
+<CopyPipelineButton pipeline={pipelineYaml} />
+
+This pipeline combines all format transformation techniques from this tutorial:
+
+- **JSON to Avro** - Convert JSON to schema-validated Avro
+- **Avro to Parquet** - Convert for columnar analytics storage
+- **Auto-detect** - Automatically detect input format and convert
+- **Schema validation** - Enforce schema during transformation
+
+## Full Configuration
+
+<CodeBlock language="yaml" title="transform-formats.yaml">
+  {pipelineYaml}
+</CodeBlock>
+
+## Quick Test
+
+```bash
+# Send JSON data (converted to Avro/Parquet based on config)
+curl -X POST http://localhost:8080/data \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sensor_id": "temp-001",
+    "temperature": 72.5,
+    "humidity": 45.0,
+    "timestamp": "2024-01-15T10:30:00Z"
+  }'
+
+# Output written to configured destination in target format
+```
+
+## Deploy
+
+```bash
+# Deploy to Expanso orchestrator
+expanso-cli job deploy transform-formats.yaml
+
+# Or run locally with expanso-edge
+expanso-edge run --config transform-formats.yaml
+```
+
+## Download
+
+<a
+  href="/files/data-transformation/transform-formats.yaml"
+  download
+  className="button button--primary"
+>
+  Download transform-formats.yaml
+</a>
+
+## What's Next?
+
+- [Troubleshooting](/data-transformation/transform-formats/troubleshooting) - Common issues and solutions
+- [Aggregate Time Windows](/data-transformation/aggregate-time-windows) - Aggregate data over time

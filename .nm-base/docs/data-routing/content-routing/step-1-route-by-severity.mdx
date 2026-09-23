@@ -1,0 +1,107 @@
+---
+title: Route Messages by Severity Level
+sidebar_label: Step 1 - Severity Routing
+sidebar_position: 4
+description: Route messages to different destinations based on a severity field.
+keywords: [routing, switch, conditional]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-content-routing-step-1-route-by-severity]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+In this step, you will modify the `foundation.yaml` pipeline to selectively route messages based on their `severity` field. This is the core of content routing.
+
+- **CRITICAL** events will be sent to PagerDuty.
+- **WARN** events will be sent to Slack.
+- All other events will be sent to Elasticsearch.
+
+## The `switch` Output
+
+To achieve this, you will replace the `broker` output with a `switch` output. The `switch` output checks conditions in order and sends the message to the first matching output.
+
+## Implementation
+
+1.  **Copy the Foundation:** Start by copying the foundation pipeline to a new file.
+
+    ```bash
+    cp examples/data-routing/foundation.yaml severity-router.yaml
+    ```
+
+2.  **Modify the Output:** Open `severity-router.yaml` and replace the entire `output` section with the `switch` block below.
+
+    ```yaml title="Insert this into severity-router.yaml"
+    output:
+      switch:
+        cases:
+          # Case 1: Handle CRITICAL events
+          - check: this.severity == "CRITICAL"
+            output:
+              http_client:
+                url: https://events.pagerduty.com/v2/enqueue
+                verb: POST
+                headers:
+                  Content-Type: application/json
+                  Authorization: Token ${PAGERDUTY_API_KEY}
+                body: |
+                  {
+                    "routing_key": "${PAGERDUTY_ROUTING_KEY}",
+                    "event_action": "trigger",
+                    "payload": {
+                      "summary": this.message.or("Critical alert"),
+                      "source": this.source.or("content-router"),
+                      "severity": "critical"
+                    }
+                  }
+
+          # Case 2: Handle WARN events
+          - check: this.severity == "WARN"
+            output:
+              http_client:
+                url: ${SLACK_WEBHOOK_URL}
+                verb: POST
+                headers:
+                  Content-Type: application/json
+                body: |
+                  {
+                    "text": "⚠️ Warning: " + this.message.or("No message")
+                  }
+
+          # Case 3 (Default): Handle all other events
+          - output:
+              elasticsearch:
+                hosts:
+                  - ${ELASTICSEARCH_HOST:http://localhost:9200}
+                index: application-logs-${!timestamp_date("2006-01-02")}
+                id: ${!this.event_id.or(uuid_v4())}
+    ```
+
+    Your `severity-router.yaml` file should now use the same `input` as the foundation, but with this new conditional `output`.
+
+3.  **Deploy and Test:** Deploy your new pipeline and send test events with different severities.
+
+    ```bash
+    # Send a critical event
+    curl -X POST http://localhost:8080/events \
+      -H "Content-Type: application/json" \
+      -d '{"severity": "CRITICAL", "message": "Payment processor is down"}'
+
+    # Send a warning event
+    curl -X POST http://localhost:8080/events \
+      -H "Content-Type: application/json" \
+      -d '{"severity": "WARN", "message": "High CPU usage detected"}'
+
+    # Send an info event
+    curl -X POST http://localhost:8080/events \
+      -H "Content-Type: application/json" \
+      -d '{"severity": "INFO", "message": "User successfully logged in"}'
+    ```
+
+4.  **Inspect:** Check the configured outputs and record which destinations accepted each synthetic event.
+
+You have now implemented the core of severity-based routing!

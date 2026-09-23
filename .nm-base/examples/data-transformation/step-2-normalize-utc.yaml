@@ -1,0 +1,14 @@
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        let ts = this.time.parse_timestamp("2006-01-02T15:04:05Z")
+
+        # Normalize to ISO 8601 UTC
+        root.timestamp = ts.ts_format("2006-01-02T15:04:05Z")
+        root.timestamp_epoch = ts.ts_unix()
+
+        # Add time-based metadata
+        root.metadata.hour = ts.ts_format("15", "UTC").number()
+        root.metadata.day_of_week = ts.ts_format("Monday", "UTC")
+        root.metadata.date = ts.ts_format("2006-01-02", "UTC")

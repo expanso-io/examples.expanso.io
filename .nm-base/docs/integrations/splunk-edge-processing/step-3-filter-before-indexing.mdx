@@ -1,0 +1,44 @@
+---
+title: 'Step 3: Apply a Retention Policy'
+description: Delete or sample selected fixture events before the Splunk HEC boundary.
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks:
+  [inspect-integrations-splunk-edge-processing-step-3-filter-before-indexing]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Step 3: Apply a Retention Policy
+
+This stage deletes fixture records before they reach Splunk HEC. Source filtering and search filtering are different controls: a search hides indexed records from a result, while this mapping prevents deleted records from reaching the destination.
+
+## Reference mapping
+
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        if this.level == "DEBUG" {
+          root = deleted()
+        }
+        if this.message.contains("Health check passed") {
+          root = deleted()
+        }
+```
+
+## Review the policy
+
+Record the event classes and bytes before and after filtering with representative traffic. Test required security, audit, investigation, and operational records explicitly. A sample that removes events successfully does not establish that the policy is safe.
+
+Keep reject and observation paths separate from the main HEC output. Define what happens when parsing fails, a policy field is absent, or destination delivery is unavailable.
+
+## Boundary
+
+This authored rule removes debug and health-check fixture lines. It makes no prediction about ingest, licensing, storage, or commercial outcomes for a Splunk environment.
+
+**Next:** [Route retained events to HEC](/integrations/splunk-edge-processing/step-4-route-to-splunk-hec).

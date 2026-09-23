@@ -1,0 +1,77 @@
+---
+title: 'Step 5 - Export to S3'
+sidebar_label: 'Step 5: Export to S3'
+sidebar_position: 8
+description: Configure the pipeline to export batched logs to Amazon S3.
+keywords: [s3-export, cloud-storage, aws, output]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-enrich-export-step-5-export-s3]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Step 5: Export to S3
+
+The final step of this tutorial sends your enriched, restructured, and batched logs to **Amazon S3**.
+
+## The Goal
+
+You will replace the local `file` output in your pipeline with an `aws_s3` output, configuring it to send your batched logs to an S3 bucket.
+
+## The `aws_s3` Output
+
+The `aws_s3` output processor is very similar to the `file` output, but requires a few extra fields for the bucket name, region, and AWS credentials.
+
+## Implementation
+
+1.  **Start with the Previous Pipeline:** Copy the `batched-output.yaml` from Step 4 to a new file named `export-s3.yaml`.
+
+    ```bash
+    cp batched-output.yaml export-s3.yaml
+    ```
+
+2.  **Replace the Output with S3:** Open `export-s3.yaml` and replace the entire `output` section with the `aws_s3` block below.
+
+    ```yaml title="Replace the 'output' section in export-s3.yaml"
+    output:
+      aws_s3:
+        bucket: ${S3_BUCKET_NAME} # From your setup step
+        region: ${AWS_REGION}
+        # This path creates a simple date-based folder structure
+        path: 'logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl'
+
+        # We can re-use the same batching policy from the previous step
+        batching:
+          count: 10
+          period: 5s
+
+        # You must configure your credentials. Using a profile is a common method.
+        credentials:
+          profile: 'default' # Or your named AWS profile
+    ```
+
+3.  **Configure AWS Credentials:** Ensure your environment is configured with AWS credentials. The pipeline above is configured to use the `default` profile. Make sure it's configured or change it to your named profile.
+
+    ```bash
+    # Check your default profile
+    aws configure list
+
+    # Don't forget to set the bucket name and region environment variables
+    export S3_BUCKET_NAME="your-unique-bucket-name"
+    export AWS_REGION="us-east-1"
+    ```
+
+4.  **Deploy and Test:** Run the pipeline after configuring your AWS credentials.
+
+5.  **Verify:**
+    After the pipeline has been running for a short time, check your S3 bucket. You will see new files appearing, organized by date. Each file will contain a batch of 10 log messages.
+    ```bash
+    aws s3 ls s3://${S3_BUCKET_NAME}/logs/ --recursive
+    ```
+
+You have now built the complete tutorial pipeline: it generates data, adds lineage, restructures it, and exports it to cloud storage.

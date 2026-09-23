@@ -1,0 +1,204 @@
+---
+title: Example Dashboard
+sidebar_label: Example Dashboard
+sidebar_position: 999
+description: Track completion status of all interactive examples
+keywords: [dashboard, coverage, examples, health]
+contentArchetype: reference
+localNavigation: true
+uniqueTasks: [inspect-legacy-example-dashboard]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Example Dashboard
+
+This dashboard tracks the completion status of all interactive examples in the documentation.
+
+## Quick Stats
+
+Run `npm run check-health` locally to see current statistics:
+
+```bash
+npm run check-health
+```
+
+## Coverage Report
+
+View the automatically generated coverage report:
+
+```bash
+npm run coverage-report
+```
+
+Or save it to a file:
+
+```bash
+npm run coverage-report -- --output COVERAGE.md
+```
+
+## What Gets Checked
+
+Each example is checked for these required files:
+
+1. **Stage File** (`*-full.stages.ts`) - Pipeline stage definitions
+2. **Explorer Page** (`explorer.mdx`) - Interactive DataPipelineExplorer
+3. **Index Page** (`index.mdx`) - Introduction and overview
+4. **Setup Guide** (`setup.mdx`) - Environment setup instructions
+
+### Completion Levels
+
+- **Complete (100%)**: All 4 files present
+- **Partial (50-99%)**: 2-3 files present
+- **Minimal (below 50%)**: A single file is present
+
+## Categories
+
+Examples are organized into 4 categories:
+
+### Data Routing
+
+Circuit breakers, content routing, fan-out patterns, priority queues
+
+### Data Security
+
+PII removal, encryption patterns, schema enforcement, data sanitization
+
+### Data Transformation
+
+Time windows, deduplication, format conversion, data enrichment
+
+### Log Processing
+
+Log filtering, parsing, enrichment, production pipelines
+
+## Automated Monitoring
+
+The [Example Health workflow](https://github.com/expanso-io/examples.expanso.io/actions/workflows/example-health.yml) runs:
+
+- **On every PR** - Posts health status comment
+- **On push to main** - Updates coverage report
+- **Daily at 9am UTC** - Tracks progress over time
+- **On demand** - Manual workflow dispatch
+
+### Workflow Outputs
+
+1. **PR Comments** - Health status with progress bar
+2. **Coverage Report** - Markdown report as artifact (30-day retention)
+3. **Auto-commit** - Updates `docs/internal/COVERAGE.md` on main branch
+
+## Contributing Examples
+
+To create a new interactive example:
+
+1. **Generate boilerplate**:
+
+   ```bash
+   npm run create-explorer -- \
+     --name "your-example" \
+     --category "data-routing" \
+     --stages 4 \
+     --title "Your Example Title"
+   ```
+
+2. **Implement stage definitions** in the generated `*-full.stages.ts` file
+
+3. **Customize the explorer page** with descriptions and learning outcomes
+
+4. **Create supporting pages**:
+   - `index.mdx` - Introduction
+   - `setup.mdx` - Setup guide
+   - Tutorial steps and complete solution
+
+5. **Validate your work**:
+   ```bash
+   npm run validate-stages  # Check stage file format
+   npm run check-health     # Check file completeness
+   npm run build            # Verify build succeeds
+   ```
+
+See `CONTRIBUTING.md` for detailed guidelines.
+
+## Health Check Details
+
+### Local Health Check
+
+```bash
+# Check all examples
+npm run check-health
+
+# Check specific category
+npm run check-health -- --category data-routing
+
+# Get JSON output for automation
+npm run check-health -- --format json
+```
+
+### Exit Codes
+
+- `0` - All examples are 100% complete
+- `1` - One or more examples are incomplete
+
+This makes the health check suitable for CI/CD pipelines.
+
+## Coverage Report Features
+
+The coverage report includes:
+
+- Overall statistics and progress bar
+- Category-by-category breakdown with tables
+- Detailed list of missing files
+- Prioritized next steps (high priority vs needs significant work)
+
+### Example Coverage Table
+
+| Example          | Stage File | Explorer | Index | Setup | Completion |
+| ---------------- | ---------- | -------- | ----- | ----- | ---------- |
+| circuit-breakers | ✅         | ✅       | ✅    | ✅    | ✅ 100%    |
+| remove-pii       | ✅         | ✅       | ⚠️    | ❌    | ⚠️ 50%     |
+
+## Validation Scripts
+
+### Stage Validation
+
+Checks that stage files follow the correct format:
+
+```bash
+npm run validate-stages
+```
+
+Validates:
+
+- Stage type imports
+- Proper Stage[] exports
+- Sequential stage IDs
+- All required properties
+- New format (not legacy)
+- Valid JsonLine objects
+
+### Type Checking
+
+Ensures TypeScript compilation succeeds:
+
+```bash
+npm run typecheck
+```
+
+## Related Documentation
+
+- `CONTRIBUTING.md` - Complete contributor guide
+- `scripts/README.md` - CLI tool documentation
+- `src/components/DataPipelineExplorer/types.ts` - TypeScript stage definitions used by the explorer
+
+## Questions?
+
+- **How do I create a new example?** Use `npm run create-explorer` - see `CONTRIBUTING.md`
+- **How do I fix incomplete examples?** Run `npm run check-health` to see what's missing
+- **How do I validate my changes?** Run `npm run validate-stages && npm run check-health && npm run build`
+- **Where are the coverage reports?** Check workflow artifacts or `docs/internal/COVERAGE.md` on main branch
+
+---
+
+_This dashboard helps maintainers and contributors track example completion and ensure documentation quality._

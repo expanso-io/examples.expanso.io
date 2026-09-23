@@ -1,0 +1,54 @@
+---
+title: Review the O-RAN Telemetry Reference
+sidebar_label: Run path
+sidebar_position: 3
+description: Inspect the checked-in telemetry architecture without connecting a RAN source or destination.
+keywords: [oran, telemetry, adapter, inspection]
+contentArchetype: run
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-run-path-integrations-oran-telco-pipeline]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Review the O-RAN Telemetry Reference
+
+This path inspects repository artifacts. It does not collect an O-RAN protocol, deploy to OpenShift, or contact any destination.
+
+## Prerequisites
+
+- A checkout of this repository
+- A shell with `sed` and `rg`
+- No RAN, cluster, broker, or analytics credentials
+
+## Run the inspection
+
+From the repository root:
+
+```bash
+test -f static/pipelines/oran-telco-pipeline.yaml
+test -f examples/integrations/oran-input.yaml
+sed -n '1,80p' examples/integrations/oran-input.yaml
+rg -n 'input:|mapping:|broker:|kafka:|file:' \
+  static/pipelines/oran-telco-pipeline.yaml
+```
+
+## Expected output
+
+Both file checks exit successfully. The fixture shows authored telemetry, and the final command identifies source, transformation, and external destination boundaries.
+
+## Cleanup
+
+No files or external resources are created.
+
+## Common failures
+
+- A missing file means the checkout does not contain the referenced artifact.
+- An empty search means the combined reference changed; inspect it directly before updating the walkthrough.
+- The fixture and mappings do not validate network thresholds or destination contracts.
+
+**Next:** [Inspect the source boundary](/integrations/oran-telco-pipeline/step-1-collect-oran-metrics).

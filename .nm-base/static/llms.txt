@@ -1,0 +1,98 @@
+# Expanso Examples
+
+> Source-backed tutorials and pipeline patterns for Expanso Edge. Use these examples to learn, adapt, validate, and deploy Expanso pipeline jobs.
+
+The site contains interactive explorers, step-by-step tutorials, setup notes, troubleshooting guidance, and YAML stored in the public examples repository. Example scope varies: some files are teaching stages or configuration fragments, while files named `*-complete.yaml` are structured as complete job specifications. Check each example's setup page and source before use; external services, credentials, paths, and environment variables may be required.
+
+## Start Here
+
+- [Examples home](https://examples.expanso.io/): Browse the published examples and learning paths.
+- [Local development setup](https://examples.expanso.io/getting-started/local-development/): Configure supporting services used by repository examples.
+- [Expanso Edge installation](https://docs.expanso.io/getting-started/installation): Install Edge and the CLI on supported platforms.
+- [Expanso CLI reference](https://docs.expanso.io/references/cli/expanso-cli/): Current commands for profiles, jobs, nodes, and executions.
+- [Expanso Edge CLI reference](https://docs.expanso.io/references/cli/expanso-edge/): Current commands for bootstrapping and running Edge.
+- [Component reference](https://docs.expanso.io/components): Inputs, processors, outputs, caches, rate limits, and other pipeline components.
+- [Examples source repository](https://github.com/expanso-io/examples.expanso.io): Published source, YAML, validation scripts, and contribution history.
+
+## Current Command-Line Workflow
+
+For Linux or macOS, the official installers use separate endpoints for Edge and the CLI:
+
+```bash
+curl -fsSL https://get.expanso.io/edge/install.sh | bash
+curl -fsSL https://get.expanso.io/cli/install.sh | bash
+
+expanso-edge version
+expanso-cli version
+```
+
+Clone the source repository and validate a complete job locally:
+
+```bash
+git clone https://github.com/expanso-io/examples.expanso.io.git
+cd examples.expanso.io
+
+expanso-cli job validate examples/getting-started/quickstart-complete.yaml --offline
+```
+
+Deploying requires an authenticated Expanso CLI profile and a reachable control plane. After reviewing the job's paths, services, credentials, and node targeting, deploy with the `job` command:
+
+```bash
+expanso-cli job deploy examples/getting-started/quickstart-complete.yaml
+```
+
+Use `expanso-cli job validate` before deployment and consult the CLI reference for profile and monitoring commands.
+
+## Job Specification Shape
+
+Complete deployable examples use a job wrapper around the pipeline configuration:
+
+```yaml
+name: example-job
+type: pipeline
+description: What this job does
+namespace: default
+labels:
+  category: example
+
+# Replace this value with a label present on the target node.
+selector:
+  match_labels:
+    environment: replace-with-node-label
+
+config:
+  input:
+    # one input component
+  pipeline:
+    processors:
+      # zero or more processors
+  output:
+    # one output component
+```
+
+The showcased quickstart is intentionally minimal and uses a sample file path plus an example node selector value. Create the sample input or replace the path, and replace the selector value with a label on the node that should run the job before deployment.
+
+Other tutorial stage files may contain only part of this structure. Prefer a matching `*-complete.yaml` file when validating or deploying a full job, then adapt its components and environment-specific values.
+
+## Core Learning Paths
+
+- [Log severity filtering](https://examples.expanso.io/log-processing/filter-severity/): Parse logs, filter by severity, and route selected records.
+- [Structured log parsing](https://examples.expanso.io/data-transformation/parse-logs/): Explore parsing patterns for several log formats.
+- [Content-based routing](https://examples.expanso.io/data-routing/content-routing/): Route records using conditional pipeline logic.
+- [PII removal](https://examples.expanso.io/data-security/remove-pii/): Explore deletion, hashing, pseudonymization, and generalization patterns.
+- [Enterprise migration examples](https://examples.expanso.io/enterprise-migration/): Review staged migration pipeline walkthroughs.
+- [Splunk edge-processing walkthrough](https://examples.expanso.io/integrations/splunk-edge-processing/): Independent technical example for preparing and routing data to Splunk HEC.
+
+## Usage Boundaries
+
+- Treat examples as starting points, not universal production configurations.
+- Review the setup and troubleshooting pages for the selected example.
+- Confirm component support against the current component reference.
+- Validate complete job files offline before connecting to a control plane.
+- Test with representative non-production data and provide required credentials through documented secret mechanisms.
+
+## Support
+
+- [Expanso documentation](https://docs.expanso.io/)
+- [Expanso Cloud](https://cloud.expanso.io/)
+- [Support](mailto:support@expanso.io)

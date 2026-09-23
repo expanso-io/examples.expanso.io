@@ -1,0 +1,94 @@
+---
+title: 'Step 1: Convert JSON to Avro'
+sidebar_label: 'Step 1: JSON to Avro'
+sidebar_position: 3
+description: Transform JSON messages to the compact binary Avro format using an Avro schema.
+keywords: [json-to-avro, avro, serialization, schema]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-transform-formats-step-1-convert-json-avro]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Step 1: Convert JSON to Avro
+
+A common transformation is to convert from a text-based format like JSON to a schema-based, binary format like **Avro**. Avro is more compact and efficient for high-volume streaming, especially with systems like Kafka.
+
+## The Goal
+
+You will create a pipeline that takes a JSON message, validates it against an Avro schema, and converts it to the binary Avro format.
+
+## The "Prepare -> Convert" Pattern
+
+1.  **Define Schema:** Avro requires a schema that describes the data. You'll create a simple `.avsc` file.
+2.  **Prepare:** The incoming JSON data must be structured to perfectly match the schema. This often involves a `mapping` processor to ensure data types are correct (e.g., converting a timestamp string to an integer).
+3.  **Convert:** Use the `to_avro` processor to perform the conversion.
+
+## Implementation
+
+1.  **Define the Avro Schema:** Create a file named `sensor.avsc`. This schema defines the structure for our sensor data. Notice that the `timestamp` is a `long` (a 64-bit integer), not a string.
+
+    ```json title="sensor.avsc"
+    {
+      "type": "record",
+      "name": "SensorReading",
+      "fields": [
+        { "name": "sensor_id", "type": "string" },
+        { "name": "temperature", "type": "double" },
+        {
+          "name": "timestamp",
+          "type": "long",
+          "logicalType": "timestamp-millis"
+        }
+      ]
+    }
+    ```
+
+2.  **Create the Conversion Pipeline:** Copy the following configuration into a file named `json-to-avro.yaml`.
+
+    ```yaml title="json-to-avro.yaml"
+    name: json-to-avro-converter
+    description: A pipeline that converts JSON to Avro.
+
+    config:
+      input:
+        generate:
+          interval: 1s
+          mapping: |
+            root = {
+              "sensor_id": "sensor-1",
+              "temperature": 25.5,
+              "timestamp": now().ts_format_iso8601()
+            }
+
+      pipeline:
+        processors:
+          # 1. PREPARE: Ensure the data matches the Avro schema.
+          # The schema requires 'timestamp' to be a 'long' (integer),
+          # but our input is an ISO8601 string. We must convert it.
+          - mapping: |
+              root = this
+              root.timestamp = this.timestamp.parse_timestamp().unix_milli()
+
+          # 2. CONVERT: Convert the prepared JSON object to Avro binary format.
+          # This processor replaces the message content with the binary data.
+          - to_avro:
+              schema_path: 'file://./sensor.avsc'
+
+      output:
+        stdout:
+          codec: lines
+    ```
+
+3.  **Deploy and Observe:** Watch the logs. The output will not be readable JSON. It will be a stream of binary Avro data, which is exactly what a system like Kafka would expect.
+
+## Verification
+
+The output in your console will look like garbled text, because it is binary data. This confirms the conversion was successful. A downstream system with access to the same Avro schema would be able to read this binary data and understand its structure perfectly.
+
+You have transformed JSON into a schema-enforced binary format.

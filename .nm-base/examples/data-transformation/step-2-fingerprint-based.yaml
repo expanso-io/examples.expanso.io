@@ -1,0 +1,25 @@
+# Fingerprint-based deduplication
+processors:
+  - mapping: |
+      # Extract only business-critical fields
+      let business_fields = {
+        "event_type": this.event_type,
+        "user_email": this.user.email,
+        "signup_source": this.signup_details.source,
+        "signup_plan": this.signup_details.plan
+      }
+
+      root.business_fingerprint = business_fields.json_format().hash("sha256")
+
+  - cache:
+      resource: dedup_cache
+      operator: get
+      key: \${! this.business_fingerprint }
+
+  - mapping: |
+      root = if meta("cache").exists() {
+        deleted()  # Drop semantic duplicates
+      } else {
+        _ = cache_set("dedup_cache", this.business_fingerprint, now(), "6h")
+        this
+      }

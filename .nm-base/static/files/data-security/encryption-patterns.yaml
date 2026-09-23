@@ -1,0 +1,40 @@
+- mapping: |
+    root = this
+
+    # Encrypt full card number with AES-256-GCM
+    root.payment.card_number_encrypted = if this.payment.card_number.exists() {
+      this.payment.card_number.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
+    }
+
+    # Keep last 4 digits for display (PCI-DSS allowed)
+    root.payment.card_last_four = if this.payment.card_number.exists() {
+      this.payment.card_number.re_replace_all("[^0-9]", "").slice(-4)
+    }
+
+    # Detect card brand for analytics (PCI-DSS allowed)
+    root.payment.card_brand = if this.payment.card_number.exists() {
+      match {
+        this.payment.card_number.re_match("^4") => "visa"
+        this.payment.card_number.re_match("^5[1-5]") => "mastercard"
+        this.payment.card_number.re_match("^3[47]") => "amex"
+        this.payment.card_number.re_match("^6(?:011|5)") => "discover"
+        _ => "unknown"
+      }
+    }
+
+    # Encrypt CVV (never store unencrypted)
+    root.payment.cvv_encrypted = if this.payment.cvv.exists() {
+      this.payment.cvv.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
+    }
+
+    # Encrypt cardholder name
+    root.payment.cardholder_name_encrypted = if this.payment.cardholder_name.exists() {
+      this.payment.cardholder_name.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
+    }
+
+    # Remove plaintext credit card data
+    root.payment = this.payment.without(
+      "card_number",
+      "cvv",
+      "cardholder_name"
+    )

@@ -1,0 +1,88 @@
+---
+title: 'Advanced Content Routing Patterns'
+sidebar_label: 'Step 4: Advanced Patterns'
+sidebar_position: 7
+description: Explore advanced content routing patterns for complex business logic.
+keywords: [routing, advanced-patterns, multi-condition, fan-out]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-content-routing-step-4-advanced-patterns]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Advanced Content Routing Patterns
+
+Once you have mastered the basic `switch` for routing, you can combine conditions and use more advanced brokers to create sophisticated routing logic.
+
+## Pattern 1: Multi-Condition Routing
+
+A `check` can evaluate multiple conditions. For example, route a message with `CRITICAL` severity and an `EU` region label to a separately named priority output.
+
+```yaml title="Multi-Condition Check"
+output:
+  switch:
+    cases:
+      - check: 'this.severity == "CRITICAL" && this.region == "EU"'
+        output:
+          # Separate high-priority destination for the authored EU label
+          file:
+            path: /tmp/eu-critical-alerts.jsonl
+            codec: lines
+
+      # Other cases follow...
+      - check: 'this.region == "EU"'
+        output:
+          file:
+            path: /tmp/eu-data.jsonl
+            codec: lines
+
+      - check: 'this.severity == "CRITICAL"'
+        output:
+          file:
+            path: /tmp/critical.jsonl
+            codec: lines
+```
+
+The order is important. The multi-condition check must come first, otherwise the single-condition checks would match the event first.
+
+## Pattern 2: Multi-Criteria Scoring
+
+For complex logic, calculate a `priority_score` in a `mapping` processor first, then use the `switch` to route based on that score.
+
+The **[Priority Queues tutorial](/data-routing/priority-queues/step-1-severity-routing)** uses the same pattern for multi-criteria routing.
+
+**Processor:**
+
+```yaml
+- mapping: |
+    root = this
+    let score = 0
+    if this.severity == "CRITICAL" { score = score + 50 }
+    if this.region == "EU" { score = score + 30 }
+    if this.event_type == "payment" { score = score + 20 }
+    root.priority_score = score
+```
+
+**Output:**
+
+```yaml
+output:
+  switch:
+    cases:
+      - check: this.priority_score >= 80 # e.g., CRITICAL EU payment
+        output:
+          # highest priority destination
+
+      - check: this.priority_score >= 50 # e.g., CRITICAL non-EU
+        output:
+          # medium priority destination
+
+      # ... and so on
+```
+
+This pattern makes your routing logic much easier to read, manage, and test.

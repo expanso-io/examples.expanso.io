@@ -1,0 +1,46 @@
+---
+title: 'Step 2: Select Adapter Statuses'
+sidebar_label: 'Step 2: Select Statuses'
+sidebar_position: 5
+description: Retain synthetic records whose adapter-supplied status is nonzero.
+keywords: [scada, filtering, status, bloblang]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-selection-rules]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Step 2: Select Adapter Statuses
+
+The example deletes status `0` records. Any nonzero adapter status continues to the next processor.
+
+## Reference configuration
+
+```yaml
+pipeline:
+  processors:
+    - mapping: |
+        if this.adapter_status == 0 {
+          root = deleted()
+        }
+```
+
+Status `0`, `1`, and `2` are fixture conventions. This configuration does not interpret a device condition or validate the gateway's status mapping.
+
+## Review before implementation
+
+- Confirm the adapter's status vocabulary and missing-value behavior.
+- Decide whether unknown statuses should pass, fail, or use a separate route.
+- Test retained and deleted counts with representative, authorized data.
+- Decide how deletion affects investigation and retention requirements.
+
+No retained fraction or operating behavior has been measured for this configuration.
+
+Source artifact: `examples/integrations/scada-energy-edge/step-2-filter-nominal.yaml`.
+
+**Next:** [Inspect event labeling](/integrations/scada-energy-edge/step-3-classify-fault-events).

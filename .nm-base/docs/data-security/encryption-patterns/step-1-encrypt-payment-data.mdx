@@ -1,0 +1,57 @@
+---
+title: 'Step 1: Encrypt Payment Data'
+sidebar_label: 'Step 1: Payment Encryption'
+sidebar_position: 4
+description: Inspect field selection and encryption configuration for synthetic payment data.
+keywords: [encryption, payment, credit-card, pci-dss, pattern]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-encryption-patterns-step-1-encrypt-payment-data]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Pattern 1: Encrypting Payment Data
+
+This pattern selects authored payment fields for encryption, retains chosen display fields, and removes the source values. Review the retained fields and key boundary before adaptation.
+
+## The Pattern
+
+For any object containing a credit card number, the pattern is:
+
+1.  **Encrypt** the full `card_number` using a strong encryption key.
+2.  **Extract** analytics-safe fields like `card_last_four` and `card_brand`.
+3.  **Delete** the original plaintext `card_number`.
+
+## Implementation
+
+You can apply this pattern with a single `mapping` processor.
+
+1.  **Start with a Foundation:** Begin with a pipeline that simply passes through payment data, like the `encryption-foundation.yaml` from the previous tutorial.
+
+2.  **Add the Encryption Processor:** Add this processor to your pipeline. It implements the complete pattern in one step.
+
+    ```yaml title="Add this processor to your pipeline"
+    - mapping: |
+        # 1. ENCRYPT
+        # Encrypt the full card number after cleaning it.
+        let clean_card = this.payment.card_number.re_replace_all("[^0-9]", "")
+        root.payment.card_number_encrypted = clean_card.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
+
+        # 2. PRESERVE
+        # Extract the last 4 digits and card brand.
+        root.payment.card_last_four = clean_card.slice(-4)
+        root.payment.card_brand = if clean_card.has_prefix("4") { "visa" } else { "unknown" }
+
+        # 3. DELETE
+        # Remove the original plaintext field.
+        root.payment = this.payment.without("card_number")
+    ```
+
+## Verification
+
+When you run data through this pipeline, the output `payment` object will no longer contain the plaintext `card_number`. Instead, it will have the `card_number_encrypted`, `card_last_four`, and `card_brand` fields, satisfying both security requirements and business analytics needs. This same pattern can be applied to other sensitive payment fields like the CVV and cardholder name.

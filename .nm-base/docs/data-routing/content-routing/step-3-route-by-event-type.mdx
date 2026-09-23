@@ -1,0 +1,80 @@
+---
+title: 'Step 3: Route by Event Type'
+sidebar_label: 'Step 3: Route by Event Type'
+sidebar_position: 6
+description: Route logs to different destinations based on the type of event.
+keywords: [log-routing, conditional-routing, switch-output, event-type]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-content-routing-step-3-route-by-event-type]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Step 3: Route by Event Type
+
+In addition to severity, another common routing key is the **event type**. For example, you might want to send all events related to payments to a special fraud detection system, regardless of their log level.
+
+This step teaches you how to add routing logic based on a field like `event_type`.
+
+## The Goal
+
+You will modify your `switch` output so that any message with `event_type: "payment"` is sent to a dedicated `payments.jsonl` file, taking priority over the existing severity-based routing.
+
+## Implementation
+
+1.  **Start with the Previous Pipeline:** Copy the `severity-router.yaml` from Step 1 to a new file named `event-router.yaml`.
+
+    ```bash
+    cp severity-router.yaml event-router.yaml
+    ```
+
+2.  **Add the Event Type Routing Rule:** Open `event-router.yaml` and add a new `case` to the **top** of your `switch` block. Placing it at the top gives it the highest priority.
+
+    ```yaml title="Modify the 'output' in event-router.yaml"
+    output:
+      switch:
+        cases:
+          # --- START: New addition ---
+          # Case 1: Handle all 'payment' events first for fraud analysis.
+          - check: 'this.event_type == "payment"'
+            output:
+              file:
+                path: /tmp/payments.jsonl
+                codec: lines
+          # --- END: New addition ---
+
+          # Case 2: Handle CRITICAL events (that are not payment events)
+          - check: 'this.level.string().uppercase() == "ERROR"'
+            output:
+              file:
+                path: /tmp/errors.jsonl
+                codec: lines
+
+          # Case 3: Handle WARN events (that are not payment events)
+          - check: 'this.level.string().uppercase() == "WARN"'
+            output:
+              file:
+                path: /tmp/warnings.jsonl
+                codec: lines
+    ```
+
+3.  **Deploy and Test:**
+
+    ```bash
+    # Send a CRITICAL event that is also a payment event
+    curl -X POST http://localhost:8080/ingest -d '{"level": "ERROR", "event_type": "payment", "message": "High-risk transaction"}'
+
+    # Send a regular CRITICAL event
+    curl -X POST http://localhost:8080/ingest -d '{"level": "ERROR", "event_type": "login", "message": "Auth failure"}'
+    ```
+
+4.  **Verify:** Check your output files.
+    - The first event, despite being an `ERROR`, will be in `payments.jsonl` because the first rule in the `switch` matched it.
+    - The second event will be in `errors.jsonl` because it did not match the payment rule and fell through to the severity-based routing.
+
+You have now built a routing system that can make decisions based on multiple different fields in your data.

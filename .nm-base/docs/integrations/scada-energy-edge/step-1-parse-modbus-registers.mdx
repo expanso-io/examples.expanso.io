@@ -1,0 +1,66 @@
+---
+title: 'Step 1: Parse Adapter-Decoded Registers'
+sidebar_label: 'Step 1: Parse Records'
+sidebar_position: 4
+description: Map synthetic gateway records to example engineering fields and scaling factors.
+keywords: [scada, gateway, parsing, bloblang]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-register-parser]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Step 1: Parse Adapter-Decoded Registers
+
+The input is a synthetic line emitted after gateway decoding. Expanso splits its fields, applies the example register map, and produces JSON.
+
+## Boundary
+
+The gateway owns protocol polling, framing, reconnect behavior, device authentication, and raw-register decoding. This mapping starts with delimited text; it is not a Modbus client.
+
+## Reference configuration
+
+```yaml
+input:
+  socket:
+    network: tcp
+    address: 0.0.0.0:502
+    codec: lines
+
+pipeline:
+  processors:
+    - mapping: |
+        let fields = content().string().split(";").fold({}, (acc, item) -> {
+          let parts = item.split("=")
+          acc | { parts[0]: parts[1] }
+        })
+        let reg = fields.REG.number()
+        let val = fields.VAL.number()
+
+        root.voltage_kv = if reg == 40001 { val / 100.0 } else { deleted() }
+        root.device_id = fields.DEVICE
+        root.register = reg
+        root.raw_value = val
+        root.status = fields.STATUS.number()
+        root."@timestamp" = fields.TS.number()
+```
+
+For register `40001`, a value of `14823` becomes `voltage_kv: 148.23`. The mapping also retains the device identifier, register, raw value, status, and timestamp.
+
+## Review before implementation
+
+- Confirm addressing conventions with the gateway and device documentation.
+- Confirm each unit and scale factor with the site owner.
+- Define behavior for missing, malformed, duplicated, or out-of-order fields.
+- Decide whether the socket port and record framing are appropriate for the deployment boundary.
+
+This checked-in fragment has not been exercised against a protocol adapter or assessed for malformed-input behavior.
+
+Source artifact: `examples/integrations/scada-energy-edge/step-1-parse-registers.yaml`.
+
+**Next:** [Inspect record selection](/integrations/scada-energy-edge/step-2-filter-normalize-readings).

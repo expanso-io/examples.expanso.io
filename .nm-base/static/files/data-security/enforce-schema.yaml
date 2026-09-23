@@ -1,0 +1,188 @@
+name: sensor-schema-validation
+description: Validate sensor data against JSON Schema with DLQ for failures
+type: pipeline
+namespace: production
+labels:
+  environment: production
+  data-type: sensor-readings
+  validation: enabled
+priority: 100  # High priority for data quality
+
+# Deploy to edge nodes that collect sensor data
+selector:
+  match_labels:
+    role: sensor-collector
+    validation: required
+
+# Deployment strategy
+deployment:
+  strategy: rolling
+  max_parallel: 2
+  health_check:
+    type: http
+    endpoint: /ping
+    interval: 30s
+  auto_rollback: true
+
+# Pipeline configuration
+config:
+  # Accept sensor readings via HTTP
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /sensor/readings
+      allowed_verbs:
+        - POST
+      timeout: 5s
+      rate_limit: "1000/1s"
+
+  # Processing pipeline with validation
+  pipeline:
+    processors:
+      # Step 1: Parse JSON input
+      - json_documents:
+          parts: []
+
+      # Step 2: Add processing metadata
+      - mapping: |
+          root = this
+
+          # Track when message entered pipeline
+          root.pipeline_metadata = {
+            "received_at": now(),
+            "node_id": env("NODE_ID").or("unknown"),
+            "pipeline_version": "1.0.0"
+          }
+
+      # Step 3: Validate against JSON Schema
+      - try:
+          # Attempt schema validation
+          - json_schema:
+              schema_path: "file:///etc/expanso/schemas/sensor-schema-v1.0.0.json"
+
+          # If validation succeeds, add success metadata
+          - mapping: |
+              root = this
+              root.validation = {
+                "status": "passed",
+                "schema_version": "1.0.0",
+                "validated_at": now()
+              }
+
+              # Set metadata for routing
+              meta validation_status = "passed"
+
+        # If validation fails, capture error
+        catch:
+          - mapping: |
+              root = this
+
+              # Capture validation failure details
+              root.validation = {
+                "status": "failed",
+                "schema_version": "1.0.0",
+                "validated_at": now(),
+                "error": error(),
+                "error_type": "schema_validation_failed"
+              }
+
+              # Set metadata for routing to DLQ
+              meta validation_status = "failed"
+              meta validation_error = error()
+
+      # Step 4: Add data quality metrics
+      - mapping: |
+          root = this
+
+          # Create data quality score
+          root.data_quality = {
+            "validated": true,
+            "validation_passed": meta("validation_status") == "passed",
+            "quality_score": if meta("validation_status") == "passed" { 100 } else { 0 }
+          }
+
+  # Output: Route to different destinations based on validation
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # Destination 1: Valid messages to analytics
+        - label: analytics
+          switch:
+            # Only send messages that passed validation
+            - check: 'meta("validation_status") == "passed"'
+              output:
+                http_client:
+                  url: "${ANALYTICS_ENDPOINT:http://analytics-api:8080}/ingest"
+                  verb: POST
+                  headers:
+                    Content-Type: application/json
+                  batching:
+                    count: 100
+                    period: 5s
+                  max_retries: 3
+                  backoff:
+                    initial_interval: 1s
+                    max_interval: 30s
+
+            # Drop messages that failed validation (they go to DLQ instead)
+            - output:
+                drop: {}
+
+        # Destination 2: Failed messages to Dead Letter Queue
+        - label: dead_letter_queue
+          switch:
+            # Only send messages that failed validation
+            - check: 'meta("validation_status") == "failed"'
+              output:
+                file:
+                  path: "/var/log/expanso/schema-validation-dlq-${!timestamp_unix()}.jsonl"
+                  codec: lines
+                  batching:
+                    count: 50
+                    period: 10s
+
+            # Drop messages that passed validation (they go to analytics)
+            - output:
+                drop: {}
+
+        # Destination 3: Validation metrics to monitoring
+        - label: metrics
+          processors:
+            # Extract validation metrics only
+            - mapping: |
+                root = {
+                  "timestamp": now(),
+                  "node_id": env("NODE_ID").or("unknown"),
+                  "validation_status": meta("validation_status"),
+                  "sensor_id": this.sensor_id.or("unknown"),
+                  "error": if meta("validation_status") == "failed" {
+                    meta("validation_error")
+                  }
+                }
+
+          http_client:
+            url: "${METRICS_ENDPOINT:http://metrics-collector:8080}/validation"
+            verb: POST
+            headers:
+              Content-Type: application/json
+            batching:
+              count: 100
+              period: 10s
+            # Don't retry metrics - fire and forget
+            max_retries: 0
+
+# Logging configuration
+logger:
+  level: INFO
+  format: json
+  add_timestamp: true
+
+# Prometheus metrics
+metrics:
+  prometheus:
+    path: /metrics
+  mapping: |
+    root = this
+    meta pipeline = "schema-validation"
+    meta validation = "enabled"

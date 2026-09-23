@@ -1,0 +1,124 @@
+---
+title: Step 3 - Multi-Level Fallback
+sidebar_label: Step 3 - Multi-Level Fallback
+sidebar_position: 5
+description: Implement a multi-level fallback strategy using a dead-letter queue.
+keywords: [fallback, dead-letter-queue, resilience]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-circuit-breakers-step-3-multi-level-fallback]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Step 3: Multi-Level Fallback
+
+Sometimes, even a single fallback isn't enough. What if your primary database fails, and your secondary option (like writing to a log file) also fails due to a disk space issue? For critical data, you need a multi-level fallback strategy.
+
+In this step, you will use the `fallback` output processor to create a chain of outputs, ensuring that if one destination fails, the pipeline automatically tries the next.
+
+## The `fallback` Output
+
+The `fallback` output takes a list of outputs and tries each one in order until one succeeds.
+
+```yaml
+output:
+  fallback:
+    -  # 1. Try this output first
+    -  # 2. If the first one fails, try this one
+    -  # 3. And so on...
+```
+
+## Implementation
+
+You will now modify the database circuit breaker pipeline from the previous step to add a multi-level fallback.
+
+**Goal:**
+
+1.  **Primary:** Try to write the enriched data to a PostgreSQL database.
+2.  **Secondary (Fallback):** If the database fails, write the event to a local file for later recovery.
+3.  **Tertiary (Dead-Letter Queue):** If writing to the local file _also_ fails, drop the event to prevent the pipeline from crashing.
+
+4.  **Copy the Previous Step's Pipeline:**
+
+    ```bash
+    cp http-circuit-breaker.yaml multi-level-fallback.yaml
+    ```
+
+5.  **Modify the Output:** Open `multi-level-fallback.yaml` and replace the entire `output` section with the `fallback` block below.
+
+    ```yaml title="Insert this into multi-level-fallback.yaml"
+    output:
+      fallback:
+        # PRIMARY: Try to insert into the database first.
+        # This is attempted after successful enrichment in the pipeline.
+        - switch:
+            cases:
+              - check: this.db_enriched == true
+                output:
+                  sql_insert:
+                    driver: postgres
+                    data_source_name: ${DB_CONNECTION_STRING}
+                    table: 'enriched_events'
+                    columns:
+                      - event_id
+                      - user_id
+                      - event_type
+                      - enriched_payload
+                    args_mapping: |
+                      root = [
+                        this.event_id,
+                        this.user_id,
+                        this.event_type,
+                        this.format_json()
+                      ]
+
+        # SECONDARY: If the database insert fails (e.g., DB is down),
+        # write the event to a local buffer file.
+        - file:
+            path: /tmp/fallback-buffer-${!timestamp_unix_date()}.jsonl
+            codec: lines
+
+        # TERTIARY (DLQ): If writing to the file fails (e.g., disk full),
+        # log a critical error and drop the message to prevent a crash.
+        - processors:
+            - log:
+                level: FATAL
+                message: 'All fallbacks failed. Dropping event: ${!this.event_id}'
+          drop: {}
+    ```
+
+## 3. Deploy and Test
+
+1.  **Test the Primary Path (Database Online):** Make sure your PostgreSQL container is running and send a request. The event should be written to the database.
+
+    ```bash
+    # Ensure Postgres is running
+    docker compose -f services/postgres.yml start
+
+    # Send a request
+    curl -X POST http://localhost:8084/user-events \
+      -H "Content-Type: application/json" \
+      -d '{"user_id": "user_001", "event_type": "login"}'
+    ```
+
+2.  **Test the Secondary Path (Database Offline):** Stop the database and send another request. The event should now be written to a file in `/tmp/`.
+
+    ```bash
+    # Stop Postgres
+    docker compose -f services/postgres.yml stop
+
+    # Send a request
+    curl -X POST http://localhost:8084/user-events \
+      -H "Content-Type: application/json" \
+      -d '{"user_id": "user_002", "event_type": "logout"}'
+
+    # Check the buffer file
+    ls /tmp/fallback-buffer-*.jsonl
+    ```
+
+You have now built a resilient pipeline that can survive multiple downstream failures.

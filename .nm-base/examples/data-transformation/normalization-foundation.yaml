@@ -1,0 +1,19 @@
+name: normalization-foundation
+description: A foundation pipeline that passes through events with un-normalized timestamps.
+type: pipeline
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /ingest
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+          root.processed_at = now()
+
+  output:
+    stdout:
+      codec: lines

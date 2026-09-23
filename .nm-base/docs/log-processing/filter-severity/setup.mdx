@@ -1,0 +1,88 @@
+---
+title: Setup Environment for Log Severity Filtering
+sidebar_label: Setup
+sidebar_position: 3
+description: Configure sample logs and environment variables for log filtering.
+keywords: [setup, environment, configuration, log-processing]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-filter-severity-setup]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Setup Environment for Log Severity Filtering
+
+Before building the log filtering pipeline, you'll set up sample application logs and configure environment variables.
+
+## Prerequisites
+
+This example requires the following services to be running:
+
+- **[Kafka](/getting-started/services/kafka)**
+
+Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
+
+## Step 1: Create Sample Log Directory
+
+First, create the directory structure where your application logs will reside:
+
+```bash
+# Create log directories with proper permissions
+sudo mkdir -p /var/log/app
+sudo mkdir -p /var/log/expanso
+sudo chown $USER:$USER /var/log/app /var/log/expanso
+
+# Verify directory creation
+ls -la /var/log/ | grep -E "(app|expanso)"
+```
+
+## Step 2: Generate Sample Log Data
+
+Create realistic sample logs with mixed JSON and plain text formats to test the filtering pipeline:
+
+```bash
+# Create sample JSON logs (structured)
+cat > /var/log/app/application.log << 'EOF'
+{"timestamp":"2024-01-15T10:30:00Z","level":"INFO","message":"User logged in","user_id":"12345","service":"auth"}
+{"timestamp":"2024-01-15T10:30:01Z","level":"DEBUG","message":"Database query executed","query_time":"5ms","service":"api"}
+{"timestamp":"2024-01-15T10:30:02Z","level":"ERROR","message":"Payment processing failed","error":"connection timeout","user_id":"67890","service":"payments"}
+{"timestamp":"2024-01-15T10:30:03Z","level":"WARN","message":"High memory usage detected","usage_percent":"85","service":"api"}
+{"timestamp":"2024-01-15T10:30:04Z","level":"INFO","message":"Cache refreshed","cache_size":"1024MB","service":"api"}
+{"timestamp":"2024-01-15T10:30:05Z","level":"ERROR","message":"Database connection lost","error":"network unreachable","service":"api"}
+{"timestamp":"2024-01-15T10:30:06Z","level":"WARN","message":"Rate limit approaching","current_rate":"950/1000","service":"auth"}
+{"timestamp":"2024-01-15T10:30:07Z","level":"DEBUG","message":"Request processed","response_time":"12ms","service":"api"}
+EOF
+
+# Create sample plain text logs (unstructured)
+cat > /var/log/app/legacy.log << 'EOF'
+2024-01-15 10:30:00 [INFO] Application started successfully
+2024-01-15 10:30:01 [DEBUG] Loading configuration from /etc/app.conf
+2024-01-15 10:30:02 [ERROR] Failed to connect to external service: timeout after 30s
+2024-01-15 10:30:03 [WARN] Disk usage at 90%, cleanup recommended
+2024-01-15 10:30:04 [INFO] User session created for ID: 11111
+2024-01-15 10:30:05 [ERROR] Critical: Data corruption detected in table users
+2024-01-15 10:30:06 [WARN] SSL certificate expires in 7 days
+EOF
+```
+
+## Step 3: Configure Environment Variables
+
+Set up environment variables that will be used for processing metadata and node identification:
+
+```bash
+# Set processing node identifier
+export NODE_ID="edge-001"
+```
+
+---
+
+## Next Steps
+
+Your environment is now configured and ready for building the log filtering pipeline.
+
+**Continue to:** [Step 1: Parse JSON & Add Metadata](/log-processing/filter-severity/step-1-parse-json-add-metadata) to start building the filtering functionality.

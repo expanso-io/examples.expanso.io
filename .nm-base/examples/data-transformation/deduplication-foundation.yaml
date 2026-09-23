@@ -1,0 +1,23 @@
+name: deduplication-foundation
+description: A foundation pipeline that passes through all events, including duplicates.
+type: pipeline
+
+config:
+  input:
+    generate:
+      interval: 1s
+      mapping: |
+        root = {
+          "event_id": "evt-" + (random_int() % 100).string(),
+          "message": "This is a test event."
+        }
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+          root.processed_at = now()
+
+  output:
+    stdout:
+      codec: lines

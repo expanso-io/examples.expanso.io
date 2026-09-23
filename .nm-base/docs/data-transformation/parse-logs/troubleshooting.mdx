@@ -1,0 +1,112 @@
+---
+title: 'Parse Structured Logs Troubleshooting'
+sidebar_label: Troubleshooting
+sidebar_position: 10
+description: Common log parsing issues and solutions
+keywords: [troubleshooting, debug, log-parsing, format-detection]
+contentArchetype: troubleshooting
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-parse-logs-troubleshooting]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Troubleshooting
+
+## Quick Diagnosis
+
+```bash
+# Check container status
+docker ps | grep parse-logs
+
+# Check recent logs
+docker logs parse-logs --tail 50 2>&1 | grep -i error
+
+# Test log parsing
+curl -X POST http://localhost:8080/logs \
+  -H "Content-Type: application/json" \
+  -d '{"level": "INFO", "message": "test"}'
+```
+
+## Common Issues
+
+### Format not detected
+
+**Cause:** Unknown format or malformed input
+
+```bash
+# Check what's being received
+docker logs parse-logs --tail 20 2>&1 | grep -i "format\|parse"
+```
+
+**Fix:** Add format detection fallback:
+
+```yaml
+- mapping: |
+    root = this.parse_json().catch({
+      "raw": content(),
+      "format": "unknown",
+      "parse_error": error()
+    })
+```
+
+---
+
+### JSON parsing fails on valid JSON
+
+**Cause:** Content-Type header missing or wrong
+
+**Fix:** Parse based on content, not header:
+
+```yaml
+- mapping: |
+    root = if content().has_prefix("{") {
+      this.parse_json()
+    } else {
+      {"raw": content()}
+    }
+```
+
+---
+
+### Access log regex not matching
+
+**Cause:** Non-standard log format
+
+**Fix:** Make regex more flexible:
+
+```yaml
+# Standard combined log format
+- mapping: |
+    let parts = this.re_find_all_submatch('^(\\S+) \\S+ \\S+ \\[([^]]+)\\] "([^"]+)" (\\d+) (\\d+)')
+    root.ip = parts.index(0).index(1)
+    root.timestamp = parts.index(0).index(2)
+    root.request = parts.index(0).index(3)
+```
+
+---
+
+### Syslog parsing incomplete
+
+**Cause:** RFC 3164 vs RFC 5424 format mismatch
+
+**Fix:** Support both formats:
+
+```yaml
+- mapping: |
+    root = if content().has_prefix("<") && content().contains(">1 ") {
+      this.parse_syslog_rfc5424()
+    } else {
+      this.parse_syslog_rfc3164()
+    }
+```
+
+## Still stuck?
+
+1. Add debug logging: `logger: {level: DEBUG}`
+2. Check the [Complete Pipeline](/data-transformation/parse-logs/complete-parser) for reference config
+3. Review [Transform Formats](/data-transformation/transform-formats) for format conversion

@@ -1,0 +1,47 @@
+config:
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /sensors/ingest
+
+  pipeline:
+    processors:
+      # Parse JSON
+      - json_documents:
+          parts: []
+
+      # Validate and flatten
+      - mapping: |
+          root.sensor_id = this.sensor_id
+          root.location = this.location
+          root.temperature = this.temperature
+          root.humidity = this.humidity
+          root.timestamp = this.timestamp
+          root.device_type = this.metadata.device_type
+          root.firmware_version = this.metadata.firmware_version
+
+      # Convert to Avro
+      - avro:
+          operator: to_json
+          encoding: binary
+          schema: |
+            {
+              "type": "record",
+              "name": "SensorReading",
+              "namespace": "com.example.sensors",
+              "fields": [
+                {"name": "sensor_id", "type": "string"},
+                {"name": "location", "type": "string"},
+                {"name": "temperature", "type": "double"},
+                {"name": "humidity", "type": "double"},
+                {"name": "timestamp", "type": "string"},
+                {"name": "device_type", "type": "string"},
+                {"name": "firmware_version", "type": "string"}
+              ]
+            }
+
+  output:
+    kafka:
+      addresses: ["${KAFKA_BROKER}"]
+      topic: sensor-readings-avro
+      compression: snappy

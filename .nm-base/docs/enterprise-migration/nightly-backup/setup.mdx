@@ -1,0 +1,53 @@
+---
+title: Review the Nightly Backup Reference
+sidebar_label: Run path
+sidebar_position: 2
+description: Inspect the checked-in backup configuration without connecting a database or object store.
+keywords: [backup, postgres, object-storage, inspection]
+contentArchetype: run
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-run-path-enterprise-migration-nightly-backup]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Review the Nightly Backup Reference
+
+This path inspects repository artifacts. It does not query PostgreSQL, write objects, schedule a job, or test recovery.
+
+## Prerequisites
+
+- A checkout of this repository
+- A shell with `sed` and `rg`
+- No database or cloud credentials
+
+## Run the inspection
+
+From the repository root:
+
+```bash
+test -f examples/enterprise-migration/nightly-backup/nightly-backup.yaml
+sed -n '1,100p' examples/enterprise-migration/nightly-backup/nightly-backup.yaml
+rg -n 'sql_select|_backup_metadata|_checksum|gcp_cloud_storage' \
+  examples/enterprise-migration/nightly-backup/nightly-backup.yaml
+```
+
+## Expected output
+
+The file check exits successfully. The final command identifies the database inputs, recovery-context fields, checksum mapping, and cloud-storage output.
+
+## Cleanup
+
+No files or external resources are created.
+
+## Common failures
+
+- A missing file means the checkout does not contain the referenced artifact.
+- No `rg` matches means the configuration structure changed; inspect the complete file and update this route.
+- A readable configuration does not establish snapshot consistency, object delivery, or recovery behavior.
+
+**Next:** [Inspect table extraction](/enterprise-migration/nightly-backup/step-1-extract-tables).

@@ -1,0 +1,17 @@
+pipeline:
+  processors:
+    # Detect log format based on content patterns
+    - mapping: |
+        root = this
+        root.detected_format = if this.string().has_prefix("{") {
+          "json"
+        } else if this.string().has_prefix("<") {
+          "syslog"
+        } else if this.string().contains(" - - [") {
+          "access_log"
+        } else if this.string().contains(",") {
+          "csv"
+        } else {
+          "unknown"
+        }
+        meta log_format = root.detected_format

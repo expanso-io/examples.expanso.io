@@ -1,0 +1,26 @@
+# Hash-based deduplication processor
+cache_resources:
+  - label: dedup_cache
+    memory:
+      default_ttl: 1h
+      cap: 100000
+
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        # Generate SHA-256 hash of entire content
+        root.dedup_hash = this.json_format().hash("sha256")
+
+    - cache:
+        resource: dedup_cache
+        operator: get
+        key: \${! this.dedup_hash }
+
+    - mapping: |
+        root = if meta("cache").exists() {
+          deleted()  # Drop exact duplicates
+        } else {
+          _ = cache_set("dedup_cache", this.dedup_hash, now(), "1h")
+          this
+        }

@@ -1,0 +1,22 @@
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+
+        # Add cell site metadata (from env or lookup)
+        root.cell_id = env("CELL_ID").or("DU_001")
+        root.site_name = env("SITE_NAME").or("tower-downtown-01")
+        root.region = "northeast"
+
+        # Apply authored review bands; these are not engineering conclusions
+        root.within_example_timing_band = this.ptp_offset_ns >= -100 && this.ptp_offset_ns <= 100
+        root.timing_review = if this.ptp_offset_ns >= -100 && this.ptp_offset_ns <= 100 {
+          "inside-example-band"
+        } else if this.ptp_offset_ns >= -1000 && this.ptp_offset_ns <= 1000 {
+          "review"
+        } else {
+          "review-first"
+        }
+
+        root.prb_review = this.prb_dl_util_percent > 90 || this.prb_ul_util_percent > 90
+        root.cpu_review = this.cpu_percent > 80

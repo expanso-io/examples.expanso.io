@@ -1,0 +1,73 @@
+---
+title: Configure Broker Foundation for Fan-Out
+sidebar_label: Step 1 - Configure Broker
+sidebar_position: 4
+description: Convert a single-output pipeline to a multi-destination fan-out pipeline.
+keywords: [broker, fan-out, concurrent-routing, multi-destination]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-fan-out-pattern-step-1-configure-broker]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Step 1: Configure Broker for Fan-Out
+
+In this step, you will learn the fundamental fan-out pattern: how to take a pipeline that sends data to a single destination and modify it to send copies of each message to **multiple destinations concurrently**.
+
+## The Goal
+
+You will convert a pipeline that writes to a single file into a pipeline that writes to _both_ a file and to your console (`stdout`) at the same time.
+
+## The `broker` Output
+
+To achieve this, you will use the `broker` output with `pattern: fan_out`. The broker acts as a distributor, and `fan_out` tells it to send a copy of every message to every output listed in its `outputs` array.
+
+## Implementation
+
+1.  **Start with the Foundation:** Copy the `fan-out-foundation.yaml` file to a new file named `fan-out.yaml`. This foundation file contains a simple pipeline that sends all messages to a single file.
+
+    ```bash
+    cp examples/data-routing/fan-out-foundation.yaml fan-out.yaml
+    ```
+
+2.  **Modify the Output:** Open `fan-out.yaml` and replace the entire `output` section with the `broker` block below.
+
+    ```yaml title="Insert this into fan-out.yaml"
+    output:
+      broker:
+        pattern: fan_out
+        # The outputs array lists all the destinations.
+        outputs:
+          # The first destination is the original file output.
+          - file:
+              path: /tmp/events.jsonl
+              codec: lines
+
+          # The second destination is stdout.
+          - stdout:
+              codec: lines
+    ```
+
+    You have now configured the pipeline to send every message to two places.
+
+3.  **Deploy and Test:**
+
+    ```bash
+    # Send a test event
+    curl -X POST http://localhost:8080/events \
+      -H "Content-Type: application/json" \
+      -d '{"message": "This goes to two places at once"}'
+    ```
+
+4.  **Verify:** Check your console. You should see the JSON message printed directly to `stdout` by the second output. Now, check the contents of the file.
+    ```bash
+    cat /tmp/events.jsonl
+    ```
+    You will see the exact same message in the file, written by the first output.
+
+You have now successfully configured a fan-out pipeline. In the next steps, you will replace these simple file and `stdout` outputs with real-world destinations like Kafka, S3, and Elasticsearch.

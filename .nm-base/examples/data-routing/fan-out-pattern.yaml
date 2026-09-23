@@ -1,0 +1,46 @@
+name: fan-out-pattern
+description: Multi-destination fan-out pipeline for sensor data
+type: pipeline
+namespace: default
+labels:
+  pattern: fan-out
+  data-type: sensor-metrics
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # Local file for debugging
+        - file:
+            path: /tmp/events.jsonl
+            codec: lines
+
+        # Kafka for real-time streaming
+        - kafka:
+            addresses: ["${KAFKA_BROKERS}"]
+            topic: sensor-events
+            key: "${!this.sensor_id}"
+
+        # S3 for long-term archival
+        - aws_s3:
+            bucket: "${S3_BUCKET}"
+            region: "${AWS_REGION}"
+            path: "events/${!timestamp_unix()}/${!uuid_v4()}.json"
+            batching:
+              count: 10
+              period: 10s
+
+        # Elasticsearch for search and analytics
+        - elasticsearch:
+            urls: ["${ES_ENDPOINT}"]
+            index: "sensor-events-${!timestamp_unix()}"
+            id: "${!this.event_id.or(uuid_v4())}"
+            batching:
+              count: 10
+              period: 10s

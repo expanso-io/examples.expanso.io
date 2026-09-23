@@ -1,0 +1,31 @@
+# Route to separate outputs with tier-specific batching
+output:
+  switch:
+    cases:
+      # IMPORTANT: No batching - ship immediately
+      - check: this.priority_tier == 1
+        output:
+          http_client:
+            url: \${DESTINATION_URL}
+            batching:
+              count: 1      # Immediate!
+              period: 0s
+            max_retries: 10
+
+      # REGULAR: Moderate batching
+      - check: this.priority_tier == 2
+        output:
+          http_client:
+            url: \${DESTINATION_URL}
+            batching:
+              count: 50
+              period: 5s
+
+      # ARCHIVE: Heavy batching
+      - check: this.priority_tier == 3
+        output:
+          http_client:
+            url: \${DESTINATION_URL}
+            batching:
+              count: 200
+              period: 30s

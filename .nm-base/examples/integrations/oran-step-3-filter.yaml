@@ -1,0 +1,29 @@
+pipeline:
+  processors:
+    - mapping: |
+        # Only pass through anomalies and alerts
+        if !(this.ptp_status == "critical" || this.prb_congested || this.cpu_alert) {
+          root = deleted()
+        }
+        
+        # Add severity classification for routing
+        root.severity = if this.ptp_status == "critical" {
+          "critical"
+        } else if this.cpu_alert {
+          "high"
+        } else if this.prb_congested {
+          "medium"
+        } else {
+          "low"
+        }
+        
+        root.alert_type = []
+        if this.ptp_status == "critical" {
+          root.alert_type = this.alert_type.append("timing_violation")
+        }
+        if this.cpu_alert {
+          root.alert_type = this.alert_type.append("resource_exhaustion")
+        }
+        if this.prb_congested {
+          root.alert_type = this.alert_type.append("congestion")
+        }

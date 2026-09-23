@@ -1,0 +1,94 @@
+---
+title: Setup Environment for Event Deduplication
+sidebar_label: Setup
+sidebar_position: 3
+description: Configure cache resources and test data for event deduplication.
+keywords: [setup, environment, configuration, deployment, cache, deduplication]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-deduplicate-events-setup]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Setup Environment for Event Deduplication
+
+Before building the deduplication pipeline, you'll set up cache resources and prepare test data with realistic duplicates.
+
+## Prerequisites
+
+This example requires the following services to be running:
+
+- **[Kafka](/getting-started/services/kafka)**
+- **[Redis](/getting-started/services/redis)**
+
+Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
+
+## Step 1: Configure Example-Specific Variables
+
+After setting up the core services, configure deduplication-specific variables:
+
+```bash
+# Analytics endpoint for processed events (optional)
+export ANALYTICS_ENDPOINT="https://analytics.example.com/api/v1"
+
+# Cache configuration
+export DEDUP_TTL="1h"
+export DEDUP_CACHE_SIZE="100000"
+
+# Test webhook endpoint
+export WEBHOOK_PORT="8080"
+
+# Verify configuration
+echo "Redis URL: $REDIS_URL"
+echo "Cache TTL: $DEDUP_TTL"
+```
+
+## Step 2: Prepare Test Data
+
+Create realistic test data that demonstrates different types of duplicates you'll encounter in production:
+
+```bash
+# Create test data directory
+mkdir -p dedup-test-data
+cd dedup-test-data
+
+# Create exact duplicate events (network retry scenario)
+cat > exact-duplicates.json << 'EOF'
+{"event_id":"evt_001","event_type":"user_signup","timestamp":"2025-01-15T10:00:00Z","user":{"id":"user_123","email":"alice@example.com","name":"Alice Smith"}}
+{"event_id":"evt_001","event_type":"user_signup","timestamp":"2025-01-15T10:00:00Z","user":{"id":"user_123","email":"alice@example.com","name":"Alice Smith"}}
+EOF
+
+# Create semantic duplicate events (load balancer retry scenario)
+cat > semantic-duplicates.json << 'EOF'
+{"event_id":"evt_002","event_type":"user_signup","timestamp":"2025-01-15T10:00:05Z","user":{"id":"user_123","email":"alice@example.com","name":"Alice Smith"}}
+{"event_id":"evt_003","event_type":"user_signup","timestamp":"2025-01-15T10:00:07Z","user":{"id":"user_123","email":"alice@example.com","name":"Alice Smith"}}
+EOF
+
+# Create unique events (should not be deduplicated)
+cat > unique-events.json << 'EOF'
+{"event_id":"evt_004","event_type":"user_signup","timestamp":"2025-01-15T10:01:00Z","user":{"id":"user_456","email":"bob@example.com","name":"Bob Jones"}}
+{"event_id":"evt_005","event_type":"purchase","timestamp":"2025-01-15T10:02:00Z","user":{"id":"user_123","email":"alice@example.com"},"product":{"id":"prod_789","amount":99.99}}
+EOF
+
+# Create mixed scenario test data
+cat > mixed-test-events.json << 'EOF'
+{"event_id":"evt_001","event_type":"user_signup","timestamp":"2025-01-15T10:00:00Z","user":{"id":"user_123","email":"alice@example.com","name":"Alice Smith"}}
+{"event_id":"evt_001","event_type":"user_signup","timestamp":"2025-01-15T10:00:00Z","user":{"id":"user_123","email":"alice@example.com","name":"Alice Smith"}}
+{"event_id":"evt_002","event_type":"user_signup","timestamp":"2025-01-15T10:00:05Z","user":{"id":"user_123","email":"alice@example.com","name":"Alice Smith"}}
+{"event_id":"evt_004","event_type":"user_signup","timestamp":"2025-01-15T10:01:00Z","user":{"id":"user_456","email":"bob@example.com","name":"Bob Jones"}}
+{"event_id":"evt_005","event_type":"purchase","timestamp":"2025-01-15T10:02:00Z","user":{"id":"user_123","email":"alice@example.com"},"product":{"id":"prod_789","amount":99.99}}
+EOF
+
+echo "Test data created successfully!"
+```
+
+## Step 3: Verify Cache Resource
+
+Before proceeding, verify that the cache resource is working correctly for deduplication. You can use the `redis-cli` to interact with your Redis instance.
+
+**Ready for Step 1:** [Implement Hash-Based Deduplication](/data-transformation/deduplicate-events/step-1-hash-based-exact-duplicates)

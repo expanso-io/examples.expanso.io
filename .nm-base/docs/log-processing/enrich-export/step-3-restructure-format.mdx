@@ -1,0 +1,92 @@
+---
+title: 'Step 3 - Restructure the Log Format'
+sidebar_label: 'Step 3: Restructure Format'
+sidebar_position: 6
+description: Transform a flat log into a structured event/metadata format for better organization.
+keywords: [restructure, format-transformation, analytics-optimization]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-enrich-export-step-3-restructure-format]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Step 3: Restructure the Log Format
+
+Once you've added metadata, your log can become a flat list of many fields. A good practice is to **restructure the log** into a cleaner format that separates the original event data from the processing metadata. This makes it much easier for data analysts and downstream systems to use.
+
+## The Goal
+
+You will restructure your flat log into a nested object with two main sections: `event` (the original data) and `metadata` (the lineage information you've added).
+
+**Input Message (Flat Structure):**
+
+```json
+{
+  "id": "abc-123",
+  "timestamp": "...",
+  "level": "INFO",
+  "service": "auth-service",
+  "lineage_node_id": "local-dev-machine",
+  "lineage_pipeline": "enrich-export-tutorial"
+}
+```
+
+**Desired Output (Structured):**
+
+```json
+{
+  "event": {
+    "id": "abc-123",
+    "timestamp": "...",
+    "level": "INFO",
+    "service": "auth-service"
+  },
+  "metadata": {
+    "node_id": "local-dev-machine",
+    "pipeline": "enrich-export-tutorial"
+  }
+}
+```
+
+## Implementation
+
+1.  **Start with the Previous Pipeline:** Copy the `add-lineage.yaml` from Step 2 to a new file named `restructure-log.yaml`.
+
+    ```bash
+    cp add-lineage.yaml restructure-log.yaml
+    ```
+
+2.  **Add the Restructuring Logic:** Open `restructure-log.yaml` and add a new `mapping` processor to the end of the `pipeline` section.
+
+    ```yaml title="Add this to the 'processors' array in restructure-log.yaml"
+    - mapping: |
+        # Create the new, structured root object
+        root = {
+          "event": {
+            "id": this.id,
+            "timestamp": this.timestamp,
+            "level": this.level,
+            "service": this.service,
+            "message": this.message,
+            "user_id": this.user_id,
+            "request_id": this.request_id
+          },
+          "metadata": {
+            "node_id": this.lineage.processing_node_id,
+            "pipeline_name": this.lineage.pipeline_name,
+            "processed_at": this.lineage.processed_at
+          }
+        }
+    ```
+
+3.  **Deploy and Test:** Run the pipeline and watch the output.
+
+4.  **Verify:**
+    Watch the logs from your pipeline. Each log message will now have the clean, two-part structure, making it much easier to read and query.
+
+You have now learned how to transform your data's structure to make it more organized and optimized for analytics.

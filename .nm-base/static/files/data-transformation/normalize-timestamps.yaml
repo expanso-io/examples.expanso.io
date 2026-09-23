@@ -1,0 +1,183 @@
+name: timestamp-normalization
+description: Normalize timestamps to UTC with enrichment
+type: pipeline
+namespace: default
+
+config:
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /events/ingest
+      timeout: 10s
+
+  pipeline:
+    processors:
+      # Parse JSON
+      - json_documents:
+          parts: []
+
+      # Validate required fields
+      - mapping: |
+          root = if this.event_id.exists() && this.event_type.exists() {
+            this
+          } else {
+            throw("Missing required fields: event_id or event_type")
+          }
+
+      # Store original timestamp
+      - mapping: |
+          root = this
+          root.timestamp_original = this.timestamp
+
+      # Detect format and parse
+      - mapping: |
+          root = this
+          let ts = this.timestamp
+
+          # Parse based on type and format
+          root.parsed_timestamp = if ts.type() == "number" {
+            # Unix timestamp (detect seconds vs milliseconds)
+            if ts > 10000000000 {
+              ts.timestamp_unix_milli()
+            } else {
+              ts.timestamp_unix()
+            }
+          } else if ts.type() == "string" {
+            # ISO8601 with timezone
+            if ts.contains("T") && (ts.contains("Z") || ts.contains("+") || ts.contains("-")) {
+              ts.parse_timestamp_iso8601()
+            # ISO8601 without timezone
+            } else if ts.contains("T") {
+              (ts + "Z").parse_timestamp_iso8601()
+            # US format MM/DD/YYYY
+            } else if ts.contains("/") {
+              ts.parse_timestamp("01/02/2006 15:04:05")
+            # SQL format YYYY-MM-DD HH:mm:ss
+            } else if ts.contains("-") && ts.contains(":") && ts.contains(" ") {
+              if this.timezone.exists() {
+                ts.parse_timestamp("2006-01-02 15:04:05", this.timezone)
+              } else {
+                ts.parse_timestamp("2006-01-02 15:04:05", "UTC")
+              }
+            # Compact YYYYMMDD
+            } else if ts.length() == 8 && !ts.contains(":") {
+              ts.parse_timestamp("20060102", "UTC")
+            # Compact YYYYMMDDHHmmss
+            } else if ts.length() == 14 && !ts.contains(":") {
+              ts.parse_timestamp("20060102150405", "UTC")
+            } else {
+              throw("Unsupported timestamp format: " + ts)
+            }
+          } else {
+            throw("Timestamp must be string or number")
+          }
+
+      # Validate timestamp range
+      - mapping: |
+          root = this
+          let now_ts = now()
+          let event_ts = this.parsed_timestamp
+          let diff_seconds = event_ts.timestamp_unix() - now_ts.timestamp_unix()
+
+          # Allow 1 hour future (clock skew), 30 days past (delayed data)
+          root = if diff_seconds > 3600 {
+            throw("Timestamp too far in future: " + diff_seconds.string() + " seconds")
+          } else if diff_seconds < -2592000 {
+            throw("Timestamp too old: " + (diff_seconds * -1).string() + " seconds")
+          } else {
+            this
+          }
+
+      # Standardize to ISO8601 UTC
+      - mapping: |
+          root = this
+          root.timestamp = this.parsed_timestamp.format_timestamp_iso8601()
+          root = this.without("parsed_timestamp")
+
+      # Add time metadata
+      - mapping: |
+          root = this
+          let ts = this.timestamp.parse_timestamp_iso8601()
+
+          root.time_metadata = {
+            "year": ts.format_timestamp("2006", "UTC"),
+            "month": ts.format_timestamp("01", "UTC"),
+            "day": ts.format_timestamp("02", "UTC"),
+            "hour": ts.format_timestamp("15", "UTC"),
+            "minute": ts.format_timestamp("04", "UTC"),
+            "day_of_week": ts.format_timestamp("Mon", "UTC"),
+            "quarter": if ts.format_timestamp("01", "UTC").number() <= 3 {
+              "Q1"
+            } else if ts.format_timestamp("01", "UTC").number() <= 6 {
+              "Q2"
+            } else if ts.format_timestamp("01", "UTC").number() <= 9 {
+              "Q3"
+            } else {
+              "Q4"
+            },
+            "is_business_hours": ts.format_timestamp("15", "UTC").number() >= 9 &&
+                                 ts.format_timestamp("15", "UTC").number() < 17,
+            "is_weekend": ts.format_timestamp("Mon", "UTC") == "Sat" ||
+                         ts.format_timestamp("Mon", "UTC") == "Sun",
+            "unix": ts.timestamp_unix(),
+            "unix_milli": ts.timestamp_unix_milli(),
+            "normalized_at": now().format_timestamp_iso8601(),
+            "node_id": env("NODE_ID").or("unknown")
+          }
+
+      # Preserve original timezone info
+      - mapping: |
+          root = this
+          root.original_timezone = if this.timezone.exists() {
+            this.timezone
+          } else if this.timestamp_original.type() == "string" && this.timestamp_original.contains("+") {
+            this.timestamp_original.re_find_all("([+-][0-9]{2}:[0-9]{2})$").index(0).or("UTC")
+          } else if this.timestamp_original.type() == "string" && this.timestamp_original.contains("Z") {
+            "UTC"
+          } else {
+            "unknown"
+          }
+          root = this.without("timezone")
+
+      # Add processing metadata
+      - mapping: |
+          root = this
+          root.processed_at = now().format_timestamp_iso8601()
+          let event_time = this.timestamp.parse_timestamp_iso8601().timestamp_unix()
+          let process_time = now().timestamp_unix()
+          root.processing_latency_ms = (process_time - event_time) * 1000
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # Time-series database
+        - http_client:
+            url: "${TIMESERIES_ENDPOINT}/write"
+            verb: POST
+            batching:
+              count: 500
+              period: 10s
+
+        # Analytics
+        - kafka:
+            addresses: ["${KAFKA_BROKER}"]
+            topic: "events.normalized"
+            compression: gzip
+            batching:
+              count: 100
+              period: 5s
+
+        # DLQ for failures
+        - switch:
+            - check: errored()
+              output:
+                file:
+                  path: "/var/log/expanso/timestamp-dlq.jsonl"
+                  codec: lines
+            - output:
+                drop: {}
+
+metrics:
+  prometheus:
+    path: /metrics

@@ -1,0 +1,54 @@
+---
+title: Review the Splunk HEC Reference
+sidebar_label: Run path
+sidebar_position: 3
+description: Inspect the checked-in log-processing architecture without contacting a Splunk environment.
+keywords: [splunk, hec, logs, inspection]
+contentArchetype: run
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [review-run-path-integrations-splunk-edge-processing]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Review the Splunk HEC Reference
+
+This path inspects repository artifacts. It does not tail host logs, send a HEC request, or validate a Splunk index.
+
+## Prerequisites
+
+- A checkout of this repository
+- A shell with `sed` and `rg`
+- No Splunk endpoint or token
+
+## Run the inspection
+
+From the repository root:
+
+```bash
+test -f static/pipelines/splunk-production-pipeline.yaml
+test -f examples/integrations/splunk-input.yaml
+sed -n '1,80p' examples/integrations/splunk-input.yaml
+rg -n 'file:|mapping:|http|SPLUNK_HEC_TOKEN' \
+  static/pipelines/splunk-production-pipeline.yaml
+```
+
+## Expected output
+
+Both file checks exit successfully. The fixture shows synthetic logs, and the final command identifies file input, mapping, HTTP output, and token placeholder.
+
+## Cleanup
+
+No files or external resources are created.
+
+## Common failures
+
+- A missing file means the checkout does not contain the referenced artifact.
+- No search matches means the reference changed; inspect the complete file before updating this route.
+- Syntax inspection does not validate HEC authentication, acknowledgement, indexing, or retention behavior.
+
+**Next:** [Inspect file collection](/integrations/splunk-edge-processing/step-1-collect-like-inputs-conf).

@@ -1,0 +1,73 @@
+config:
+  cache_resources:
+    - label: dedup_cache
+      memory:
+        default_ttl: 1h
+        cap: 100000
+        eviction_policy: lru
+
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /webhooks/signup
+
+  pipeline:
+    processors:
+      # Parse JSON
+      - json_documents:
+          parts: []
+
+      # Generate content hash
+      - mapping: |
+          root = this
+          # json_format() ensures stable key ordering
+          let event_json = this.json_format()
+          root.dedup_hash = event_json.hash("sha256")
+          root.dedup_timestamp = now()
+
+      # Check cache for hash
+      - cache:
+          resource: dedup_cache
+          operator: get
+          key: ${! this.dedup_hash }
+
+      # Handle duplicates
+      - mapping: |
+          root = this
+          let is_duplicate = meta("cache").exists()
+
+          # If duplicate, mark for rejection
+          root = if is_duplicate {
+            root.is_duplicate = true
+            meta is_duplicate = true
+            this
+          } else {
+            # New event, add to cache
+            _ = cache_set("dedup_cache", this.dedup_hash, this.dedup_timestamp, "1h")
+            this
+          }
+
+      # Archive duplicates
+      - branch:
+          request_map: root = if meta("is_duplicate") == true { this }
+          processors:
+            - mapping: |
+                root.duplicate_metadata = {
+                  "detected_at": now(),
+                  "original_hash": this.dedup_hash,
+                  "strategy": "hash-based"
+                }
+          result_map: root = deleted()  # Don't merge back
+
+      # Drop duplicates
+      - mapping: |
+          root = if meta("is_duplicate") == true {
+            deleted()
+          } else {
+            this
+          }
+
+  output:
+    http_client:
+      url: "${ANALYTICS_ENDPOINT}/events"
+      verb: POST

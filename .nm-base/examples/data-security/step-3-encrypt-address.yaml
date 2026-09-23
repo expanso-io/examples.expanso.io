@@ -1,0 +1,7 @@
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        root.billing_address.street_encrypted = this.billing_address.street.encrypt_aes_gcm(env("ADDR_KEY"))
+        root.billing_address.zip_encrypted = this.billing_address.zip.encrypt_aes_gcm(env("ADDR_KEY"))
+        root.billing_address = root.billing_address.without("street", "zip")

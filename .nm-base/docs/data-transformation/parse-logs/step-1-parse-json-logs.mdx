@@ -1,0 +1,91 @@
+---
+title: 'Step 1: Parse JSON Logs'
+sidebar_label: 'Step 1: Parse JSON Logs'
+sidebar_position: 4
+description: Extract structured data from a string containing a JSON log message.
+keywords: [json-parsing, application-logs, structured-logging]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-parse-logs-step-1-parse-json-logs]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Step 1: Parse JSON Logs
+
+The most common log parsing task is to take a raw log line that is a **string of JSON** and turn it into a **structured JSON object** that can be easily queried and analyzed.
+
+## The Goal
+
+You will transform a raw message like this, where the `message` field is just a string:
+
+```json
+{
+  "message": "{\"timestamp\": \"2025-10-20T14:23:45Z\", \"level\": \"error\", \"service\": \"api\"}"
+}
+```
+
+Into a structured object where you can access the nested fields:
+
+```json
+{
+  "timestamp": "2025-10-20T14:23:45Z",
+  "level": "error",
+  "service": "api"
+}
+```
+
+## The `.parse_json()` Function
+
+This entire transformation can be done with a single function: `.parse_json()`.
+
+## Implementation
+
+1.  **Create the Parsing Pipeline:** Copy the following configuration into a file named `json-parser.yaml`.
+
+    ```yaml title="json-parser.yaml"
+    name: json-log-parser
+    description: A pipeline that parses a string field containing JSON.
+
+    config:
+      input:
+        generate:
+          interval: 1s
+          mapping: |
+            root.raw_log = '{"timestamp": "2025-10-20T14:23:45Z", "level": "error", "service": "api", "message": "DB connection failed"}'
+
+      pipeline:
+        processors:
+          # This single processor does all the work.
+          # It takes the 'raw_log' string, parses it as JSON,
+          # and makes the result the new root of the message.
+          - mapping: |
+              root = this.raw_log.parse_json()
+
+      output:
+        stdout:
+          codec: lines
+    ```
+
+2.  **Deploy and Observe:** Watch the logs. The `generate` input creates messages with a single `raw_log` field. The output, however, will be the structured JSON that was parsed from inside that string.
+
+## Verification
+
+The output will be a stream of structured JSON objects.
+
+**Example Output:**
+
+```json
+{
+  "level": "error",
+  "message": "DB connection failed",
+  "service": "api",
+  "timestamp": "2025-10-20T14:23:45Z"
+}
+```
+
+You have successfully parsed a JSON log. Notice how you can now query fields like `level` and `service`, which was impossible when it was just a raw string. This is the first and most important step in building a structured logging pipeline.

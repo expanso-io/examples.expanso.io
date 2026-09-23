@@ -1,0 +1,87 @@
+name: smart-buffering-step-3
+description: Step 3 - Configure priority-aware buffering
+type: pipeline
+namespace: default
+
+config:
+  input:
+    http_server:
+      address: 0.0.0.0:8080
+      path: /events
+      timeout: 5s
+
+  buffer:
+    memory:
+      limit: 50000
+      batch_policy:
+        count: 100
+        period: 1s
+
+  pipeline:
+    processors:
+      - json_documents:
+          parts: []
+
+      - mapping: |
+          root = this
+
+          let category = this.category.or("").string().lowercase()
+          let severity = this.severity.or("info").string().lowercase()
+          let event_type = this.event_type.or("").string().lowercase()
+
+          let is_important = match {
+            category == "important" => true,
+            severity == "critical" => true,
+            event_type.has_prefix("payment.failed") => true,
+            _ => false
+          }
+
+          let is_archive = match {
+            category == "archive" => true,
+            severity == "debug" => true,
+            event_type.has_prefix("analytics.") => true,
+            _ => false
+          }
+
+          root.priority_tier = match {
+            is_important => 1,
+            is_archive => 3,
+            _ => 2
+          }
+
+          root.priority_label = match root.priority_tier {
+            1 => "important",
+            2 => "regular",
+            3 => "archive"
+          }
+
+          root.priority_score = match root.priority_tier {
+            1 => 1000,
+            2 => 500,
+            3 => 100
+          }
+
+          root.buffered_at = now()
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        - label: sorted_output
+          processors:
+            # Sort batch by priority_score before sending
+            - sort:
+                value: root.priority_score
+                order: descending
+            - mapping: |
+                root = this
+                root.sent_at = now()
+
+          output:
+            http_client:
+              url: ${DESTINATION_URL}
+              verb: POST
+              headers:
+                Content-Type: application/json
+              timeout: 30s
+              max_retries: 3

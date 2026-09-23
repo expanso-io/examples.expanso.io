@@ -1,0 +1,180 @@
+{
+  "schemaVersion": "1.0.0",
+  "prototypeId": "industrial-vision-media-ai-spine-v1",
+  "deterministicSeed": "industrial-vision-media-ai-spine-synthetic-v1",
+  "scenarios": [
+    {
+      "scenarioId": "industrial-line-inspection",
+      "checkpoints": [
+        {
+          "index": 0,
+          "observationId": "line-frame-001",
+          "kind": "local-retention",
+          "state": {
+            "decision": "retain-raw-media-locally",
+            "rawMediaRetainedAtEdge": true,
+            "rawMediaBytesMoved": 0,
+            "cloudEvent": null
+          },
+          "assertions": [
+            {
+              "id": "below-threshold-not-escalated",
+              "outcome": "PASS"
+            },
+            {
+              "id": "raw-media-remains-local",
+              "outcome": "PASS"
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "observationId": "line-frame-002",
+          "kind": "selected-escalation",
+          "state": {
+            "decision": "escalate-selected-evidence",
+            "rawMediaRetainedAtEdge": true,
+            "rawMediaBytesMoved": 0,
+            "cloudEvent": {
+              "eventId": "line-frame-002",
+              "siteId": "SYNTHETIC-LINE-A",
+              "kind": "selected-evidence",
+              "modelStatus": "available",
+              "label": "candidate-defect",
+              "score": 0.94,
+              "selectedEvidence": {
+                "id": "line-evidence-002",
+                "mediaType": "application/vnd.expanso.synthetic-evidence+json",
+                "contentDigest": "sha256:4e9bf7d49bdcb64a5af96ca72491a590f4cfd444b953e5fc38d73694f3074484",
+                "bytes": 18400,
+                "syntheticDescriptor": "synthetic seam region with candidate discontinuity"
+              }
+            }
+          },
+          "assertions": [
+            {
+              "id": "threshold-policy-applied",
+              "outcome": "PASS"
+            },
+            {
+              "id": "selected-evidence-allowlisted",
+              "outcome": "PASS"
+            },
+            {
+              "id": "raw-media-remains-local",
+              "outcome": "PASS"
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "observationId": "line-frame-003",
+          "kind": "failure-boundary",
+          "state": {
+            "decision": "surface-custom-model-failure",
+            "rawMediaRetainedAtEdge": true,
+            "rawMediaBytesMoved": 0,
+            "cloudEvent": {
+              "eventId": "line-frame-003",
+              "siteId": "SYNTHETIC-LINE-A",
+              "kind": "model-boundary-failure",
+              "modelStatus": "unavailable",
+              "failureCode": "CUSTOM_MODEL_UNAVAILABLE"
+            }
+          },
+          "assertions": [
+            {
+              "id": "custom-model-boundary-visible",
+              "outcome": "PASS"
+            },
+            {
+              "id": "raw-media-remains-local",
+              "outcome": "PASS"
+            }
+          ]
+        }
+      ],
+      "totals": {
+        "observations": 3,
+        "rawMediaBytesObserved": 7200000,
+        "rawMediaBytesMoved": 0,
+        "selectedEvidenceBytesMoved": 18400,
+        "selectedEscalations": 1,
+        "modelBoundaryFailures": 1
+      }
+    },
+    {
+      "scenarioId": "utility-damage-reuse",
+      "checkpoints": [
+        {
+          "index": 0,
+          "observationId": "utility-frame-001",
+          "kind": "selected-escalation",
+          "state": {
+            "decision": "escalate-selected-evidence",
+            "rawMediaRetainedAtEdge": true,
+            "rawMediaBytesMoved": 0,
+            "cloudEvent": {
+              "eventId": "utility-frame-001",
+              "siteId": "SYNTHETIC-FEEDER-7",
+              "kind": "selected-evidence",
+              "modelStatus": "available",
+              "label": "candidate-defect",
+              "score": 0.91,
+              "selectedEvidence": {
+                "id": "utility-evidence-001",
+                "mediaType": "application/vnd.expanso.synthetic-evidence+json",
+                "contentDigest": "sha256:bb5db16ebafb2654ec536056d322b389a5c41d593aa25c1c5b53ffd1f2c5a25e",
+                "bytes": 22100,
+                "syntheticDescriptor": "synthetic pole-top region with candidate damage"
+              }
+            }
+          },
+          "assertions": [
+            {
+              "id": "threshold-policy-applied",
+              "outcome": "PASS"
+            },
+            {
+              "id": "selected-evidence-allowlisted",
+              "outcome": "PASS"
+            },
+            {
+              "id": "raw-media-remains-local",
+              "outcome": "PASS"
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "observationId": "utility-frame-002",
+          "kind": "local-retention",
+          "state": {
+            "decision": "retain-raw-media-locally",
+            "rawMediaRetainedAtEdge": true,
+            "rawMediaBytesMoved": 0,
+            "cloudEvent": null
+          },
+          "assertions": [
+            {
+              "id": "below-threshold-not-escalated",
+              "outcome": "PASS"
+            },
+            {
+              "id": "raw-media-remains-local",
+              "outcome": "PASS"
+            }
+          ]
+        }
+      ],
+      "totals": {
+        "observations": 2,
+        "rawMediaBytesObserved": 6400000,
+        "rawMediaBytesMoved": 0,
+        "selectedEvidenceBytesMoved": 22100,
+        "selectedEscalations": 1,
+        "modelBoundaryFailures": 0
+      }
+    }
+  ]
+}

@@ -1,0 +1,141 @@
+---
+title: Setup Environment for Aggregate Time Windows
+sidebar_label: Setup
+sidebar_position: 3
+description: Configure environment variables and sample IoT data for aggregation.
+keywords: [setup, environment, configuration, deployment, iot, sensors]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-aggregate-time-windows-setup]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Setup Environment for Aggregate Time Windows
+
+Before building the time-windowed aggregation pipeline, you'll set up sample IoT sensor data and configure environment variables.
+
+## Prerequisites
+
+This example requires the following services to be running:
+
+- **[Kafka](/getting-started/services/kafka)**
+- **[Redis](/getting-started/services/redis)**
+
+Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
+
+## Step 1: Configure Example-Specific Variables
+
+After setting up the core services, configure aggregation-specific variables:
+
+```bash
+# Analytics endpoint for cloud ingestion (optional)
+export ANALYTICS_ENDPOINT="https://analytics.example.com/api/v1"
+export ANALYTICS_API_KEY="your_analytics_api_key_here"
+
+# Local buffering directory for network outages
+export BUFFER_PATH="/var/expanso/buffer"
+mkdir -p "$BUFFER_PATH"
+
+# Verify environment
+echo "Analytics endpoint: $ANALYTICS_ENDPOINT"
+echo "Buffer directory: $BUFFER_PATH"
+```
+
+## Step 2: Download Sample IoT Sensor Data
+
+Download sample sensor data representing 1000 temperature sensors generating 60 events/minute:
+
+```bash
+# Download sample IoT sensor data (1000 sensors × 60 events/minute)
+curl -L -o sensor-data.jsonl https://raw.githubusercontent.com/expanso-io/examples.expanso.io/main/examples/data-transformation/input.jsonl
+
+# Verify download (should show ~60,000 events)
+wc -l sensor-data.jsonl
+
+# Inspect sample events
+head -5 sensor-data.jsonl
+```
+
+**Expected sample format:**
+
+```json
+{"sensor_id":"temp_001","location":"warehouse_a","temperature":72.3,"humidity":45.2,"timestamp":"2025-01-15T10:23:45.123Z"}
+{"sensor_id":"temp_002","location":"warehouse_a","temperature":71.8,"humidity":44.9,"timestamp":"2025-01-15T10:23:45.456Z"}
+{"sensor_id":"temp_003","location":"warehouse_b","temperature":73.1,"humidity":46.1,"timestamp":"2025-01-15T10:23:45.789Z"}
+```
+
+## Step 3: Verify Cache Configuration
+
+Before proceeding with cache-based aggregation, verify your system can handle the memory requirements:
+
+```bash
+# Check available system memory
+free -h
+
+# Calculate expected memory usage for 1-minute windows:
+# 1000 events/sec × 60 seconds × 1KB per event = ~60MB
+echo "Expected memory usage for 1-minute windows: ~60MB"
+
+# For 1-hour windows:
+# 1000 events/sec × 3600 seconds × 1KB per event = ~3.6GB
+echo "Expected memory usage for 1-hour windows: ~3.6GB"
+```
+
+## Next Steps
+
+Your environment is now configured for time-windowed aggregation. Choose your learning path:
+
+<div
+  style={{
+    display: 'flex',
+    gap: '1.5rem',
+    marginTop: '2rem',
+    marginBottom: '3rem',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
+  }}
+>
+  <a
+    href="../step-1-tumbling-windows"
+    className="button button--primary button--lg"
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      textDecoration: 'none',
+      borderRadius: '8px',
+      padding: '1rem 2rem',
+      fontWeight: '600',
+      minWidth: '240px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    }}
+  >
+    Start with Tumbling Windows
+  </a>
+  <a
+    href="../explorer"
+    className="button button--secondary button--lg"
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      textDecoration: 'none',
+      borderRadius: '8px',
+      padding: '1rem 2rem',
+      fontWeight: '600',
+      minWidth: '240px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    }}
+  >
+    Explore Interactive Demo
+  </a>
+</div>

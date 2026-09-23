@@ -1,0 +1,69 @@
+---
+title: 'Step 4 - Configure Batching'
+sidebar_label: 'Step 4: Configure Batching'
+sidebar_position: 7
+description: Configure an authored batching policy and its flush conditions.
+keywords: [batching, performance, throughput, cost-optimization]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-enrich-export-step-4-configure-batching]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Step 4: Configure Batching
+
+**Batching** collects a number of messages and sends them as a group, reducing the number of output operations.
+
+## The Goal
+
+You will modify your pipeline's output to use a **batching policy**. Instead of writing every single log to a file as it arrives, the pipeline will collect 10 messages (or wait for 5 seconds) and then write them all at once.
+
+## The `batching` Block
+
+Most output processors can be configured with a `batching` block that defines the policy. The two most common fields are:
+
+- `count`: The number of messages to collect before sending.
+- `period`: The maximum amount of time to wait before sending, even if the `count` has not been reached.
+
+Whichever condition is met first triggers the send.
+
+## Implementation
+
+1.  **Start with the Previous Pipeline:** Copy the `restructure-log.yaml` from Step 3 to a new file named `batched-output.yaml`.
+
+    ```bash
+    cp restructure-log.yaml batched-output.yaml
+    ```
+
+2.  **Add the Batching Logic:** Open `batched-output.yaml` and replace the entire `output` section with a `file` output that includes a `batching` block.
+
+    ```yaml title="Replace the 'output' section in batched-output.yaml"
+    output:
+      file:
+        path: /tmp/batched_logs.jsonl
+        codec: lines
+        batching:
+          count: 10
+          period: 5s
+    ```
+
+3.  **Deploy and Test:**
+
+    ```bash
+    # Create the output file's directory if it doesn't exist
+    mkdir -p /tmp
+    ```
+
+4.  **Verify:**
+    Watch the output file. Instead of seeing a new line appear every second (the rate of the `generate` input), you will see a block of 10 lines appear all at once every 10 seconds.
+    ```bash
+    tail -f /tmp/batched_logs.jsonl
+    ```
+    If you were to stop the input, any remaining messages in the batch would be flushed after the 5-second `period` expires.
+
+You have now implemented a batching policy, which is a critical technique for building high-throughput, cost-effective data pipelines.

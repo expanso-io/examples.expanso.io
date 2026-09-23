@@ -1,0 +1,67 @@
+---
+title: Step 1 - Generate Synthetic Logs
+sidebar_label: Step 1 - Generate Data
+sidebar_position: 4
+description: Define a small synthetic log source for the enrichment walkthrough.
+keywords: [generate, synthetic-data, log-generation]
+contentArchetype: step
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-enrich-export-step-1-generate-test-data]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Step 1: Generate synthetic logs
+
+Start with a bounded synthetic source so the field contract is visible before enrichment. The values below are fixture data; they do not model traffic distribution, performance, or a deployed service.
+
+## Source configuration
+
+```yaml title="synthetic-logs.yaml"
+input:
+  generate:
+    interval: 2s
+    count: 3
+    mapping: |
+      root.id = uuid_v4()
+      root.timestamp = now()
+      root.level = ["INFO", "WARN", "ERROR"].index(random_int() % 3)
+      root.service = "demo-service"
+      root.message = "Synthetic log message"
+      root.user_id = "synthetic-user"
+      root.request_id = uuid_v4()
+
+output:
+  stdout: {}
+```
+
+The finite `count` prevents an unattended walkthrough from producing an unbounded stream. Change it deliberately when adapting the fixture.
+
+## Intended record shape
+
+```json
+{
+  "id": "fixture-generated-uuid",
+  "timestamp": "fixture-generated-time",
+  "level": "INFO",
+  "service": "demo-service",
+  "message": "Synthetic log message",
+  "user_id": "synthetic-user",
+  "request_id": "fixture-generated-uuid"
+}
+```
+
+This page does not record an executed output. Before reuse, validate the mapping with the installed Expanso version and decide whether identifiers or messages need additional synthetic variation.
+
+## Adaptation checks
+
+- Keep generated records clearly labeled as synthetic.
+- Pin fields and types needed by later stages.
+- Use a deterministic seed or checked-in fixture when exact output comparison is required.
+- Bound count, interval, and message size before any load-oriented test.
+
+Continue to [add processing metadata](/log-processing/enrich-export/step-2-add-lineage-metadata) or inspect the [complete configuration](/log-processing/enrich-export/complete-log-enrichment).

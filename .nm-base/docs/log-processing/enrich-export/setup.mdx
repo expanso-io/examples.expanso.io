@@ -1,0 +1,103 @@
+---
+title: Setup Environment for Log Enrichment
+sidebar_label: Setup
+sidebar_position: 3
+description: Configure AWS credentials and an S3 bucket for log enrichment.
+keywords: [setup, aws, s3, credentials, environment, deployment]
+contentArchetype: reference
+executionStatus: architecture-only
+operationalEvidence: not-assessed
+localNavigation: true
+uniqueTasks: [inspect-enrich-export-setup]
+claimIds: []
+claimsVerifiedBy: codex/content-claims-verifier-v1
+claimsVerifiedAt: '2026-07-18'
+claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
+---
+
+# Setup Environment for Log Enrichment
+
+Before building the log enrichment pipeline, you'll set up AWS credentials and create an S3 bucket.
+
+## Prerequisites
+
+This example requires the following services to be running:
+
+- **[Kafka](/getting-started/services/kafka)**
+
+Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
+
+## Step 1: Configure AWS Credentials
+
+Set up AWS credentials for S3 access:
+
+```bash
+# Configure AWS profile (recommended)
+aws configure --profile expanso-demo
+# Enter your AWS Access Key ID, Secret Key, and region
+
+# Test AWS credentials
+aws s3 ls --profile expanso-demo
+```
+
+## Step 2: Create S3 Bucket
+
+Create an S3 bucket for storing enriched logs:
+
+```bash
+# Create S3 bucket (replace with unique name)
+aws s3 mb s3://your-company-logs-demo --profile expanso-demo
+
+# Verify bucket creation
+aws s3 ls --profile expanso-demo | grep your-company-logs-demo
+```
+
+## Step 3: Verify Environment Variables
+
+Set environment variables that will be used in the enrichment steps:
+
+```bash
+# Set node identification
+export NODE_ID="edge-node-demo"
+
+# Set pipeline identification
+export PIPELINE_NAME="log-enrichment-s3-demo"
+
+# Set AWS region (if using environment variables)
+export AWS_REGION="us-east-1"
+
+# Verify variables are set
+echo "Node ID: $NODE_ID"
+echo "Pipeline: $PIPELINE_NAME"
+echo "Region: $AWS_REGION"
+```
+
+## Next Steps
+
+✅ Your environment is now configured for log enrichment!
+
+The next tutorial will show you how to add lineage metadata to track data processing:
+
+<div
+  style={{
+    display: 'flex',
+    gap: '1.5rem',
+    marginTop: '2rem',
+    marginBottom: '3rem',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
+  }}
+>
+  <a
+    href="../step-1-generate-test-data"
+    className="button button--primary button--lg"
+  >
+    Start Step 1: Generate Test Data
+  </a>
+  <a
+    href="../complete-log-enrichment"
+    className="button button--secondary button--lg"
+  >
+    Skip to Complete Pipeline
+  </a>
+</div>

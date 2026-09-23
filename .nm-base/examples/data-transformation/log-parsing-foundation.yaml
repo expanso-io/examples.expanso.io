@@ -1,0 +1,20 @@
+name: log-parsing-foundation
+description: A foundation pipeline that ingests raw log lines as simple strings.
+type: pipeline
+
+config:
+  input:
+    generate:
+      interval: 1s
+      mapping: |
+        root.message = '{"timestamp": "2025-11-22T22:30:00Z", "level": "INFO", "service": "api", "message": "User logged in successfully"}'
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+          root.processed_at = now()
+
+  output:
+    stdout:
+      codec: lines

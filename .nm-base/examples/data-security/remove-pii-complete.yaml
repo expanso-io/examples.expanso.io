@@ -1,0 +1,86 @@
+name: pii-complete-removal
+description: Five-step example for deleting or transforming selected fields
+type: pipeline
+namespace: default
+priority: 100
+
+labels:
+  pattern: data-minimization
+  category: data-security
+  example: remove-pii
+
+config:
+  # Accept events via HTTP POST
+  input:
+    http_server:
+      address: '0.0.0.0:8080'
+      path: /events/ingest
+      allowed_verbs: [POST]
+      timeout: 30s
+
+  # Five field transformations. Review these choices for your own data model.
+  pipeline:
+    processors:
+      # Step 1: Delete payment card data
+      - mapping: |
+          root = this
+
+          # Remove credit card number and expiry date
+          # Keep payment type and last four digits
+          root.payment_method = this.payment_method.without(
+            "full_number",
+            "expiry"
+          )
+
+      # Step 2: Hash IP address
+      - mapping: |
+          root = this.without("ip_address")
+
+          # Hash the source value with a caller-provided salt
+          root.ip_hash = this.ip_address.hash(
+            "hmac_sha256",
+            env("IP_SALT")
+          ).encode("hex")
+
+      # Step 3: Hash email and extract its domain
+      - mapping: |
+          root = this.without("email")
+
+          root.email_hash = this.email.hash(
+            "hmac_sha256",
+            env("EMAIL_SALT")
+          ).encode("hex")
+
+          # Preserve only the domain as a separate field
+          root.email_domain = this.email.split("@").index(1)
+
+      # Step 4: Replace the user name with a pseudonymous identifier
+      - mapping: |
+          root = this.without("user_name")
+
+          root.user_id = "user_" + this.user_name.hash(
+            "hmac_sha256",
+            env("USER_SALT")
+          ).encode("hex").slice(0, 12)
+
+      # Step 5: Remove precise coordinates
+      - mapping: |
+          root = this
+          root.location = this.location.without("latitude", "longitude")
+
+  # Write transformed events to a local file for inspection
+  output:
+    file:
+      path: /var/log/expanso/pii-removed.jsonl
+      codec: lines
+
+logger:
+  level: INFO
+  format: json
+
+metrics:
+  type: prometheus
+  path: /metrics
+  address: 0.0.0.0:9090
+# This example requires IP_SALT, EMAIL_SALT, and USER_SALT. Choose and manage
+# those values according to the requirements of the environment using it.

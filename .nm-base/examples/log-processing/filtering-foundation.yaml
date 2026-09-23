@@ -1,0 +1,24 @@
+name: filtering-foundation
+description: A foundation pipeline that generates a mix of JSON and plain-text log messages.
+type: pipeline
+
+config:
+  input:
+    generate:
+      interval: 1s
+      mapping: |
+        root = if random_int() % 2 == 0 {
+          { "message": '{"timestamp": "2025-11-22T23:50:00Z", "level": "INFO", "message": "Structured log"}' }
+        } else {
+          { "message": "This is a simple plain text log" }
+        }
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+          root.processed_at = now()
+
+  output:
+    stdout:
+      codec: lines

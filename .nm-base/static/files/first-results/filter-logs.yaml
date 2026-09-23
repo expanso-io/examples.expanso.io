@@ -1,0 +1,18 @@
+name: first-result-filter-logs
+type: pipeline
+config:
+  input:
+    generate:
+      count: 1
+      interval: 1s
+      mapping: |
+        root = [{"event_id":"log-001","level":"DEBUG","message":"polling"},{"event_id":"log-002","level":"INFO","message":"ready"},{"event_id":"log-003","level":"ERROR","message":"request failed"}]
+  pipeline:
+    processors:
+      - unarchive:
+          format: json_array
+      - mapping: |
+          root = if this.level == "ERROR" { this } else { deleted() }
+  output:
+    stdout:
+      codec: lines
