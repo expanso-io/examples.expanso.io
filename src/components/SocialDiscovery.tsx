@@ -2,21 +2,23 @@ import React from 'react';
 import Head from '@docusaurus/Head';
 import { useLocation } from '@docusaurus/router';
 import { usePluginData } from '@docusaurus/useGlobalData';
+import {
+  SITE_ORIGIN,
+  socialBreadcrumbs,
+  type SocialPage,
+} from '../lib/socialBreadcrumbs';
 
-type Metadata = {
-  title: string;
-  image: string;
-  breadcrumbs?: { name: string; item: string }[];
-};
 export default function SocialDiscovery() {
   const { pathname } = useLocation();
   const pages = usePluginData('examples-social-discovery') as Record<
     string,
-    Metadata
+    SocialPage
   >;
-  const page = pages[pathname.endsWith('/') ? pathname : `${pathname}/`];
+  const path = pathname.endsWith('/') ? pathname : `${pathname}/`;
+  const page = pages[path];
   if (!page) return null;
-  const image = `https://examples.expanso.io${page.image}`;
+  const image = `${SITE_ORIGIN}${page.image}`;
+  const breadcrumbs = socialBreadcrumbs(path, page);
   return (
     <Head>
       <meta property="og:image" content={image} />
@@ -32,12 +34,12 @@ export default function SocialDiscovery() {
         name="twitter:image:alt"
         content={`${page.title} — Expanso pipeline examples`}
       />
-      {page.breadcrumbs && (
+      {breadcrumbs && (
         <script type="application/ld+json">
           {JSON.stringify({
             '@context': 'https://schema.org',
             '@type': 'BreadcrumbList',
-            itemListElement: page.breadcrumbs.map((crumb, index) => ({
+            itemListElement: breadcrumbs.map((crumb, index) => ({
               '@type': 'ListItem',
               position: index + 1,
               ...crumb,

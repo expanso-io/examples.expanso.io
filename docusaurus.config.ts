@@ -34,6 +34,31 @@ const productionRouteGuardPlugin: PluginModule = () => ({
   },
 });
 
+// Scarf counts cookieless page visits on every page, so it is plain HTML
+// outside React and independent of analytics consent. Absolute positioning
+// keeps the 0x0 image from creating a line box.
+const scarfPixelPlugin: PluginModule = () => ({
+  name: 'scarf-pixel',
+  injectHtmlTags() {
+    return {
+      postBodyTags: [
+        {
+          tagName: 'img',
+          attributes: {
+            referrerpolicy: 'no-referrer-when-downgrade',
+            src: 'https://static.scarf.sh/a.png?x-pxid=82d5c930-f525-4047-bb21-25a09e68ed2d',
+            alt: '',
+            width: '0',
+            height: '0',
+            'aria-hidden': 'true',
+            style: 'position:absolute;border:0',
+          },
+        },
+      ],
+    };
+  },
+});
+
 const config: Config = {
   title: 'Expanso Examples',
   tagline: 'Pipeline patterns and examples for Expanso Edge',
@@ -143,6 +168,7 @@ const config: Config = {
     familyNavigation,
     runtimeProofHarnessEnabled && runtimeProofHarnessPlugin,
     productionRouteGuardPlugin,
+    scarfPixelPlugin,
     './plugins/tailwind-config.cjs',
     './plugins/alias-config.cjs',
     './plugins/posthog-analytics.cjs',

@@ -4,7 +4,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { validateSocialHtml } from '../../scripts/social-validation.mjs';
 import socialModule from '../../plugins/social-discovery.ts';
+import breadcrumbsModule from '../../src/lib/socialBreadcrumbs.ts';
 const { cardSvg, escapeXml, wrap } = socialModule;
+const { socialBreadcrumbs } = breadcrumbsModule;
 
 const head = `<meta property="og:image" content="https://examples.expanso.io/card.png"><meta name="twitter:image" content="https://examples.expanso.io/card.png"><meta name="twitter:card" content="summary_large_image"><meta property="og:image:alt" content="Title"><meta name="twitter:image:alt" content="Title"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">`;
 test('missing images, incorrect dimensions, duplicate tags and mismatched destinations fail', () => {
@@ -77,15 +79,25 @@ test('metadata follows catalog hierarchy and rejects incomplete document metadat
   for (const page of Object.values(data)) {
     assert.equal(Object.hasOwn(page, 'summary'), false);
   }
-  assert.equal(
-    data['/tags/'].breadcrumbs.at(-1).item,
-    'https://examples.expanso.io/tags/'
+  const crumbs = (pathname) => socialBreadcrumbs(pathname, data[pathname]);
+  assert.deepEqual(crumbs('/tags/'), [
+    { name: 'Examples', item: 'https://examples.expanso.io/' },
+    { name: 'Topics', item: 'https://examples.expanso.io/tags/' },
+  ]);
+  assert.deepEqual(
+    crumbs('/data-transformation/deduplicate-events/troubleshooting/'),
+    [
+      { name: 'Examples', item: 'https://examples.expanso.io/' },
+      {
+        name: 'Deduplicate Events',
+        item: 'https://examples.expanso.io/data-transformation/deduplicate-events/',
+      },
+      {
+        name: metadata.title,
+        item: 'https://examples.expanso.io/data-transformation/deduplicate-events/troubleshooting/',
+      },
+    ]
   );
-  assert.equal(
-    metadata.breadcrumbs[1].item,
-    'https://examples.expanso.io/data-transformation/deduplicate-events/'
-  );
-  assert.equal(metadata.breadcrumbs[2].name, metadata.title);
   await assert.rejects(
     load([{ permalink: '/broken/', title: 'Missing summary' }]),
     /requires title and description/
