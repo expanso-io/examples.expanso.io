@@ -134,11 +134,20 @@ export default function Root({ children }: RootProps): React.JSX.Element {
           aria-label="Cookie consent"
           role="dialog"
         >
-          <p>
-            We use cookies to remember your analytics choice and understand how
-            people use these examples.{' '}
-            <a href="https://expanso.io/privacy">Learn more</a>
-          </p>
+          <div className="analytics-consent__text">
+            <p>
+              We use cookies to remember your analytics choice and understand
+              how people use these examples.{' '}
+              <a href="https://expanso.io/privacy">Learn more</a>
+            </p>
+            <p>
+              Every page also counts anonymous visits with a cookieless Scarf
+              pixel, whatever you choose. It sends your IP address, user agent
+              and page URL to Scarf, which says it &ldquo;does not store the IP
+              address itself.&rdquo;{' '}
+              <a href="https://docs.scarf.sh/web-traffic/">About Scarf</a>
+            </p>
+          </div>
           <div className="analytics-consent__actions">
             <button type="button" onClick={() => chooseConsent(false)}>
               Decline
