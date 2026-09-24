@@ -1,0 +1,138 @@
+name: jev-inbox-triage
+type: pipeline
+description: Inbox triage with Jev — every incoming email gets its tray, an urgency score and a human-written verdict judged inline. Urgent human mail pages the team; uncertain mail queues for review; promos and spam archive themselves.
+namespace: production
+labels:
+  category: integrations
+  pattern: ai-decision
+  model: jev
+
+config:
+  input:
+    http_server:
+      address: "0.0.0.0:8080"
+      path: /inbox
+      allowed_verbs: ["POST"]
+
+  pipeline:
+    processors:
+      - mapping: |
+          # http_server already parses JSON bodies; only parse raw strings
+          root = if this.type() == "string" { this.parse_json() } else { this }
+
+      - mapping: |
+          root = this
+          root.received_at = now()
+
+      # ── Ask Jev ──
+      - mutation: |
+          meta jev_start = timestamp_unix_milli()
+
+      - branch:
+          request_map: |
+            root = {
+              "state": this.string(),
+              "model": "jev-latest",
+              "questions": {
+                "tray": {
+                  "type": "choice",
+                  "instructions": "Which inbox tray does this email belong in?",
+                  "criteria": {
+                    "needs_reply": "A person is asking something of you: a question, a request, something expecting an answer",
+                    "updates": "Notifications and receipts that need no action: order updates, shipping alerts, payment confirmations",
+                    "promos": "Marketing mail: sales, discounts, newsletters, special offers",
+                    "sales": "Sales outreach: cold pitches and vendor emails trying to sell you something",
+                    "spam": "Unsolicited junk: scams, phishing, crypto schemes, fake winners"
+                  }
+                },
+                "urgency": {
+                  "type": "score",
+                  "instructions": "How urgent is this message?",
+                  "criteria": [
+                    "No urgency at all",
+                    "Can wait days",
+                    "Should be handled today",
+                    "Time-sensitive, handle soon",
+                    "Drop everything, act now"
+                  ]
+                },
+                "human_written": {
+                  "type": "noul",
+                  "instructions": "Was this message written by a human, rather than an automated sender?"
+                }
+              }
+            }
+          processors:
+            - http:
+                url: "${JEV_API_URL:https://api.typesafe.ai/v1/systemone}"
+                verb: POST
+                headers:
+                  Content-Type: application/json
+                  Authorization: "Bearer ${TYPESAFE_API_KEY}"
+                timeout: 2s
+                retries: 1
+            - catch:
+              - mapping: |
+                  root = {"answers": {}, "model": "jev-unavailable"}
+          result_map: |
+            root.jev = {
+              "answers": this.answers,
+              "model": this.model.or("jev-latest"),
+              "ms": timestamp_unix_milli() - metadata("jev_start")
+            }
+
+      # ── Confidence-gated cascade ──
+      - mapping: |
+          root = this
+          let tray = this.jev.answers.tray.choice.or("updates")
+          let tray_conf = this.jev.answers.tray.confidence.or(0)
+          let urgency = this.jev.answers.urgency.score.or(0)
+          let human = this.jev.answers.human_written.noul.or(0)
+
+          root.jev_decision = if $tray == "needs_reply" && $urgency >= 3.0 && $human >= 0.9 {
+            "alert"
+          } else if $tray_conf < 0.5 {
+            "review"
+          } else if $tray == "needs_reply" {
+            "reply_queue"
+          } else if $tray == "spam" || $tray == "promos" {
+            "archive"
+          } else {
+            "tray"
+          }
+          root.assigned_tray = $tray
+
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        - stdout:
+            codec: lines
+        - switch:
+            cases:
+              # Production: swap for http_client -> team paging webhook
+              - check: this.jev_decision == "alert"
+                output:
+                  file:
+                    path: ./data/jev-inbox-triage/alert-${! now().ts_format("2006-01-02") }.jsonl
+                    codec: lines
+              - check: this.jev_decision == "reply_queue"
+                output:
+                  file:
+                    path: ./data/jev-inbox-triage/reply_queue-${! now().ts_format("2006-01-02") }.jsonl
+                    codec: lines
+              - check: this.jev_decision == "review"
+                output:
+                  file:
+                    path: ./data/jev-inbox-triage/review-${! now().ts_format("2006-01-02") }.jsonl
+                    codec: lines
+              - check: this.jev_decision == "archive"
+                output:
+                  file:
+                    path: ./data/jev-inbox-triage/archive-${! now().ts_format("2006-01-02") }.jsonl
+                    codec: lines
+              - check: "true"
+                output:
+                  file:
+                    path: ./data/jev-inbox-triage/tray-${! this.assigned_tray }-${! now().ts_format("2006-01-02") }.jsonl
+                    codec: lines

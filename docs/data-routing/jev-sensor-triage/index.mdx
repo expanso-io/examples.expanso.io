@@ -1,0 +1,48 @@
+---
+title: Sensor anomaly triage with Jev
+sidebar_label: Introduction
+sidebar_position: 1
+description: Every sensor reading is judged against its baseline in context. Real anomalies dispatch maintenance with a context packet; routine telemetry rolls into aggregates.
+keywords: [jev, ai, data-routing, iot, sensors, anomaly, maintenance, decisions-at-the-edge]
+---
+
+# Sensor anomaly triage
+
+Static thresholds page on noise and miss novel failures. Jev reads each sensor reading *in the context of its baseline* — is this anomalous, should someone be dispatched — and the pipeline acts: dispatch, flag, or roll up.
+
+## The problem
+
+- Fixed thresholds either page too much or catch failures too late
+- Novel failure modes don't match any rule you wrote
+- Sending every raw reading upstream wastes bandwidth on telemetry nobody looks at
+
+## How it works
+
+```
+POST /readings ──▶ attach baseline ──▶ Jev (1 call, 2 questions)
+                                                │
+                    ┌───────────────┬───────────┴───────────┐
+                    ▼               ▼                       ▼
+              dispatch ≥ 0.8    anomaly ≥ 2            routine
+              → work order     → flagged              → rollup
+                + context        in aggregates           only
+```
+
+The pipeline attaches each asset's normal operating baseline to the event before asking Jev, so the judgment is deviation-in-context, not raw-value guessing. (In production, pull baselines from a `cache` lookup instead of the inline table.)
+
+## The Jev questions
+
+| Question | Type | What it decides |
+|---|---|---|
+| `anomaly` | Score (0–4: normal → critical failure) | How anomalous is this reading? |
+| `dispatch` | Noul | Dispatch a maintenance technician? |
+
+## The confidence cascade
+
+- **dispatch** — dispatch probability ≥ 0.8: work order with the full context packet (reading, baseline, Jev scores)
+- **flag** — anomaly score ≥ 2: forwarded into the aggregate stream, flagged for the reliability dashboard
+- **rollup** — everything else: contributes to minute-level rollups only
+
+## Why this matters
+
+This is the semantic-judgment story: a pump reading 94°C with grinding noise and smoke is obviously a failure to a human and invisible to a threshold. Jev catches the *novel* failure — the one no rule covers — at the edge, before the data even leaves the site.

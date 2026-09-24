@@ -1,0 +1,57 @@
+---
+title: Feedback miner pipeline
+sidebar_label: Pipeline
+sidebar_position: 2
+description: The complete Jev feedback-miner pipeline — YAML, stage walkthrough, quick test, and deploy
+keywords: [jev, ai, integrations, feedback, nps, pipeline, yaml]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/integrations/jev-feedback-miner.yaml';
+import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
+
+# Complete pipeline
+
+<CopyPipelineButton pipeline={pipelineYaml} />
+
+- **HTTP input** — feedback arrives at `POST /feedback`
+- **Jev branch** — topic, sentiment, churn risk in one call
+- **Confidence cascade** — alert / eng / analytics
+- **Fan-out** — stdout plus per-decision files
+
+## Full configuration
+
+<CodeBlock language="yaml" title="jev-feedback-miner.yaml">{pipelineYaml}</CodeBlock>
+
+## How it works, stage by stage
+
+1. **Parse** — `json_documents` parses the feedback.
+2. **Ask Jev** — the verbatim is the state; topic, sentiment score, and churn probability come back as `jev.answers`.
+3. **Cascade** — churn ≥ 0.75 alerts; confident bugs go to eng; the rest feeds analytics, all fully tagged.
+4. **Route** — stdout plus per-decision files. In production, swap `alert` for an `http_client` POST to your account-team channel.
+
+## Try it
+
+```bash
+# 1. Mock Jev (no API key needed)
+python3 examples/jev-mock-server.py &
+
+# 2. Run the pipeline
+JEV_API_URL=http://localhost:8099/v1/systemone \
+  expanso-edge run --config examples/integrations/jev-feedback-miner.yaml
+
+# 3. Send the sample feedback
+while read -r line; do
+  curl -s -X POST http://localhost:8080/feedback \
+    -H "Content-Type: application/json" -d "$line" > /dev/null
+done < examples/integrations/jev-feedback-miner-input.jsonl
+```
+
+The competitor-evaluating review should land in `alert-*.jsonl`; the broken-dashboard review in `eng-*.jsonl`; the rest in `analytics-*.jsonl`.
+
+## With a real Jev key
+
+```bash
+export TYPESAFE_API_KEY="your-key"
+expanso-edge run --config examples/integrations/jev-feedback-miner.yaml
+```
