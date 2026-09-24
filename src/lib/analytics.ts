@@ -22,7 +22,7 @@ export const PRIVACY_SAFE_CAPTURE_OPTIONS = {
   disable_session_recording: true,
 } as const;
 
-const POSTHOG_API_HOST = 'https://ph.expanso.io';
+const POSTHOG_API_HOST = 'https://web.t.expanso.io';
 const POSTHOG_PROJECT_KEY = 'phc_f467hBf7ZUEc5HDT3xFcbhZ4tL7wUYJH0COw9Y2bzSK';
 
 const URL_PROPERTIES = [

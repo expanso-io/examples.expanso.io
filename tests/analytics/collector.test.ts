@@ -104,7 +104,7 @@ async function journey(
         contentType: 'text/html',
         body: `<html><title>Analytics test</title><script>${bundle.replaceAll('</script', '<\\/script')}</script></html>`,
       });
-    } else if (url.hostname === 'ph.expanso.io') {
+    } else if (url.hostname === 'web.t.expanso.io') {
       const body = route.request().postDataBuffer();
       if (body && url.pathname.includes('/e/')) {
         const decoded =
