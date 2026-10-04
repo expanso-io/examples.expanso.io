@@ -6,7 +6,7 @@
  *
  * `none` fails on the first analytics host or identifier found in any text
  * file of the build. `production` requires every real page to carry each tag
- * verbatim and the JavaScript to carry the PostHog and Google adapters.
+ * and the JavaScript to carry the PostHog and Google adapters.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';

@@ -45,26 +45,28 @@ export const ANALYTICS_MARKERS = [
   'x-pxid=82d5c930-f525-4047-bb21-25a09e68ed2d',
 ] as const;
 
-/** What every real page of the production build must carry, verbatim. */
+/** What every real page of the production build must carry. Each pattern
+ * pins a tag's identity (host, path and identifier) and tolerates whatever
+ * whitespace, quoting or inlining the HTML minifier and the tag plugins
+ * produce. */
 export const PRODUCTION_PAGE_TAGS = [
   {
     id: 'scarf-pixel',
     pattern:
-      /<img [^>]*src="https:\/\/static\.scarf\.sh\/a\.png\?x-pxid=82d5c930-f525-4047-bb21-25a09e68ed2d"[^>]*>/,
+      /<img\b[^>]*\bsrc\s*=\s*["']https:\/\/static\.scarf\.sh\/a\.png\?x-pxid=82d5c930-f525-4047-bb21-25a09e68ed2d["'][^>]*>/,
   },
   {
     id: 'gtm-loader',
-    pattern:
-      /m\.src="https:\/\/www\.googletagmanager\.com\/gtm\.js\?id=GTM-MPSKFDMF"/,
+    pattern: /googletagmanager\.com\/gtm\.js\?id=[^<]*GTM-MPSKFDMF/,
   },
   {
     id: 'gtm-noscript',
     pattern:
-      /<noscript><iframe src="https:\/\/www\.googletagmanager\.com\/ns\.html\?id=GTM-MPSKFDMF"/,
+      /<noscript>\s*<iframe\b[^>]*\bsrc\s*=\s*["']https:\/\/www\.googletagmanager\.com\/ns\.html\?id=GTM-MPSKFDMF["']/,
   },
   {
     id: 'gtm-consent-default',
-    pattern: /gtag\(["']consent["'],["']default["'],\{/,
+    pattern: /gtag\(\s*["']consent["']\s*,\s*["']default["']\s*,\s*\{/,
   },
   {
     id: 'legacy-ga-guard',

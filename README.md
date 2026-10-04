@@ -88,8 +88,9 @@ them and their browsers never reach an analytics host. The switch is read in
 `docusaurus.config.ts` and inlined into the bundle, which also drops the
 PostHog SDK chunk, ingestion host and project key from non-production builds.
 `npm run verify:analytics-build -- --build-dir build --variant none` fails if
-any analytics host or identifier appears in a normal build; `--variant
-production` confirms a flagged build carries every tag. Browser suites that
+any analytics host or identifier appears in a normal build and runs on every
+pull request; `--variant production` confirms the flagged `main` artifact
+carries every tag and runs only in that production-build job. Browser suites that
 measure a production-variant build (`tests/quality/performance.spec.ts`,
 `tests/analytics/collector.test.ts`) abort requests to every host listed in
 `scripts/analytics-tags.ts`.

@@ -44,6 +44,18 @@ const productionScript =
   'posthog.init("phc_f467hBf7ZUEc5HDT3xFcbhZ4tL7wUYJH0COw9Y2bzSK",{api_host:"https://web.t.expanso.io"});' +
   'script.src="https://www.googletagmanager.com/gtag/js?id=G-6YXD85WVC6&l=expansoExamplesAnalyticsLayer";';
 
+const unminifiedProductionPage = [
+  '<!doctype html><html><head>',
+  "<script>/^(docs|examples)\\.expanso\\.io$/.test(window.location.hostname) && (window['ga-disable-G-X1RJ0QGN3Z'] = true)</script>",
+  "<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','GTM-MPSKFDMF');</script>",
+  '<script>\n  window.dataLayer = window.dataLayer || [];\n  function gtag(){dataLayer.push(arguments);}\n  gtag( \'consent\', \'default\', {\n    \'ad_storage\': \'denied\'\n  });\n</script>',
+  '</head><body>',
+  '<noscript>\n<iframe src = \'https://www.googletagmanager.com/ns.html?id=GTM-MPSKFDMF\' height="0" width="0"></iframe>\n</noscript>',
+  '<div id="__docusaurus"></div>',
+  "<img alt='' src = 'https://static.scarf.sh/a.png?x-pxid=82d5c930-f525-4047-bb21-25a09e68ed2d' width='0'>",
+  '</body></html>',
+].join('');
+
 const plainPage =
   '<!doctype html><html><body><div id="__docusaurus"></div></body></html>';
 const redirectStub =
@@ -99,6 +111,30 @@ describe('analytics build variant verifier', () => {
     const report = verifyAnalyticsBuild(root, 'production');
     assert.equal(report.pages, 2);
     assert.deepEqual(reportProblems(report), []);
+  });
+
+  it('accepts the unminified plugin shape of every production tag', () => {
+    const root = fixture({
+      'index.html': unminifiedProductionPage,
+      'assets/js/main.js': productionScript,
+    });
+    const report = verifyAnalyticsBuild(root, 'production');
+    assert.equal(report.pages, 1);
+    assert.deepEqual(reportProblems(report), []);
+  });
+
+  it('fails a production build whose GTM loader names another container', () => {
+    const root = fixture({
+      'index.html': productionPage.replace(
+        'gtm.js?id=GTM-MPSKFDMF',
+        'gtm.js?id=GTM-OTHER00'
+      ),
+      'assets/js/main.js': productionScript,
+    });
+    const problems = reportProblems(verifyAnalyticsBuild(root, 'production'));
+    assert.deepEqual(problems, [
+      'index.html is missing production tag gtm-loader',
+    ]);
   });
 
   it('fails a production build that lost a page tag or an adapter', () => {
