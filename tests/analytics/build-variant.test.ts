@@ -48,7 +48,7 @@ const unminifiedProductionPage = [
   '<!doctype html><html><head>',
   "<script>/^(docs|examples)\\.expanso\\.io$/.test(window.location.hostname) && (window['ga-disable-G-X1RJ0QGN3Z'] = true)</script>",
   "<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','GTM-MPSKFDMF');</script>",
-  '<script>\n  window.dataLayer = window.dataLayer || [];\n  function gtag(){dataLayer.push(arguments);}\n  gtag( \'consent\', \'default\', {\n    \'ad_storage\': \'denied\'\n  });\n</script>',
+  "<script>\n  window.dataLayer = window.dataLayer || [];\n  function gtag(){dataLayer.push(arguments);}\n  gtag( 'consent', 'default', {\n    'ad_storage': 'denied'\n  });\n</script>",
   '</head><body>',
   '<noscript>\n<iframe src = \'https://www.googletagmanager.com/ns.html?id=GTM-MPSKFDMF\' height="0" width="0"></iframe>\n</noscript>',
   '<div id="__docusaurus"></div>',
