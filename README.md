@@ -77,6 +77,23 @@ staff tagging requires explicit localStorage `expanso_analytics_internal=1`
 (or `true`). Neither flag grants consent. URLs omit queries/fragments; only
 allowlisted campaign labels are retained as separate properties.
 
+### Production-only analytics tags
+
+Every third-party tag (the Scarf pixel, the GTM container and its consent
+default, the PostHog client module and the dedicated GA adapter) is emitted
+only when `EXPANSO_PRODUCTION_ANALYTICS=1` is set at build time. The
+production-build job in `.github/workflows/phase1-foundation.yml` sets it on
+`main` only, so pull-request checks, previews and local builds carry none of
+them and their browsers never reach an analytics host. The switch is read in
+`docusaurus.config.ts` and inlined into the bundle, which also drops the
+PostHog SDK chunk, ingestion host and project key from non-production builds.
+`npm run verify:analytics-build -- --build-dir build --variant none` fails if
+any analytics host or identifier appears in a normal build; `--variant
+production` confirms a flagged build carries every tag. Browser suites that
+measure a production-variant build (`tests/quality/performance.spec.ts`,
+`tests/analytics/collector.test.ts`) abort requests to every host listed in
+`scripts/analytics-tags.ts`.
+
 ### Analytics runtime and dedicated GA destination
 
 Use the Node version in `.node-version` for local gates. With fnm:

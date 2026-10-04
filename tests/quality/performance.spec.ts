@@ -2,6 +2,7 @@ import {
   chromium as playwrightChromium,
   expect,
   test,
+  type BrowserContext,
   type Locator,
 } from '@playwright/test';
 import { launch } from 'chrome-launcher';
@@ -29,6 +30,10 @@ import {
   type QualityContract,
 } from '../../scripts/quality/contract-lib';
 import { validateJsonSchema } from '../../scripts/quality/json-schema';
+import {
+  analyticsBlockedUrlPatterns,
+  isAnalyticsHost,
+} from '../../scripts/analytics-tags';
 
 interface PerformanceContract extends QualityContract {
   profiles: Record<
@@ -53,6 +58,15 @@ interface PerformanceContract extends QualityContract {
 }
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
+
+/** Same hosts the build verifier scans for: a production-variant build can be
+ * measured here, but nothing may leave the runner for an analytics service. */
+async function blockAnalyticsHosts(context: BrowserContext): Promise<void> {
+  await context.route(
+    (url) => isAnalyticsHost(url.hostname),
+    (route) => route.abort()
+  );
+}
 const contract = loadContract(
   'tests/contracts/performance-v1.json'
 ) as PerformanceContract;
@@ -383,6 +397,9 @@ test('collects exact-SHA performance evidence from the production artifact', asy
       const result = await lighthouse(new URL(route.path, baseURL).toString(), {
         port: chrome.port,
         output: 'json',
+        // The main-branch candidate is the production variant; its tags must
+        // never reach an analytics host from CI.
+        blockedUrlPatterns: analyticsBlockedUrlPatterns(),
         logLevel: 'error',
         onlyCategories: ['performance'],
         formFactor: 'mobile',
@@ -472,6 +489,7 @@ test('collects exact-SHA performance evidence from the production artifact', asy
             deviceScaleFactor: profile.deviceScaleFactor,
             colorScheme: theme,
           });
+          await blockAnalyticsHosts(context);
           if (run === 0) {
             await context.tracing.start({ screenshots: true, snapshots: true });
           }
@@ -551,6 +569,7 @@ test('collects exact-SHA performance evidence from the production artifact', asy
     deviceScaleFactor: mobile.deviceScaleFactor,
     colorScheme: 'dark',
   });
+  await blockAnalyticsHosts(explorerContext);
   const explorerTracePath = resolve(
     evidenceRoot,
     'raw/traces/explorer-interaction.zip'

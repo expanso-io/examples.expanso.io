@@ -5,6 +5,8 @@ import { resolve } from 'node:path';
 const buildRoot = resolve('build');
 const sitemapPath = resolve(buildRoot, 'sitemap.xml');
 const siteOrigin = 'https://examples.expanso.io';
+// Same switch docusaurus.config.ts reads: only the deployed build carries GTM.
+const productionAnalytics = process.env.EXPANSO_PRODUCTION_ANALYTICS === '1';
 
 function htmlPath(pathname: string): string {
   const normalized = pathname === '/' ? '' : pathname.replace(/^\/|\/$/g, '');
@@ -44,8 +46,16 @@ for (const url of urls) {
   }
   const guardIndex = html.indexOf('ga-disable-G-X1RJ0QGN3Z');
   const loaderIndex = html.indexOf('gtm.start');
-  if (guardIndex < 0 || loaderIndex < 0 || guardIndex > loaderIndex) {
-    failures.push(`${url.pathname}: old GA destination guard must precede GTM`);
+  if (productionAnalytics) {
+    if (guardIndex < 0 || loaderIndex < 0 || guardIndex > loaderIndex) {
+      failures.push(
+        `${url.pathname}: old GA destination guard must precede GTM`
+      );
+    }
+  } else if (guardIndex >= 0 || loaderIndex >= 0) {
+    failures.push(
+      `${url.pathname}: GTM must not be emitted outside the production build`
+    );
   }
   const h1Count = countMatches(html, /<h1\b/gi);
   if (h1Count !== 1) {

@@ -809,6 +809,13 @@ jobs:
       - visual-regression
       - browser-accessibility
     runs-on: ubuntu-latest
+    env:
+      # The only place third-party analytics are switched on: the main-branch
+      # artifact that deploy.yml publishes. Pull-request runs of this job build
+      # the same artifact without any tag. The baseline build and the perf
+      # browsers inherit the value so candidate and baseline stay comparable;
+      # tests/quality/performance.spec.ts blocks every analytics host.
+      EXPANSO_PRODUCTION_ANALYTICS: ${{ github.ref == 'refs/heads/main' && '1' || '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -868,6 +875,15 @@ jobs:
 
       - name: Build production artifact
         run: npm run build
+
+      - name: Verify analytics tags match the build variant
+        run: |
+          set -euo pipefail
+          if [ "${EXPANSO_PRODUCTION_ANALYTICS:-}" = '1' ]; then
+            npm run verify:analytics-build -- --build-dir build --variant production
+          else
+            npm run verify:analytics-build -- --build-dir build --variant none
+          fi
 
       - name: Scan public artifact for private content
         run: |
