@@ -34,6 +34,50 @@ const productionRouteGuardPlugin: PluginModule = () => ({
   },
 });
 
+// Third-party analytics belong only in the build that deploys the live site.
+// The production-build job sets this switch on main; PR checks, previews and
+// local builds never do, so their browsers reach no analytics host. Every tag
+// below (Scarf, GTM and its consent default, the PostHog client module and the
+// Google adapter inside src/lib/analytics.ts) hangs off this one switch.
+const productionAnalytics = process.env.EXPANSO_PRODUCTION_ANALYTICS === '1';
+
+// Inline the switch into the client and server bundles so the analytics
+// module compiles its delivery code, hosts and keys out when it is off.
+const analyticsBuildSwitchPlugin: PluginModule = () => ({
+  name: 'analytics-build-switch',
+  configureWebpack(_config, _isServer, { currentBundler }) {
+    return {
+      plugins: [
+        new currentBundler.instance.DefinePlugin({
+          'process.env.EXPANSO_PRODUCTION_ANALYTICS': JSON.stringify(
+            productionAnalytics ? '1' : ''
+          ),
+        }),
+      ],
+    };
+  },
+});
+
+// Google Tag Manager consent mode starts denied; the banner in src/theme/Root
+// upgrades it. Only meaningful alongside the GTM container.
+const gtmConsentDefaultTag = {
+  tagName: 'script',
+  attributes: {},
+  innerHTML: `
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('consent', 'default', {
+          'ad_storage': 'denied',
+          'analytics_storage': 'denied',
+          'ad_user_data': 'denied',
+          'ad_personalization': 'denied',
+          'personalization_storage': 'denied',
+          'functionality_storage': 'denied',
+          'security_storage': 'granted'
+        });
+      `,
+};
+
 // Scarf counts cookieless page visits on every page, so it is plain HTML
 // outside React and independent of analytics consent. Absolute positioning
 // keeps the 0x0 image from creating a line box.
@@ -94,23 +138,7 @@ const config: Config = {
         }
       `,
     },
-    {
-      tagName: 'script',
-      attributes: {},
-      innerHTML: `
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){dataLayer.push(arguments);}
-        gtag('consent', 'default', {
-          'ad_storage': 'denied',
-          'analytics_storage': 'denied',
-          'ad_user_data': 'denied',
-          'ad_personalization': 'denied',
-          'personalization_storage': 'denied',
-          'functionality_storage': 'denied',
-          'security_storage': 'granted'
-        });
-      `,
-    },
+    ...(productionAnalytics ? [gtmConsentDefaultTag] : []),
   ],
 
   url: 'https://examples.expanso.io',
@@ -168,11 +196,12 @@ const config: Config = {
     familyNavigation,
     runtimeProofHarnessEnabled && runtimeProofHarnessPlugin,
     productionRouteGuardPlugin,
-    scarfPixelPlugin,
+    analyticsBuildSwitchPlugin,
+    productionAnalytics && scarfPixelPlugin,
     './plugins/tailwind-config.cjs',
     './plugins/alias-config.cjs',
-    './plugins/posthog-analytics.cjs',
-    [
+    productionAnalytics && './plugins/posthog-analytics.cjs',
+    productionAnalytics && [
       '@docusaurus/plugin-google-tag-manager',
       {
         containerId: 'GTM-MPSKFDMF',

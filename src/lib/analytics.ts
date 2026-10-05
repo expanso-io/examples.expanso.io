@@ -6,10 +6,17 @@ import {
 } from './googleAnalytics';
 
 export const ANALYTICS_SITE_HOST = 'examples.expanso.io';
-const googleAnalytics = createGoogleAnalyticsAdapter(
-  EXAMPLES_GA_MEASUREMENT_ID,
-  ANALYTICS_SITE_HOST
-);
+// Only the main-branch production build sets this switch (production-build
+// job in .github/workflows/phase1-foundation.yml). The bundler inlines it, so
+// every other build compiles out the PostHog and Google delivery code along
+// with their hosts, project key and measurement ID.
+const PRODUCTION_ANALYTICS = process.env.EXPANSO_PRODUCTION_ANALYTICS === '1';
+const googleAnalytics = PRODUCTION_ANALYTICS
+  ? createGoogleAnalyticsAdapter(
+      EXAMPLES_GA_MEASUREMENT_ID,
+      ANALYTICS_SITE_HOST
+    )
+  : undefined;
 export const CONSENT_COOKIE_NAME = 'expanso-cookie-consent';
 export const PRIVACY_SAFE_CAPTURE_OPTIONS = {
   autocapture: false,
@@ -51,7 +58,7 @@ const CAMPAIGN_FIELDS = [
 ] as const;
 let entryCampaign: Properties | undefined;
 
-let posthogClientPromise: Promise<PostHogInterface> | undefined;
+let posthogClientPromise: Promise<PostHogInterface | undefined> | undefined;
 
 declare global {
   interface Window {
@@ -159,6 +166,7 @@ function currentHost(): string {
 
 function isProductionHost(): boolean {
   return (
+    PRODUCTION_ANALYTICS &&
     typeof window !== 'undefined' &&
     window.location.hostname === ANALYTICS_SITE_HOST
   );
@@ -256,39 +264,46 @@ function standardProperties(): Properties {
   };
 }
 
+// The switch is spelled out here because webpack only skips the dynamic
+// import, and with it the SDK chunk, when the dead branch is visible to it.
+const loadPostHog =
+  process.env.EXPANSO_PRODUCTION_ANALYTICS === '1'
+    ? () =>
+        import('posthog-js').then(({ default: posthog }) => {
+          if (!posthog.__loaded) {
+            posthog.init(POSTHOG_PROJECT_KEY, {
+              api_host: POSTHOG_API_HOST,
+              defaults: '2026-01-30',
+              persistence:
+                currentConsent() === 'granted'
+                  ? 'localStorage+cookie'
+                  : 'memory',
+              ...PRIVACY_SAFE_CAPTURE_OPTIONS,
+              advanced_disable_feature_flags: true,
+              advanced_disable_toolbar_metrics: true,
+              disable_capture_url_hashes: true,
+              ip: false,
+              mask_all_element_attributes: true,
+              mask_all_text: true,
+              mask_personal_data_properties: true,
+              person_profiles: 'never',
+              respect_dnt: true,
+              opt_out_useragent_filter: true,
+              save_campaign_params: false,
+              save_referrer: false,
+              secure_cookie: true,
+              before_send: sanitizeAnalyticsEvent,
+            });
+          }
+          return posthog;
+        })
+    : () => Promise.resolve(undefined);
+
 export async function initializeAnalytics(): Promise<
   PostHogInterface | undefined
 > {
   if (!isProductionHost()) return undefined;
-  if (!posthogClientPromise) {
-    posthogClientPromise = import('posthog-js').then(({ default: posthog }) => {
-      if (!posthog.__loaded) {
-        posthog.init(POSTHOG_PROJECT_KEY, {
-          api_host: POSTHOG_API_HOST,
-          defaults: '2026-01-30',
-          persistence:
-            currentConsent() === 'granted' ? 'localStorage+cookie' : 'memory',
-          ...PRIVACY_SAFE_CAPTURE_OPTIONS,
-          advanced_disable_feature_flags: true,
-          advanced_disable_toolbar_metrics: true,
-          disable_capture_url_hashes: true,
-          ip: false,
-          mask_all_element_attributes: true,
-          mask_all_text: true,
-          mask_personal_data_properties: true,
-          person_profiles: 'never',
-          respect_dnt: true,
-          opt_out_useragent_filter: true,
-          save_campaign_params: false,
-          save_referrer: false,
-          secure_cookie: true,
-          before_send: sanitizeAnalyticsEvent,
-        });
-      }
-      return posthog;
-    });
-  }
-
+  if (!posthogClientPromise) posthogClientPromise = loadPostHog();
   return posthogClientPromise;
 }
 
@@ -309,7 +324,7 @@ async function capture(
     ...standardProperties(),
   };
   // Google has its own consent and DNT gate, independent of SDK loading.
-  googleAnalytics.capture(eventName, payload, currentConsent());
+  googleAnalytics?.capture(eventName, payload, currentConsent());
   const posthog = await initializeAnalytics();
   if (!posthog) return;
   // Consent can change while the lazy SDK import is in flight (or in another
@@ -366,7 +381,7 @@ function writeConsentCookie(granted: boolean): void {
 
 export async function setAnalyticsConsent(granted: boolean): Promise<void> {
   writeConsentCookie(granted);
-  googleAnalytics.setConsent(currentConsent());
+  googleAnalytics?.setConsent(currentConsent());
   if (!isProductionHost()) return;
   const posthog = await initializeAnalytics();
 

@@ -25,6 +25,9 @@ before(async () => {
       write: false,
       platform: 'browser',
       format: 'iife',
+      // The production variant is the one with delivery code; every external
+      // request is still aborted below so nothing reaches an analytics host.
+      define: { 'process.env.EXPANSO_PRODUCTION_ANALYTICS': '"1"' },
     })
   ).outputFiles[0].text;
   browser = await chromium.launch({
