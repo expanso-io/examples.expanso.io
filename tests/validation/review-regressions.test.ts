@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { createServer } from 'node:http';
 import { request as httpsRequest } from 'node:https';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import {
   existsSync,
   mkdtempSync,
@@ -1176,83 +1176,172 @@ for (const path of [
   'examples/enterprise-migration/nightly-backup/nightly-backup.yaml',
   'static/files/enterprise-migration/nightly-backup/nightly-backup.yaml',
 ]) {
-  test(`inventory backup batches retain unique Parquet objects: ${path}`, async () => {
-    const source = parse(readFileSync(path, 'utf8')).config;
-    const destination = source.output.switch.cases[1].output.gcp_cloud_storage;
-    const directory = mkdtempSync(join(work, 'inventory-'));
-    const pipeline: YamlObject = {
-      input: {
-        generate: {
-          count: 5,
-          mapping:
-            'root = {"_table":"inventory","row_id":counter(),"amount":2.99}',
+  for (const [route, table] of [
+    'orders',
+    'inventory',
+    'order_items',
+  ].entries()) {
+    test(`backup batches retain unique Parquet objects for ${table}: ${path}`, async () => {
+      const source = parse(readFileSync(path, 'utf8')).config;
+      const destination =
+        source.output.switch.cases[route].output.gcp_cloud_storage;
+      const directory = mkdtempSync(join(work, `${table}-`));
+      const pipeline: YamlObject = {
+        input: {
+          generate: {
+            count: 5,
+            interval: '1ms',
+            mapping: `root = {"_table":"${table}","row_id":counter(),"amount":2.99}`,
+          },
         },
-      },
-      pipeline: source.pipeline,
-      output: {
-        broker: {
-          pattern: 'fan_out',
-          batching: { ...destination.batching, count: 2, period: '1s' },
-          outputs: [
-            {
-              file: {
-                path: join(directory, destination.path),
-                codec: 'all-bytes',
+        pipeline: source.pipeline,
+        output: {
+          broker: {
+            pattern: 'fan_out',
+            batching: { ...destination.batching, count: 2, period: '1s' },
+            outputs: [
+              {
+                file: {
+                  path: join(directory, destination.path),
+                  codec: 'all-bytes',
+                },
               },
-            },
-          ],
+            ],
+          },
         },
-      },
-    };
-    const validity = validateSource(
-      edge,
-      root,
-      stringify(pipeline),
-      manifest.environment
-    );
-    assert.equal(validity.status, 'PASS', JSON.stringify(validity));
-    const deployed = await agent.deploy({
-      name: `inventory-${++sequence}`,
-      type: 'pipeline',
-      config: pipeline,
-    });
-    assert.ok(deployed.ok, JSON.stringify(deployed));
-    try {
-      const deadline = Date.now() + 20_000;
-      let state = '';
-      while (Date.now() < deadline) {
-        state = (await agent.executionStatus(deployed.jobId))?.state ?? '';
-        if (['completed', 'failed', 'stopped'].includes(state)) break;
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-      assert.equal(state, 'completed');
-      const files = readdirSync(directory, { recursive: true }).filter((name) =>
-        String(name).endsWith('.parquet')
+      };
+      const validity = validateSource(
+        edge,
+        root,
+        stringify(pipeline),
+        manifest.environment
       );
-      assert.ok(files.length >= 3 && files.length <= 5);
-      const decoded: Array<{ record: string }> = [];
-      for (const file of files) {
-        const bytes = readFileSync(join(directory, String(file)));
-        decoded.push(
-          ...((await execute({
-            input: {
-              generate: {
-                count: 1,
-                mapping: `root = ${JSON.stringify(bytes.toString('base64'))}.decode("base64")`,
-              },
-            },
-            pipeline: { processors: [{ parquet_decode: {} }] },
-            output: { stdout: {} },
-          })) as Array<{ record: string }>)
+      assert.equal(validity.status, 'PASS', JSON.stringify(validity));
+      const deployed = await agent.deploy({
+        name: `inventory-${++sequence}`,
+        type: 'pipeline',
+        config: pipeline,
+      });
+      assert.ok(deployed.ok, JSON.stringify(deployed));
+      try {
+        const deadline = Date.now() + 20_000;
+        let state = '';
+        while (Date.now() < deadline) {
+          state = (await agent.executionStatus(deployed.jobId))?.state ?? '';
+          if (['completed', 'failed', 'stopped'].includes(state)) break;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        assert.equal(state, 'completed');
+        const files = readdirSync(directory, { recursive: true }).filter(
+          (name) => String(name).endsWith('.parquet')
         );
+        assert.ok(files.length >= 3 && files.length <= 5);
+        const decoded: Array<{ record: string }> = [];
+        for (const file of files) {
+          const bytes = readFileSync(join(directory, String(file)));
+          decoded.push(
+            ...((await execute({
+              input: {
+                generate: {
+                  count: 1,
+                  mapping: `root = ${JSON.stringify(bytes.toString('base64'))}.decode("base64")`,
+                },
+              },
+              pipeline: { processors: [{ parquet_decode: {} }] },
+              output: { stdout: {} },
+            })) as Array<{ record: string }>)
+          );
+        }
+        assert.equal(decoded.length, 5);
+        assert.equal(
+          new Set(decoded.map((row) => JSON.parse(row.record).row_id)).size,
+          5
+        );
+      } finally {
+        await agent.deleteJob(deployed.jobId);
       }
-      assert.equal(decoded.length, 5);
-      assert.equal(
-        new Set(decoded.map((row) => JSON.parse(row.record).row_id)).size,
-        5
-      );
-    } finally {
-      await agent.deleteJob(deployed.jobId);
+    });
+  }
+}
+
+test('smart buffering step 4 satisfies its computed priority contract', async () => {
+  const path = 'examples/data-routing/smart-buffering-step-4.yaml';
+  const outputs = await capture(
+    config(path),
+    'tests/fixtures/pipeline-inputs/data-routing.jsonl'
+  );
+  const expectation = contracts[path];
+  verifyOutputs(expectation, [], outputs, manifest.environment);
+  const corrupted = outputs.map(
+    (text) =>
+      text
+        .trim()
+        .split('\n')
+        .map((line) => {
+          const row = JSON.parse(line);
+          row.priority_score += 1;
+          return JSON.stringify(row);
+        })
+        .join('\n') + '\n'
+  );
+  assert.throws(() =>
+    verifyOutputs(expectation, [], corrupted, manifest.environment)
+  );
+});
+
+for (const path of [
+  'examples/data-transformation/transform-formats.yaml',
+  'static/files/data-transformation/transform-formats.yaml',
+]) {
+  test(`Avro encoder terminates invalid input without waiting for stdin EOF: ${path}`, async () => {
+    const pipeline = parse(readFileSync(path, 'utf8')).config;
+    const encoder = pipeline.pipeline.processors.find(
+      (processor: { subprocess?: unknown }) => processor.subprocess
+    ).subprocess;
+    for (const humidity of [undefined, 'not-a-number']) {
+      const child = spawn(encoder.name, encoder.args, {
+        cwd: work,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
+      child.stdout.on('data', (chunk) => stdout.push(chunk));
+      child.stderr.on('data', (chunk) => stderr.push(chunk));
+      const closed = new Promise<number | null>((resolve, reject) => {
+        child.once('error', reject);
+        child.once('close', (code) => resolve(code));
+      });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        child.stdin.write(
+          JSON.stringify({
+            sensor_id: 'sensor-1',
+            location: 'warehouse',
+            temperature: 20,
+            humidity,
+            timestamp: '2026-10-05T12:00:00Z',
+            device_type: 'sensor',
+            firmware_version: '1.0',
+          }) + '\n'
+        );
+        const code = await Promise.race([
+          closed,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error('encoder waited for another stdin line')),
+              3000
+            );
+          }),
+        ]);
+        assert.equal(code, 1);
+        assert.equal(Buffer.concat(stdout).length, 0);
+        assert.match(Buffer.concat(stderr).toString(), /Invalid double/);
+      } finally {
+        clearTimeout(timer);
+        if (child.exitCode === null && child.signalCode === null)
+          child.kill('SIGKILL');
+        await closed;
+      }
     }
   });
 }

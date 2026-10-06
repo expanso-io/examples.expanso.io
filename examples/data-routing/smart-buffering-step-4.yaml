@@ -28,22 +28,22 @@ config:
           let event_type = this.event_type.or("").string().lowercase()
 
           let is_important = match {
-            category == "important" => true,
-            severity == "critical" => true,
-            event_type.has_prefix("payment.failed") => true,
+            $category == "important" => true,
+            $severity == "critical" => true,
+            $event_type.has_prefix("payment.failed") => true,
             _ => false
           }
 
           let is_archive = match {
-            category == "archive" => true,
-            severity == "debug" => true,
-            event_type.has_prefix("analytics.") => true,
+            $category == "archive" => true,
+            $severity == "debug" => true,
+            $event_type.has_prefix("analytics.") => true,
             _ => false
           }
 
           root.priority_tier = match {
-            is_important => 1,
-            is_archive => 3,
+            $is_important => 1,
+            $is_archive => 3,
             _ => 2
           }
 

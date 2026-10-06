@@ -24,7 +24,7 @@ config:
             - |-
               const fields=[['sensor_id','string'],['location','string'],['temperature','double'],['humidity','double'],['timestamp','string'],['device_type','string'],['firmware_version','string']];
               const encode=(value,type)=>{if(type==='double'){if(typeof value!=='number'||!Number.isFinite(value))throw Error('Invalid double');const b=Buffer.alloc(8);b.writeDoubleLE(value);return b;}if(typeof value!=='string')throw Error('Invalid string');const b=Buffer.from(value,'utf8');let n=BigInt(b.length)*2n;const size=[];do{let x=Number(n&127n);n>>=7n;if(n)x|=128;size.push(x);}while(n);return Buffer.concat([Buffer.from(size),b]);};
-              require('node:readline').createInterface({input:process.stdin}).on('line',line=>{try{const r=JSON.parse(line);const data=Buffer.concat(fields.map(([name,type])=>encode(r[name],type)));const prefix=Buffer.alloc(4);prefix.writeUInt32BE(data.length);process.stdout.write(Buffer.concat([prefix,data]));}catch(e){process.stderr.write(e.message+'\n');process.exitCode=1;}});
+              require('node:readline').createInterface({input:process.stdin}).on('line',line=>{try{const r=JSON.parse(line);const data=Buffer.concat(fields.map(([name,type])=>encode(r[name],type)));const prefix=Buffer.alloc(4);prefix.writeUInt32BE(data.length);process.stdout.write(Buffer.concat([prefix,data]));}catch(e){process.stderr.write(e.message+'\n');process.exit(1);}});
           codec_recv: length_prefixed_uint32_be
 
   output:
