@@ -46,13 +46,19 @@ aws s3 ls s3://$BUCKET/ --max-items 1          # S3
 
 **Fix:** Use `broker` with `fan_out` pattern (not `fan_out_sequential`):
 
-```yaml
+```yaml title="Partial snippet: validated fan-out destinations"
 output:
   broker:
     pattern: fan_out # Parallel, not sequential
     outputs:
-      - elasticsearch: { ... }
-      - aws_s3: { ... }
+      - opensearch:
+          action: index
+          urls: ['http://localhost:9200']
+          index: events
+          id: '${!this.event_id.or(uuid_v4())}'
+      - aws_s3:
+          bucket: '${S3_BUCKET:validation-bucket}'
+          path: events/${!uuid_v4()}.jsonl
 ```
 
 ---
@@ -63,11 +69,17 @@ output:
 
 **Fix:** Add independent batching per destination:
 
-```yaml
+```yaml title="Partial snippet: destination-specific batching"
 outputs:
-  - elasticsearch:
+  - opensearch:
+      action: index
+      urls: ['http://localhost:9200']
+      index: events
+      id: '${!this.event_id.or(uuid_v4())}'
       batching: { count: 100, period: 5s }
   - aws_s3:
+      bucket: '${S3_BUCKET:validation-bucket}'
+      path: events/${!uuid_v4()}.jsonl
       batching: { count: 1000, period: 60s }
 ```
 
@@ -79,11 +91,20 @@ outputs:
 
 **Fix:** Add idempotent writes:
 
-```yaml
-- kafka:
-    idempotent_write: true
-- elasticsearch:
-    id: ${!json("event_id")} # Dedupe by ID
+```yaml title="Partial snippet: idempotent fan-out destinations"
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      - kafka:
+          addresses: ['localhost:9092']
+          topic: events
+          idempotent_write: true
+      - opensearch:
+          action: index
+          urls: ['http://localhost:9200']
+          index: events
+          id: '${!this.event_id}' # Dedupe by ID
 ```
 
 ---
@@ -102,7 +123,7 @@ docker stats fan-out-pattern --no-stream
 batching:
   count: 500
   period: 30s
-  byte_size: 10MB
+  byte_size: 10485760
 ```
 
 ## Still stuck?

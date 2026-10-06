@@ -13776,6 +13776,105 @@
       }
     ]
   },
+  "docs/data-routing/content-splitting/step-2-split-csv-batches.mdx#L73": {
+    "kind": "records",
+    "outputs": [{
+      "count": 2,
+      "records": [
+        {"match": {"transaction_id": "txn-001"}, "equals": {"amount": 150, "currency": "USD"}},
+        {"match": {"transaction_id": "txn-002"}, "equals": {"amount": 12500, "currency": "EUR"}}
+      ]
+    }]
+  },
+  "docs/data-routing/smart-buffering/step-1-classify-priority.mdx#L41": {
+    "kind": "records",
+    "outputs": [{
+      "count": 3,
+      "records": [
+        {"match": {"event_id": "evt-critical"}, "equals": {"priority_tier": 1, "priority_label": "important"}},
+        {"match": {"event_id": "evt-warning"}, "equals": {"priority_tier": 1, "priority_label": "important"}},
+        {"match": {"event_id": "evt-info"}, "equals": {"priority_tier": 3, "priority_label": "archive"}}
+      ]
+    }]
+  },
+  "docs/data-routing/smart-buffering/step-3-priority-output.mdx#L44": {
+    "kind": "records",
+    "outputs": [
+      {"count": 2, "every": {"equals": {"priority_tier": 1, "priority_label": "important"}}},
+      {"count": 0},
+      {"count": 1, "every": {"equals": {"priority_tier": 3, "priority_label": "archive"}}}
+    ]
+  },
+  "docs/data-security/enforce-schema/step-1-define-json-schema.mdx#L74": {
+    "kind": "records",
+    "outputs": [{"count": 2, "every": {"equals": {"validation_status": "passed"}, "present": ["sensor_id", "timestamp", "reading"]}}]
+  },
+  "docs/data-security/remove-pii/index.mdx#L61": {
+    "kind": "records",
+    "outputs": [{"count": 1, "records": [{"equals": {"event_id": "demo-001", "action": "checkout"}, "absent": ["email", "ip_address", "payment_card"]}]}]
+  },
+"docs/data-transformation/deduplicate-events/step-1-hash-based-exact-duplicates.mdx#L38": {
+    "kind": "records",
+    "outputs": [{"count": 1, "records": [{"equals": {"event_id": "abc-123", "message": "hello", "status": "processed_new"}, "present": ["dedup_hash"]}]}]
+  },
+  "docs/data-transformation/normalize-timestamps/step-1-parse-formats.mdx#L53": {
+    "kind": "records",
+    "outputs": [{"count": 2, "records": [
+      {"match": {"event_id": "A"}, "present": ["original_timestamp", "normalized_timestamp"]},
+      {"match": {"event_id": "B"}, "present": ["original_timestamp", "normalized_timestamp"]}
+    ]}]
+  },
+  "docs/data-transformation/parse-logs/step-1-parse-json-logs.mdx#L51": {
+    "kind": "records",
+    "outputs": [{"count": 25, "every": {"equals": {"level": "error", "service": "api", "message": "DB connection failed", "timestamp": "2025-10-20T14:23:45Z"}}}]
+  },
+  "docs/data-transformation/parse-logs/step-2-parse-csv-data.mdx#L53": {
+    "kind": "records",
+    "outputs": [{"count": 25, "every": {"equals": {"timestamp": "2025-10-20T14:23:45Z", "metric_name": "temperature", "sensor_id": "temp-sensor-01", "value": "35.5", "unit": "celsius"}}}]
+  },
+  "docs/data-transformation/parse-logs/step-3-parse-syslog-messages.mdx#L59": {
+    "kind": "records",
+    "outputs": [{"count": 25, "every": {"equals": {"facility": 16, "severity": 6, "hostname": "edge-node-01", "tag": "app", "message": "Database connection established"}}}]
+  },
+  "docs/data-transformation/parse-logs/step-4-multi-format-detection.mdx#L36": {
+    "kind": "records",
+    "outputs": [{
+      "count": 4,
+      "records": [
+        {"match": {"parsed_by": "json_parser"}, "equals": {"level": "info", "message": "ready"}},
+        {"match": {"parsed_by": "csv_parser"}, "equals": {"f1": "alpha", "f5": "epsilon"}},
+        {"match": {"parsed_by": "syslog_parser"}, "equals": {"hostname": "edge-node-01", "message": "Database connection established"}},
+        {"match": {"parsed_by": "access_log_parser"}, "equals": {"ip": "127.0.0.1", "status": 200, "bytes": 123}}
+      ]
+    }]
+  },
+  "docs/enterprise-migration/nightly-backup/step-1-extract-tables.mdx#L40": {
+    "kind": "records",
+    "outputs": [{"count": 3, "records": [
+      {"match": {"row_id": "orders-1"}, "equals": {"_table": "orders", "_backup_type": "incremental"}},
+      {"match": {"row_id": "inventory-1"}, "equals": {"_table": "inventory", "_backup_type": "full"}},
+      {"match": {"row_id": "order_items-1"}, "equals": {"_table": "order_items", "_backup_type": "incremental"}}
+    ]}]
+  },
+  "docs/getting-started/process-data-locally.mdx#L47": {
+    "kind": "records",
+    "outputs": [{"count": 1, "records": [{"equals": {"alert": true, "sensor_id": "demo-sensor-1", "site": "demo-lab", "temperature_c": 31.5}, "absent": ["raw_payload"]}]}]
+  },
+  "docs/log-processing/enrich-export/step-1-generate-test-data.mdx#L25": {
+    "kind": "records",
+    "outputs": [{"count": 3, "every": {"equals": {"service": "demo-service", "message": "Synthetic log message", "user_id": "synthetic-user"}, "present": ["id", "timestamp", "level", "request_id"]}}]
+  },
+  "docs/log-processing/filter-severity/index.mdx#L61": {
+    "kind": "records",
+    "outputs": [{"count": 1, "records": [{"equals": {"event_id": "log-003", "level": "ERROR", "message": "request failed"}}]}]
+  },
+  "docs/log-processing/filter-severity/step-1-parse-json-add-metadata.mdx#L47": {
+    "kind": "records",
+    "outputs": [{"count": 2, "records": [
+      {"match": {"was_json": true}, "equals": {"level": "info", "message": "User logged in"}},
+      {"match": {"was_json": false}, "equals": {"level": "unknown", "message": "web server started"}}
+    ]}]
+  },
   "static/pipelines/oran-telco-pipeline.yaml": {
     "kind": "records",
     "outputs": [

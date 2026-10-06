@@ -39,9 +39,11 @@ output:
     pattern: fan_out
     outputs:
       # Destination 1: Elasticsearch
-      - elasticsearch:
+      - opensearch:
+          action: index
           urls: ['${ELASTICSEARCH_URL}']
           index: 'logs-${!timestamp_unix_date()}'
+          id: '${!this.request_id.or(uuid_v4())}'
 
       # Destination 2: S3
       - aws_s3:

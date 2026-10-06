@@ -88,16 +88,16 @@ let age_boost = match {
 
 **Cause:** Sort processor not applied to output batch
 
-**Fix:** Ensure sort processor is in output processors, not pipeline:
+**Fix:** Preserve the upstream priority score in an output processor; ordering
+belongs to the destination queue rather than an unsupported local sort stage:
 
 ```yaml
 output:
   broker:
     outputs:
-      - processors:
-          - sort:
-              value: root.priority_score
-              order: descending
+      - stdout: {}
+        processors:
+          - mapping: root.priority_score = this.priority_score
 ```
 
 ---
@@ -116,7 +116,9 @@ buffer:
 # Or add overflow to file
 output:
   fallback:
-    - http_client: { ... }
+    - http_client:
+        url: http://localhost:8080/events
+        verb: POST
     - file:
         path: /tmp/overflow.json
 ```

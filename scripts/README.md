@@ -31,8 +31,9 @@ Fixture generators live in `scripts/fixtures/`. Run a generator without `--write
 npm run validate-examples
 ```
 
-The harness uses the repository-local pinned executor managed by
-`scripts/validation/edge.ts`. It installs that release into `.bin/` when needed.
+The harness uses the installed `expanso-edge` and `expanso-cli` releases on
+`PATH`. Local validation never resolves, downloads, pins, or caches binaries;
+install the latest releases through the official Expanso installers first.
 It inventories pipeline YAML under `examples/`, `static/files/`,
 `static/pipelines/`, `docs/**/pipeline.yaml`, and catalog pipeline paths.
 Documents with both input and output are complete pipelines; other snippets

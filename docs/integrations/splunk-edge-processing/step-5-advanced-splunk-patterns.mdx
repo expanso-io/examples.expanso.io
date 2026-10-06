@@ -280,25 +280,17 @@ processors:
       let response_time = this.response_time_ms.number().catch(0)
       let endpoint = this.endpoint.string().catch("unknown")
 
-      # Calculate rolling averages (this would use external cache in production)
-      let avg_response_key = "avg_response_" + endpoint
-      let current_avg = meta(avg_response_key).number().catch(response_time)
-      let new_avg = (current_avg * 0.9) + (response_time * 0.1)  # Exponential moving average
-
-      meta(avg_response_key) = new_avg
+      # A preceding maintained stage supplies the baseline.
+      let current_avg = this.baseline_response_ms.or($response_time)
+      let new_avg = ($current_avg * 0.9) + ($response_time * 0.1)
 
       # Detect anomalies (>3x normal response time)
-      root.is_anomaly = response_time > (new_avg * 3) && response_time > 1000
+      root.is_anomaly = $response_time > ($new_avg * 3) && $response_time > 1000
 
       # Anomaly metadata
-      if this.is_anomaly {
-        root.anomaly_details = {
-          "current_response": response_time,
-          "baseline_response": new_avg,
-          "deviation_factor": response_time / new_avg,
-          "detection_time": timestamp()
-        }
-      }
+      root.anomaly_details = if root.is_anomaly {
+        {"current_response": $response_time, "baseline_response": $new_avg, "deviation_factor": $response_time / $new_avg, "detection_time": now()}
+      } else { deleted() }
 ```
 
 ## Pattern 4: Geographic Data Routing
@@ -328,20 +320,21 @@ processors:
 output:
   # Route based on geographic review
   switch:
-    - condition: 'this.allowed_destinations.contains("eu_splunk")'
-      output:
-        http_client:
-          url: 'https://eu-splunk.company.com:8088/services/collector/event'
+    cases:
+      - check: 'this.allowed_destinations.contains("eu_splunk")'
+        output:
+          http_client:
+            url: 'https://eu-splunk.company.com:8088/services/collector/event'
 
-    - condition: 'this.allowed_destinations.contains("us_splunk")'
-      output:
-        http_client:
-          url: 'https://us-splunk.company.com:8088/services/collector/event'
+      - check: 'this.allowed_destinations.contains("us_splunk")'
+        output:
+          http_client:
+            url: 'https://us-splunk.company.com:8088/services/collector/event'
 
-    - condition: 'this.allowed_destinations.contains("local_only")'
-      output:
-        file:
-          path: "/secure/local/phi-data-${timestamp().format('2006-01-02')}.log"
+      - check: 'this.allowed_destinations.contains("local_only")'
+        output:
+          file:
+            path: '/secure/local/phi-data-${! now().ts_format("2006-01-02") }.log'
 ```
 
 ## Pattern 5: Intelligent Sampling
@@ -353,11 +346,8 @@ processors:
   - mapping: |
       # Stratified sampling - preserve distribution across different dimensions
       let sample_key = this.level + "_" + this.endpoint.string().catch("unknown")
-      let sample_count = meta("sample_" + sample_key).number().catch(0) + 1
-      meta("sample_" + sample_key) = sample_count
-
       # Sample rates based on event type and frequency
-      root.sample_rate = match {
+      let sample_rate = match {
         this.level == "ERROR" => 1.0        # Keep all errors
         this.level == "WARN" => 0.8         # Keep 80% of warnings  
         this.level == "INFO" && this.endpoint.contains("/health") => 0.1  # Keep 10% of health checks
@@ -365,24 +355,11 @@ processors:
         this.level == "DEBUG" => 0.0        # Drop all DEBUG
         _ => 0.3
       }
+      root.sample_rate = $sample_rate
 
-      # Ensure we keep at least one sample per hour for each category
-      let hourly_sample_key = sample_key + "_" + timestamp().format("2006-01-02-15")
-      let hourly_sample_count = meta("hourly_" + hourly_sample_key).number().catch(0)
-
-      if hourly_sample_count == 0 {
-        # Force keep first sample of each type per hour
-        root.force_keep = true
-        meta("hourly_" + hourly_sample_key) = 1
-      } else {
-        root.force_keep = false
-      }
-
-      # Apply sampling decision
-      let random_value = this.message.hash("xxhash64") % 100 / 100.0
-      if !this.force_keep && random_value > this.sample_rate {
-        root = deleted()
-      }
+      # Deterministic sampling keeps retries stable.
+      let sample_bucket = (this.message.or($sample_key).hash("xxhash64") % 100).abs()
+      root = if $sample_bucket >= ($sample_rate * 100) { deleted() } else { this.merge({"sample_rate": $sample_rate}) }
 ```
 
 ## Pattern 6: Performance Monitoring and Auto-Scaling
@@ -392,36 +369,16 @@ Monitor pipeline performance and adapt automatically:
 ```yaml
 processors:
   - mapping: |
-      # Track pipeline performance metrics
-      meta("events_processed") = meta("events_processed").number().catch(0) + 1
-      meta("bytes_processed") = meta("bytes_processed").number().catch(0) + this.string().length()
-
-      let current_time = timestamp().format_timestamp_unix()
-      let last_reset = meta("last_perf_reset").number().catch(current_time)
-
-      # Reset counters every minute for rate calculation
-      if current_time - last_reset > 60 {
-        let events_per_minute = meta("events_processed") 
-        let bytes_per_minute = meta("bytes_processed")
-        
-        # Auto-adjust batch sizes based on throughput
-        root.optimal_batch_size = match {
-          events_per_minute > 10000 => 200  # High volume
-          events_per_minute > 1000 => 100   # Medium volume  
-          _ => 50                            # Low volume
-        }
-        
-        # Auto-adjust filtering aggressiveness based on load
-        root.auto_filter_level = match {
-          events_per_minute > 5000 => "aggressive"
-          events_per_minute > 1000 => "normal"
-          _ => "permissive"
-        }
-        
-        # Reset counters
-        meta("events_processed") = 0
-        meta("bytes_processed") = 0
-        meta("last_perf_reset") = current_time
+      let events_per_minute = this.events_per_minute.or(0)
+      root.optimal_batch_size = match {
+        $events_per_minute > 10000 => 200
+        $events_per_minute > 1000 => 100
+        _ => 50
+      }
+      root.auto_filter_level = match {
+        $events_per_minute > 5000 => "aggressive"
+        $events_per_minute > 1000 => "normal"
+        _ => "permissive"
       }
 ```
 

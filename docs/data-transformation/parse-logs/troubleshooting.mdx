@@ -82,10 +82,10 @@ docker logs parse-logs --tail 20 2>&1 | grep -i "format\|parse"
 ```yaml
 # Standard combined log format
 - mapping: |
-    let parts = this.re_find_all_submatch('^(\\S+) \\S+ \\S+ \\[([^]]+)\\] "([^"]+)" (\\d+) (\\d+)')
-    root.ip = parts.index(0).index(1)
-    root.timestamp = parts.index(0).index(2)
-    root.request = parts.index(0).index(3)
+    let parts = this.re_find_all_submatch("^(\\S+) \\S+ \\S+ \\[([^]]+)\\] \"([^\"]+)\" (\\d+) (\\d+)")
+    root.ip = $parts.index(0).index(1)
+    root.timestamp = $parts.index(0).index(2)
+    root.request = $parts.index(0).index(3)
 ```
 
 ---
@@ -96,13 +96,11 @@ docker logs parse-logs --tail 20 2>&1 | grep -i "format\|parse"
 
 **Fix:** Support both formats:
 
-```yaml
-- mapping: |
-    root = if content().has_prefix("<") && content().contains(">1 ") {
-      this.parse_syslog_rfc5424()
-    } else {
-      this.parse_syslog_rfc3164()
-    }
+```yaml title="Partial snippet: validated RFC 3164 parser"
+- grok:
+    expressions:
+      - '<%{POSINT:priority}>%{SYSLOGTIMESTAMP:timestamp} %{SYSLOGHOST:hostname} %{DATA:tag}: %{GREEDYDATA:message}'
+    named_captures_only: true
 ```
 
 ## Still stuck?

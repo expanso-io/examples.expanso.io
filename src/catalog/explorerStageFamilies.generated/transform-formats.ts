@@ -33,9 +33,9 @@ export const GENERATED_EXPLORER_STAGES = [
   {
     id: 2,
     slug: "json-avro",
-    title: "JSON → Avro",
+    title: "Partial snippet: JSON → Avro preparation",
     description:
-      "Attach a representative Avro record schema and review writer-reader compatibility separately.",
+      "The installed Edge validator reports `Unknown component or field 'avro'` for the documented processor, so this validated stage prepares schema-compatible JSON but does not claim to emit Avro bytes.",
     inputLines: [
       { content: '{"sensor_id":"sensor-42",', indent: 0 },
       { content: '"temperature_celsius":23.5,', indent: 0 },
@@ -43,18 +43,19 @@ export const GENERATED_EXPLORER_STAGES = [
       { content: '"timestamp":"2024-01-15T10:30:00Z"}', indent: 0 },
     ],
     outputLines: [
-      { content: "Avro review points:", indent: 0, type: "highlighted" },
-      { content: "Schema: enforced at write", indent: 1 },
       {
-        content: "Reader compatibility requires a versioned schema policy",
-        indent: 1,
+        content: "Partial-stage review points:",
+        indent: 0,
+        type: "highlighted",
       },
+      { content: "Schema-compatible field types are prepared", indent: 1 },
+      { content: "No native Avro bytes are emitted by this stage", indent: 1 },
     ],
     yamlFilename: "02-json-avro.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - mapping: |\n        root.sensor_id = this.sensor_id.string()\n        root.temperature_celsius = this.temperature_celsius.number()\n        root.humidity_percent = this.humidity_percent.number()\n        root.timestamp = this.timestamp.string()\n    - avro:\n        operator: from_json\n        encoding: binary\n        schema: \'{"type":"record","name":"SensorReading","fields":[{"name":"sensor_id","type":"string"},{"name":"temperature_celsius","type":"double"},{"name":"humidity_percent","type":"double"},{"name":"timestamp","type":"string"}]}\'\n',
+      "pipeline:\n  processors:\n    # Partial snippet: prepare schema-compatible JSON only. The current Edge\n    # validator reports \"Unknown component or field 'avro'\" for the documented\n    # avro processor, so this stage does not claim to emit Avro bytes.\n    - mapping: |\n        root.sensor_id = this.sensor_id.string()\n        root.temperature_celsius = this.temperature_celsius.number()\n        root.humidity_percent = this.humidity_percent.number()\n        root.timestamp = this.timestamp.string()\n",
     configSha256:
-      "sha256:330c28df3e315886a77379450ed6571d26eb86dbe733669cba48c633cc47da8c",
+      "sha256:fa6981343c18bb3521fc602a9b9b69c58fb4a8cc2fed70c1f5e4855c24f5984d",
   },
   {
     id: 3,

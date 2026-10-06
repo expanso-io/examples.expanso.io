@@ -46,22 +46,22 @@ Boost a message's priority score based on how long it's been waiting. Eventually
        let event_type = this.event_type.or("").string().lowercase()
 
        let is_important = match {
-         category == "important" => true,
-         severity == "critical" => true,
-         event_type.has_prefix("payment.failed") => true,
+         $category == "important" => true,
+         $severity == "critical" => true,
+         $event_type.has_prefix("payment.failed") => true,
          _ => false
        }
 
        let is_archive = match {
-         category == "archive" => true,
-         severity == "debug" => true,
-         event_type.has_prefix("analytics.") => true,
+         $category == "archive" => true,
+         $severity == "debug" => true,
+         $event_type.has_prefix("analytics.") => true,
          _ => false
        }
 
        root.priority_tier = match {
-         is_important => 1,
-         is_archive => 3,
+         $is_important => 1,
+         $is_archive => 3,
          _ => 2
        }
 
@@ -79,21 +79,21 @@ Boost a message's priority score based on how long it's been waiting. Eventually
        }
 
        # Calculate message age
-       let message_ts = this.timestamp.or(now().format_timestamp()).parse_timestamp()
-       let age_seconds = (now().unix() - message_ts.unix()).round()
-       root.age_seconds = age_seconds
+       let message_ts = this.timestamp.or(now()).ts_parse("2006-01-02T15:04:05Z07:00")
+       let age_seconds = (now().ts_unix() - $message_ts.ts_unix()).round()
+       root.age_seconds = $age_seconds
 
        # Age-based priority boost
        let age_boost = match {
-         age_seconds > 7200 => 900,   # > 2 hours: near-important
-         age_seconds > 1800 => 400,   # > 30 min: regular priority
-         age_seconds > 300 => 100,    # > 5 min: small boost
+         $age_seconds > 7200 => 900,   # > 2 hours: near-important
+         $age_seconds > 1800 => 400,   # > 30 min: regular priority
+         $age_seconds > 300 => 100,    # > 5 min: small boost
          _ => 0
        }
 
-       root.age_boost = age_boost
-       root.priority_score = base_score + age_boost
-       root.age_escalated = age_boost > 0
+       root.age_boost = $age_boost
+       root.priority_score = $base_score + $age_boost
+       root.age_escalated = $age_boost > 0
        root.buffered_at = now()
    ```
 

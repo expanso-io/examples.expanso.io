@@ -2,187 +2,43 @@
  * Expanso Edge driver for the validation harness.
  *
  * Two responsibilities:
- *   1. Provide a pinned `expanso-edge` binary (installed into `.bin/` when the
- *      pinned version is not already there) and run `expanso-edge validate`.
+ *   1. Resolve the operator-installed `expanso-edge` binary from `PATH` and run
+ *      `expanso-edge validate`.
  *   2. Drive a throwaway local-mode agent over its HTTP API so pipelines can be
  *      executed against fixtures without a control plane, a global profile, or
  *      credentials. All agent state lives in a temporary data directory.
  *
- * Validation and execution both go through the pinned expanso-edge release.
+ * Validation and execution both go through the exact installed release.
  */
 
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  writeFileSync,
-  readFileSync,
-} from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { parse } from 'yaml';
 
 import type { ValidateResult, ValidationError } from './types';
-import { isYamlObject, type YamlObject, type YamlValue } from './yaml-value';
-
-/** The expanso-edge release every report is produced with. Bump deliberately. */
-export const PINNED_EDGE_VERSION = 'v2.1.22';
-
-const INSTALLER_URL = 'https://get.expanso.io/edge/install.sh';
-
-const INSTALL_TIMEOUT_MS = 240_000;
+import {
+  isStringValue,
+  isYamlObject,
+  type YamlObject,
+  type YamlValue,
+} from './yaml-value';
+import { resolveInstalledExpansoBinary } from './expanso-binary';
 
 export interface EdgeBinary {
   path: string;
   version: string;
 }
 
-export type EdgeVersionRequest = typeof PINNED_EDGE_VERSION | 'latest' | string;
-
-function readVersion(binary: string): string | null {
-  const result = spawnSync(binary, ['version'], { encoding: 'utf8' });
-
-  if (result.status !== 0) return null;
-  const match = /v\d+\.\d+\.\d+[^\s]*/.exec(result.stdout);
-
-  return match ? match[0] : null;
-}
-
-/**
- * Resolve the pinned expanso-edge binary.
- *
- */
+/** Resolve the current official latest expanso-edge binary. */
 export function resolveEdgeBinary(
-  repositoryRoot: string,
+  _repositoryRoot: string,
   options: {
-    install: boolean;
     log: (line: string) => void;
-    version?: EdgeVersionRequest;
   }
 ): EdgeBinary {
-  let requestedVersion = options.version ?? PINNED_EDGE_VERSION;
-  const latest = requestedVersion === 'latest';
-  if (latest) {
-    const release = spawnSync(
-      'curl',
-      [
-        '--fail',
-        '--location',
-        '--silent',
-        '--show-error',
-        '--connect-timeout',
-        '15',
-        '--max-time',
-        '60',
-        `https://get.expanso.io/api/edge/artifacts/resolve?os=${process.platform}&arch=${process.arch === 'x64' ? 'amd64' : process.arch}&release=stable`,
-      ],
-      { encoding: 'utf8', timeout: 65_000 }
-    );
-    if (release.status !== 0)
-      throw new Error(
-        `could not resolve latest Expanso Edge release: ${release.stderr.trim()}`
-      );
-    const metadata: unknown = JSON.parse(release.stdout);
-    if (
-      !metadata ||
-      typeof metadata !== 'object' ||
-      !('version' in metadata) ||
-      typeof metadata.version !== 'string' ||
-      !/^v\d+\.\d+\.\d+$/.test(metadata.version)
-    )
-      throw new Error('latest Expanso Edge release has no stable version tag');
-    requestedVersion = metadata.version;
-  }
-  const binDir =
-    !latest && requestedVersion === PINNED_EDGE_VERSION
-      ? join(repositoryRoot, '.bin')
-      : join(
-          repositoryRoot,
-          '.bin',
-          `edge-${latest ? 'latest' : requestedVersion.replace(/[^a-zA-Z0-9.-]/g, '-')}`
-        );
-  const binary = join(binDir, 'expanso-edge');
-
-  if (existsSync(binary)) {
-    const version = readVersion(binary);
-
-    if (version && version === requestedVersion)
-      return { path: binary, version };
-    options.log(
-      `${binary} reports ${version ?? 'no version'}; reinstalling ${requestedVersion}`
-    );
-  }
-
-  if (!options.install) {
-    throw new Error(
-      `expanso-edge ${requestedVersion} is not installed at ${binary} and installation is disabled`
-    );
-  }
-
-  mkdirSync(binDir, { recursive: true });
-  options.log(`installing expanso-edge ${requestedVersion} into ${binDir}`);
-  const installer = join(binDir, 'install-expanso-edge.sh');
-
-  const download = spawnSync(
-    'curl',
-    [
-      '--fail',
-      '--location',
-      '--silent',
-      '--show-error',
-      '--connect-timeout',
-      '15',
-      '--max-time',
-      '180',
-      '--retry',
-      '3',
-      '--retry-delay',
-      '2',
-      INSTALLER_URL,
-      '--output',
-      installer,
-    ],
-    { encoding: 'utf8' }
-  );
-
-  if (download.status !== 0) {
-    throw new Error(
-      `could not download the expanso-edge installer: ${download.stderr.trim()}`
-    );
-  }
-
-  const installArgs = [installer];
-
-  installArgs.push('--version', requestedVersion);
-  installArgs.push('--dir', binDir);
-  const install = spawnSync('bash', installArgs, {
-    encoding: 'utf8',
-    timeout: INSTALL_TIMEOUT_MS,
-    env: {
-      ...process.env,
-      EXPANSO_INSTALL_DIR: binDir,
-      USE_SUDO: 'false',
-      EXPANSO_DISABLEANALYTICS: 'true',
-    },
-  });
-
-  if (install.status !== 0 || !existsSync(binary)) {
-    throw new Error(
-      `expanso-edge installer failed: ${(install.stderr || install.stdout).trim().slice(-2000)}`
-    );
-  }
-
-  chmodSync(binary, 0o755);
-  const version = readVersion(binary);
-
-  if (!version || version !== requestedVersion) {
-    throw new Error(
-      `installer produced expanso-edge ${version ?? 'unknown'} instead of ${requestedVersion}`
-    );
-  }
-
-  return { path: binary, version };
+  return resolveInstalledExpansoBinary('edge', { log: options.log });
 }
 
 interface ValidatorRecord {
@@ -275,33 +131,45 @@ function parseValidatorOutput(
 }
 
 function rateLimitErrors(source: string): ValidationError[] {
+  // SAFETY: pipeline YAML is parsed as data-only values, matching YamlValue.
   const document = parse(source) as YamlValue;
+
   if (!isYamlObject(document)) return [];
   const config = isYamlObject(document.config) ? document.config : document;
   const resources = config.rate_limit_resources;
-  const labels = new Set(
+
+  const labels = new Set<string>(
     Array.isArray(resources)
-      ? resources.filter(isYamlObject).map((resource) => resource.label)
+      ? resources.flatMap((resource) =>
+          isYamlObject(resource) && isStringValue(resource.label)
+            ? [resource.label]
+            : []
+        )
       : []
   );
+
   const errors: ValidationError[] = [];
+
   const visit = (node: YamlValue, path: string): void => {
     if (Array.isArray(node)) {
       node.forEach((entry, index) => visit(entry, `${path}.${index}`));
+
       return;
     }
+
     if (!isYamlObject(node)) return;
+
     for (const [key, value] of Object.entries(node)) {
-      const reference =
-        key === 'rate_limit'
-          ? typeof value === 'string'
-            ? value
-            : isYamlObject(value)
-              ? value.resource
-              : undefined
-          : undefined;
+      const reference = key === 'rate_limit'
+        ? isStringValue(value)
+          ? value
+          : isYamlObject(value) && isStringValue(value.resource)
+            ? value.resource
+            : undefined
+        : undefined;
+
       if (
-        typeof reference === 'string' &&
+        reference !== undefined &&
         reference !== '' &&
         !labels.has(reference)
       )
@@ -312,7 +180,9 @@ function rateLimitErrors(source: string): ValidationError[] {
       visit(value, `${path}.${key}`);
     }
   };
+
   visit(config, 'config');
+
   return errors;
 }
 
@@ -361,6 +231,7 @@ export function validateFile(
     errors.push(
       ...rateLimitErrors(readFileSync(join(cwd, relativePath), 'utf8'))
     );
+
   return {
     status: result.status === 0 && errors.length === 0 ? 'PASS' : 'FAIL',
     mode: 'file',
@@ -408,6 +279,7 @@ export function validateSource(
   }
 
   if (result.status === 0) errors.push(...rateLimitErrors(source));
+
   return {
     status: result.status === 0 && errors.length === 0 ? 'PASS' : 'FAIL',
     mode,

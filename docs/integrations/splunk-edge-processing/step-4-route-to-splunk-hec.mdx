@@ -50,23 +50,21 @@ compressed = true
 # Route on configured conditions
 output:
   switch:
-    - condition: 'this.priority == "critical" || this.sourcetype == "cef"'
-      output:
-        http_client:
-          url: 'https://${SPLUNK_HOST}:8088/services/collector/event'
-          headers:
-            Authorization: 'Splunk ${HEC_TOKEN}'
-            Content-Type: 'application/json'
-          timeout: '30s'
-          retry_policy:
-            max_retries: 3
-            backoff: 'exponential'
+    cases:
+      - check: 'this.priority == "critical" || this.sourcetype == "cef"'
+        output:
+          http_client:
+            url: 'https://${SPLUNK_HOST}:8088/services/collector/event'
+            headers:
+              Authorization: 'Splunk ${HEC_TOKEN}'
+              Content-Type: 'application/json'
+            timeout: '30s'
+            retries: 3
 
-    - condition: 'this.target_index == "security"'
-      output:
-        http_client:
-          url: 'https://${SPLUNK_HOST}:8088/services/collector/event'
-          # Route to dedicated security indexer cluster
+      - check: 'this.target_index == "security"'
+        output:
+          http_client:
+            url: 'https://${SPLUNK_HOST}:8088/services/collector/event'
 ```
 
 **Configured behavior in this example:**
@@ -328,14 +326,15 @@ index=main sourcetype="expanso:json"
 ```yaml
 output:
   switch:
-    - condition: 'this.event.host.hash("xxhash64") % 2 == 0'
-      output:
-        http_client:
-          url: 'https://splunk-indexer1.company.com:8088/services/collector/event'
-    - condition: 'this.event.host.hash("xxhash64") % 2 == 1'
-      output:
-        http_client:
-          url: 'https://splunk-indexer2.company.com:8088/services/collector/event'
+    cases:
+      - check: 'this.event.host.hash("xxhash64") % 2 == 0'
+        output:
+          http_client:
+            url: 'https://splunk-indexer1.company.com:8088/services/collector/event'
+      - check: 'this.event.host.hash("xxhash64") % 2 == 1'
+        output:
+          http_client:
+            url: 'https://splunk-indexer2.company.com:8088/services/collector/event'
 ```
 
 ### 2. Environment-Based Routing
@@ -355,34 +354,29 @@ processors:
 
 ```yaml
 output:
-  http_client:
-    # Circuit breaker prevents overwhelming Splunk during issues
-    circuit_breaker:
-      failure_threshold: 10 # Open after 10 failures
-      success_threshold: 3 # Close after 3 successes
-      timeout: '60s' # Try again after 1 minute
-
-    # Graceful degradation
-    fallback_outputs:
-      - file:
-          path: '/var/lib/expanso/failed-events.log'
-      - kafka:
-          brokers: ['kafka1:9092', 'kafka2:9092']
-          topic: 'splunk-backup'
+  fallback:
+    - http_client:
+        url: 'https://${SPLUNK_HOST}:8088/services/collector/event'
+        timeout: 60s
+        retries: 3
+    - file:
+        path: '/var/lib/expanso/failed-events.log'
+        codec: lines
 ```
 
 ### 4. Delivery Audit Fields
 
 ```yaml
 output:
-  # Primary: Send to Splunk
-  http_client:
-    url: "https://${SPLUNK_HOST}:8088/services/collector/event"
-
-# Secondary: Example audit-event file
-  - file:
-      path: "/var/audit/splunk-events-${timestamp().format('2006-01-02')}.log"
-      condition: 'this.event.sourcetype == "expanso:cef" || this.event.level == "ERROR"'
+  broker:
+    pattern: fan_out
+    outputs:
+      # Primary: send to Splunk.
+      - http_client:
+          url: 'https://${SPLUNK_HOST}:8088/services/collector/event'
+      # Secondary: retain an audit copy.
+      - file:
+          path: '/var/audit/splunk-events.jsonl'
 ```
 
 ## Monitoring HEC Performance
@@ -449,11 +443,10 @@ curl -k "https://$SPLUNK_HOST:8088/services/collector/health" \
 ### 3. Connection Timeouts
 
 ```yaml
-# Increase timeouts for slow networks
+# Increase the request timeout for slow networks
 http_client:
+  url: 'https://${SPLUNK_HOST}:8088/services/collector/event'
   timeout: '120s'
-  keep_alive: '300s'
-  dial_timeout: '30s'
 ```
 
 ### 4. Certificate Issues
@@ -461,8 +454,10 @@ http_client:
 ```yaml
 # Skip cert validation for self-signed certificates (dev only!)
 http_client:
+  url: 'https://${SPLUNK_HOST}:8088/services/collector/event'
   tls:
-    skip_verify: true # DO NOT use in production!
+    enabled: true
+    skip_cert_verify: true # DO NOT use in production!
 ```
 
 ## Performance Optimization
@@ -470,7 +465,7 @@ http_client:
 ### 1. Optimal Batch Sizes
 
 ```yaml
-batch:
+batching:
   count: 100 # Events per batch
   period: '10s' # Max wait time
   byte_size: 1048576 # 1MB max batch size
@@ -478,18 +473,25 @@ batch:
 
 ### 2. Compression
 
-```yaml
-http_client:
-  compression: 'gzip' # Reduce network overhead
+```yaml title="Partial snippet: gzip-compressed HEC request"
+output:
+  processors:
+    - compress:
+        algorithm: gzip
+  http_client:
+    url: 'https://${SPLUNK_HOST}:8088/services/collector/event'
+    headers:
+      Content-Encoding: gzip
 ```
 
-### 3. Connection Pooling
+### 3. Bounded Retries
 
-```yaml
+```yaml title="Partial snippet: bounded HEC retries"
 http_client:
-  max_idle_conns: 100
-  max_idle_conns_per_host: 10
-  idle_conn_timeout: '90s'
+  url: 'https://${SPLUNK_HOST}:8088/services/collector/event'
+  retries: 3
+  retry_period: 1s
+  max_retry_backoff: 30s
 ```
 
 ## What's Next?

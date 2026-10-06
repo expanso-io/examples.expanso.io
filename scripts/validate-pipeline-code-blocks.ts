@@ -9,6 +9,7 @@ import { globSync } from 'glob';
 import {
   classifyPipelineCode,
   extractYamlCodeBlocks,
+  hasUnclassifiedExpansoCode,
 } from '../src/lib/pipelineCode';
 import { discoverPipelineFiles } from './validation/inventory';
 
@@ -31,6 +32,10 @@ for (const path of globSync('docs/**/*.mdx', {
     yamlBlocks += 1;
 
     if (classifyPipelineCode(block.source)) renderedPipelineBlocks += 1;
+    else if (hasUnclassifiedExpansoCode(block.source))
+      failures.push(
+        `${path}#L${block.line}: Expanso-shaped YAML is not a recognised complete pipeline or fragment`
+      );
   }
 }
 

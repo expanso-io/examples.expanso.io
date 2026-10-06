@@ -40,11 +40,11 @@ curl -X POST http://localhost:8080/sensors \
 
 **Fix:** Check timestamp field name and ensure window period is short enough for testing:
 
-```yaml
-window:
-  tumbling:
-    size: 1m # Short for testing
-    timestamp_field: timestamp
+```yaml title="Partial snippet: system window settings"
+buffer:
+  system_window:
+    size: 1m
+    timestamp_mapping: root = this.timestamp
 ```
 
 ---
@@ -55,13 +55,16 @@ window:
 
 **Fix:** Add allowed lateness and normalize timestamps:
 
-```yaml
-window:
-  tumbling:
+```yaml title="Partial snippet: timestamp normalization before the window"
+pipeline:
+  processors:
+    - mapping: |
+        root.timestamp = this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_format("2006-01-02T15:04:05Z")
+
+buffer:
+  system_window:
     size: 5m
-    allowed_lateness: 30s
-- mapping: |
-    root.timestamp = this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_format("2006-01-02T15:04:05Z")
+    timestamp_mapping: root = this.timestamp
 ```
 
 ---
@@ -76,11 +79,11 @@ docker stats aggregate-time-windows --no-stream
 
 **Fix:** Add window expiry and limit group cardinality:
 
-```yaml
-window:
-  tumbling:
+```yaml title="Partial snippet: bounded system window"
+buffer:
+  system_window:
     size: 5m
-    expiry: 1h # Clean up old state
+    timestamp_mapping: root = this.timestamp
 ```
 
 ---
@@ -89,13 +92,14 @@ window:
 
 **Cause:** allowed_lateness too short
 
-**Fix:** Increase allowed lateness:
+**Fix:** Choose a larger maintained system window and test out-of-order input
+against the installed Edge release:
 
-```yaml
-window:
-  tumbling:
-    size: 5m
-    allowed_lateness: 5m # Increase from default
+```yaml title="Partial snippet: larger system window"
+buffer:
+  system_window:
+    size: 10m
+    timestamp_mapping: root = this.timestamp
 ```
 
 ## Still stuck?

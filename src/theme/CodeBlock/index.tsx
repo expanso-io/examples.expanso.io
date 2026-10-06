@@ -41,7 +41,7 @@ export default function CodeBlock({ pipelineKind, ...props }: Props) {
           completeHref={completePipelineRouteForPath(location.pathname)}
         />
         {kind === 'fragment' ? (
-          <span>Part of a pipeline, not runnable on its own.</span>
+          <span>Validated in its minimal canonical pipeline context.</span>
         ) : null}
       </div>
       <OriginalCodeBlock {...props} />

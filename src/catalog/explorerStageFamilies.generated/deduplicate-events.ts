@@ -288,9 +288,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-fingerprint-based-deduplication.yaml",
     yamlCode:
-      '# Fingerprint-based deduplication\nprocessors:\n  - mapping: |\n      # Extract only business-critical fields\n      let business_fields = {\n        "event_type": this.event_type,\n        "user_email": this.user.email,\n        "signup_source": this.signup_details.source,\n        "signup_plan": this.signup_details.plan\n      }\n\n      root.business_fingerprint = business_fields.format_json().hash("sha256")\n\n  - branch:\n      request_map: root = this.business_fingerprint\n      processors:\n        - cache:\n            resource: dedup_cache\n            operator: exists\n            key: \'${! content() }\'\n      result_map: root.is_duplicate = content().string().bool()\n\n  - switch:\n      - check: \'!this.is_duplicate\'\n        processors:\n          - cache:\n              resource: dedup_cache\n              operator: set\n              key: \'${! json("business_fingerprint") }\'\n              value: \'${! now() }\'\n      - processors:\n          - mapping: root = deleted()\n',
+      '# Fingerprint-based deduplication\nprocessors:\n  - mapping: |\n      # Extract only business-critical fields\n      let business_fields = {\n        "event_type": this.event_type,\n        "user_email": this.user.email,\n        "signup_source": this.signup_details.source,\n        "signup_plan": this.signup_details.plan\n      }\n\n      root.business_fingerprint = $business_fields.format_json().hash("sha256")\n\n  - branch:\n      request_map: root = this.business_fingerprint\n      processors:\n        - cache:\n            resource: dedup_cache\n            operator: exists\n            key: \'${! content() }\'\n      result_map: root.is_duplicate = content().string().bool()\n\n  - switch:\n      - check: \'!this.is_duplicate\'\n        processors:\n          - cache:\n              resource: dedup_cache\n              operator: set\n              key: \'${! json("business_fingerprint") }\'\n              value: \'${! now() }\'\n      - processors:\n          - mapping: root = deleted()\n',
     configSha256:
-      "sha256:e0735cb7689583222d9fd1cffc5e1de3b4e0f51efbc832ad055efc7ed1ecdca5",
+      "sha256:e19134565b622497f03d048a24d08b181ea68751db5c42a9fac2786a00068562",
   },
   {
     id: 4,

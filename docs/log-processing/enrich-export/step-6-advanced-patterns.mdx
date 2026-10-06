@@ -28,7 +28,7 @@ output:
   aws_s3:
     bucket: ${S3_BUCKET_NAME}
     # This path creates partitions that analytics engines can use for pruning
-    path: "logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/hour=${!timestamp("15")}/${!uuid_v4()}.jsonl.gz"
+    path: 'logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/hour=${!timestamp("15")}/${!uuid_v4()}.jsonl.gz'
     # ... other config
 ```
 
@@ -65,19 +65,19 @@ output:
     outputs:
       # --- Output 1: ERROR logs to a priority bucket ---
       - processors:
-        # This processor retains error records in this branch
-          - mapping: `root = this.filter(log -> log.event.level == "ERROR")`
+          # This processor retains error records in this branch
+          - mapping: 'root = this.filter(log -> log.event.level == "ERROR")'
         aws_s3:
-          bucket: "my-priority-error-logs"
-          path: "errors/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz"
+          bucket: 'my-priority-error-logs'
+          path: 'errors/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz'
           # ... use a smaller, faster batching policy here
 
       # --- Output 2: All other logs to a standard bucket ---
       - processors:
-          - mapping: `root = this.filter(log -> log.event.level != "ERROR")`
+          - mapping: 'root = this.filter(log -> log.event.level != "ERROR")'
         aws_s3:
-          bucket: "my-standard-logs"
-          path: "logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz"
+          bucket: 'my-standard-logs'
+          path: 'logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz'
           # ... use a larger, more cost-effective batching policy here
 ```
 

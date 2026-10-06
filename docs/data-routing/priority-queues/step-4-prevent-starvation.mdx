@@ -45,20 +45,21 @@ You will modify the scoring processor to calculate the age of a message and add 
         # --- START: New additions for age-based boost ---
 
         # 1. Calculate the message age in seconds
-        let message_timestamp = this.timestamp.parse_timestamp()
-        root.age_seconds = (now().unix() - message_timestamp.unix()).round()
+        let message_timestamp = this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00")
+        let age_seconds = (now().ts_unix() - $message_timestamp.ts_unix()).round()
+        root.age_seconds = $age_seconds
 
         # 2. Calculate a boost based on age
         let age_boost = match {
-          root.age_seconds > 86400 => 100, # > 24 hours:  massive boost
-          root.age_seconds > 3600  => 40,  # > 1 hour:    strong boost
-          root.age_seconds > 300   => 10,  # > 5 minutes: small boost
+          $age_seconds > 86400 => 100, # > 24 hours:  massive boost
+          $age_seconds > 3600  => 40,  # > 1 hour:    strong boost
+          $age_seconds > 300   => 10,  # > 5 minutes: small boost
           _ => 0
         }
         # --- END: New additions ---
 
         # Calculate severity score
-        let severity_score = match root.severity {
+        let severity_score = match this.severity.string().uppercase() {
           "CRITICAL" | "FATAL" => 80,
           "ERROR" => 60,
           "WARN" | "WARNING" => 40,
@@ -66,7 +67,7 @@ You will modify the scoring processor to calculate the age of a message and add 
         }
 
         # Determine tier multiplier
-        let tier_multiplier = match root.customer_tier {
+        let tier_multiplier = match this.customer_tier.or("free").string().lowercase() {
           "enterprise" => 2.0,
           "premium" => 1.5,
           _ => 1.0
@@ -74,13 +75,13 @@ You will modify the scoring processor to calculate the age of a message and add 
 
         # Add a bonus score based on event type
         let event_type_score = match {
-          root.event_type.has_prefix("payment.") => 30,
-          root.event_type.has_prefix("auth.") => 20,
+          this.event_type.or("").has_prefix("payment.") => 30,
+          this.event_type.or("").has_prefix("auth.") => 20,
           _ => 0
         }
 
         # Calculate the final score, now including the age_boost
-        root.priority_score = (severity_score * tier_multiplier) + event_type_score + age_boost
+        root.priority_score = ($severity_score * $tier_multiplier) + $event_type_score + $age_boost
 
         # Map the final score to a priority level
         root.priority = match {

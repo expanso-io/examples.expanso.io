@@ -84,7 +84,7 @@ export interface ReportSummary {
   failure?: string;
   date: string;
   edgeVersion: string;
-  pinnedEdgeVersion: string;
+  cliVersion: string;
   inventoryDigest: string;
   complete: {
     total: number;

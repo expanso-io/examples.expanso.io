@@ -97,23 +97,24 @@ Record is rejected—does not proceed to output.
 
 Route failed records for investigation instead of losing them:
 
-```yaml
+```yaml title="Partial snippet: validated output routing"
 output:
   switch:
-    - check: errored()
-      output:
-        gcp_pubsub:
-          project: '${GCP_PROJECT}'
-          topic: gdpr-validation-failures
-    - output:
-        # Normal output for valid records
+    cases:
+      - check: errored()
+        output:
+          gcp_pubsub:
+            project: '${GCP_PROJECT}'
+            topic: gdpr-validation-failures
+      - output:
+          drop: {}
 ```
 
 ### Pattern-Based PII Detection
 
 Also check for PII patterns, not just field names:
 
-```yaml
+```bloblang
 # Check for email patterns in any string field
 let email_pattern = "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
 let has_email = this.values().any(v -> v.type() == "string" && v.re_match($email_pattern))

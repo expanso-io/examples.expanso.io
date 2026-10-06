@@ -44,22 +44,21 @@ The basic sliding window provides a moving average. For more advanced trend anal
 - mapping: |
     # This processor assumes it has a group of events from a sliding window
     let temperatures = this.map_each(event -> event.temperature)
-    let n = temperatures.length()
+    let n = $temperatures.length()
+    let first_temp = $temperatures.index(0)
+    let last_temp = $temperatures.index(-1)
+    let time_span_minutes = 5 # Assuming a 5-minute window
 
-    if n >= 2 {
-      let first_temp = temperatures[0]
-      let last_temp = temperatures[n-1]
-      let time_span_minutes = 5 # Assuming a 5-minute window
-
-      root.temperature_change = (last_temp - first_temp).round(2)
-      root.temperature_slope_per_min = (root.temperature_change / time_span_minutes).round(3)
-
-      root.temperature_trend = match {
-        root.temperature_slope_per_min > 0.1 => "increasing",
-        root.temperature_slope_per_min < -0.1 => "decreasing",
-        _ => "stable"
+    root = if $n >= 2 {
+      {
+        "events": this,
+        "temperature_change": (($last_temp - $first_temp) * 100).round() / 100,
+        "temperature_slope_per_min": ((($last_temp - $first_temp) / $time_span_minutes) * 1000).round() / 1000,
+        "temperature_trend": if (($last_temp - $first_temp) / $time_span_minutes) > 0.1 { "increasing" }
+          else if (($last_temp - $first_temp) / $time_span_minutes) < -0.1 { "decreasing" }
+          else { "stable" }
       }
-    }
+    } else { {"events": this} }
 ```
 
 ## Pattern 3: Late Events

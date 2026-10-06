@@ -45,10 +45,11 @@ curl -X POST http://localhost:8080/events \
 
 **Fix:** Check the key field matches your data:
 
-```yaml
-dedup:
-  key: ${!json("event_id")} # Must match actual field name
-  cache: memory
+```yaml title="Partial snippet: validate the cache key"
+- cache:
+    resource: dedup_cache
+    operator: exists
+    key: '${! this.event_id }'
 ```
 
 ---
@@ -81,13 +82,11 @@ docker stats deduplicate-events --no-stream
 
 **Fix:** Add TTL and size limits to cache:
 
-```yaml
-dedup:
-  key: ${!json("event_id")}
-  cache:
+```yaml title="Partial snippet: bounded in-memory cache resource"
+cache_resources:
+  - label: dedup_cache
     memory:
-      ttl: 1h
-      cap: 1000000
+      default_ttl: 1h
 ```
 
 ---
@@ -96,13 +95,15 @@ dedup:
 
 **Cause:** Using in-memory cache, state lost on restart
 
-**Fix:** Use Redis or persistent cache:
+**Fix:** An in-memory cache is intentionally node-local and resets on restart.
+Use a supported shared cache resource for persistence; this local configuration
+keeps the limitation explicit:
 
-```yaml
-cache:
-  redis:
-    url: redis://localhost:6379
-    ttl: 1h
+```yaml title="Partial snippet: node-local cache limitation"
+cache_resources:
+  - label: dedup_cache
+    memory:
+      default_ttl: 1h
 ```
 
 ## Still stuck?

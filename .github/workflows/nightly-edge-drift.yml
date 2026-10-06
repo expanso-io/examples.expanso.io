@@ -6,10 +6,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   issues: write
-  pull-requests: write
-  actions: write
 
 concurrency:
   group: nightly-expanso-edge-drift
@@ -21,13 +19,11 @@ env:
 
 jobs:
   validate:
-    name: Validate pinned and latest Expanso Edge
+    name: Validate latest Expanso Edge
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -38,55 +34,66 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Read pinned version
-        id: pinned-version
-        run: |
-          version=$(node -e \
-            "const s=require('fs').readFileSync('scripts/validation/edge.ts','utf8'); process.stdout.write(s.match(/PINNED_EDGE_VERSION = '([^']+)'/)[1])")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Validate and run with pinned Expanso Edge
+      - name: Install latest Expanso Edge and CLI
+        id: install
+        continue-on-error: true
         env:
           EXPANSO_DISABLEANALYTICS: 'true'
+          EXPANSO_INSTALL_DIR: ${{ runner.temp }}/expanso-bin
+          USE_SUDO: 'false'
         run: |
-          npm run validate-examples -- \
-            --edge-version "${{ steps.pinned-version.outputs.version }}" \
-            --no-write
+          set -euo pipefail
+          mkdir -p "$EXPANSO_INSTALL_DIR"
+          for component in edge cli; do
+            installer="${RUNNER_TEMP}/install-expanso-${component}.sh"
+            curl --fail --location --silent --show-error \
+              "https://get.expanso.io/${component}/install.sh" \
+              --output "$installer"
+            bash "$installer"
+          done 2>&1 | tee install.log
+          echo "$EXPANSO_INSTALL_DIR" >> "$GITHUB_PATH"
 
-      - name: Validate and run with latest Expanso Edge
-        id: latest-validation
+      - name: Validate and run every example with latest Expanso Edge
+        id: validation
+        if: steps.install.outcome == 'success'
         continue-on-error: true
         env:
           EXPANSO_DISABLEANALYTICS: 'true'
         run: |
           set -o pipefail
-          npm run validate-examples -- \
-            --edge-version latest \
-            --no-write 2>&1 | tee latest-validation.log
+          npm run validate-examples -- --no-write 2>&1 | tee validation.log
 
-      - name: Read latest version
-        id: latest-version
+      - name: Read installed Expanso versions
+        id: versions
         if: always()
+        env:
+          EXPANSO_INSTALL_DIR: ${{ runner.temp }}/expanso-bin
         run: |
-          version=unresolved
-          if [ -x ./.bin/edge-latest/expanso-edge ]; then
-            detected=$(
-              ./.bin/edge-latest/expanso-edge version |
-                sed -nE 's/.*(v[0-9]+\.[0-9]+\.[0-9]+[^ ]*).*/\1/p' |
-                head -1
-            )
-            if [ -n "$detected" ]; then
-              version=$detected
-            fi
+          edge=unavailable
+          cli=unavailable
+          if [ -x "$EXPANSO_INSTALL_DIR/expanso-edge" ]; then
+            edge=$("$EXPANSO_INSTALL_DIR/expanso-edge" version |
+              sed -nE 's/.*(v[0-9]+\.[0-9]+\.[0-9]+[^ ]*).*/\1/p' |
+              head -1)
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ -x "$EXPANSO_INSTALL_DIR/expanso-cli" ]; then
+            cli=$("$EXPANSO_INSTALL_DIR/expanso-cli" version |
+              sed -nE 's/.*(v[0-9]+\.[0-9]+\.[0-9]+[^ ]*).*/\1/p' |
+              head -1)
+          fi
+          echo "edge=${edge:-unavailable}" >> "$GITHUB_OUTPUT"
+          echo "cli=${cli:-unavailable}" >> "$GITHUB_OUTPUT"
 
-      - name: Open or update the latest-only drift issue
-        if: steps.latest-validation.outcome == 'failure'
+      - name: Open or update the latest-release drift issue
+        if: >-
+          steps.install.outcome == 'failure' ||
+          steps.validation.outcome == 'failure'
         uses: actions/github-script@v7
         env:
-          PINNED_VERSION: ${{ steps.pinned-version.outputs.version }}
-          LATEST_VERSION: ${{ steps.latest-version.outputs.version }}
+          EDGE_VERSION: ${{ steps.versions.outputs.edge }}
+          CLI_VERSION: ${{ steps.versions.outputs.cli }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          VALIDATION_OUTCOME: ${{ steps.validation.outcome }}
         with:
           script: |
             const fs = require('fs');
@@ -101,7 +108,7 @@ jobs:
                 repo,
                 name: label,
                 color: 'B60205',
-                description: 'Latest Expanso Edge breaks a published example',
+                description: 'Latest Expanso release breaks a published example',
               });
             }
             const {data: issues} = await github.rest.issues.listForRepo({
@@ -111,20 +118,30 @@ jobs:
               labels: label,
               per_page: 100,
             });
-            const log = fs.readFileSync('latest-validation.log', 'utf8');
+            const readLog = (path) =>
+              fs.existsSync(path) ? fs.readFileSync(path, 'utf8') : '(not run)';
+            const failures = [];
+            if (process.env.INSTALL_OUTCOME === 'failure') failures.push('latest installer');
+            if (process.env.VALIDATION_OUTCOME === 'failure') failures.push('full validation and execution');
             const body = [
-              'The pinned release is green, but the latest Expanso Edge release failed the full public-example validation.',
+              `Latest-release nightly failure: ${failures.join(', ')}.`,
               '',
-              `- Pinned: \`${process.env.PINNED_VERSION}\``,
-              `- Latest: \`${process.env.LATEST_VERSION}\``,
+              `- expanso-edge: \`${process.env.EDGE_VERSION}\``,
+              `- expanso-cli: \`${process.env.CLI_VERSION}\``,
               `- Run: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+              '',
+              '<details><summary>Installer output</summary>',
+              '',
+              '```text',
+              readLog('install.log').slice(-25000),
+              '```',
+              '</details>',
               '',
               '<details><summary>Validation output</summary>',
               '',
               '```text',
-              log.slice(-50000),
+              readLog('validation.log').slice(-50000),
               '```',
-              '',
               '</details>',
             ].join('\n');
             if (issues.length === 0) {
@@ -155,7 +172,9 @@ jobs:
             }
 
       - name: Close the resolved drift issue
-        if: steps.latest-validation.outcome == 'success'
+        if: >-
+          steps.install.outcome == 'success' &&
+          steps.validation.outcome == 'success'
         uses: actions/github-script@v7
         with:
           script: |
@@ -172,7 +191,7 @@ jobs:
                 owner,
                 repo,
                 issue_number: issue.number,
-                body: `Resolved by green nightly validation: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+                body: `Resolved by green latest-release validation: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
               });
               await github.rest.issues.update({
                 owner,
@@ -183,75 +202,8 @@ jobs:
               });
             }
 
-      - name: Check whether the pin needs a bump
-        id: bump
-        if: steps.latest-validation.outcome == 'success'
-        env:
-          PINNED_VERSION: ${{ steps.pinned-version.outputs.version }}
-          LATEST_VERSION: ${{ steps.latest-version.outputs.version }}
-        run: |
-          newest=$(printf '%s\n%s\n' "$PINNED_VERSION" "$LATEST_VERSION" |
-            sort -V | tail -1)
-          if [ "$LATEST_VERSION" != "$PINNED_VERSION" ] &&
-            [ "$newest" = "$LATEST_VERSION" ]; then
-            echo "needed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "needed=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Regenerate reports with the new pin
-        if: steps.bump.outputs.needed == 'true'
-        env:
-          EXPANSO_DISABLEANALYTICS: 'true'
-          LATEST_VERSION: ${{ steps.latest-version.outputs.version }}
-        run: |
-          sed -i \
-            "s/PINNED_EDGE_VERSION = 'v[^']*'/PINNED_EDGE_VERSION = '$LATEST_VERSION'/" \
-            scripts/validation/edge.ts
-          npm run validate-examples -- \
-            --edge-version "$LATEST_VERSION" \
-            --date "$(date -u +%F)"
-
-      - name: Open or update the pin-bump pull request
-        if: steps.bump.outputs.needed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          LATEST_VERSION: ${{ steps.latest-version.outputs.version }}
-        run: |
-          branch="automation/expanso-edge-$LATEST_VERSION"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -B "$branch"
-          git add scripts/validation/edge.ts validation-reports
-          git commit -m "chore: bump expanso-edge to $LATEST_VERSION"
-          remote_sha=$(git ls-remote --heads origin "refs/heads/$branch" |
-            awk '{print $1}')
-          git push \
-            --force-with-lease="refs/heads/$branch:$remote_sha" \
-            origin "HEAD:refs/heads/$branch"
-          existing=$(gh pr list --head "$branch" --state open --json url --jq '.[0].url // empty')
-          if [ -z "$existing" ]; then
-            gh pr create \
-              --base main \
-              --head "$branch" \
-              --title "chore: bump expanso-edge to $LATEST_VERSION" \
-              --body "Nightly validation passed every published complete pipeline and fragment with $LATEST_VERSION. This updates the pin and regenerated reports."
-          else
-            echo "Updated existing pull request: $existing"
-          fi
-
-      - name: Dispatch required checks for the pin-bump branch
-        if: steps.bump.outputs.needed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          LATEST_VERSION: ${{ steps.latest-version.outputs.version }}
-        run: |
-          branch="automation/expanso-edge-$LATEST_VERSION"
-          for workflow in ci.yml ai-check.yml phase1-foundation.yml \
-            entity-policy.yml validate-examples.yml; do
-            gh workflow run "$workflow" --ref "$branch"
-          done
-
-      - name: Fail after recording latest drift
-        if: steps.latest-validation.outcome == 'failure'
+      - name: Fail after recording latest-release drift
+        if: >-
+          steps.install.outcome == 'failure' ||
+          steps.validation.outcome == 'failure'
         run: exit 1

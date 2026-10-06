@@ -46,18 +46,13 @@ The following processor emits authored metadata about which transformation ran a
       "action": "ENCRYPT_PII",
       "timestamp": now(),
       "fields_encrypted": [
-        "payment.card_number", "customer.ssn", "customer.email" // etc.
+        "payment.card_number", "customer.ssn", "customer.email"
       ],
       "compliance_standards": ["PCI-DSS", "GDPR", "HIPAA"],
       "pipeline_id": "encrypt-production-v3"
     }
 
-    # Send metadata to a separately managed audit endpoint
-    _ = http_client(
-      env("AUDIT_ENDPOINT_URL"),
-      {"verb": "POST", "timeout": "2s"},
-      audit_log
-    )
+    root.transformation_audit = $audit_log
 ```
 
 ## Pattern 3: Key Versioning & Decryption

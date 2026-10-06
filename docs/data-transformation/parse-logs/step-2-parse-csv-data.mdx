@@ -62,18 +62,15 @@ This transformation is done with the `csv` processor, where you define the names
 
       pipeline:
         processors:
-          # This processor parses the 'raw_log' field.
-          # Because we don't specify a target field, the result
-          # becomes the new root of the message.
-          - csv:
-              target_field: root.raw_log
-              columns:
-                - timestamp
-                - metric_name
-                - sensor_id
-                - value
-                - unit
-              lazy_quotes: true # Handles cases with unclosed quotes
+          - mapping: |
+              let fields = this.raw_log.split(",")
+              root = {
+                "timestamp": $fields.index(0),
+                "metric_name": $fields.index(1),
+                "sensor_id": $fields.index(2),
+                "value": $fields.index(3),
+                "unit": $fields.index(4)
+              }
 
       output:
         stdout:

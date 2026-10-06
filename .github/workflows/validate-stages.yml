@@ -67,7 +67,23 @@ jobs:
       - name: Run strict YAML validator negative tests
         run: npm run test-yaml-validator
 
-      - name: Setup Expanso Binaries
+      - name: Install latest Expanso validation binaries
+        env:
+          EXPANSO_INSTALL_DIR: ${{ runner.temp }}/expanso-bin
+          USE_SUDO: 'false'
+        run: |
+          set -euo pipefail
+          mkdir -p "$EXPANSO_INSTALL_DIR"
+          for component in edge cli; do
+            installer="${RUNNER_TEMP}/install-expanso-${component}.sh"
+            curl --fail --location --silent --show-error \
+              "https://get.expanso.io/${component}/install.sh" \
+              --output "$installer"
+            bash "$installer"
+          done
+          echo "$EXPANSO_INSTALL_DIR" >> "$GITHUB_PATH"
+
+      - name: Report exact Expanso validation versions
         run: npm run setup-binaries
 
       - name: Validate CLI Commands in Docs
@@ -88,5 +104,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '❌ **Validation failed**\n\nPlease run these commands locally to see errors:\n- `npm run stages:canonical` - Validate canonical Explorer stage ownership\n- `npm run setup-binaries` - Download CLI binaries\n- `npm run validate-cli` - Validate CLI commands in docs\n- `npm run validate-yaml` - Validate YAML files\n- `npm run test-pipelines` - Test pipelines'
+              body: '❌ **Validation failed**\n\nPlease run these commands locally to see errors:\n- `npm run stages:canonical` - Validate canonical Explorer stage ownership\n- Install the latest `expanso-edge` and `expanso-cli` on `PATH`\n- `npm run setup-binaries` - Report the exact installed versions\n- `npm run validate-cli` - Validate CLI commands in docs\n- `npm run validate-yaml` - Validate YAML files\n- `npm run test-pipelines` - Test pipelines'
             })

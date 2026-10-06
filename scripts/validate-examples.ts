@@ -1,12 +1,11 @@
 #!/usr/bin/env tsx
 /**
- * Validate and run every example pipeline with the pinned expanso-edge release,
+ * Validate and run every example pipeline with the installed latest Expanso release,
  * then write a dated Markdown report.
  *
  * Usage:
  *   npm run validate-examples                       # validate + run, write reports
  *   npm run validate-examples -- --date 2026-10-05  # override the report date (UTC default)
- *   npm run validate-examples -- --edge-version latest --no-write
  *   npm run validate-examples -- --no-run --no-write --files <paths...>
  *
  * Exit code is 1 when any complete pipeline fails validation or execution, a
@@ -27,11 +26,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
   LocalEdgeAgent,
-  PINNED_EDGE_VERSION,
   resolveEdgeBinary,
   validateFile,
   validateSource,
 } from './validation/edge';
+import { resolveInstalledExpansoBinary } from './validation/expanso-binary';
 import {
   assessRunnability,
   planRun,
@@ -83,7 +82,6 @@ interface Manifest {
 
 interface Options {
   date: string;
-  edgeVersion: string;
   files: string[];
   run: boolean;
   write: boolean;
@@ -92,7 +90,6 @@ interface Options {
 function parseArgs(argv: readonly string[]): Options {
   const options: Options = {
     date: new Date().toISOString().slice(0, 10),
-    edgeVersion: PINNED_EDGE_VERSION,
     files: [],
     run: true,
     write: true,
@@ -102,8 +99,6 @@ function parseArgs(argv: readonly string[]): Options {
     const arg = argv[index];
 
     if (arg === '--date') options.date = argv[++index] ?? options.date;
-    else if (arg === '--edge-version')
-      options.edgeVersion = argv[++index] ?? options.edgeVersion;
     else if (arg === '--no-run') options.run = false;
     else if (arg === '--no-write') options.write = false;
     else if (arg === '--files') {
@@ -125,14 +120,6 @@ function parseArgs(argv: readonly string[]): Options {
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(options.date))
     throw new Error(`--date must be YYYY-MM-DD, got ${options.date}`);
-  if (
-    !/^(?:latest|v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$/.test(
-      options.edgeVersion
-    )
-  )
-    throw new Error(
-      `--edge-version must be latest or a semantic version, got ${options.edgeVersion}`
-    );
 
   return options;
 }
@@ -149,17 +136,22 @@ function loadManifest(): Manifest {
   // SAFETY: this checked-in JSON file is owned by the harness and typechecked
   // through every property access below; malformed JSON fails immediately.
   const manifest = JSON.parse(readFileSync(path, 'utf8')) as Manifest;
+
+  // SAFETY: this checked-in expectations file is owned by the harness and each
+  // contract is consumed through the Expectation interface below.
   const contracts = JSON.parse(
     readFileSync(
       join(repositoryRoot, FIXTURE_ROOT, 'expectations.json'),
       'utf8'
     )
   ) as Record<string, Expectation>;
+
   for (const [path, expectation] of Object.entries(contracts))
     manifest.pipelines = {
       ...manifest.pipelines,
       [path]: { ...manifest.pipelines?.[path], expectation },
     };
+
   return manifest;
 }
 
@@ -263,19 +255,23 @@ async function runPipeline(
   );
 
   mkdirSync(outputDir, { recursive: true });
+
   if (entry.recentTimestamps && fixture && entry.expectation) {
     const recent = rebaseNormalizationFixture(
       readFileSync(fixture, 'utf8'),
       entry.expectation
     );
+
     fixture = join(outputDir, 'recent-timestamps.jsonl');
     writeFileSync(fixture, recent.source);
     entry.expectation = recent.expectation;
   }
+
   let plan;
 
   try {
     plan = planRun(config, fixture, outputDir, standIns);
+
     if (entry.recentTimestamps)
       plan.substitutions.push({
         role: 'input',
@@ -396,12 +392,14 @@ async function runPipeline(
         reason: 'semantic output expectation is not registered',
       };
     }
+
     try {
       const parseLines = (path: string): unknown[] =>
         readFileSync(path, 'utf8')
           .split('\n')
           .filter((line) => line.trim())
           .map((line) => JSON.parse(line));
+
       verifyOutputs(
         entry.expectation,
         entry.expectation.kind === 'encryption' && fixture
@@ -452,6 +450,7 @@ function validate(
       const canonical = filesByPath.get(file.canonicalPath);
       canonicalConfig = pipelineConfigOf(canonical?.document) ?? undefined;
     }
+
     const wrapped = wrapFragment(file.document, canonicalConfig);
 
     if (!wrapped) {
@@ -481,12 +480,13 @@ async function writeReports(
   reports: PipelineReport[],
   options: Options,
   edgeVersion: string,
+  cliVersion: string,
   digest: string
 ): Promise<void> {
   const summary = summarize(reports, {
     date: options.date,
     edgeVersion,
-    pinnedEdgeVersion: PINNED_EDGE_VERSION,
+    cliVersion,
     inventoryDigest: digest,
   });
 
@@ -548,6 +548,7 @@ function stripDocument(report: PipelineReport): Omit<PipelineReport, 'file'> & {
 }
 
 let writeFailure = !process.argv.includes('--no-write');
+
 let reportDate = new Date().toISOString().slice(0, 10);
 
 async function main(): Promise<void> {
@@ -556,16 +557,18 @@ async function main(): Promise<void> {
   writeFailure = options.write;
 
   const edge = resolveEdgeBinary(repositoryRoot, {
-    install: true,
     log,
-    version: options.edgeVersion,
   });
 
+  const cli = resolveInstalledExpansoBinary('cli', { log });
+
   log(`expanso-edge ${edge.version} (${edge.path})`);
+  log(`expanso-cli ${cli.version} (${cli.path})`);
 
   const inventory = discoverPipelineFiles(repositoryRoot);
   const allFiles = inventory.filter((file) => file.kind !== 'manifest');
   const selectedPaths = new Set(options.files);
+
   const files =
     selectedPaths.size === 0
       ? allFiles
@@ -577,6 +580,7 @@ async function main(): Promise<void> {
     const found = new Set(
       inventory.map((file) => file.sourcePath ?? file.path)
     );
+
     const missing = [...selectedPaths].filter(
       (path) =>
         !found.has(path) &&
@@ -659,12 +663,13 @@ async function main(): Promise<void> {
     );
   }
 
-  if (options.write) await writeReports(reports, options, edge.version, digest);
+  if (options.write)
+    await writeReports(reports, options, edge.version, cli.version, digest);
 
   const summary = summarize(reports, {
     date: options.date,
     edgeVersion: edge.version,
-    pinnedEdgeVersion: PINNED_EDGE_VERSION,
+    cliVersion: cli.version,
     inventoryDigest: digest,
   });
 
@@ -685,7 +690,9 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  if (writeFailure) writeFailureReport(repositoryRoot, reportDate, error);
-  log(error instanceof Error ? (error.stack ?? error.message) : String(error));
+  const failure = error instanceof Error ? error : new Error(String(error));
+
+  if (writeFailure) writeFailureReport(repositoryRoot, reportDate, failure);
+  log(failure.stack ?? failure.message);
   process.exitCode = 1;
 });

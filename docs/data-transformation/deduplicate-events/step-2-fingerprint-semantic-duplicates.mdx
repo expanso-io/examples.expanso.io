@@ -57,22 +57,23 @@ The fingerprint uses `event_type` and `user_id`. That field choice defines the e
 
 2.  **Modify the Hashing Logic:** Open `fingerprint-dedup.yaml`. You will modify the first `mapping` processor to create the hash from a subset of fields instead of the whole message.
 
-    ```yaml title="Modify the first 'mapping' processor in fingerprint-dedup.yaml"
-    # Change the hash creation logic
-    - mapping: |
-        root = this
+        ```yaml title="Modify the first 'mapping' processor in fingerprint-dedup.yaml"
+        # Change the hash creation logic
+        - mapping: |
+            root = this
 
-        # 1. Create an object containing the selected comparison fields.
-        let business_fingerprint = {
-          "event_type": this.event_type,
-          "user_id": this.user_id
-        }
+            # 1. Create an object containing the selected comparison fields.
+            let business_fingerprint = {
+              "event_type": this.event_type,
+              "user_id": this.user_id
+            }
 
-        # 2. Create the hash from this new object, not the whole message.
-        root.dedup_hash = business_fingerprint.json_format().hash("sha256")
+            # 2. Create the hash from this new object, not the whole message.
+
+    root.dedup_hash = $business_fingerprint.format_json().hash("sha256")
     ```
 
-    The rest of the pipeline (`cache`, `check`, `drop`) remains exactly the same. It still uses `dedup_hash` to check for duplicates, but that hash is now much smarter.
+        The rest of the pipeline (`cache`, `check`, `drop`) remains exactly the same. It still uses `dedup_hash` to check for duplicates, but that hash is now much smarter.
 
 3.  **Deploy and Test:**
 

@@ -55,15 +55,11 @@ This configuration uses `event_id` directly rather than calculating a content ha
     Finally, update the last `mapping` processor to also use the `dedup_key`.
 
     ```yaml title="Update the last 'mapping' processor"
-    - mapping: |
-        let is_duplicate = meta("cache").exists()
-        root = this
-
-        if is_duplicate {
-          root = deleted()
-        } else {
-          _ = cache_set("dedup_cache", this.dedup_key, "seen")
-        }
+    - cache:
+        resource: dedup_cache
+        operator: set
+        key: '${! this.dedup_key }'
+        value: seen
     ```
 
 3.  **Deploy and Test:**

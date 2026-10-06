@@ -12,7 +12,7 @@ export default function PipelineBadge({
   kind: PipelineCodeKind;
   completeHref?: string;
 }) {
-  const label = kind === 'fragment' ? 'Fragment' : 'Complete pipeline';
+  const label = kind === 'fragment' ? 'Partial snippet' : 'Complete pipeline';
 
   if (kind === 'fragment' && completeHref) {
     return (

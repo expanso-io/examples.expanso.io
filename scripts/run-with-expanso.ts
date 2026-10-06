@@ -1,55 +1,41 @@
-import { spawn } from 'child_process';
-import path from 'path';
-import fs from 'fs';
+import { spawn } from 'node:child_process';
 
-const BIN_DIR = path.join(process.cwd(), '.bin');
+import { resolveInstalledExpansoBinary } from './validation/expanso-binary';
 
-// 1. Construct the enhanced PATH
-const env = { 
-    ...process.env, 
-    PATH: `${BIN_DIR}:${process.env.PATH}` 
-};
-
-// 2. Parse Command
 const args = process.argv.slice(2);
-if (args.length === 0) {
-    console.error("Usage: tsx scripts/run-with-expanso.ts <command> [args...]");
-    process.exit(1);
+
+const command = args.shift();
+
+if (!command) {
+  process.stderr.write(
+    'Usage: tsx scripts/run-with-expanso.ts <command> [args...]\n'
+  );
+  process.exit(1);
 }
-const command = args[0];
-const commandArgs = args.slice(1);
 
-// 3. Log Environment Context
-console.log('--------------------------------------------------');
-console.log('🚀 Expanso Test Runner');
-console.log(`   Command: ${command} ${commandArgs.join(' ')}`);
-console.log(`   Binaries: ${BIN_DIR}`);
+for (const component of ['edge', 'cli'] as const) {
+  const binary = resolveInstalledExpansoBinary(component);
+  process.stderr.write(
+    `using expanso-${component} ${binary.version} from ${binary.path}\n`
+  );
+}
 
-// 4. Verify Versions (if binaries exist)
-['expanso-cli', 'expanso-edge'].forEach(tool => {
-    const toolPath = path.join(BIN_DIR, tool);
-    if (fs.existsSync(toolPath)) {
-        try {
-             // We use spawnSync here to safely capture output without streaming to main stdout immediately
-             const { spawnSync } = require('child_process');
-             const res = spawnSync(toolPath, ['version']);
-             if (res.stdout) {
-                 console.log(`   ${tool}: ${res.stdout.toString().trim()}`);
-             }
-        } catch (e) {}
-    } else {
-        console.log(`   ${tool}: (not found in local bin, using system default if available)`);
-    }
-});
-console.log('--------------------------------------------------');
-
-// 5. Execute
-const child = spawn(command, commandArgs, { 
-    env, 
-    stdio: 'inherit',
-    shell: true 
+const child = spawn(command, args, {
+  env: process.env,
+  stdio: 'inherit',
 });
 
-child.on('exit', (code) => {
-    process.exit(code ?? 0);
+child.on('error', (error) => {
+  process.stderr.write(`could not start ${command}: ${error.message}\n`);
+  process.exit(1);
+});
+
+child.on('exit', (code, signal) => {
+  if (signal) {
+    process.kill(process.pid, signal);
+
+    return;
+  }
+
+  process.exit(code ?? 1);
 });

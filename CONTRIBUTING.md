@@ -77,9 +77,10 @@ Pipeline changes also require the
 and its generated reports.
 
 The Husky pre-commit hook runs `lint-staged`, which validates each staged
-pipeline YAML file with the pinned `expanso-edge` release. Fragments are wrapped
-in their canonical pipeline context before validation. The first run may
-download the pinned binary into the repository's ignored `.bin/` directory.
+pipeline YAML file with the installed `expanso-edge` release on `PATH`.
+Fragments are wrapped in their canonical pipeline context before validation.
+Install the latest `expanso-edge` and `expanso-cli` releases from their official
+installers before committing; local validation never downloads or caches tools.
 Do not bypass the hook; run `npm run validate-staged-pipelines -- <paths...>` to
 reproduce a staged-file failure directly.
 

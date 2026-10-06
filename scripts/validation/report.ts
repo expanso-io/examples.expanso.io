@@ -2,7 +2,7 @@
  * Render validation results as GitHub-browsable Markdown.
  *
  * The report is deterministic for identical repository content: it carries the
- * inventory digest and the pinned expanso-edge version, never a wall-clock
+ * inventory digest and exact Expanso binary versions, never a wall-clock
  * timestamp or commit SHA, so a CI run that commits the report does not create
  * a new report on the next run.
  */
@@ -22,6 +22,7 @@ function renderTable(headers: string[], rows: string[][]): string[] {
   const widths = headers.map((header, column) =>
     Math.max(3, header.length, ...rows.map((row) => row[column].length))
   );
+
   const renderRow = (row: string[]) =>
     `| ${row.map((cell, column) => cell.padEnd(widths[column])).join(' | ')} |`;
 
@@ -34,6 +35,7 @@ function renderTable(headers: string[], rows: string[][]): string[] {
 
 const REPOSITORY_BLOB_URL =
   'https://github.com/expanso-io/examples.expanso.io/blob/main';
+
 const PUBLIC_SITE_URL = 'https://examples.expanso.io';
 
 function sourceLink(path: string): string {
@@ -60,6 +62,7 @@ function runCell(result: RunResult | undefined): string {
     const stubbed = result.substitutions?.some(
       (entry) => entry.role === 'processor' || entry.role === 'resource'
     );
+
     const mode = stubbed
       ? 'stubbed fixture harness'
       : result.mode === 'native'
@@ -96,7 +99,7 @@ export function summarize(
     failure?: string;
     date: string;
     edgeVersion: string;
-    pinnedEdgeVersion: string;
+    cliVersion: string;
     inventoryDigest: string;
   }
 ): ReportSummary {
@@ -173,6 +176,7 @@ export function renderReport(
   lines.push(`# Example pipeline validation: ${summary.date}`);
   lines.push('');
   lines.push(`Overall: **${overall}**`);
+
   if (summary.failure) {
     lines.push('');
     lines.push(
@@ -181,10 +185,10 @@ export function renderReport(
     lines.push('');
     lines.push(summary.failure);
   }
+
   lines.push('');
-  lines.push(
-    `- expanso-edge: \`${summary.edgeVersion}\` (pinned: \`${summary.pinnedEdgeVersion}\`)`
-  );
+  lines.push(`- expanso-edge: \`${summary.edgeVersion}\` (latest installed)`);
+  lines.push(`- expanso-cli: \`${summary.cliVersion}\` (latest installed)`);
   lines.push(`- Inventory digest: \`${summary.inventoryDigest}\``);
   lines.push(
     `- Complete pipelines: ${summary.complete.total}. Validate: ${summary.complete.validatePass} pass, ${summary.complete.validateFail} fail. Run: ${summary.complete.runPass} pass, ${summary.complete.runFail} fail, ${summary.complete.runSkip} skipped${summary.complete.runNotAttempted ? `, ${summary.complete.runNotAttempted} not attempted` : ''}.`
@@ -226,16 +230,20 @@ export function renderReport(
     lines.push(
       ...renderTable(
         ['Pipeline', 'Live page', 'Source', 'Validate', 'Run', 'expanso-edge'],
-        complete
-          .filter((entry) => entry.file.category === category)
-          .map((report) => [
-            escapeCell(report.file.family),
-            liveLink(report.file.liveRoute),
-            sourceLink(report.file.sourcePath ?? report.file.path),
-            validateCell(report.validate),
-            runCell(report.run),
-            summary.edgeVersion,
-          ])
+        complete.flatMap((report) =>
+          report.file.category === category
+            ? [
+                [
+                  escapeCell(report.file.family),
+                  liveLink(report.file.liveRoute),
+                  sourceLink(report.file.sourcePath ?? report.file.path),
+                  validateCell(report.validate),
+                  runCell(report.run),
+                  summary.edgeVersion,
+                ],
+              ]
+            : []
+        )
       )
     );
 
@@ -313,6 +321,7 @@ export function renderReport(
     'These files are tutorial steps or component snippets, not complete pipelines. They are validated but never run.'
   );
   lines.push('');
+
   const fragmentRows = fragments.map((report) => {
     const detail =
       report.file.kind === 'invalid-yaml'
@@ -332,6 +341,7 @@ export function renderReport(
       escapeCell(detail),
     ];
   });
+
   lines.push(
     ...renderTable(
       ['Fragment', 'Live page', 'Source', 'Kind', 'Validate', 'Detail'],
@@ -350,13 +360,13 @@ export function renderIndex(
   lines.push('# Example pipeline validation reports');
   lines.push('');
   lines.push(
-    'Every change to the example pipelines regenerates these reports with the pinned expanso-edge release. `latest/` always mirrors the newest dated folder.'
+    'Every change to the example pipelines regenerates these reports with the latest installed Expanso Edge and CLI releases. `latest/` always mirrors the newest dated folder.'
   );
   lines.push('');
 
   if (latest) {
     lines.push(
-      `Latest: [${latest.date}](latest/README.md). Complete pipelines ${latest.complete.validatePass}/${latest.complete.total} validate, ${latest.complete.runPass} run, ${latest.complete.runSkip} skipped. expanso-edge \`${latest.edgeVersion}\`.`
+      `Latest: [${latest.date}](latest/README.md). Complete pipelines ${latest.complete.validatePass}/${latest.complete.total} validate, ${latest.complete.runPass} run, ${latest.complete.runSkip} skipped. expanso-edge \`${latest.edgeVersion}\`; expanso-cli \`${latest.cliVersion}\`.`
     );
     lines.push('');
   }

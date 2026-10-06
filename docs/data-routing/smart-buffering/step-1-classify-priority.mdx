@@ -50,9 +50,6 @@ Categorize every message into one of three tiers:
 
      pipeline:
        processors:
-         - json_documents:
-             parts: []
-
          - mapping: |
              root = this
 
@@ -62,25 +59,25 @@ Categorize every message into one of three tiers:
 
              # Important: critical alerts, payment failures, security events
              let is_important = match {
-               category == "important" => true,
-               severity == "critical" => true,
-               event_type.has_prefix("payment.failed") => true,
-               event_type.has_prefix("security.") => true,
+               $category == "important" => true,
+               $severity == "critical" => true,
+               $event_type.has_prefix("payment.failed") => true,
+               $event_type.has_prefix("security.") => true,
                _ => false
              }
 
              # Archive: debug logs, analytics, audit trails
              let is_archive = match {
-               category == "archive" => true,
-               severity == "debug" => true,
-               event_type.has_prefix("analytics.") => true,
+               $category == "archive" => true,
+               $severity == "debug" => true,
+               $event_type.has_prefix("analytics.") => true,
                _ => false
              }
 
              # Assign priority tier (1=highest, 3=lowest)
              root.priority_tier = match {
-               is_important => 1,
-               is_archive => 3,
+               $is_important => 1,
+               $is_archive => 3,
                _ => 2
              }
 

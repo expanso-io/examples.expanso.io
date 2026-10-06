@@ -37,8 +37,8 @@ You will modify your `fan-out.yaml` file to send messages to a local file, a Kaf
           - file:
               path: /tmp/events.jsonl
               codec: lines
-          -kafka:
-              addresses: [ ${KAFKA_BROKERS} ]
+          - kafka:
+              addresses: ['${KAFKA_BROKERS}']
               topic: "sensor-events"
               key: ${!this.sensor_id}
           - aws_s3:
@@ -48,10 +48,10 @@ You will modify your `fan-out.yaml` file to send messages to a local file, a Kaf
               batching:
                 count: 10
                 period: 10s
-
           # Add this block for Elasticsearch
-          - elasticsearch:
-              urls: [ ${ES_ENDPOINT} ] # e.g., http://localhost:9200
+          - opensearch:
+              action: index
+              urls: ['${ES_ENDPOINT}']
               index: "sensor-events-${!timestamp_unix_date('2006-01-02')}"
               id: ${!this.event_id.or(uuid_v4())}
               batching:

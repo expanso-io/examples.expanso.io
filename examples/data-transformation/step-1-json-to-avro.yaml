@@ -1,11 +1,10 @@
 pipeline:
   processors:
+    # Partial snippet: prepare schema-compatible JSON only. The current Edge
+    # validator reports "Unknown component or field 'avro'" for the documented
+    # avro processor, so this stage does not claim to emit Avro bytes.
     - mapping: |
         root.sensor_id = this.sensor_id.string()
         root.temperature_celsius = this.temperature_celsius.number()
         root.humidity_percent = this.humidity_percent.number()
         root.timestamp = this.timestamp.string()
-    - avro:
-        operator: from_json
-        encoding: binary
-        schema: '{"type":"record","name":"SensorReading","fields":[{"name":"sensor_id","type":"string"},{"name":"temperature_celsius","type":"double"},{"name":"humidity_percent","type":"double"},{"name":"timestamp","type":"string"}]}'

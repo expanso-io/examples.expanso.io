@@ -75,6 +75,24 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         run: npm ci
 
+      - name: Install latest Expanso Edge and CLI
+        if: steps.scope.outputs.run == 'true'
+        env:
+          EXPANSO_DISABLEANALYTICS: 'true'
+          EXPANSO_INSTALL_DIR: ${{ runner.temp }}/expanso-bin
+          USE_SUDO: 'false'
+        run: |
+          set -euo pipefail
+          mkdir -p "$EXPANSO_INSTALL_DIR"
+          for component in edge cli; do
+            installer="${RUNNER_TEMP}/install-expanso-${component}.sh"
+            curl --fail --location --silent --show-error \
+              "https://get.expanso.io/${component}/install.sh" \
+              --output "$installer"
+            bash "$installer"
+          done
+          echo "$EXPANSO_INSTALL_DIR" >> "$GITHUB_PATH"
+
       - name: Preserve pre-sweep pipeline features
         if: steps.scope.outputs.run == 'true'
         run: npm run test-feature-preservation
@@ -97,7 +115,7 @@ jobs:
           npm run reports:conformance:links
           git diff --exit-code -- validation-reports/conformance
 
-      - name: Validate and run examples with pinned Expanso Edge
+      - name: Validate and run examples with latest Expanso Edge
         if: steps.scope.outputs.run == 'true'
         env:
           EXPANSO_DISABLEANALYTICS: 'true'
@@ -106,9 +124,11 @@ jobs:
             "require('./validation-reports/latest/report.json').summary.date")
           npm run validate-examples -- --date "$report_date"
 
-      - name: Print Expanso Edge version
+      - name: Print Expanso versions
         if: steps.scope.outputs.run == 'true'
-        run: ./.bin/expanso-edge version
+        run: |
+          expanso-edge version
+          expanso-cli version
 
       - name: Require committed validation reports
         if: steps.scope.outputs.run == 'true'

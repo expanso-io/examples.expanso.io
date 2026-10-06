@@ -70,7 +70,8 @@ curl -s http://localhost:9200/_cat/indices
 ```yaml
 output:
   fallback:
-    - elasticsearch: { urls: ['http://localhost:9200'] }
+    - opensearch:
+        { action: index, urls: ['http://localhost:9200'], index: logs, id: '${!this.request_id.or(uuid_v4())}' }
     - file: { path: '/var/fallback/logs.jsonl' }
 ```
 
@@ -89,9 +90,7 @@ docker logs production-pipeline --tail 50 2>&1 | grep -E "@|[0-9]{3}-[0-9]{2}-[0
 
 ```yaml
 - mapping: |
-    root.message = this.message
-      .re_replace_all("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}", "[EMAIL]")
-      .re_replace_all("\\b\\d{3}[-.]?\\d{2}[-.]?\\d{4}\\b", "[SSN]")
+    root.message = this.message.re_replace_all("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}", "[EMAIL]").re_replace_all("\\b\\d{3}[-.]?\\d{2}[-.]?\\d{4}\\b", "[SSN]")
 ```
 
 ---
@@ -110,7 +109,7 @@ docker stats production-pipeline --no-stream
 batching:
   count: 500
   period: 5s
-  byte_size: 5MB
+  byte_size: 5242880
 ```
 
 ## Still stuck?
