@@ -29,6 +29,7 @@ export default function ExplorerGuide({ stages }: ExplorerGuideProps) {
   function stageHref(slug: string): string {
     const params = new URLSearchParams(search);
     params.set('stage', slug);
+
     return `${pathname}?${params.toString()}${hash}`;
   }
 

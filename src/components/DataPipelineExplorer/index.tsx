@@ -26,8 +26,10 @@ const DataPipelineExplorer: React.FC<DataPipelineExplorerProps> = ({
         `Explorer generated family does not match route: ${exampleId}`
       );
     }
+
     return generatedFamily.binding;
   }, [exampleId, generatedFamily]);
+
   const stages = useMemo(
     () =>
       bindCanonicalExplorerStages(
@@ -39,6 +41,7 @@ const DataPipelineExplorer: React.FC<DataPipelineExplorerProps> = ({
       ),
     [binding, fullYaml, fullYamlFilename, generatedFamily, rawStages]
   );
+
   const presentation: ExplorerPresentation = {
     kind: binding.provenance,
     label: provenanceLabels[binding.provenance],

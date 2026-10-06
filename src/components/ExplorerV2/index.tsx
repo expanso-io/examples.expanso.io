@@ -13,6 +13,12 @@ import {
   type ExplorerNavigationMethod,
 } from '../../analytics/events';
 import { captureExampleEvent } from '../../lib/analytics';
+import CopyActionButton, { CopyToast } from './CopyActionButton';
+import {
+  copyResultFeedback,
+  useCopyFeedback,
+  writeClipboardText,
+} from './copyFeedback';
 import { normalizeExplorerStages } from './normalize';
 import styles from './styles.module.css';
 import type {
@@ -45,6 +51,9 @@ const payloadFormatLabels: Record<ExplorerPayloadFormat, string> = {
 };
 
 type DataPanelName = 'input' | 'output';
+
+const dataPanelNames: DataPanelName[] = ['input', 'output'];
+
 type ExplorerIssueKind = 'empty' | 'malformed' | 'oversized';
 
 const MAX_EXPLORER_SOURCE_CHARACTERS = 2_000_000;
@@ -106,7 +115,11 @@ function DataLines({
             className={styles.codeLine}
             data-diff={line.state}
             key={`${index}-${line.content}`}
-            style={{ '--line-indent': line.indent } as React.CSSProperties}
+            style={
+              // SAFETY: React supports CSS custom properties at runtime, but
+              // CSSProperties does not include project-defined property names.
+              { '--line-indent': line.indent } as React.CSSProperties
+            }
           >
             <span className={styles.diffMark} aria-hidden="true">
               {comparisonMode === 'highlights' && line.state !== 'unchanged'
@@ -143,17 +156,21 @@ export default function ExplorerV2({
   const location = useLocation();
   const explorerId = useId();
   const explorerPresentation = presentation;
+
   const normalized = useMemo(() => {
     try {
       const serialized = JSON.stringify(rawStages);
+
       if (serialized.length > MAX_EXPLORER_SOURCE_CHARACTERS) {
         return { issue: 'oversized' as const, stages: [] };
       }
+
       const stages = normalizeExplorerStages(
         rawStages,
         explorerPresentation.kind,
         comparisonMode
       );
+
       return {
         issue: stages.length === 0 ? ('empty' as const) : null,
         stages,
@@ -162,6 +179,7 @@ export default function ExplorerV2({
       return { issue: 'malformed' as const, stages: [] };
     }
   }, [comparisonMode, explorerPresentation.kind, rawStages]);
+
   const stages = useMemo(
     () =>
       normalized.stages.length > 0
@@ -169,20 +187,27 @@ export default function ExplorerV2({
         : [{ ...unavailableStage, provenance: explorerPresentation.kind }],
     [explorerPresentation.kind, normalized]
   );
+
   const explorerIssue = normalized.issue;
+
   const query = useMemo(
     () => new URLSearchParams(location.search),
     [location.search]
   );
+
   const requestedStage = query.get('stage');
+
   const requestedIndex = stages.findIndex(
     (stage) => stage.slug === requestedStage
   );
+
   const [currentIndex, setCurrentIndex] = useState(Math.max(0, requestedIndex));
+
   const [changesOnly, setChangesOnly] = useState(
     query.get('view') ===
       (comparisonMode === 'highlights' ? 'highlights' : 'changes')
   );
+
   const [status, setStatus] = useState('');
   const [statusKind, setStatusKind] = useState<'success' | 'error'>('success');
   const activeStageRef = useRef<HTMLButtonElement | null>(null);
@@ -190,22 +215,39 @@ export default function ExplorerV2({
   const focusStageAfterChangeRef = useRef(false);
   const normalizedInvalidStageRef = useRef<string | null>(null);
   const hasCapturedEngagementRef = useRef(false);
+  const actionMenuRef = useRef<HTMLDetailsElement | null>(null);
+  const { feedback: copyFeedback, show: showCopyFeedback } = useCopyFeedback();
+  // Menu items disappear when the menu closes, so success surfaces on the
+  // trigger they came from.
+
+  const menuCopyFeedback =
+    copyFeedback?.kind === 'success' && copyFeedback.key.startsWith('menu-')
+      ? copyFeedback
+      : null;
 
   const currentStage = stages[currentIndex];
+
   if (!currentStage) throw new Error('Explorer requires at least one stage');
+
   const filteredView =
     comparisonMode === 'highlights' ? 'highlights' : 'changes';
 
   const rawInput =
     currentStage.rawInput ?? serializeLines(currentStage.inputLines);
+
   const rawOutput =
     currentStage.rawOutput ?? serializeLines(currentStage.outputLines);
+
   const isFinalStage = currentIndex === stages.length - 1;
+
   const visibleYaml =
     isFinalStage && fullYaml ? fullYaml : currentStage.yamlCode;
+
   const visibleYamlFilename =
     isFinalStage && fullYaml ? fullYamlFilename : currentStage.yamlFilename;
+
   const visibleYamlScope = isFinalStage && fullYaml ? 'full' : 'stage';
+
   const changeCounts = useMemo(
     () => ({
       added: currentStage.outputLines.filter((line) => line.state === 'added')
@@ -231,6 +273,7 @@ export default function ExplorerV2({
 
     if (nextIndex >= 0) {
       normalizedInvalidStageRef.current = null;
+
       if (nextIndex !== currentIndex) setCurrentIndex(nextIndex);
     } else if (requested && normalizedInvalidStageRef.current !== requested) {
       normalizedInvalidStageRef.current = requested;
@@ -241,6 +284,7 @@ export default function ExplorerV2({
         search: `?${search.toString()}`,
         hash: location.hash,
       });
+
       if (currentIndex !== 0) setCurrentIndex(0);
     } else if (!requested && currentIndex !== 0) {
       setCurrentIndex(0);
@@ -264,13 +308,16 @@ export default function ExplorerV2({
     if (explorerIssue) return;
     const button = activeStageRef.current;
     const rail = stageRailRef.current;
+
     if (button && rail) {
       const targetLeft =
         button.offsetLeft -
         rail.offsetLeft -
         (rail.clientWidth - button.offsetWidth) / 2;
+
       rail.scrollTo({ left: Math.max(0, targetLeft), behavior: 'auto' });
     }
+
     if (focusStageAfterChangeRef.current) {
       activeStageRef.current?.focus({ preventScroll: true });
       focusStageAfterChangeRef.current = false;
@@ -284,11 +331,13 @@ export default function ExplorerV2({
   ) {
     if (index < 0 || index >= stages.length) return;
     focusStageAfterChangeRef.current = focusStage && index !== currentIndex;
+
     if (index !== currentIndex) setCurrentIndex(index);
     setStatus('');
 
     const search = new URLSearchParams(location.search);
     const slug = stages[index].slug;
+
     if (search.get('stage') !== slug) {
       search.set('stage', slug);
       history.push({
@@ -301,6 +350,7 @@ export default function ExplorerV2({
     recordAnalyticsEvent(
       createExplorerStageChangeEvent(exampleId, slug, method)
     );
+
     if (!hasCapturedEngagementRef.current) {
       hasCapturedEngagementRef.current = true;
       captureExampleEvent('example_explorer_engaged', {
@@ -311,8 +361,46 @@ export default function ExplorerV2({
     }
   }
 
+  useEffect(() => {
+    if (explorerIssue) return;
+
+    function handleDocumentKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+
+      if (event.defaultPrevented) return;
+
+      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey)
+        return;
+      const target = event.target;
+
+      if (target instanceof HTMLElement) {
+        if (target.isContentEditable) return;
+
+        if (target.closest('input, textarea, select, [contenteditable]'))
+          return;
+
+        if (target.closest('pre, [data-scroll-panel]')) return;
+
+        if (target.scrollWidth > target.clientWidth) return;
+
+        if (stageRailRef.current?.contains(target)) return;
+      }
+
+      const nextIndex = currentIndex + (event.key === 'ArrowRight' ? 1 : -1);
+
+      if (nextIndex < 0 || nextIndex >= stages.length) return;
+      event.preventDefault();
+      selectStage(nextIndex, 'keyboard');
+    }
+
+    document.addEventListener('keydown', handleDocumentKeyDown);
+
+    return () => document.removeEventListener('keydown', handleDocumentKeyDown);
+  });
+
   function handleStageKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     let nextIndex = currentIndex;
+
     if (event.key === 'ArrowLeft') nextIndex = Math.max(0, currentIndex - 1);
     else if (event.key === 'ArrowRight')
       nextIndex = Math.min(stages.length - 1, currentIndex + 1);
@@ -328,6 +416,7 @@ export default function ExplorerV2({
     setChangesOnly(nextValue);
     setStatus('');
     const search = new URLSearchParams(location.search);
+
     if (nextValue) search.set('view', filteredView);
     else search.delete('view');
     history.replace({
@@ -346,15 +435,26 @@ export default function ExplorerV2({
   async function copyText(
     value: string,
     label: string,
-    scope: 'stage' | 'full' | 'input' | 'output' | 'share'
+    scope: 'stage' | 'full' | 'input' | 'output' | 'share',
+    feedbackKey?: string
   ) {
     try {
-      if (!navigator.clipboard?.writeText) {
-        throw new Error('Clipboard permission is unavailable');
+      await writeClipboardText(value);
+
+      if (feedbackKey) {
+        showCopyFeedback(copyResultFeedback(feedbackKey, label, 'success'));
+      } else {
+        setStatusKind('success');
+        setStatus(`${label} copied.`);
       }
-      await navigator.clipboard.writeText(value);
-      setStatusKind('success');
-      setStatus(`${label} copied.`);
+
+      if (feedbackKey?.startsWith('menu-') && actionMenuRef.current) {
+        actionMenuRef.current.open = false;
+        actionMenuRef.current
+          .querySelector('summary')
+          ?.focus({ preventScroll: true });
+      }
+
       recordAnalyticsEvent(
         scope === 'share'
           ? createExplorerShareEvent(exampleId, currentStage.slug)
@@ -365,22 +465,27 @@ export default function ExplorerV2({
             )
       );
     } catch {
-      setStatusKind('error');
-      setStatus(
-        `Could not copy ${label.toLowerCase()}. Select the text and copy it manually.`
-      );
+      if (feedbackKey) {
+        showCopyFeedback(copyResultFeedback(feedbackKey, label, 'error'));
+      } else {
+        setStatusKind('error');
+        setStatus(
+          `Could not copy ${label.toLowerCase()}. Select the text and copy it manually.`
+        );
+      }
     }
   }
 
   function copyShareLink() {
     const search = new URLSearchParams(location.search);
     search.set('stage', currentStage.slug);
+
     if (changesOnly) search.set('view', filteredView);
     else search.delete('view');
     const url = new URL(location.pathname, window.location.origin);
     url.search = search.toString();
     url.hash = location.hash;
-    void copyText(url.toString(), 'Share link', 'share');
+    void copyText(url.toString(), 'Share link', 'share', 'menu-share');
   }
 
   function downloadYaml(
@@ -392,6 +497,7 @@ export default function ExplorerV2({
       const url = URL.createObjectURL(
         new Blob([value], { type: 'text/yaml;charset=utf-8' })
       );
+
       const link = document.createElement('a');
       link.href = url;
       link.download = filename;
@@ -486,6 +592,7 @@ export default function ExplorerV2({
         >
           {stages.map((stage, index) => {
             const isCurrent = index === currentIndex;
+
             return (
               <button
                 type="button"
@@ -565,56 +672,78 @@ export default function ExplorerV2({
               : 'Changes only'}
           </span>
         </label>
-        <details className={styles.actionMenu}>
-          <summary>Copy &amp; download</summary>
-          <div>
-            <button type="button" onClick={copyShareLink}>
-              Copy share link
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                copyText(currentStage.yamlCode, 'Stage YAML', 'stage')
-              }
-            >
-              Copy stage YAML
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                downloadYaml(
-                  currentStage.yamlCode,
-                  currentStage.yamlFilename,
-                  'stage'
-                )
-              }
-            >
-              Download stage YAML
-            </button>
-            {fullYaml ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => copyText(fullYaml, 'Full YAML', 'full')}
-                >
-                  Copy full YAML
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    downloadYaml(fullYaml, fullYamlFilename, 'full')
-                  }
-                >
-                  Download full YAML
-                </button>
-              </>
-            ) : (
-              <p className={styles.actionNote}>
-                Full pipeline file not included. Stage YAML remains available.
-              </p>
-            )}
-          </div>
-        </details>
+        <span className={styles.copyAnchor}>
+          <details className={styles.actionMenu} ref={actionMenuRef}>
+            <summary>Copy &amp; download</summary>
+            <div>
+              <CopyActionButton
+                feedbackKey="menu-share"
+                feedback={copyFeedback}
+                toast="error-only"
+                toastPlacement="inline"
+                onCopy={copyShareLink}
+              >
+                Copy share link
+              </CopyActionButton>
+              <CopyActionButton
+                feedbackKey="menu-stage"
+                feedback={copyFeedback}
+                toast="error-only"
+                toastPlacement="inline"
+                onCopy={() =>
+                  void copyText(
+                    currentStage.yamlCode,
+                    'Stage YAML',
+                    'stage',
+                    'menu-stage'
+                  )
+                }
+              >
+                Copy stage YAML
+              </CopyActionButton>
+              <button
+                type="button"
+                onClick={() =>
+                  downloadYaml(
+                    currentStage.yamlCode,
+                    currentStage.yamlFilename,
+                    'stage'
+                  )
+                }
+              >
+                Download stage YAML
+              </button>
+              {fullYaml ? (
+                <>
+                  <CopyActionButton
+                    feedbackKey="menu-full"
+                    feedback={copyFeedback}
+                    toast="error-only"
+                    toastPlacement="inline"
+                    onCopy={() =>
+                      void copyText(fullYaml, 'Full YAML', 'full', 'menu-full')
+                    }
+                  >
+                    Copy full YAML
+                  </CopyActionButton>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      downloadYaml(fullYaml, fullYamlFilename, 'full')
+                    }
+                  >
+                    Download full YAML
+                  </button>
+                </>
+              ) : (
+                <p className={styles.actionNote}>
+                  Full pipeline file not included. Stage YAML remains available.
+                </p>
+              )}
+            </div>
+          </details>
+          {menuCopyFeedback ? <CopyToast feedback={menuCopyFeedback} /> : null}
+        </span>
       </div>
 
       <div
@@ -622,15 +751,18 @@ export default function ExplorerV2({
         data-filtered={changesOnly ? 'true' : 'false'}
       >
         <div className={styles.dataGrid}>
-          {(['input', 'output'] as DataPanelName[]).map((panel) => {
+          {dataPanelNames.map((panel) => {
             const isInput = panel === 'input';
             const label = isInput ? 'Input' : 'Output';
             const value = isInput ? rawInput : rawOutput;
+
             const payloadFormat =
               (isInput
                 ? currentStage.inputFormat
                 : currentStage.outputFormat) ?? 'text';
+
             const payloadLabel = payloadFormatLabels[payloadFormat];
+
             return (
               <section
                 className={clsx(
@@ -659,6 +791,7 @@ export default function ExplorerV2({
                 <div
                   className={styles.dataScroll}
                   tabIndex={0}
+                  data-scroll-panel=""
                   aria-label={`${label} ${payloadLabel} for ${currentStage.title}`}
                 >
                   <DataLines
@@ -688,20 +821,22 @@ export default function ExplorerV2({
                   : 'Stage configuration'}
               </span>
               <code>{visibleYamlFilename}</code>
-              <button
-                type="button"
-                onClick={() =>
-                  copyText(
+              <CopyActionButton
+                feedbackKey="yaml"
+                feedback={copyFeedback}
+                onCopy={() =>
+                  void copyText(
                     visibleYaml,
                     visibleYamlScope === 'full' ? 'Full YAML' : 'Stage YAML',
-                    visibleYamlScope
+                    visibleYamlScope,
+                    'yaml'
                   )
                 }
               >
                 Copy YAML
-              </button>
+              </CopyActionButton>
             </div>
-            <pre tabIndex={0}>
+            <pre tabIndex={0} data-scroll-panel="">
               <code>{visibleYaml}</code>
             </pre>
           </div>
@@ -711,6 +846,7 @@ export default function ExplorerV2({
       {status ? (
         <p
           className={styles.status}
+          data-explorer-status=""
           data-kind={statusKind}
           role={statusKind === 'error' ? 'alert' : 'status'}
           aria-live="polite"

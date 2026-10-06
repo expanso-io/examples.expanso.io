@@ -1,7 +1,27 @@
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Locator } from '@playwright/test';
 
+interface ExplorerAnalyticsEvent {
+  event?: string;
+  event_schema_version?: string;
+  example_id?: string;
+  execution_status?: string;
+  operational_evidence?: string;
+  stage_id?: string;
+  navigation_method?: string;
+  view?: string;
+  scope?: string;
+}
+
+declare global {
+  interface Window {
+    __copiedExplorerValue?: string;
+    dataLayer?: ExplorerAnalyticsEvent[];
+  }
+}
+
 const route = '/data-security/remove-pii/explorer';
+
 const architectureRoutes = [
   '/data-routing/content-routing/explorer',
   '/data-transformation/parse-logs/explorer',
@@ -19,8 +39,10 @@ async function usesCompactStageSelector(explorer: Locator): Promise<boolean> {
 async function selectStage(explorer: Locator, index: number): Promise<void> {
   if (await usesCompactStageSelector(explorer)) {
     await stageSelector(explorer).selectOption({ index });
+
     return;
   }
+
   await explorer
     .getByRole('button', { name: new RegExp(`Stage ${index + 1} of`) })
     .click();
@@ -38,8 +60,10 @@ async function expectCurrentStage(
         )
       )
       .toBe(index);
+
     return;
   }
+
   await expect(explorer.locator('[aria-current="step"]')).toHaveAccessibleName(
     new RegExp(`Stage ${index + 1} of`)
   );
@@ -54,12 +78,14 @@ test('stage controls expose names and a single current stage', async ({
   page,
 }) => {
   const explorer = page.locator('[data-explorer-version="2"]');
+
   if (await usesCompactStageSelector(explorer)) {
     await expect(stageSelector(explorer)).toHaveAccessibleName('Stage');
   } else {
     const stages = explorer.locator('button[aria-label^="Stage "]');
     await expect(stages.first()).toHaveAccessibleName(/Stage 1 of \d+: .+/);
   }
+
   await expect(explorer.locator('[aria-current="step"]')).toHaveCount(1);
   await expectCurrentStage(explorer, 0);
   await expect(
@@ -72,20 +98,24 @@ test('stage controls expose names and a single current stage', async ({
 
 test('long stage labels stay inside their own controls', async ({ page }) => {
   const explorer = page.locator('[data-explorer-version="2"]');
+
   if (await usesCompactStageSelector(explorer)) return;
   const labels = explorer.locator('button[aria-label^="Stage "] strong');
   await expect(labels).toHaveCount(6);
+
   const bounds = await labels.evaluateAll((elements) =>
     elements.map((label) => {
       const button = label.closest('button')!.getBoundingClientRect();
       const text = document.createRange();
       text.selectNodeContents(label);
+
       return [...text.getClientRects()].map((rect) => ({
         left: rect.left - button.left,
         right: button.right - rect.right,
       }));
     })
   );
+
   for (const label of bounds) {
     for (const line of label) {
       expect(line.left).toBeGreaterThanOrEqual(0);
@@ -94,31 +124,81 @@ test('long stage labels stay inside their own controls', async ({ page }) => {
   }
 });
 
-test('stage navigation remains scoped to its controls', async ({ page }) => {
+test('arrow keys change the stage from anywhere on the page except text fields', async ({
+  page,
+}) => {
   const explorer = page.locator('[data-explorer-version="2"]');
-  const compact = await usesCompactStageSelector(explorer);
-  const current = compact
-    ? stageSelector(explorer)
-    : explorer.locator('[aria-current="step"]');
-  const initialValue = compact
-    ? await current.inputValue()
-    : await current.getAttribute('aria-label');
 
-  const outsideLink = page.locator('nav a').first();
-  await outsideLink.focus();
+  const target = await explorer.evaluate((element) => {
+    const top = element.getBoundingClientRect().top + window.scrollY;
+
+    return Math.max(0, Math.round(top - 24));
+  });
+
+  expect(target).toBeGreaterThan(0);
+  await page.evaluate((y) => window.scrollTo(0, y), target);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(target);
+
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+  expect(await page.evaluate(() => document.activeElement?.tagName)).toBe(
+    'BODY'
+  );
   await page.keyboard.press('ArrowRight');
-  if (compact) await expect(current).toHaveValue(initialValue ?? '');
-  else await expect(current).toHaveAttribute('aria-label', initialValue ?? '');
-
-  if (compact) {
-    // The browser owns the native popup; exercise our change handler directly.
-    await current.selectOption({ index: 1 });
-  } else {
-    await current.focus();
-    await page.keyboard.press('ArrowRight');
-  }
-  await expectCurrentStage(explorer, 1);
   await expect(page).toHaveURL(/stage=delete-payment-data/);
+  await expectCurrentStage(explorer, 1);
+  await page.keyboard.press('ArrowRight');
+  await expect(page).toHaveURL(/stage=hash-ip-address/);
+  await expectCurrentStage(explorer, 2);
+  await page.keyboard.press('ArrowLeft');
+  await expect(page).toHaveURL(/stage=delete-payment-data/);
+  await expectCurrentStage(explorer, 1);
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => window.scrollY)).toBe(target);
+
+  await page.evaluate(() => {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.id = 'arrow-key-probe';
+    document.body.append(input);
+    input.focus({ preventScroll: true });
+  });
+  await page.keyboard.press('ArrowRight');
+  await page.waitForTimeout(250);
+  await expect(page).toHaveURL(/stage=delete-payment-data/);
+  await expectCurrentStage(explorer, 1);
+  await page.evaluate(() =>
+    document.getElementById('arrow-key-probe')?.remove()
+  );
+});
+
+test('arrow keys scroll a focused YAML panel instead of changing the stage', async ({
+  page,
+}) => {
+  const explorer = page.locator('[data-explorer-version="2"]');
+  const pre = explorer.locator('[id$="-yaml-panel"] pre[data-scroll-panel]');
+  await pre.evaluate((element: HTMLElement) => {
+    element.style.width = '160px';
+    element.style.overflowX = 'auto';
+    element.style.whiteSpace = 'pre';
+    element.focus({ preventScroll: true });
+  });
+  expect(
+    await pre.evaluate((element) => element.scrollWidth > element.clientWidth)
+  ).toBe(true);
+  expect(await pre.evaluate((element) => element.scrollLeft)).toBe(0);
+  expect(await pre.evaluate((el) => document.activeElement === el)).toBe(true);
+
+  await page.keyboard.press('ArrowRight');
+  await expect
+    .poll(() => pre.evaluate((element) => element.scrollLeft))
+    .toBeGreaterThan(0);
+  await page.waitForTimeout(250);
+  await expect(page).not.toHaveURL(/stage=/);
+  await expectCurrentStage(explorer, 0);
 });
 
 test('stage history and the change view are shareable and restorable', async ({
@@ -152,12 +232,15 @@ test('an invalid stage is normalized once without dropping unrelated state', asy
 test('pipeline and payload actions have explicit scope', async ({ page }) => {
   const explorer = page.locator('[data-explorer-version="2"]');
   await expect(explorer).toHaveAttribute('data-comparison-mode', 'diff');
+
   const inputCopy = explorer.getByRole('button', {
     name: /Copy input JSON for Original Input/,
   });
+
   const outputCopy = explorer.getByRole('button', {
     name: /Copy output JSON for Original Input/,
   });
+
   await expect(outputCopy).toBeVisible();
   await expect(inputCopy).toBeVisible();
   await expect(outputCopy).toBeVisible();
@@ -178,6 +261,7 @@ test('semantic colors and the final complete pipeline stay explicit', async ({
   page,
 }) => {
   const explorer = page.locator('[data-explorer-version="2"]');
+
   const fullYaml = await readFile(
     'examples/data-security/remove-pii-complete.yaml',
     'utf8'
@@ -210,6 +294,7 @@ test('semantic colors and the final complete pipeline stay explicit', async ({
   const stageCount = await lightExplorer
     .locator('button[aria-label^="Stage "]')
     .count();
+
   expect(stageCount).toBeGreaterThan(1);
   await selectStage(lightExplorer, stageCount - 1);
 
@@ -229,6 +314,7 @@ test('copy, share, and download actions preserve exact bytes and announce succes
   await explorer.getByLabel('Changes only').check();
   const yamlPanel = explorer.locator('[id$="-yaml-panel"]');
   const stageYaml = (await yamlPanel.locator('pre code').textContent()) ?? '';
+
   const fullYaml = await readFile(
     'examples/data-security/remove-pii-complete.yaml',
     'utf8'
@@ -239,50 +325,199 @@ test('copy, share, and download actions preserve exact bytes and announce succes
       configurable: true,
       value: {
         writeText: (value: string) => {
-          (
-            window as typeof window & { __copiedExplorerValue?: string }
-          ).__copiedExplorerValue = value;
+          window.__copiedExplorerValue = value;
+
           return Promise.resolve();
         },
       },
     });
   });
 
+  const menu = explorer.locator('details');
   await explorer.getByText('Copy & download').click();
   await explorer.getByRole('button', { name: 'Copy stage YAML' }).click();
-  await expect(explorer.getByRole('status')).toContainText(
+  await expect(explorer.locator('[data-copy-toast]')).toHaveText(
     'Stage YAML copied.'
   );
-  expect(
-    await page.evaluate(
-      () =>
-        (window as typeof window & { __copiedExplorerValue?: string })
-          .__copiedExplorerValue
-    )
-  ).toBe(stageYaml);
+  await expect
+    .poll(() => menu.evaluate((d: HTMLDetailsElement) => d.open))
+    .toBe(false);
+  expect(await page.evaluate(() => window.__copiedExplorerValue)).toBe(
+    stageYaml
+  );
 
+  await explorer.getByText('Copy & download').click();
   await explorer.getByRole('button', { name: 'Copy share link' }).click();
-  expect(
-    await page.evaluate(
-      () =>
-        (window as typeof window & { __copiedExplorerValue?: string })
-          .__copiedExplorerValue
-    )
-  ).toBe(page.url());
+  expect(await page.evaluate(() => window.__copiedExplorerValue)).toBe(
+    page.url()
+  );
+
+  await explorer.getByText('Copy & download').click();
 
   const [stageDownload] = await Promise.all([
     page.waitForEvent('download'),
     explorer.getByRole('button', { name: 'Download stage YAML' }).click(),
   ]);
+
   expect(await readFile((await stageDownload.path())!, 'utf8')).toBe(stageYaml);
 
   const [fullDownload] = await Promise.all([
     page.waitForEvent('download'),
     explorer.getByRole('button', { name: 'Download full YAML' }).click(),
   ]);
+
   expect(await readFile((await fullDownload.path())!, 'utf8')).toBe(fullYaml);
-  await expect(explorer.getByRole('status')).toContainText(
+  await expect(explorer.locator('[data-explorer-status]')).toContainText(
     'remove-pii-complete.yaml download started.'
+  );
+});
+
+test('changing stages keeps the page scroll position', async ({ page }) => {
+  const explorer = page.locator('[data-explorer-version="2"]');
+  const compact = await usesCompactStageSelector(explorer);
+
+  const target = await explorer.evaluate((element) => {
+    const top = element.getBoundingClientRect().top + window.scrollY;
+
+    return Math.max(0, Math.round(top - 24));
+  });
+
+  expect(target).toBeGreaterThan(0);
+  await page.evaluate((y) => window.scrollTo(0, y), target);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(target);
+
+  if (compact) {
+    await stageSelector(explorer).selectOption({ index: 1 });
+  } else {
+    await explorer.locator('[aria-current="step"]').focus();
+    await page.keyboard.press('ArrowRight');
+  }
+
+  await expect(page).toHaveURL(/stage=delete-payment-data/);
+  await expectCurrentStage(explorer, 1);
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => window.scrollY)).toBe(target);
+
+  await explorer.getByRole('button', { name: 'Next stage' }).click();
+  await expect(page).toHaveURL(/stage=hash-ip-address/);
+  await expectCurrentStage(explorer, 2);
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => window.scrollY)).toBe(target);
+
+  await explorer.getByRole('button', { name: 'Previous stage' }).click();
+  await expect(page).toHaveURL(/stage=delete-payment-data/);
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => window.scrollY)).toBe(target);
+});
+
+test('copy actions confirm where the reader clicked and close the menu', async ({
+  page,
+}) => {
+  const explorer = page.locator('[data-explorer-version="2"]');
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: () => Promise.resolve() },
+    });
+  });
+  const menu = explorer.locator('details');
+  const summary = explorer.getByText('Copy & download');
+  const toast = explorer.locator('[data-copy-toast]');
+
+  await summary.click();
+  await explorer.getByRole('button', { name: 'Copy full YAML' }).click();
+  await expect
+    .poll(() => menu.evaluate((d: HTMLDetailsElement) => d.open))
+    .toBe(false);
+  await expect
+    .poll(() => summary.evaluate((el) => document.activeElement === el))
+    .toBe(true);
+  await expect(toast).toHaveText('Full YAML copied.');
+  const toastBox = await toast.boundingBox();
+  const summaryBox = await summary.boundingBox();
+  expect(toastBox).not.toBeNull();
+  expect(summaryBox).not.toBeNull();
+  expect(toastBox!.y).toBeGreaterThanOrEqual(summaryBox!.y);
+  expect(toastBox!.y - (summaryBox!.y + summaryBox!.height)).toBeLessThan(48);
+
+  await summary.click();
+  await expect(explorer.getByRole('button', { name: 'Copied' })).toBeVisible();
+  await expect(
+    explorer.getByRole('button', { name: 'Copy full YAML' })
+  ).toBeVisible({ timeout: 4_000 });
+  await expect(toast).toHaveCount(0);
+  await summary.click();
+
+  const inputCopy = explorer.getByRole('button', {
+    name: /Copy input JSON for Original Input/,
+  });
+
+  await inputCopy.click();
+  await expect(inputCopy).toHaveText('Copy JSON');
+  await expect(explorer.locator('[data-explorer-status]')).toHaveText(
+    'Input JSON copied.'
+  );
+  await expect(toast).toHaveCount(0);
+  await expect(
+    explorer.getByRole('button', {
+      name: /Copy output JSON for Original Input/,
+    })
+  ).toHaveText('Copy JSON');
+});
+
+test('reopening the copy menu hides its trigger toast and permits copying', async ({
+  page,
+}) => {
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: () => Promise.resolve() },
+    });
+  });
+  const explorer = page.locator('[data-explorer-version="2"]');
+  const summary = explorer.getByText('Copy & download');
+  const toast = explorer.locator('[data-copy-toast]');
+
+  await summary.click();
+  await explorer.getByRole('button', { name: 'Copy full YAML' }).click();
+  await expect(toast).toBeVisible();
+  await expect(toast).toHaveText('Full YAML copied.');
+
+  await summary.click();
+  await expect(toast).toBeHidden();
+  await expect(toast).toHaveText('Full YAML copied.');
+  await explorer.getByRole('button', { name: 'Copy share link' }).click();
+  await expect(toast).toBeVisible();
+  await expect(toast).toHaveText('Share link copied.');
+  await expect(summary).toBeFocused();
+});
+
+test('a failed copy is reported inline on the control', async ({ page }) => {
+  const explorer = page.locator('[data-explorer-version="2"]');
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error('denied')) },
+    });
+  });
+  const yamlPanel = explorer.locator('[id$="-yaml-panel"]');
+  const yamlCopy = yamlPanel.locator('button[data-copy-state]');
+  await yamlCopy.click();
+  await expect(yamlCopy).toHaveText('Copy failed');
+  await expect(yamlCopy).toHaveAttribute('data-copy-state', 'error');
+  await expect(yamlPanel.getByRole('alert')).toContainText(
+    'Could not copy stage yaml'
+  );
+
+  const menu = explorer.locator('details');
+  await explorer.getByText('Copy & download').click();
+  await explorer.getByRole('button', { name: 'Copy stage YAML' }).click();
+  await expect(menu.getByRole('button', { name: 'Copy failed' })).toBeVisible();
+  expect(await menu.evaluate((d: HTMLDetailsElement) => d.open)).toBe(true);
+  await expect(menu.getByRole('alert')).toContainText(
+    'Could not copy stage yaml'
   );
 });
 
@@ -290,7 +525,7 @@ test('Explorer analytics uses only the versioned privacy-safe schema', async ({
   page,
 }) => {
   await page.addInitScript(() => {
-    (window as typeof window & { dataLayer?: unknown[] }).dataLayer = [];
+    window.dataLayer = [];
   });
   await page.reload({ waitUntil: 'networkidle' });
   const explorer = page.locator('[data-explorer-version="2"]');
@@ -305,25 +540,24 @@ test('Explorer analytics uses only the versioned privacy-safe schema', async ({
   const navigationMethod = (await usesCompactStageSelector(explorer))
     ? 'select'
     : 'click';
+
   await selectStage(explorer, 1);
   await explorer.getByLabel('Changes only').check();
   await explorer.getByText('Copy & download').click();
   await explorer.getByRole('button', { name: 'Copy stage YAML' }).click();
+  await explorer.getByText('Copy & download').click();
   await explorer.getByRole('button', { name: 'Copy share link' }).click();
+  await explorer.getByText('Copy & download').click();
+
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     explorer.getByRole('button', { name: 'Download full YAML' }).click(),
   ]);
+
   await download.cancel();
 
-  const events = await page.evaluate(
-    () =>
-      (
-        window as typeof window & {
-          dataLayer?: Array<Record<string, unknown>>;
-        }
-      ).dataLayer ?? []
-  );
+  const events = await page.evaluate(() => window.dataLayer ?? []);
+
   const publicEvents = events.filter((event) =>
     [
       'example_view',
@@ -334,6 +568,7 @@ test('Explorer analytics uses only the versioned privacy-safe schema', async ({
       'explorer_share',
     ].includes(String(event.event))
   );
+
   const expectedEvents = [
     {
       event: 'example_view',
@@ -376,13 +611,16 @@ test('Explorer analytics uses only the versioned privacy-safe schema', async ({
       scope: 'full',
     },
   ];
+
   for (const expectedEvent of expectedEvents) {
     const matching = publicEvents.filter(
       (event) => event.event === expectedEvent.event
     );
+
     expect(matching.length).toBeGreaterThan(0);
     expect(matching.at(-1)).toEqual(expectedEvent);
   }
+
   const serialized = JSON.stringify(publicEvents);
   expect(serialized).not.toContain('filename');
   expect(serialized).not.toContain('root =');
@@ -412,6 +650,7 @@ test('mobile keeps both payloads and YAML visible without internal vertical scro
         panels.filter((panel) => panel.scrollHeight > panel.clientHeight + 1)
           .length
     );
+
   expect(verticallyScrollablePanels).toBe(0);
 
   const pageOverflow = await page.evaluate(
@@ -419,6 +658,7 @@ test('mobile keeps both payloads and YAML visible without internal vertical scro
       document.documentElement.scrollWidth -
       document.documentElement.clientWidth
   );
+
   expect(pageOverflow).toBeLessThanOrEqual(0);
 });
 
@@ -454,32 +694,42 @@ test('Explorer interface text stays at or above the 14px floor', async ({
     { width: 320, height: 800 },
   ]) {
     await page.setViewportSize(viewport);
-    const undersized = await explorer.evaluate((root) =>
-      [...root.querySelectorAll<HTMLElement>('*')]
-        .filter((element) =>
-          [...element.childNodes].some(
-            (node) =>
-              node.nodeType === Node.TEXT_NODE &&
-              Boolean(node.textContent?.trim())
-          )
-        )
-        .map((element) => {
-          const bounds = element.getBoundingClientRect();
-          const style = getComputedStyle(element);
-          return {
-            text: element.textContent?.trim().replace(/\s+/g, ' ').slice(0, 80),
-            tag: element.tagName.toLowerCase(),
-            className: element.className,
-            fontSize: Number.parseFloat(style.fontSize),
-            visible:
-              bounds.width > 1 &&
-              bounds.height > 1 &&
-              style.display !== 'none' &&
-              style.visibility !== 'hidden',
-          };
-        })
-        .filter(({ fontSize, visible }) => visible && fontSize < 14)
-    );
+
+    const undersized = await explorer.evaluate((root) => {
+      const results = [];
+
+      for (const element of root.querySelectorAll<HTMLElement>('*')) {
+        const hasText = [...element.childNodes].some(
+          (node) =>
+            node.nodeType === Node.TEXT_NODE &&
+            Boolean(node.textContent?.trim())
+        );
+
+        if (!hasText) continue;
+
+        const bounds = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        const fontSize = Number.parseFloat(style.fontSize);
+
+        const visible =
+          bounds.width > 1 &&
+          bounds.height > 1 &&
+          style.display !== 'none' &&
+          style.visibility !== 'hidden';
+
+        if (!visible || fontSize >= 14) continue;
+
+        results.push({
+          text: element.textContent?.trim().replace(/\s+/g, ' ').slice(0, 80),
+          tag: element.tagName.toLowerCase(),
+          className: element.className,
+          fontSize,
+          visible,
+        });
+      }
+
+      return results;
+    });
 
     expect(
       undersized,
@@ -494,6 +744,7 @@ test.describe('architecture Explorer rollout', () => {
       page,
     }) => {
       await page.goto(architectureRoute, { waitUntil: 'networkidle' });
+
       const explorer = page.locator(
         '[data-explorer-version="2"][data-provenance="curated-explanation"]'
       );
