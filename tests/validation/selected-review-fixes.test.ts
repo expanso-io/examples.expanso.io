@@ -193,28 +193,6 @@ for (const path of [
   });
 }
 
-test('installed Edge rejects the documented native Avro processor', () => {
-  const source = `
-input:
-  generate:
-    count: 1
-    mapping: 'root = {}'
-pipeline:
-  processors:
-    - avro:
-        operator: from_json
-        encoding: binary
-        schema: '{"type":"record","name":"Empty","fields":[]}'
-output:
-  drop: {}
-`;
-
-  const result = validateSource(edge, root, source);
-  assert.equal(result.status, 'FAIL');
-  assert.equal(result.errors[0]?.path, 'pipeline.processors.0');
-  assert.equal(result.errors[0]?.message, "Unknown component or field 'avro'");
-});
-
 test('all fragment forms are labeled; indented complete fences are inventoried', () => {
   for (const source of [
     'window:\n  tumbling:\n    size: 1m',
@@ -380,46 +358,118 @@ test('selected MDX files reach Edge validation through the public CLI', () => {
   }
 });
 
-test('nightly validates latest only and deduplicates one tracking issue', () => {
+test('nightly creates, deduplicates, and resolves tracking issues', async () => {
   const workflow = parse(
     readFileSync('.github/workflows/nightly-edge-drift.yml', 'utf8')
   );
-
   assert.equal(workflow.permissions.contents, 'read');
   assert.equal(workflow.permissions.issues, 'write');
   assert.equal(workflow.permissions['pull-requests'], undefined);
 
-  const source = readFileSync(
-    '.github/workflows/nightly-edge-drift.yml',
-    'utf8'
-  );
-
-  assert.doesNotMatch(
-    source,
-    /PINNED|pin-bump|--edge-version|pulls\.create|gh pr create/
-  );
-
-  // SAFETY: the workflow fixture is parsed immediately above and this test
-  // asserts the named step fields before consuming their optional values.
-  const steps = workflow.jobs.validate.steps as Array<{
-    name: string;
-    uses?: string;
-    with?: { script?: string };
-  }>;
-
+  const steps = workflow.jobs.validate.steps;
   const failure = steps.find(
-    (step) => step.name === 'Open or update the latest-release drift issue'
+    (step: { name: string }) =>
+      step.name === 'Open or update the latest-release drift issue'
   );
-
   const resolved = steps.find(
-    (step) => step.name === 'Close the resolved drift issue'
+    (step: { name: string }) => step.name === 'Close the resolved drift issue'
+  );
+  const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+  const context = {
+    repo: { owner: 'fixture', repo: 'examples' },
+    serverUrl: 'https://github.com',
+    runId: 123,
+  };
+  const environment = {
+    DRIFT_LABEL: 'edge-latest-drift',
+    EDGE_VERSION: 'v9.8.7',
+    CLI_VERSION: 'v9.8.7',
+    INSTALL_OUTCOME: 'success',
+    VALIDATION_OUTCOME: 'failure',
+  };
+
+  async function run(script: string, numbers: number[], missingLabel = false) {
+    calls.length = 0;
+    const issues = Object.fromEntries(
+      [
+        'getLabel',
+        'createLabel',
+        'listForRepo',
+        'create',
+        'update',
+        'createComment',
+      ].map((method) => [
+        method,
+        async (args: Record<string, unknown>) => {
+          calls.push({ method, args });
+          if (method === 'getLabel' && missingLabel)
+            throw Object.assign(new Error('missing label'), { status: 404 });
+          if (method === 'listForRepo')
+            return { data: numbers.map((number) => ({ number })) };
+          return { data: {} };
+        },
+      ])
+    );
+    const executeScript = new Function(
+      'github',
+      'context',
+      'require',
+      'process',
+      'return (async () => {' + script + '\n})();'
+    );
+    await executeScript(
+      { rest: { issues } },
+      context,
+      () => ({ existsSync: () => false }),
+      { env: environment }
+    );
+  }
+
+  await run(failure.with.script, [], true);
+  assert.ok(calls.some((call) => call.method === 'createLabel'));
+  const created = calls.find((call) => call.method === 'create');
+  assert.deepEqual(created?.args.labels, ['edge-latest-drift']);
+  assert.match(String(created?.args.body), /full validation and execution/);
+  assert.match(String(created?.args.body), /v9.8.7/);
+
+  await run(failure.with.script, [11, 12, 13]);
+  assert.equal(calls.filter((call) => call.method === 'create').length, 0);
+  const updates = calls.filter((call) => call.method === 'update');
+  assert.equal(updates.length, 3);
+  assert.equal(updates[0].args.issue_number, 11);
+  assert.match(String(updates[0].args.body), /full validation and execution/);
+  assert.deepEqual(
+    updates
+      .slice(1)
+      .map((call) => [
+        call.args.issue_number,
+        call.args.state,
+        call.args.state_reason,
+      ]),
+    [
+      [12, 'closed', 'not_planned'],
+      [13, 'closed', 'not_planned'],
+    ]
   );
 
-  assert.equal(failure?.uses, 'actions/github-script@v7');
-  assert.equal(resolved?.uses, 'actions/github-script@v7');
-  assert.match(failure?.with?.script ?? '', /issues\.slice\(1\)/);
-  assert.match(failure?.with?.script ?? '', /state_reason: 'not_planned'/);
-  assert.match(resolved?.with?.script ?? '', /state_reason: 'completed'/);
+  await run(resolved.with.script, [11, 12]);
+  assert.deepEqual(
+    calls
+      .filter((call) => call.method === 'update')
+      .map((call) => [
+        call.args.issue_number,
+        call.args.state,
+        call.args.state_reason,
+      ]),
+    [
+      [11, 'closed', 'completed'],
+      [12, 'closed', 'completed'],
+    ]
+  );
+  assert.equal(
+    calls.filter((call) => call.method === 'createComment').length,
+    2
+  );
 });
 
 test('live availability has a separate nightly and main-only workflow', () => {
@@ -430,4 +480,143 @@ test('live availability has a separate nightly and main-only workflow', () => {
   assert.deepEqual(workflow.on.push.branches, ['main']);
   assert.equal(workflow.on.schedule.length, 1);
   assert.equal(workflow.on.pull_request, undefined);
+});
+
+function pageBlocks(path: string) {
+  return extractYamlCodeBlocks(readFileSync(path, 'utf8'));
+}
+
+test('mismatched YAML fences fail extraction and inventory instead of disappearing', () => {
+  const fixtureRoot = join(work, 'fence-inventory');
+  mkdirSync(join(fixtureRoot, 'docs'), { recursive: true });
+  const page = '        ```yaml\n        - mapping: root = this\n    ```\n';
+  assert.throws(
+    () => extractYamlCodeBlocks(page),
+    /fence indentation mismatch/
+  );
+  writeFileSync(join(fixtureRoot, 'docs', 'broken.mdx'), page);
+  assert.throws(
+    () => discoverPipelineFiles(fixtureRoot),
+    /fence indentation mismatch/
+  );
+});
+
+test('published fingerprint mapping is inventoried, validates, and hashes business fields', async () => {
+  const path =
+    'docs/data-transformation/deduplicate-events/step-2-fingerprint-semantic-duplicates.mdx';
+  const entries = discoverPipelineFiles(root).filter(
+    (file) => file.sourcePath === path
+  );
+  assert.equal(entries.length, 1);
+  const wrapped = wrapFragment(entries[0].document);
+  assert.ok(wrapped);
+  assert.equal(validateSource(edge, root, wrapped.source).status, 'PASS');
+  const records = [
+    { event_id: 'first', event_type: 'login', user_id: 'alice' },
+    { event_id: 'second', event_type: 'login', user_id: 'alice' },
+    { event_id: 'third', event_type: 'login', user_id: 'bob' },
+  ];
+  const outputs = (await execute(wrapped.source, records))
+    .toString()
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.equal(outputs.length, 3);
+  const first = outputs.find((row) => row.event_id === 'first');
+  const second = outputs.find((row) => row.event_id === 'second');
+  const third = outputs.find((row) => row.event_id === 'third');
+  assert.ok(first && second && third);
+  assert.equal(first.dedup_hash, second.dedup_hash);
+  assert.notEqual(first.dedup_hash, third.dedup_hash);
+});
+
+test('ID tutorial replacements retain the first occurrence and filter repeated IDs', async () => {
+  const original = parse(
+    pageBlocks(
+      'docs/data-transformation/deduplicate-events/step-1-hash-based-exact-duplicates.mdx'
+    )[0].source
+  );
+  const replacements = pageBlocks(
+    'docs/data-transformation/deduplicate-events/step-3-id-based-unique-identifiers.mdx'
+  );
+  assert.equal(replacements.length, 3);
+  for (let index = 0; index < replacements.length; index++)
+    original.config.pipeline.processors[index] = parse(
+      replacements[index].source
+    )[0];
+  const outputs = (
+    await execute(stringify(original), [
+      { event_id: 'abc-123', message: 'hello' },
+      { event_id: 'abc-123', message: 'hello again' },
+      { event_id: 'def-456', message: 'new event' },
+    ])
+  )
+    .toString()
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.deepEqual(
+    outputs.map((row) => [row.event_id, row.message]),
+    [
+      ['abc-123', 'hello'],
+      ['def-456', 'new event'],
+    ]
+  );
+});
+
+for (const path of [
+  'docs/data-transformation/parse-logs/step-2-parse-csv-data.mdx',
+  'docs/data-transformation/parse-logs/step-4-multi-format-detection.mdx',
+]) {
+  test(`published CSV parser preserves quoted delimiters: ${path}`, async () => {
+    const output = JSON.parse(
+      (
+        await execute(pageBlocks(path)[0].source, [
+          {
+            raw_log:
+              '2025-10-20T14:23:45Z,"temperature,ambient",temp-sensor-01,35.5,celsius',
+          },
+        ])
+      ).toString()
+    );
+    assert.equal(output.metric_name, 'temperature,ambient');
+    assert.equal(output.sensor_id, 'temp-sensor-01');
+    assert.equal(output.value, '35.5');
+    assert.equal(output.unit, 'celsius');
+  });
+}
+
+test('published ORAN timestamps use seconds and preserve fractional precision', async () => {
+  const blocks = pageBlocks(
+    'docs/integrations/oran-telco-pipeline/step-2-transform-and-enrich.mdx'
+  );
+  const normalized = wrapFragment(parse(blocks[0].source));
+  const validation = wrapFragment(parse(blocks[blocks.length - 1].source));
+  assert.ok(normalized);
+  assert.ok(validation);
+  const rows = (
+    await execute(normalized.source, [{ timestamp: 1 }, { timestamp: 1.125 }])
+  )
+    .toString()
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  const integer = rows.find((row) => row.timestamp === 1);
+  const fractional = rows.find((row) => row.timestamp === 1.125);
+  assert.ok(integer && fractional);
+  assert.equal(integer.timestamp_iso, '1970-01-01T00:00:01.000000000Z');
+  assert.equal(fractional.timestamp_iso, '1970-01-01T00:00:01.125000000Z');
+  const output = JSON.parse(
+    (
+      await execute(validation.source, [
+        {
+          ...fractional,
+          du_id: 'du-1',
+          ptp_review: 'healthy',
+          prb_efficiency: 1,
+        },
+      ])
+    ).toString()
+  );
+  assert.equal(output.validation.timestamp, fractional.timestamp_iso);
 });

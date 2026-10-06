@@ -63,14 +63,8 @@ This transformation is done with the `csv` processor, where you define the names
       pipeline:
         processors:
           - mapping: |
-              let fields = this.raw_log.split(",")
-              root = {
-                "timestamp": $fields.index(0),
-                "metric_name": $fields.index(1),
-                "sensor_id": $fields.index(2),
-                "value": $fields.index(3),
-                "unit": $fields.index(4)
-              }
+              let header = "timestamp,metric_name,sensor_id,value,unit\n"
+              root = ($header + this.raw_log).parse_csv().index(0)
 
       output:
         stdout:

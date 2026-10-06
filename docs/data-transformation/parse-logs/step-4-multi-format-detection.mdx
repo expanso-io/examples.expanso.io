@@ -71,15 +71,9 @@ You will build a single pipeline that can correctly parse JSON, CSV, and Access 
               - check: meta("detected_format") == "csv"
                 processors:
                   - mapping: |
-                      let fields = this.raw_log.split(",")
-                      root = {
-                        "f1": $fields.index(0),
-                        "f2": $fields.index(1),
-                        "f3": $fields.index(2),
-                        "f4": $fields.index(3),
-                        "f5": $fields.index(4),
-                        "parsed_by": "csv_parser"
-                      }
+                      let header = "timestamp,metric_name,sensor_id,value,unit\n"
+                      root = ($header + this.raw_log).parse_csv().index(0)
+                      root.parsed_by = "csv_parser"
               - check: meta("detected_format") == "syslog"
                 processors:
                   - mapping: |

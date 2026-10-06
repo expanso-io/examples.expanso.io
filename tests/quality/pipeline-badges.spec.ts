@@ -13,7 +13,7 @@ test('labels fragments, links the complete pipeline, and preserves copy feedback
   const explorer = page.locator('[data-explorer-version="2"]');
   const fragmentBadge = explorer.locator('[data-pipeline-kind="fragment"]');
 
-  await expect(fragmentBadge).toHaveText('Fragment');
+  await expect(fragmentBadge).toHaveText('Partial snippet');
   await expect(fragmentBadge).toHaveAttribute(
     'href',
     '/data-routing/content-routing/complete-content-routing/'

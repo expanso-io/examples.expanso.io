@@ -51,7 +51,7 @@ pipeline:
         }
 
         # Standardized ISO timestamp
-        root.timestamp_iso = root.timestamp_ns.ts_format("2006-01-02T15:04:05.000000000Z")
+        root.timestamp_iso = (root.timestamp_ns / 1000000000).ts_format("2006-01-02T15:04:05.000000000Z", "UTC")
 
         # Processing timestamp for pipeline tracking
         root.processed_at = now()
@@ -373,7 +373,7 @@ pipeline:
 
         # Add validation metadata
         root.validation = {
-          "timestamp": root.timestamp_ns.ts_format("2006-01-02T15:04:05Z"),
+          "timestamp": (root.timestamp_ns / 1000000000).ts_format("2006-01-02T15:04:05.000000000Z", "UTC"),
           "pipeline_stage": "transform",
           "passed": root.validation_passed,
           "errors": if root.validation_passed { [] } else { ["missing_required_field"] }

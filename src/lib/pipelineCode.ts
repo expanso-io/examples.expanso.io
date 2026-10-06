@@ -152,10 +152,14 @@ export function extractYamlCodeBlocks(page: string): Array<{
   const blocks: Array<{ source: string; line: number }> = [];
 
   const fence =
-    /^([ \t]*)(`{3,}|~{3,})(?:yaml|yml)\b[^\n]*\n([\s\S]*?)^\1\2[ \t]*$/gm;
+    /^([ \t]*)(`{3,}|~{3,})(?:yaml|yml)\b[^\n]*\n([\s\S]*?)^([ \t]*)\2[ \t]*$/gm;
 
   for (const match of page.matchAll(fence)) {
     const indentation = match[1];
+    const line = page.slice(0, match.index).split('\n').length + 1;
+
+    if (match[4] !== indentation)
+      throw new Error(`YAML fence indentation mismatch at line ${line - 1}`);
 
     const source = match[3]
       .split('\n')
@@ -166,7 +170,7 @@ export function extractYamlCodeBlocks(page: string): Array<{
 
     blocks.push({
       source,
-      line: page.slice(0, match.index).split('\n').length + 1,
+      line,
     });
   }
 
