@@ -10,12 +10,11 @@ export interface ExpansoBinary {
 }
 
 export interface ResolveExpansoBinaryOptions {
-  env?: NodeJS.ProcessEnv;
   log?: (line: string) => void;
 }
 
-function installedBinary(name: string, env: NodeJS.ProcessEnv): string | null {
-  for (const directory of (env.PATH ?? '').split(delimiter)) {
+function installedBinary(name: string): string | null {
+  for (const directory of (process.env.PATH ?? '').split(delimiter)) {
     if (!directory) continue;
     const candidate = join(directory, name);
     try {
@@ -33,15 +32,17 @@ export function resolveInstalledExpansoBinary(
   component: ExpansoComponent,
   options: ResolveExpansoBinaryOptions = {}
 ): ExpansoBinary {
-  const env = options.env ?? process.env;
   const name = `expanso-${component}`;
-  const path = installedBinary(name, env);
+  const path = installedBinary(name);
   if (!path)
     throw new Error(
       `${name} is not installed on PATH; install the latest release from https://get.expanso.io/${component}/install.sh`
     );
 
-  const result = spawnSync(path, ['version'], { encoding: 'utf8', env });
+  const result = spawnSync(path, ['version'], {
+    encoding: 'utf8',
+    env: process.env,
+  });
   if (result.status !== 0)
     throw new Error(
       `${name} at ${path} could not report its version: ${result.stderr.trim() || `exit ${result.status ?? 'unknown'}`}`

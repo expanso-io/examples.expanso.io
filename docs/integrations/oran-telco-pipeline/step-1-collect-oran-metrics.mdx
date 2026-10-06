@@ -148,6 +148,19 @@ GET /api/v1/metrics/rf           # RF measurements
 ```yaml
 name: oran-api-collector
 config:
+  rate_limit_resources:
+    - label: ptp_poll
+      local:
+        count: 1
+        interval: 1s
+    - label: prb_poll
+      local:
+        count: 1
+        interval: 1s
+    - label: system_poll
+      local:
+        count: 1
+        interval: 10s
   input:
     broker:
       inputs:
@@ -155,6 +168,7 @@ config:
         - http_client:
             url: '${DU_ENDPOINT}/api/v1/metrics/ptp'
             verb: GET
+            rate_limit: ptp_poll
             headers:
               Authorization: 'Bearer ${DU_API_KEY}'
               Accept: 'application/json'
@@ -175,6 +189,7 @@ config:
         - http_client:
             url: '${DU_ENDPOINT}/api/v1/metrics/prb'
             verb: GET
+            rate_limit: prb_poll
             headers:
               Authorization: 'Bearer ${DU_API_KEY}'
           processors:
@@ -194,6 +209,7 @@ config:
         - http_client:
             url: '${DU_ENDPOINT}/api/v1/metrics/system'
             verb: GET
+            rate_limit: system_poll
             headers:
               Authorization: 'Bearer ${DU_API_KEY}'
           processors:
@@ -221,6 +237,11 @@ Combine file and API collection for comprehensive telemetry:
 ```yaml
 name: oran-hybrid-collector
 config:
+  rate_limit_resources:
+    - label: realtime_poll
+      local:
+        count: 1
+        interval: 1s
   input:
     broker:
       inputs:
@@ -228,6 +249,7 @@ config:
         - http_client:
             url: '${DU_ENDPOINT}/api/v1/metrics/realtime'
             verb: GET
+            rate_limit: realtime_poll
           processors:
             - mapping: 'root.source = "api_realtime"'
 

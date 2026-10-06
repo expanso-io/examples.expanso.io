@@ -1,30 +1,32 @@
 # ID-based deduplication (fastest)
-processors:
-  - mapping: |
-      # Validate and extract unique ID
-      root = if !this.exists("event_id") || this.event_id == "" {
-        throw("Missing event_id for ID-based deduplication")
-      } else {
-        this
-      }
-      root.unique_id = this.event_id.trim()
+pipeline:
+  threads: 1
+  processors:
+    - mapping: |
+        # Validate and extract unique ID
+        root = if !this.exists("event_id") || this.event_id == "" {
+          throw("Missing event_id for ID-based deduplication")
+        } else {
+          this
+        }
+        root.unique_id = this.event_id.trim()
 
-  - branch:
-      request_map: root = this.unique_id
-      processors:
-        - cache:
-            resource: dedup_cache
-            operator: exists
-            key: '${! content() }'
-      result_map: root.is_duplicate = content().string().bool()
-
-  - switch:
-      - check: '!this.is_duplicate'
+    - branch:
+        request_map: root = this.unique_id
         processors:
           - cache:
               resource: dedup_cache
-              operator: set
-              key: '${! json("unique_id") }'
-              value: '${! now() }'
-      - processors:
-          - mapping: root = deleted()
+              operator: exists
+              key: '${! content() }'
+        result_map: root.is_duplicate = content().string().bool()
+
+    - switch:
+        - check: '!this.is_duplicate'
+          processors:
+            - cache:
+                resource: dedup_cache
+                operator: set
+                key: '${! json("unique_id") }'
+                value: '${! now() }'
+        - processors:
+            - mapping: root = deleted()

@@ -180,9 +180,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "02-hash-based-deduplication.yaml",
     yamlCode:
-      "# Hash-based deduplication processor\ncache_resources:\n  - label: dedup_cache\n    memory:\n      default_ttl: 1h\n\npipeline:\n  processors:\n    - mapping: |\n        root = this\n        # Generate SHA-256 hash of entire content\n        root.dedup_hash = this.format_json().hash(\"sha256\")\n\n    - branch:\n        request_map: root = this.dedup_hash\n        processors:\n          - cache:\n              resource: dedup_cache\n              operator: exists\n              key: '${! content() }'\n        result_map: root.is_duplicate = content().string().bool()\n\n    - switch:\n        - check: '!this.is_duplicate'\n          processors:\n            - cache:\n                resource: dedup_cache\n                operator: set\n                key: '${! json(\"dedup_hash\") }'\n                value: '${! now() }'\n        - processors:\n            - mapping: root = deleted()\n",
+      "# Hash-based deduplication processor\ncache_resources:\n  - label: dedup_cache\n    memory:\n      default_ttl: 1h\n\npipeline:\n  threads: 1\n  processors:\n    - mapping: |\n        root = this\n        # Generate SHA-256 hash of entire content\n        root.dedup_hash = this.format_json().hash(\"sha256\")\n\n    - branch:\n        request_map: root = this.dedup_hash\n        processors:\n          - cache:\n              resource: dedup_cache\n              operator: exists\n              key: '${! content() }'\n        result_map: root.is_duplicate = content().string().bool()\n\n    - switch:\n        - check: '!this.is_duplicate'\n          processors:\n            - cache:\n                resource: dedup_cache\n                operator: set\n                key: '${! json(\"dedup_hash\") }'\n                value: '${! now() }'\n        - processors:\n            - mapping: root = deleted()\n",
     configSha256:
-      "sha256:aae15ec9fbde57d933f9ca73cf502a38d51ef89518d8bf8ba02c1c1cea5201a9",
+      "sha256:d6a2eaf3212d3a66a6897cfa3d75246c6aea97e3232b19b8ee034dd4edc91a9a",
   },
   {
     id: 3,
@@ -288,9 +288,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-fingerprint-based-deduplication.yaml",
     yamlCode:
-      '# Fingerprint-based deduplication\nprocessors:\n  - mapping: |\n      # Extract only business-critical fields\n      let business_fields = {\n        "event_type": this.event_type,\n        "user_email": this.user.email,\n        "signup_source": this.signup_details.source,\n        "signup_plan": this.signup_details.plan\n      }\n\n      root.business_fingerprint = $business_fields.format_json().hash("sha256")\n\n  - branch:\n      request_map: root = this.business_fingerprint\n      processors:\n        - cache:\n            resource: dedup_cache\n            operator: exists\n            key: \'${! content() }\'\n      result_map: root.is_duplicate = content().string().bool()\n\n  - switch:\n      - check: \'!this.is_duplicate\'\n        processors:\n          - cache:\n              resource: dedup_cache\n              operator: set\n              key: \'${! json("business_fingerprint") }\'\n              value: \'${! now() }\'\n      - processors:\n          - mapping: root = deleted()\n',
+      '# Fingerprint-based deduplication\npipeline:\n  threads: 1\n  processors:\n    - mapping: |\n        # Extract only business-critical fields\n        let business_fields = {\n          "event_type": this.event_type,\n          "user_email": this.user.email,\n          "signup_source": this.signup_details.source,\n          "signup_plan": this.signup_details.plan\n        }\n\n        root.business_fingerprint = $business_fields.format_json().hash("sha256")\n\n    - branch:\n        request_map: root = this.business_fingerprint\n        processors:\n          - cache:\n              resource: dedup_cache\n              operator: exists\n              key: \'${! content() }\'\n        result_map: root.is_duplicate = content().string().bool()\n\n    - switch:\n        - check: \'!this.is_duplicate\'\n          processors:\n            - cache:\n                resource: dedup_cache\n                operator: set\n                key: \'${! json("business_fingerprint") }\'\n                value: \'${! now() }\'\n        - processors:\n            - mapping: root = deleted()\n',
     configSha256:
-      "sha256:e19134565b622497f03d048a24d08b181ea68751db5c42a9fac2786a00068562",
+      "sha256:0d6e92a995389780d9000f058510c61bb8b4900ea650e10818504daaf213c602",
   },
   {
     id: 4,
@@ -394,9 +394,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "04-id-based-deduplication.yaml",
     yamlCode:
-      "# ID-based deduplication (fastest)\nprocessors:\n  - mapping: |\n      # Validate and extract unique ID\n      root = if !this.exists(\"event_id\") || this.event_id == \"\" {\n        throw(\"Missing event_id for ID-based deduplication\")\n      } else {\n        this\n      }\n      root.unique_id = this.event_id.trim()\n\n  - branch:\n      request_map: root = this.unique_id\n      processors:\n        - cache:\n            resource: dedup_cache\n            operator: exists\n            key: '${! content() }'\n      result_map: root.is_duplicate = content().string().bool()\n\n  - switch:\n      - check: '!this.is_duplicate'\n        processors:\n          - cache:\n              resource: dedup_cache\n              operator: set\n              key: '${! json(\"unique_id\") }'\n              value: '${! now() }'\n      - processors:\n          - mapping: root = deleted()\n",
+      "# ID-based deduplication (fastest)\npipeline:\n  threads: 1\n  processors:\n    - mapping: |\n        # Validate and extract unique ID\n        root = if !this.exists(\"event_id\") || this.event_id == \"\" {\n          throw(\"Missing event_id for ID-based deduplication\")\n        } else {\n          this\n        }\n        root.unique_id = this.event_id.trim()\n\n    - branch:\n        request_map: root = this.unique_id\n        processors:\n          - cache:\n              resource: dedup_cache\n              operator: exists\n              key: '${! content() }'\n        result_map: root.is_duplicate = content().string().bool()\n\n    - switch:\n        - check: '!this.is_duplicate'\n          processors:\n            - cache:\n                resource: dedup_cache\n                operator: set\n                key: '${! json(\"unique_id\") }'\n                value: '${! now() }'\n        - processors:\n            - mapping: root = deleted()\n",
     configSha256:
-      "sha256:be0e4682199b90beb921b674618634b8724d990914a71186b3c737be01619cdb",
+      "sha256:e86f54ea8835f867b27c44223f15bae163394fe45e54a16a6c98ca7693964bad",
   },
   {
     id: 5,

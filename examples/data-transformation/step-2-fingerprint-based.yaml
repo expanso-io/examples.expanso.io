@@ -1,32 +1,34 @@
 # Fingerprint-based deduplication
-processors:
-  - mapping: |
-      # Extract only business-critical fields
-      let business_fields = {
-        "event_type": this.event_type,
-        "user_email": this.user.email,
-        "signup_source": this.signup_details.source,
-        "signup_plan": this.signup_details.plan
-      }
+pipeline:
+  threads: 1
+  processors:
+    - mapping: |
+        # Extract only business-critical fields
+        let business_fields = {
+          "event_type": this.event_type,
+          "user_email": this.user.email,
+          "signup_source": this.signup_details.source,
+          "signup_plan": this.signup_details.plan
+        }
 
-      root.business_fingerprint = $business_fields.format_json().hash("sha256")
+        root.business_fingerprint = $business_fields.format_json().hash("sha256")
 
-  - branch:
-      request_map: root = this.business_fingerprint
-      processors:
-        - cache:
-            resource: dedup_cache
-            operator: exists
-            key: '${! content() }'
-      result_map: root.is_duplicate = content().string().bool()
-
-  - switch:
-      - check: '!this.is_duplicate'
+    - branch:
+        request_map: root = this.business_fingerprint
         processors:
           - cache:
               resource: dedup_cache
-              operator: set
-              key: '${! json("business_fingerprint") }'
-              value: '${! now() }'
-      - processors:
-          - mapping: root = deleted()
+              operator: exists
+              key: '${! content() }'
+        result_map: root.is_duplicate = content().string().bool()
+
+    - switch:
+        - check: '!this.is_duplicate'
+          processors:
+            - cache:
+                resource: dedup_cache
+                operator: set
+                key: '${! json("business_fingerprint") }'
+                value: '${! now() }'
+        - processors:
+            - mapping: root = deleted()

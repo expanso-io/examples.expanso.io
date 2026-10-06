@@ -21,12 +21,12 @@ pipeline:
 
         # Phone encryption with area code preservation
         let phone_clean = this.customer.phone.re_replace_all("[^0-9+]", "")
-        root.customer.phone_country_code = if phone_clean.has_prefix("+1") { "+1" } else { "international" }
-        root.customer.phone_area_code = if phone_clean.length() == 12 { phone_clean.slice(2, 5) }
+        root.customer.phone_country_code = if $phone_clean.has_prefix("+1") { "+1" } else { "international" }
+        root.customer.phone_area_code = if $phone_clean.length() == 12 { $phone_clean.slice(2, 5) }
 
         # SSN encryption with last 4 preservation
         let ssn_clean = this.customer.ssn.re_replace_all("[^0-9]", "")
-        root.customer.ssn_last_four = ssn_clean.slice(-4)
+        root.customer.ssn_last_four = $ssn_clean.slice(-4)
 
         # Encrypt all PII fields
         root.customer.email_nonce = $email_iv.encode("base64")
@@ -41,6 +41,6 @@ pipeline:
         root.customer.last_name_encrypted = this.customer.last_name.string().encrypt_aes("gcm", $key, $last_iv).encode("base64")
 
         # Remove plaintext PII
-        root.customer = this.customer.without("email", "phone", "ssn", "first_name", "last_name")
+        root.customer = root.customer.without("email", "phone", "ssn", "first_name", "last_name")
     - catch:
         - mapping: root = deleted()

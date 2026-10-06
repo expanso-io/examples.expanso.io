@@ -1711,3 +1711,178 @@ test('published HTTP circuit breaker preserves sensor events on both routes', as
     );
   }
 });
+
+for (const [kind, paths, group, fields, keyName] of [
+  [
+    'payment',
+    [
+      'examples/data-security/step-1-payment-encryption.yaml',
+      'examples/explorer-stages/encryption-patterns/02-payment-field-encryption.yaml',
+    ],
+    'payment',
+    ['card_number', 'cvv', 'cardholder_name'],
+    'PAYMENT_ENCRYPTION_KEY',
+  ],
+  [
+    'identity',
+    [
+      'examples/data-security/step-2-pii-encryption.yaml',
+      'examples/explorer-stages/encryption-patterns/03-identity-field-encryption.yaml',
+    ],
+    'customer',
+    ['email', 'phone', 'ssn', 'first_name', 'last_name'],
+    'PII_ENCRYPTION_KEY',
+  ],
+  [
+    'address',
+    [
+      'examples/data-security/step-3-address-encryption.yaml',
+      'examples/explorer-stages/encryption-patterns/04-address-data-encryption-location-privacy.yaml',
+    ],
+    'billing_address',
+    ['street', 'zip'],
+    'ADDRESS_ENCRYPTION_KEY',
+  ],
+] as const) {
+  for (const path of paths) {
+    test(`selected encryption retains recoverable ${kind} fields: ${path}`, async () => {
+      const { createDecipheriv } = await import('node:crypto');
+      const record = JSON.parse(
+        readFileSync(
+          'tests/fixtures/pipeline-inputs/encryption.jsonl',
+          'utf8'
+        ).split('\n')[0]
+      );
+      record.customer.first_name = 'Ada';
+      record.customer.last_name = 'Lovelace';
+      record.shipping_address = {
+        ...record.billing_address,
+        street: '20 Main Street',
+      };
+      const output = JSON.parse(
+        (await execute(readFileSync(path, 'utf8'), [record])).toString()
+      );
+      for (const object of kind === 'address'
+        ? ['billing_address', 'shipping_address']
+        : [group]) {
+        for (const field of fields) {
+          assert.equal(Object.hasOwn(output[object], field), false);
+          const encrypted = Buffer.from(
+            output[object][field + '_encrypted'],
+            'base64'
+          );
+          const nonce = Buffer.from(output[object][field + '_nonce'], 'base64');
+          assert.equal(nonce.length, 12);
+          const decipher = createDecipheriv(
+            'aes-256-gcm',
+            Buffer.from(environment[keyName]),
+            nonce
+          );
+          decipher.setAuthTag(encrypted.subarray(-16));
+          assert.equal(
+            Buffer.concat([
+              decipher.update(encrypted.subarray(0, -16)),
+              decipher.final(),
+            ]).toString(),
+            record[object][field]
+          );
+        }
+      }
+      if (kind === 'payment')
+        assert.equal(output.payment.card_last_four, '1111');
+      if (kind === 'identity')
+        assert.equal(output.customer.email_domain, 'example.com');
+      if (kind === 'address')
+        assert.equal(output.billing_address.zip_prefix, '941');
+    });
+  }
+}
+
+test('selected timestamp metadata retains numeric calendar components', async () => {
+  const source = pageBlocks(
+    'docs/data-transformation/normalize-timestamps/step-3-enrich-metadata.mdx'
+  )[0].source;
+  const rows = (
+    await execute(source, [
+      { timestamp_utc: '2025-10-20T18:23:45Z' },
+      { timestamp_utc: '2025-10-26T00:00:00Z' },
+    ])
+  )
+    .toString()
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.deepEqual(
+    rows.map((row) => row.time_metadata),
+    [
+      { year: 2025, month: 10, day: 20, hour: 18, day_of_week: 1 },
+      { year: 2025, month: 10, day: 26, hour: 0, day_of_week: 0 },
+    ]
+  );
+});
+
+for (const path of [
+  'examples/data-transformation/step-1-hash-based.yaml',
+  'examples/data-transformation/step-2-fingerprint-based.yaml',
+  'examples/data-transformation/step-3-id-based.yaml',
+  'examples/explorer-stages/deduplicate-events/02-hash-based-deduplication.yaml',
+  'examples/explorer-stages/deduplicate-events/03-fingerprint-based-deduplication.yaml',
+  'examples/explorer-stages/deduplicate-events/04-id-based-deduplication.yaml',
+]) {
+  test(`selected deduplication serializes repeated records: ${path}`, async () => {
+    const config = parse(readFileSync(path, 'utf8'));
+    assert.equal(config.pipeline.threads, 1);
+    config.cache_resources ??= [
+      { label: 'dedup_cache', memory: { default_ttl: '1h' } },
+    ];
+    const record = {
+      event_id: 'same',
+      event_type: 'signup',
+      user: { email: 'ada@example.com' },
+      signup_details: { source: 'web', plan: 'basic' },
+    };
+    const rows = (
+      await execute(
+        stringify(config),
+        Array.from({ length: 200 }, () => record)
+      )
+    )
+      .toString()
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].is_duplicate, false);
+  });
+}
+
+test('selected O-RAN polling inputs resolve their original cadences', () => {
+  const blocks = pageBlocks(
+    'docs/integrations/oran-telco-pipeline/step-1-collect-oran-metrics.mdx'
+  );
+  const configs = [
+    parse(blocks[1].source).config,
+    parse(blocks[2].source).config,
+    parse(readFileSync('examples/integrations/oran-input.yaml', 'utf8')),
+  ];
+  const expected = [['1s', '1s', '10s'], ['1s'], ['30s']];
+  for (const [index, config] of configs.entries()) {
+    const inputs = config.input.broker?.inputs ?? [config.input];
+    const intervals = inputs
+      .filter((input: any) => input.http_client)
+      .map((input: any) => {
+        const resource = config.rate_limit_resources.find(
+          (resource: any) => resource.label === input.http_client.rate_limit
+        );
+        assert.equal(resource.local.count, 1);
+        return resource.local.interval;
+      });
+    assert.deepEqual(intervals, expected[index]);
+    config.output = { drop: {} };
+    const result = validateSource(edge, root, stringify(config), {
+      DU_ENDPOINT: 'http://localhost:9999',
+      DU_API_KEY: 'fixture',
+    });
+    assert.equal(result.status, 'PASS', JSON.stringify(result.errors));
+  }
+});
