@@ -6,7 +6,7 @@ export const oranTelcoPipelineStages: Stage[] = [
     slug: 'adapter-output',
     title: 'Adapter output',
     description:
-      'Inspect authored telemetry after a site-specific exporter has decoded and emitted it. No O-RAN protocol collection occurs in this stage.',
+      'Inspect authored telemetry after a site-specific exporter has decoded and emitted it. No O-RAN protocol collection occurs in this stage. On SNO, the ingress NetworkPolicy admits TCP 8080 only from pods labelled app.kubernetes.io/name: oran-du in namespace oran-du.',
     inputLines: [
       {
         content:
@@ -302,7 +302,7 @@ export const oranTelcoPipelineStages: Stage[] = [
     slug: 'external-destinations',
     title: 'External destinations',
     description:
-      'Fan the retained records out to the three destinations provisioned on the Single-Node OpenShift cluster: an OpenTelemetry Collector that user-workload monitoring scrapes, Parquet files on a PersistentVolumeClaim, and an AMQ Streams Kafka topic over TLS.',
+      'Fan the retained records out to the three destinations provisioned on the Single-Node OpenShift cluster: an OpenTelemetry Collector that user-workload monitoring scrapes, Parquet files on a PersistentVolumeClaim, and an AMQ Streams Kafka topic over TLS. The manifests restrict telemetry ingress to the DU namespace and pod label and enforce separate Kafka producer and consumer ACLs.',
     inputLines: [
       { content: '[Records retained for review]', indent: 0 },
       { content: '• DU_001: prb-band + cpu-band', indent: 0 },

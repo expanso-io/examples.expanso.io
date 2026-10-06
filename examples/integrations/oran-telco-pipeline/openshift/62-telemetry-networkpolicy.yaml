@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: expanso-edge-du-ingress
+  namespace: oran-telemetry
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: expanso-edge
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oran-du
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: oran-du
+      ports:
+        - protocol: TCP
+          port: 8080

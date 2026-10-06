@@ -67,8 +67,7 @@ OpenShift runs no Prometheus Pushgateway, and a Pushgateway would not accept JSO
                 {"key": "du_id", "value": {"stringValue": this.du_id}},
                 {"key": "cell_id", "value": {"stringValue": this.cell_id}},
                 {"key": "gnb_id", "value": {"stringValue": this.gnb_id}},
-                {"key": "region", "value": {"stringValue": this.region}},
-                {"key": "ptp_review", "value": {"stringValue": this.ptp_review.or("unknown")}}
+                {"key": "region", "value": {"stringValue": this.region}}
               ]
             },
             "scopeMetrics": [{
@@ -196,7 +195,7 @@ The `Kafka` resource exposes one listener: TLS on 9093 with SCRAM-SHA-512. The o
           user: "${KAFKA_USERNAME}"
           password: "${KAFKA_PASSWORD}"
         compression: lz4
-        idempotent_write: true
+        idempotent_write: false
         ack_replicas: true
         max_msg_bytes: 10485760
         batching:
@@ -207,7 +206,7 @@ The `Kafka` resource exposes one listener: TLS on 9093 with SCRAM-SHA-512. The o
         codec: lines
 ```
 
-Plaintext 9092 is not configured on the broker, so there is no unencrypted path to fall back to by accident.
+The producer ACLs permit Write and Describe on the two telemetry topics. Idempotent writes are disabled to avoid requiring cluster-level IdempotentWrite permission. Plaintext 9092 is not configured on the broker.
 
 ## Dead-Letter Files and Replay
 

@@ -1,10 +1,7 @@
-# SCRAM-SHA-512 producer identity for the edge agent. The User Operator creates
-# Secret expanso-oran with a `password` key, which the Deployment reads into
-# KAFKA_PASSWORD. The username is the resource name.
 apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaUser
 metadata:
-  name: expanso-oran
+  name: cloudera-consumer
   namespace: oran-telemetry
   labels:
     strimzi.io/cluster: oran-kafka
@@ -18,11 +15,17 @@ spec:
           type: topic
           name: oran-telemetry-structured
           patternType: literal
-        operations: [Write, Describe]
+        operations: [Read, Describe]
         host: "*"
       - resource:
           type: topic
           name: oran-telemetry-alerts
           patternType: literal
-        operations: [Write, Describe]
+        operations: [Read, Describe]
+        host: "*"
+      - resource:
+          type: group
+          name: cloudera-oran-telemetry
+          patternType: literal
+        operations: [Read, Describe]
         host: "*"

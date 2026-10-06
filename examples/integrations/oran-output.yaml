@@ -7,6 +7,120 @@ output:
       # Observability: OTLP/HTTP to the OpenTelemetry Collector on the node.
       # OpenShift user-workload monitoring scrapes the collector (ServiceMonitor).
       - label: otel_collector
+        processors:
+          - mapping: |
+              root = {
+                "resourceMetrics": [
+                  {
+                    "resource": {
+                      "attributes": [
+                        {
+                          "key": "cell_id",
+                          "value": {
+                            "stringValue": this.cell_id
+                          }
+                        },
+                        {
+                          "key": "region",
+                          "value": {
+                            "stringValue": this.region
+                          }
+                        }
+                      ]
+                    },
+                    "scopeMetrics": [
+                      {
+                        "scope": {
+                          "name": "oran.telemetry",
+                          "version": "2.0.0"
+                        },
+                        "metrics": [
+                          {
+                            "name": "oran_ptp_offset_nanoseconds",
+                            "unit": "ns",
+                            "gauge": {
+                              "dataPoints": [
+                                {
+                                  "timeUnixNano": (this.timestamp * 1000000000).floor().string(),
+                                  "asInt": this.ptp_offset_ns
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "oran_cpu_utilization_percent",
+                            "unit": "%",
+                            "gauge": {
+                              "dataPoints": [
+                                {
+                                  "timeUnixNano": (this.timestamp * 1000000000).floor().string(),
+                                  "asDouble": this.cpu_percent
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "oran_prb_utilization_percent",
+                            "unit": "%",
+                            "gauge": {
+                              "dataPoints": [
+                                {
+                                  "timeUnixNano": (this.timestamp * 1000000000).floor().string(),
+                                  "asDouble": this.prb_dl_util_percent,
+                                  "attributes": [
+                                    {
+                                      "key": "direction",
+                                      "value": {
+                                        "stringValue": "downlink"
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "timeUnixNano": (this.timestamp * 1000000000).floor().string(),
+                                  "asDouble": this.prb_ul_util_percent,
+                                  "attributes": [
+                                    {
+                                      "key": "direction",
+                                      "value": {
+                                        "stringValue": "uplink"
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "oran_rsrp_dbm",
+                            "unit": "dBm",
+                            "gauge": {
+                              "dataPoints": [
+                                {
+                                  "timeUnixNano": (this.timestamp * 1000000000).floor().string(),
+                                  "asDouble": this.rsrp_dbm
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "oran_sinr_db",
+                            "unit": "dB",
+                            "gauge": {
+                              "dataPoints": [
+                                {
+                                  "timeUnixNano": (this.timestamp * 1000000000).floor().string(),
+                                  "asDouble": this.sinr_db
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
         fallback:
           - http_client:
               url: "${OTEL_ENDPOINT:http://oran-collector.oran-telemetry.svc:4318}/v1/metrics"

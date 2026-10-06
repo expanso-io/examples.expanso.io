@@ -137,7 +137,7 @@ The pipeline produces to `oran-telemetry-structured` (12 partitions, keyed by `s
 
 ### A consumer identity for Cloudera
 
-A second `KafkaUser` lets Cloudera's credentials rotate without touching the producer. The User Operator writes Secret `cloudera-consumer` with the password.
+`cloudera-consumer` has Read/Describe permissions on telemetry topics and its consumer group; the producer has Write/Describe topic permissions. The User Operator creates their password Secrets.
 
 ```yaml
 apiVersion: kafka.strimzi.io/v1beta2
@@ -150,6 +150,27 @@ metadata:
 spec:
   authentication:
     type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: oran-telemetry-structured
+          patternType: literal
+        operations: [Read, Describe]
+        host: "*"
+      - resource:
+          type: topic
+          name: oran-telemetry-alerts
+          patternType: literal
+        operations: [Read, Describe]
+        host: "*"
+      - resource:
+          type: group
+          name: cloudera-oran-telemetry
+          patternType: literal
+        operations: [Read, Describe]
+        host: "*"
 ```
 
 ```bash
@@ -175,7 +196,7 @@ group.id=cloudera-oran-telemetry
 auto.offset.reset=earliest
 ```
 
-Table design and model training are Cloudera-side choices. The Parquet columns above and the Kafka envelope are the contract this example commits to.
+The Parquet columns above and the Kafka envelope are the contract this example commits to.
 
 ## Next Steps
 

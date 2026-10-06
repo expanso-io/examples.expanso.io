@@ -36,7 +36,7 @@ O-RAN Distributed Units (DU) generate critical telemetry for network operations:
 Most DU implementations write telemetry to local log files. This approach reads files directly from mounted volumes.
 
 :::note On Single-Node OpenShift
-The agent runs under the `restricted-v2` SCC, which does not allow `hostPath` mounts. File-based collection on SNO means a PersistentVolumeClaim shared with the DU exporter pod, mounted into the agent at the paths below. The checked-in job spec uses the push and API methods instead, with an `http_server` input on the agent's in-cluster Service, so it needs no shared volume.
+The agent runs under the `restricted-v2` SCC, which does not allow `hostPath` mounts. File-based collection on SNO means a PersistentVolumeClaim shared with the DU exporter pod, mounted into the agent at the paths below. The checked-in job spec uses the push and API methods instead, with an `http_server` input on the agent's in-cluster Service, so it needs no shared volume. The NetworkPolicy admits TCP 8080 only from pods labelled `app.kubernetes.io/name: oran-du` in namespace `oran-du`; adjust both selectors for your DU exporter. Remove the `du_simulator` input before deploying with real DU data.
 :::
 
 ### DU File Structure

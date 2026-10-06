@@ -29,7 +29,7 @@ The manifests live in [`examples/integrations/oran-telco-pipeline/openshift`](ht
 | PVC `oran-telemetry-data` (50Gi) at `/data`           | Parquet output and dead-letter files                                       |
 | PVC `expanso-edge-state` (1Gi) at `/var/lib/expanso`  | Node identity, so restarts do not re-register the node                     |
 | `Kafka` `oran-kafka` + `KafkaNodePool` (AMQ Streams)  | One KRaft broker, TLS listener on 9093 only, SCRAM-SHA-512                 |
-| `KafkaTopic` x2, `KafkaUser` `expanso-oran`           | Topics and the producer identity; the operator writes its password Secret |
+| `KafkaTopic` x2, `KafkaUser` x2           | Topics and producer/consumer identities with separate ACLs |
 | `OpenTelemetryCollector` `oran`                       | OTLP in (4317/4318), Prometheus exporter out (8889)                        |
 | `ServiceMonitor` `oran-collector`                     | Hands the exporter to OpenShift user-workload monitoring                   |
 | Deployment + Service `expanso-edge`                   | The agent, plus an in-cluster endpoint for DU exporters to POST telemetry  |
@@ -83,11 +83,16 @@ The manifests live in [`examples/integrations/oran-telco-pipeline/openshift`](ht
    oc -n oran-telemetry get pods
    ```
 
-6. Deploy the job through Expanso Cloud. The selector in the job spec matches the labels in `expanso-edge-config`.
+6. From the OpenShift manifest directory, deploy the job through Expanso Cloud. The selector in the job spec matches the labels in `expanso-edge-config`.
 
    ```bash
-   expanso-cli job deploy static/pipelines/oran-telco-pipeline.yaml
+   expanso-cli job deploy \
+     ../../../../static/pipelines/oran-telco-pipeline.yaml
    ```
+
+Before connecting a real DU, remove the `du_simulator` input from the job and redeploy it through Expanso Cloud. `SIMULATION_INTERVAL=0s` removes pacing; it does not disable the simulator.
+
+The ingress NetworkPolicy permits TCP 8080 only from pods labelled `app.kubernetes.io/name: oran-du` in namespace `oran-du`. Set both selectors in `62-telemetry-networkpolicy.yaml` to match your exporter before applying the manifests. This restricts access to the `/telemetry` listener by network source, not by HTTP path or claimed DU identity.
 
 ## Expected output
 
