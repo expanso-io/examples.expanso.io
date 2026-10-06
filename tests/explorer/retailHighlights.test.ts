@@ -34,3 +34,34 @@ it('keeps retail stage results visible in Highlights only mode', () => {
     'changed'
   );
 });
+
+it('shows GDPR verification additions without highlighting preserved PII field names', async () => {
+  const { GENERATED_EXPLORER_STAGES: gdpr } = await import(
+    '../../src/catalog/explorerStageFamilies.generated/cross-border-gdpr'
+  );
+  const [stage] = normalizeExplorerStages(
+    [gdpr[5]],
+    'curated-explanation',
+    'highlights'
+  );
+  const timestampIndex = gdpr[5].outputLines.findIndex(
+    (line) => 'key' in line && line.key === 'verification_timestamp'
+  );
+  assert.ok(timestampIndex >= 0);
+  assert.equal(stage.outputLines[timestampIndex].state, 'changed');
+  assert.deepEqual(
+    stage.outputLines
+      .filter((line) => line.content === '"customer_id",')
+      .map((line) => line.state),
+    ['changed', 'unchanged']
+  );
+  const removedIndex = gdpr[5].outputLines.findIndex(
+    (line) => 'key' in line && line.key === 'fields_removed'
+  );
+  assert.ok(removedIndex >= 0);
+  assert.ok(
+    stage.outputLines
+      .slice(removedIndex, removedIndex + 4)
+      .every((line) => line.state === 'changed')
+  );
+});
