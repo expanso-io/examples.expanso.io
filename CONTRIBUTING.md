@@ -69,6 +69,10 @@ Use Explorer V2 only when the interaction teaches a distinct task. It requires:
 
 Run the gates relevant to the change, then the full foundation set:
 
+Pipeline changes also require the
+[example validation workflow](scripts/README.md#example-pipeline-validation)
+and its generated reports.
+
 ```bash
 npm run typecheck -- --noEmit
 npm run test-catalog

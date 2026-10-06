@@ -30,13 +30,21 @@ This pipeline combines all field encryption techniques from this tutorial:
 - **Address encryption** - Encrypt street, preserve city/state/ZIP prefix
 - **Audit metadata** - Track encryption timestamp, key version
 
+The mappings generate a separate 12-byte nonce for each encrypted field and
+base64-encode both nonce and ciphertext. Keep each nonce with its ciphertext;
+decryption requires both, plus the matching key version. Key rotation and
+authorization remain responsibilities of the integrating system.
+
 ## Full Configuration
 
 <CodeBlock language="yaml" title="encrypt-data.yaml">
   {pipelineYaml}
 </CodeBlock>
 
-## Quick Test
+## Input example
+
+The displayed tutorial configuration reads `CARD_KEY`, `PII_KEY`, and
+`ADDR_KEY`. Supply valid AES keys through your environment before adapting it.
 
 ```bash
 # Send data with sensitive fields
@@ -44,9 +52,16 @@ curl -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
   -d '{
     "transaction_id": "txn_001",
-    "card_number": "4532123456789010",
-    "email": "john.doe@example.com",
-    "ssn": "123-45-6789",
+    "payment": {
+      "card_number": "4532123456789010",
+      "cvv": "123",
+      "cardholder_name": "Synthetic User"
+    },
+    "customer": {
+      "email": "synthetic@example.com",
+      "ssn": "123-45-6789",
+      "phone": "4155550100"
+    },
     "address": {
       "street": "123 Main St",
       "city": "San Francisco",
@@ -70,6 +85,12 @@ expanso-edge run --config encrypt-data.yaml
 ```
 
 ## Download
+
+The downloadable integration variant uses `/payments/transactions` on port
+8443 with server TLS and `Authorization: Bearer` authentication against
+`PAYMENTS_INGEST_TOKEN`. It reads `CARD_ENCRYPTION_KEY`, `PII_ENCRYPTION_KEY`,
+and `ADDRESS_ENCRYPTION_KEY`; inspect its inputs and destinations separately
+from the stdout tutorial above.
 
 <a
   href="/files/data-security/encrypt-data.yaml"

@@ -18,22 +18,8 @@ config:
       # Step 1: Detect content type and validate
       - mapping: |
           root = this
-          root.batch_id = uuid_v4()
-          root.received_at = now()
-
-          # Determine data type
-          let data_type = if this.exists("items") && this.items.type() == "array" {
-            "json_array"
-          } else if this.exists("records") {
-            "records"
-          } else if this.type() == "array" {
-            "raw_array"
-          } else {
-            "single"
-          }
-          root.data_type = $data_type
-          meta data_type = $data_type
-          meta batch_id = root.batch_id
+          meta batch_id = uuid_v4()
+          meta received_at = now()
 
       # Step 2: Extract items to split
       - mapping: |
@@ -65,8 +51,9 @@ config:
           root = this
           root.batch_context = {
             "batch_id": meta("batch_id"),
+            "received_at": meta("received_at"),
             "item_index": count("items"),
-            "total_items": meta("item_count"),
+            "total_items": meta("item_count").number(),
             "split_at": now()
           }
 
@@ -86,7 +73,7 @@ config:
     switch:
       cases:
         # Valid items → processing queue
-        - check: 'meta("is_valid") == true'
+        - check: 'meta("is_valid").bool()'
           output:
             kafka:
               addresses: ['${KAFKA_BROKERS:localhost:9092}']

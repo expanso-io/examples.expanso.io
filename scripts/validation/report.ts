@@ -15,7 +15,21 @@ import type {
 } from './types';
 
 function escapeCell(text: string): string {
-  return text.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+  return text.replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim();
+}
+
+function renderTable(headers: string[], rows: string[][]): string[] {
+  const widths = headers.map((header, column) =>
+    Math.max(3, header.length, ...rows.map((row) => row[column].length))
+  );
+  const renderRow = (row: string[]) =>
+    `| ${row.map((cell, column) => cell.padEnd(widths[column])).join(' | ')} |`;
+
+  return [
+    renderRow(headers),
+    renderRow(widths.map((width) => '-'.repeat(width))),
+    ...rows.map(renderRow),
+  ];
 }
 
 function sourceLink(path: string, depth: number): string {
@@ -36,7 +50,14 @@ function runCell(result: RunResult | undefined): string {
   if (result.status === 'SKIP') return `SKIP: ${escapeCell(result.reason)}`;
 
   if (result.status === 'PASS') {
-    const mode = result.mode === 'native' ? 'native' : 'fixture harness';
+    const stubbed = result.substitutions?.some(
+      (entry) => entry.role === 'processor' || entry.role === 'resource'
+    );
+    const mode = stubbed
+      ? 'stubbed fixture harness'
+      : result.mode === 'native'
+        ? 'native'
+        : 'fixture harness';
 
     return `PASS (${mode})`;
   }
@@ -65,6 +86,7 @@ function formatErrors(result: ValidateResult): string {
 export function summarize(
   reports: readonly PipelineReport[],
   options: {
+    failure?: string;
     date: string;
     edgeVersion: string;
     pinnedEdgeVersion: string;
@@ -132,11 +154,23 @@ export function renderReport(
   );
 
   const overall =
-    blocking.length === 0 && summary.invalidYaml === 0 ? 'PASS' : 'FAIL';
+    summary.failure || blocking.length > 0 || summary.invalidYaml > 0
+      ? 'FAIL'
+      : summary.complete.runPass === summary.complete.total
+        ? 'PASS'
+        : 'INCOMPLETE';
 
   lines.push(`# Example pipeline validation: ${summary.date}`);
   lines.push('');
   lines.push(`Overall: **${overall}**`);
+  if (summary.failure) {
+    lines.push('');
+    lines.push(
+      'The validation invocation failed before complete evidence was collected:'
+    );
+    lines.push('');
+    lines.push(summary.failure);
+  }
   lines.push('');
   lines.push(
     `- expanso-edge: \`${summary.edgeVersion}\` (pinned: \`${summary.pinnedEdgeVersion}\`)`
@@ -161,7 +195,7 @@ export function renderReport(
     '- Validation-only environment values in the fixture manifest satisfy non-metered local salts where the validator requires a concrete string.'
   );
   lines.push(
-    '- **Run** deploys the pipeline to a local-mode expanso-edge agent and requires the expected output to be written. `native` means the file ran as written. `fixture harness` means the input was replaced by a checked-in fixture file and every leaf output by a local file; processors and routing logic ran unchanged.'
+    '- **Run** deploys the pipeline to a local-mode expanso-edge agent and requires the expected output to be written. `native` means the file ran as written. `fixture harness` means the input was replaced by a checked-in fixture file and every leaf output by a local file; processor and resource substitutions are listed below. Runs with those substitutions exercise stubbed processing and do not verify the replaced integrations.'
   );
   lines.push(
     '- **SKIP** names the external service or missing fixture that prevents a local run. Skipped pipelines are still validated.'
@@ -179,16 +213,20 @@ export function renderReport(
   for (const category of categories) {
     lines.push(`### ${category}`);
     lines.push('');
-    lines.push('| Pipeline | Source | Validate | Run | expanso-edge |');
-    lines.push('|---|---|---|---|---|');
-
-    for (const report of complete.filter(
-      (entry) => entry.file.category === category
-    )) {
-      lines.push(
-        `| ${escapeCell(report.file.family)} | ${sourceLink(report.file.path, depth)} | ${validateCell(report.validate)} | ${runCell(report.run)} | ${summary.edgeVersion} |`
-      );
-    }
+    lines.push(
+      ...renderTable(
+        ['Pipeline', 'Source', 'Validate', 'Run', 'expanso-edge'],
+        complete
+          .filter((entry) => entry.file.category === category)
+          .map((report) => [
+            escapeCell(report.file.family),
+            sourceLink(report.file.path, depth),
+            validateCell(report.validate),
+            runCell(report.run),
+            summary.edgeVersion,
+          ])
+      )
+    );
 
     lines.push('');
   }
@@ -235,7 +273,7 @@ export function renderReport(
     lines.push('## Run substitutions');
     lines.push('');
     lines.push(
-      'Edges swapped by the fixture harness. Everything between input and output ran as committed.'
+      'Input, output, processor, and resource substitutions made by the fixture harness. Replaced processors and resources were not exercised as committed.'
     );
     lines.push('');
     lines.push('<details><summary>Show per-pipeline substitutions</summary>');
@@ -264,10 +302,7 @@ export function renderReport(
     'These files are tutorial steps or component snippets, not complete pipelines. They are validated but never run.'
   );
   lines.push('');
-  lines.push('| File | Kind | Validate | Detail |');
-  lines.push('|---|---|---|---|');
-
-  for (const report of fragments) {
+  const fragmentRows = fragments.map((report) => {
     const detail =
       report.file.kind === 'invalid-yaml'
         ? (report.file.parseError ?? 'YAML parse error')
@@ -275,10 +310,18 @@ export function renderReport(
           ? (report.validate.errors[0]?.message ?? 'validation failed')
           : '';
 
-    lines.push(
-      `| ${sourceLink(report.file.path, depth)} | ${report.file.kind} | ${report.file.kind === 'invalid-yaml' ? 'FAIL' : validateCell(report.validate)} | ${escapeCell(detail)} |`
-    );
-  }
+    return [
+      sourceLink(report.file.path, depth),
+      report.file.kind,
+      report.file.kind === 'invalid-yaml'
+        ? 'FAIL'
+        : validateCell(report.validate),
+      escapeCell(detail),
+    ];
+  });
+  lines.push(
+    ...renderTable(['File', 'Kind', 'Validate', 'Detail'], fragmentRows)
+  );
 
   return `${lines.join('\n')}\n`;
 }
@@ -302,12 +345,15 @@ export function renderIndex(
     lines.push('');
   }
 
-  lines.push('| Date | Report |');
-  lines.push('|---|---|');
-
-  for (const date of [...dates].sort().reverse()) {
-    lines.push(`| ${date} | [${date}/README.md](${date}/README.md) |`);
-  }
+  lines.push(
+    ...renderTable(
+      ['Date', 'Report'],
+      [...dates]
+        .sort()
+        .reverse()
+        .map((date) => [date, `[${date}/README.md](${date}/README.md)`])
+    )
+  );
 
   return `${lines.join('\n')}\n`;
 }

@@ -49,6 +49,7 @@ config:
     processors:
       # Step 1: Tag with source region (critical for compliance routing)
       - mapping: |
+          meta archival_original = content()
           root = this
           root._data_origin = {
             "region": "EU",
@@ -189,14 +190,18 @@ config:
             batching:
               count: 500
               period: 30s
+          processors:
+            - catch:
+                - mapping: root = deleted()
 
         # Output 2: Raw data → EU regional archive (stays in EU)
         # Full data preserved for regulatory requirements
         - label: eu_archive
           processors:
             # Re-add original data from input (captured in metadata)
+            - catch: []
             - mapping: |
-                root = this
+                root = meta("archival_original").parse_json()
                 root._archive_metadata = {
                   "archived_at": now(),
                   "retention_policy": "7_years",
@@ -214,6 +219,8 @@ config:
         # Output 3: Compliance audit log
         - label: compliance_audit
           processors:
+            - catch:
+                - mapping: root = deleted()
             - mapping: |
                 root = {
                   "event_type": "cross_border_transfer",

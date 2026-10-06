@@ -23,47 +23,17 @@ These variants illustrate key-version, selective-decryption, and audit-metadata 
 
 For security, encryption keys must be rotated periodically. Your encryption logic needs to record which key version was used so that you can still decrypt old data after a key rotation.
 
-```yaml title="Add Key Versioning"
-- mapping: |
-    root = this
+See the [complete configuration](/data-security/encrypt-data/complete-pipeline) for the maintained encryption mapping and its ciphertext fields.
 
-    # Add the key version to the encrypted output
-    root.payment.card_number_encrypted = "%s:%s".format(
-      env("KEY_VERSION"),
-      this.payment.card_number.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
-    )
-
-    # Add it to the metadata as well for easy searching
-    root.payment.encryption_metadata.key_version = env("KEY_VERSION")
-```
-
-When decrypting, your application would parse the version from the string (`v1:...`), fetch the corresponding key from your key vault, and then perform decryption.
+When decrypting, read the recorded key version, retrieve that key through your access controls, and base64-decode the matching ciphertext and nonce fields before decryption.
 
 ## Pattern 2: Selective Decryption for Authorized Services
 
-Not all services should be able to decrypt all data. You can build a decryption pipeline that selectively decrypts fields based on the calling service's identity, which can be passed via an HTTP header.
+Authorize the calling service before selecting fields for decryption. A caller-supplied identity header alone does not establish authorization.
 
 **Use Case:** A fraud detection service needs to see the email domain and SSN area, but a marketing service should see neither.
 
-```yaml title="Selective Decryption Pipeline"
-- mapping: |
-    let service_name = meta("http_headers.X-Service-ID")
-    root = this
-
-    # Select email decryption for the authored 'fraud-service' identity
-    if service_name == "fraud-service" && this.customer.email_encrypted.exists() {
-      root.customer.email = this.customer.email_encrypted.decrypt_aes(
-        "gcm", env("PII_ENCRYPTION_KEY")
-      )
-    }
-
-    # Select SSN decryption for the authored 'identity-verification' identity
-    if service_name == "identity-verification" && this.customer.ssn_encrypted.exists() {
-      root.customer.ssn = this.customer.ssn_encrypted.decrypt_aes(
-        "gcm", env("PII_ENCRYPTION_KEY")
-      )
-    }
-```
+See the [complete configuration](/data-security/encrypt-data/complete-pipeline) for the maintained encryption mapping and its ciphertext fields.
 
 ## Pattern 3: Transformation audit metadata
 

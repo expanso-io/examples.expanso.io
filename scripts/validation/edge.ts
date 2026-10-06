@@ -12,12 +12,19 @@
  */
 
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+} from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
+import { parse } from 'yaml';
 
 import type { ValidateResult, ValidationError } from './types';
-import type { YamlObject } from './yaml-value';
+import { isYamlObject, type YamlObject, type YamlValue } from './yaml-value';
 
 /** The expanso-edge release every report is produced with. Bump deliberately. */
 export const PINNED_EDGE_VERSION = 'v2.1.22';
@@ -43,33 +50,11 @@ function readVersion(binary: string): string | null {
 /**
  * Resolve the pinned expanso-edge binary.
  *
- * Order: `EXPANSO_EDGE_BIN` env override (must still match the pin), then
- * `.bin/expanso-edge`, then a fresh pinned install into `.bin/`.
  */
 export function resolveEdgeBinary(
   repositoryRoot: string,
   options: { install: boolean; log: (line: string) => void }
 ): EdgeBinary {
-  const override = process.env.EXPANSO_EDGE_BIN;
-
-  if (override) {
-    const version = readVersion(override);
-
-    if (version === null) {
-      throw new Error(
-        `EXPANSO_EDGE_BIN=${override} is not a runnable expanso-edge binary`
-      );
-    }
-
-    if (version !== PINNED_EDGE_VERSION) {
-      throw new Error(
-        `EXPANSO_EDGE_BIN reports ${version}; this harness is pinned to ${PINNED_EDGE_VERSION}`
-      );
-    }
-
-    return { path: override, version };
-  }
-
   const binDir = join(repositoryRoot, '.bin');
   const binary = join(binDir, 'expanso-edge');
 
@@ -242,6 +227,48 @@ function parseValidatorOutput(
   return errors.sort(compareValidationErrors);
 }
 
+function rateLimitErrors(source: string): ValidationError[] {
+  const document = parse(source) as YamlValue;
+  if (!isYamlObject(document)) return [];
+  const config = isYamlObject(document.config) ? document.config : document;
+  const resources = config.rate_limit_resources;
+  const labels = new Set(
+    Array.isArray(resources)
+      ? resources.filter(isYamlObject).map((resource) => resource.label)
+      : []
+  );
+  const errors: ValidationError[] = [];
+  const visit = (node: YamlValue, path: string): void => {
+    if (Array.isArray(node)) {
+      node.forEach((entry, index) => visit(entry, `${path}.${index}`));
+      return;
+    }
+    if (!isYamlObject(node)) return;
+    for (const [key, value] of Object.entries(node)) {
+      const reference =
+        key === 'rate_limit'
+          ? typeof value === 'string'
+            ? value
+            : isYamlObject(value)
+              ? value.resource
+              : undefined
+          : undefined;
+      if (
+        typeof reference === 'string' &&
+        reference !== '' &&
+        !labels.has(reference)
+      )
+        errors.push({
+          path: `${path}.${key}`,
+          message: `rate limit resource '${reference}' is not declared`,
+        });
+      visit(value, `${path}.${key}`);
+    }
+  };
+  visit(config, 'config');
+  return errors;
+}
+
 /** Validate a pipeline file in place with `expanso-edge validate`. */
 export function validateFile(
   edge: EdgeBinary,
@@ -283,6 +310,10 @@ export function validateFile(
     };
   }
 
+  if (result.status === 0)
+    errors.push(
+      ...rateLimitErrors(readFileSync(join(cwd, relativePath), 'utf8'))
+    );
   return {
     status: result.status === 0 && errors.length === 0 ? 'PASS' : 'FAIL',
     mode: 'file',
@@ -328,6 +359,7 @@ export function validateSource(
     };
   }
 
+  if (result.status === 0) errors.push(...rateLimitErrors(source));
   return {
     status: result.status === 0 && errors.length === 0 ? 'PASS' : 'FAIL',
     mode: 'wrapped',
@@ -443,7 +475,8 @@ export class LocalEdgeAgent {
     this.child.stdout?.on('data', append);
     this.child.stderr?.on('data', append);
 
-    const exited = new Promise<number | null>((resolve) => {
+    const exited = new Promise<number | null>((resolve, reject) => {
+      this.child?.once('error', reject);
       this.child?.on('exit', (code) => resolve(code));
     });
 
@@ -497,7 +530,7 @@ export class LocalEdgeAgent {
     const child = this.child;
     this.child = null;
 
-    if (!child || child.exitCode !== null) return;
+    if (!child?.pid || child.exitCode !== null) return;
 
     const exited = new Promise<void>((resolve) =>
       child.once('exit', () => resolve())

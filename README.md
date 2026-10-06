@@ -41,6 +41,9 @@ npm run serve
 
 ## Deployment
 
+For pipeline checks and their Markdown evidence, see the
+[example validation workflow](scripts/README.md#example-pipeline-validation).
+
 The executable deployment defined in this repository is GitHub Pages: `.github/workflows/deploy.yml` builds and deploys the site after changes land on `main`.
 
 Legacy URL redirects are defined in `docusaurus.config.ts`. Docusaurus emits them as static redirect pages, so they work on the GitHub Pages deployment without separate host rules. DNS, custom-domain, or any external proxy ownership is managed outside this repository and must be verified separately before changing hosts.

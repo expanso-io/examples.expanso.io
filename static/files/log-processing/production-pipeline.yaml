@@ -34,7 +34,7 @@ config:
       allowed_verbs:
         - POST
       timeout: 10s
-      rate_limit: '1000/1s'
+      rate_limit: 'http_ingest'
 
   # Step 2: Processing pipeline
   pipeline:
@@ -127,6 +127,9 @@ config:
             }
           }
 
+      - catch:
+          - mapping: root = deleted()
+
   # Step 3: Send to multiple destinations (fan-out)
   output:
     broker:
@@ -175,6 +178,11 @@ config:
           file:
             path: '/var/log/expanso/logs-${!timestamp_unix()}.jsonl'
             codec: lines
+  rate_limit_resources:
+    - label: http_ingest
+      local:
+        count: 1000
+        interval: 1s
 
 # Error handling
 logger:

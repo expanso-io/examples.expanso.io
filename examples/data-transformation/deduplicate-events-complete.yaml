@@ -40,10 +40,8 @@ config:
           # Create composite key for deduplication
           # Options: event_id only, or event_id + type + timestamp window
           # Composite: event_type + source + 1-minute window
-          let window = (this.timestamp.or(now()).ts_unix() / 60).floor()
-
           root.dedup_key = if this.dedup_strategy.or("event_id") == "composite" {
-            this.event_type.or("unknown") + ":" + this.source.or("unknown") + ":" + $window.string()
+            this.event_type.or("unknown") + ":" + this.source.or("unknown") + ":" + (this.timestamp.or(now()).ts_unix() / 60).floor().string()
           } else {
             # Simple: just event_id
             this.event_id

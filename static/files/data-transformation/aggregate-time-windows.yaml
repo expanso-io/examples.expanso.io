@@ -6,26 +6,20 @@ config:
 
   pipeline:
     processors:
-      # Parse JSON input
       - mapping: root = content().parse_json()
-      # Assign time bucket (round to minute)
-      - mapping: |
-          root = this
-          let minute_start = (this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_unix() / 60).floor() * 60
-          root.time_bucket = $minute_start.ts_format("2006-01-02T15:04:05Z07:00")
-          root.group_key = this.sensor_id + "|" + root.time_bucket
-
-      # Emit a summary for the event's one-minute window. Downstream output
-      # batching combines summaries efficiently without external state.
-      - mapping: |
-          root.sensor_id = this.sensor_id
-          root.time_bucket = this.time_bucket
-          root.window_start = this.time_bucket
-          root.window_end = (this.time_bucket.ts_parse("2006-01-02T15:04:05Z07:00").ts_unix() + 60).ts_format("2006-01-02T15:04:05Z07:00")
-          root.event_count = 1
-          root.temperature_avg = this.temperature
-          root.temperature_min = this.temperature
-          root.temperature_max = this.temperature
+      - group_by_value:
+          value: ${! this.sensor_id }
+      - mapping: |-
+          let values = json("temperature").from_all()
+          let end = meta("window_end_timestamp").ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano() / 1000000000
+          root = if batch_index() == 0 {
+            {"sensor_id": this.sensor_id,
+             "window_start": ($end - 60).ts_format("2006-01-02T15:04:05Z07:00"),
+             "window_end": meta("window_end_timestamp"),
+             "event_count": $values.length(),
+             "temperature_avg": $values.sum() / $values.length(),
+             "temperature_min": $values.min(), "temperature_max": $values.max()}
+          } else { deleted() }
 
   output:
     http_client:
@@ -34,3 +28,7 @@ config:
       batching:
         count: 50
         period: 10s
+  buffer:
+    system_window:
+      size: 1m
+      timestamp_mapping: root = this.timestamp

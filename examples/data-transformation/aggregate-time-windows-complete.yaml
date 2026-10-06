@@ -17,7 +17,6 @@ config:
 
   pipeline:
     processors:
-      # Input validation: reject records that are missing required fields
       - try:
           - mapping: |
               root = if !this.exists("sensor_id") {
@@ -38,87 +37,45 @@ config:
               level: WARN
               message: 'input validation failed: ${! error() }'
           - mapping: root = deleted()
-
-      # Multi-window aggregation: fan each event into the window variants it belongs to,
-      # then aggregate those variants into one summary record per event.
-      - branch:
-          request_map: |
-            let parsed_timestamp = this.timestamp.ts_parse("2006-01-02T15:04:05.000Z")
-            let minute_bucket = $parsed_timestamp.ts_format("2006-01-02T15:04:00Z")
-
-            root = [
-              # Tumbling windows (1-minute)
-              this.merge({
-                "aggregation_type": "tumbling",
-                "window_duration_minutes": 1,
-                "group_key": this.sensor_id + "|tumbling_1m|" + $minute_bucket,
-                "window_start": $minute_bucket
-              }),
-
-              # Sliding windows (5-minute)
-              this.merge({
-                "aggregation_type": "sliding",
-                "window_duration_minutes": 5,
-                "group_key": this.sensor_id + "|sliding_5m|" + $minute_bucket,
-                "window_start": $minute_bucket
-              }),
-
-              # Multi-level sensor aggregation
-              this.merge({
-                "aggregation_type": "multi_level",
-                "aggregation_level": "sensor",
-                "group_key": this.sensor_id + "|sensor|" + $minute_bucket
-              }),
-
-              # Multi-level location aggregation
-              this.merge({
-                "aggregation_type": "multi_level",
-                "aggregation_level": "location",
-                "group_key": this.location + "|location|" + $minute_bucket
-              })
-            ]
-
-          processors:
-            - mapping: |
-                let events = this.sort_by(event -> event.timestamp)
-                let first_event = $events.index(0)
-                let aggregation_type = $first_event.aggregation_type
-                let temperatures = $events.map_each(e -> e.temperature)
-
-                root.aggregation_type = $aggregation_type
-                root.group_key = $first_event.group_key
-                root.aggregation_timestamp = now().ts_format("2006-01-02T15:04:05.000Z")
-                root.event_count = $events.length()
-                root.temperature_avg = ($temperatures.sum() / $temperatures.length() * 100).round() / 100
-                root.temperature_min = $temperatures.min()
-                root.temperature_max = $temperatures.max()
-                root.sensor_id = $first_event.sensor_id
-                root.location = $first_event.location
-                root.window_start = $first_event.window_start
-                root.window_duration_minutes = $first_event.window_duration_minutes
-                root.aggregation_level = $first_event.aggregation_level
-
-                root.temperature_change = if $temperatures.length() >= 3 {
-                  (($temperatures.index(-1) - $temperatures.index(0)) * 100).round() / 100
-                }
-                root.temperature_trend = match {
-                  root.temperature_change == null => deleted(),
-                  root.temperature_change > 1 => "increasing",
-                  root.temperature_change < -1 => "decreasing",
-                  _ => "stable"
-                }
-                root.sensor_count = if $first_event.aggregation_level == "location" {
-                  $events.map_each(e -> e.sensor_id).unique().length()
-                }
-
-                root.data_quality_score = match {
-                  root.event_count >= 50 => 0.95
-                  root.event_count >= 30 => 0.85
-                  root.event_count >= 10 => 0.70
-                  _ => 0.50
-                }
-
-          result_map: root.aggregation = this
+      - archive:
+          format: json_array
+      - mapping: |-
+          let end = meta("window_end_timestamp").ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano() / 1000000000
+          let minute = 60
+          root = this.map_each(event -> [
+            event.merge({"aggregation_type":"sliding","group_key":event.sensor_id+"|sliding","window_duration_minutes":5}),
+            if event.timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano() / 1000000000 >= $end - $minute { event.merge({"aggregation_type":"tumbling","group_key":event.sensor_id+"|tumbling","window_duration_minutes":1}) },
+            if event.timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano() / 1000000000 >= $end - $minute { event.merge({"aggregation_type":"multi_level","aggregation_level":"sensor","group_key":event.sensor_id+"|sensor","window_duration_minutes":1}) },
+            if event.timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano() / 1000000000 >= $end - $minute { event.merge({"aggregation_type":"multi_level","aggregation_level":"location","group_key":event.location+"|location","window_duration_minutes":1}) }
+          ]).flatten().filter(event -> event != null)
+      - unarchive:
+          format: json_array
+      - group_by_value:
+          value: ${! this.group_key }
+      - mapping: |-
+          let events = json().from_all().sort_by(event -> event.timestamp)
+          let first = $events.index(0)
+          let values = $events.map_each(event -> event.temperature)
+          let end = meta("window_end_timestamp").ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano() / 1000000000
+          let minute = 60
+          root = if batch_index() == 0 {
+            {"aggregation": {
+              "aggregation_type": $first.aggregation_type,
+              "aggregation_level": $first.aggregation_level,
+              "group_key": $first.group_key,
+              "sensor_id": $first.sensor_id,
+              "location": $first.location,
+              "window_start": ($end - $minute * $first.window_duration_minutes).ts_format("2006-01-02T15:04:05Z07:00"),
+              "window_end": meta("window_end_timestamp"),
+              "window_duration_minutes": $first.window_duration_minutes,
+              "event_count": $events.length(),
+              "temperature_avg": ($values.sum() / $values.length() * 100).round() / 100,
+              "temperature_min": $values.min(),
+              "temperature_max": $values.max(),
+              "sensor_count": $events.map_each(event -> event.sensor_id).unique().length(),
+              "location_count": $events.map_each(event -> event.location).unique().length()
+            }}
+          } else { deleted() }
 
   output:
     broker:
@@ -138,6 +95,11 @@ config:
         - file:
             path: '/var/expanso/buffer/aggregations-${!timestamp_unix()}.jsonl'
             codec: lines
+  buffer:
+    system_window:
+      size: 5m
+      slide: 1m
+      timestamp_mapping: root = this.timestamp
 
 logger:
   level: '${LOG_LEVEL:INFO}'

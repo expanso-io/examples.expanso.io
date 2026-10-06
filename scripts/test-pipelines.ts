@@ -415,11 +415,7 @@ async function executeRemovePii(
     // checked-in JSON object before it is serialized as one JSONL record.
     const inputRecord = JSON.parse(inputBytes.toString('utf8')) as YamlValue;
 
-    writeFileSync(
-      inputPath,
-      `${JSON.stringify(inputRecord)}\n`,
-      'utf8'
-    );
+    writeFileSync(inputPath, `${JSON.stringify(inputRecord)}\n`, 'utf8');
 
     const plan = planRun(config, inputPath, outputDirectory);
 
@@ -494,8 +490,7 @@ async function executeRemovePii(
     }
 
     result.status = 'PASS';
-    result.reason =
-      `Pinned expanso-edge ${PINNED_EDGE_VERSION} validated and executed the canonical pipeline and produced the exact expected JSONL bytes.`;
+    result.reason = `Pinned expanso-edge ${PINNED_EDGE_VERSION} validated and executed the canonical pipeline and produced the exact expected JSONL bytes.`;
   } catch (error) {
     result.status = 'FAIL';
     result.reason = error instanceof Error ? error.message : String(error);

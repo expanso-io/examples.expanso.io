@@ -69,7 +69,10 @@ jobs:
       - name: Validate and run examples with pinned Expanso Edge
         env:
           EXPANSO_DISABLEANALYTICS: 'true'
-        run: npm run validate-examples
+        run: |
+          report_date=$(node -p \
+            "require('./validation-reports/latest/report.json').summary.date")
+          npm run validate-examples -- --date "$report_date"
 
       - name: Print Expanso Edge version
         run: ./.bin/expanso-edge version

@@ -71,44 +71,7 @@ We verify that critical fields exist. If they are missing, we can either drop th
 
 ## Complete Step 2 Configuration
 
-```yaml title="production-pipeline-step-2.yaml"
-input:
-  http_server:
-    address: '0.0.0.0:8080'
-    path: /logs/ingest
-    rate_limit: '1000/1s'
-    auth:
-      type: header
-      header: 'X-API-Key'
-      required_value: '${LOG_API_KEY}'
-
-pipeline:
-  processors:
-    # 1. Parse JSON
-    - mapping: |
-        root = this
-        try {
-          root = this.parse_json()
-        } catch {
-          # Keep original message if parsing fails, wrap it
-          root = {"message": content(), "level": "ERROR", "service": "parser", "timestamp": now()}
-          root.error = "failed to parse json"
-        }
-
-    # 2. Validate
-    - mapping: |
-        root = this
-        if root.type() == "object" {
-           if !root.exists("timestamp") { root.timestamp = now() }
-           if !root.exists("level") { root.level = "INFO" }
-           if !root.exists("service") { root.service = "unknown" }
-           
-           root.level = root.level.uppercase()
-        }
-
-output:
-  stdout: {}
-```
+See the [complete reference](/log-processing/production-pipeline/complete-production-pipeline) for the maintained input, named rate-limit resource, processors, and failure boundary.
 
 ## Deployment & Verification
 

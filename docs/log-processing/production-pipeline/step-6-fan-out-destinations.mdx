@@ -59,41 +59,7 @@ In a fan-out, if one output fails, we don't want to block the others. The `fan_o
 
 ## Complete Step 6 Configuration
 
-```yaml title="production-pipeline-step-6.yaml"
-input:
-  http_server:
-    address: '0.0.0.0:8080'
-    path: /logs/ingest
-    rate_limit: '1000/1s'
-    auth:
-      type: header
-      header: 'X-API-Key'
-      required_value: '${LOG_API_KEY}'
-
-pipeline:
-  processors:
-    - mapping: 'root = this.parse_json().catch({"message": content()})'
-
-output:
-  broker:
-    pattern: fan_out
-    outputs:
-      # 1. Console (Simulating real-time view)
-      - stdout:
-          codec: lines
-
-      # 2. Local File (Simulating S3/Archive)
-      - file:
-          path: './output_logs/${!timestamp_unix_date()}_logs.jsonl'
-          codec: lines
-
-      # 3. Metrics (Simulating observability)
-      - http_client:
-          url: 'http://localhost:8080/metrics_endpoint' # Mock endpoint
-          verb: POST
-          # Use 'drop_on_error' to prevent pipeline blocking
-          drop_on_error: true
-```
+See the [complete reference](/log-processing/production-pipeline/complete-production-pipeline) for the maintained input, named rate-limit resource, processors, and failure boundary.
 
 ## Deployment & Verification
 

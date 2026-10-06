@@ -17,15 +17,29 @@ claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2
 
 import CodeBlock from '@theme/CodeBlock';
 import pipelineYaml from '!!raw-loader!../../../static/pipelines/oran-telco-pipeline.yaml';
+import deploymentYaml from '!!raw-loader!../../../examples/integrations/oran-telco-pipeline/openshift/60-expanso-edge-deployment.yaml';
+import kustomizationYaml from '!!raw-loader!../../../examples/integrations/oran-telco-pipeline/openshift/kustomization.yaml';
 
 # O-RAN Telemetry Reference
 
-This checked-in configuration combines authored telemetry mappings and external output concepts. A site-specific exporter or adapter is required before Expanso receives data.
+This checked-in job spec is what `expanso-cli job deploy` sends to Expanso Cloud. It passes `expanso-edge validate`, which checks the config schema, every Bloblang mapping, and the component types. A site-specific exporter or adapter is still required before real DU data reaches it; the built-in simulator runs alongside the real inputs until you remove it as described in the [run path](/integrations/oran-telco-pipeline/setup).
 
-<CodeBlock language="yaml" title="oran-telco-pipeline.yaml">
+<CodeBlock language="yaml" title="static/pipelines/oran-telco-pipeline.yaml">
   {pipelineYaml}
+</CodeBlock>
+
+## Deployment manifests
+
+The agent that runs this job is a restricted-SCC Deployment on the SNO node. The full set of manifests, including the AMQ Streams cluster, the OpenTelemetry Collector, the `ServiceMonitor`, and both PersistentVolumeClaims, is in [`examples/integrations/oran-telco-pipeline/openshift`](https://github.com/expanso-io/examples.expanso.io/tree/main/examples/integrations/oran-telco-pipeline/openshift) and applied with `oc apply -k`. The [run path](/integrations/oran-telco-pipeline/setup) walks through the order and the Secrets created by hand.
+
+<CodeBlock language="yaml" title="openshift/kustomization.yaml">
+  {kustomizationYaml}
+</CodeBlock>
+
+<CodeBlock language="yaml" title="openshift/60-expanso-edge-deployment.yaml">
+  {deploymentYaml}
 </CodeBlock>
 
 ## Adaptation boundary
 
-Review the exporter contract, units, time semantics, thresholds, schema, destination acknowledgements, retries, buffering, credentials, and deployment mechanism before execution.
+Review the exporter contract, units, time semantics, thresholds, Parquet schema, Kafka envelope, retention, storage sizing, and credentials before execution. The manifests assume the cluster's default StorageClass and the operator-managed Kafka CA; change both if your SNO node differs.

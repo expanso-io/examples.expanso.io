@@ -13,6 +13,8 @@
  */
 
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 
 import type { Substitution } from './types';
 import {
@@ -52,7 +54,6 @@ const EXTERNAL_PROCESSOR_PREFIXES = [
 
 const EXTERNAL_PROCESSORS = new Set([
   'http',
-  'subprocess',
   'command',
   'wasm',
   'workflow_remote',
@@ -92,6 +93,8 @@ export interface RunnabilityVerdict {
 }
 
 export interface LocalStandIns {
+  inputMetadata?: Readonly<Record<string, string>>;
+  outputFormats?: readonly string[];
   processors?: Readonly<Record<string, YamlObject>>;
   paths?: Readonly<Record<string, { absolute: string; display: string }>>;
 }
@@ -210,7 +213,9 @@ export function assessRunnability(
   return { runnable: true };
 }
 
-function* outputProcessors(output: YamlValue | undefined): Generator<YamlValue> {
+function* outputProcessors(
+  output: YamlValue | undefined
+): Generator<YamlValue> {
   if (output === undefined || !isYamlObject(output)) return;
 
   if (output.processors !== undefined) yield output.processors;
@@ -265,13 +270,12 @@ export function planRun(
     const marker = '/tests/';
     const markerIndex = path.lastIndexOf(marker);
 
-    return markerIndex >= 0 ? path.slice(markerIndex + 1) : path;
+    return markerIndex >= 0
+      ? path.slice(markerIndex + 1)
+      : `.validation-input/${basename(path)}`;
   };
 
-  const replaceProcessorStandIns = (
-    node: YamlValue,
-    at: string
-  ): YamlValue => {
+  const replaceProcessorStandIns = (node: YamlValue, at: string): YamlValue => {
     if (Array.isArray(node)) {
       return node.map((entry, index) =>
         replaceProcessorStandIns(entry, `${at}.${index}`)
@@ -470,6 +474,113 @@ export function planRun(
     );
   }
 
+  if (fixturePath && standIns.inputMetadata && isYamlObject(config.input)) {
+    const processors = Array.isArray(config.input.processors)
+      ? config.input.processors
+      : [];
+    config.input.processors = [
+      {
+        mapping: Object.entries(standIns.inputMetadata)
+          .map(([key, value]) => `meta ${key} = ${JSON.stringify(value)}`)
+          .join('\n'),
+      },
+      ...processors,
+    ];
+    substitutions.push({
+      role: 'input',
+      at: 'input.processors',
+      from: 'request metadata',
+      to: 'registered fixture request metadata',
+    });
+  }
+
+  if (
+    isYamlObject(config.buffer) &&
+    isYamlObject(config.buffer.system_window) &&
+    fixturePath
+  ) {
+    const window = config.buffer.system_window;
+    window.size = window.size === '5m' ? '1500ms' : '300ms';
+    if (window.slide !== undefined) window.slide = '300ms';
+    const scaleWindowMappings = (node: YamlValue): YamlValue => {
+      if (Array.isArray(node)) return node.map(scaleWindowMappings);
+      if (!isYamlObject(node)) return node;
+      return Object.fromEntries(
+        Object.entries(node).map(([key, value]) => [
+          key,
+          key === 'mapping' && isStringValue(value)
+            ? value
+                .replaceAll('let minute = 60', 'let minute = 0.3')
+                .replaceAll('($end - 60)', '($end - 0.3)')
+            : scaleWindowMappings(value),
+        ])
+      );
+    };
+    if (config.pipeline !== undefined)
+      config.pipeline = scaleWindowMappings(config.pipeline);
+    substitutions.push({
+      role: 'processor',
+      at: 'pipeline.processors',
+      from: '60-second window arithmetic',
+      to: '0.3-second window arithmetic for fixture execution',
+    });
+    const first = JSON.parse(
+      readFileSync(fixturePath, 'utf8')
+        .split('\n')
+        .find((line) => line.trim()) ?? '{}'
+    ) as { timestamp?: string };
+    const firstTime = Date.parse(first.timestamp ?? '') / 1000;
+    if (!Number.isFinite(firstTime))
+      throw new Error('window fixture requires a timestamp');
+    const anchor = Math.ceil((Date.now() + 1000) / 300) * 0.3 + 0.1;
+    const localInput = config.input;
+    if (!isYamlObject(localInput))
+      throw new Error('window fixture input is missing');
+    const processors = Array.isArray(localInput.processors)
+      ? localInput.processors
+      : [];
+    localInput.processors = [
+      ...processors,
+      {
+        mapping: `root = this\nmeta original_window_timestamp = this.timestamp\nroot.timestamp = (${anchor} + (this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano() / 1000000000 - ${firstTime}) * 0.005).ts_format("2006-01-02T15:04:05.999999999Z07:00")`,
+      },
+    ];
+    if (config.buffer.system_window.slide !== undefined) {
+      config.input = {
+        sequence: {
+          inputs: [
+            localInput,
+            {
+              generate: { count: 1, mapping: 'root = {}' },
+              processors: [
+                { sleep: { duration: '2s' } },
+                { mapping: 'root = deleted()' },
+              ],
+            },
+          ],
+        },
+      };
+      substitutions.push({
+        role: 'input',
+        at: 'input.sequence',
+        from: 'fixture EOF after first window acknowledgement',
+        to: 'finite input held open until overlapping windows flush',
+      });
+    }
+    substitutions.push({
+      role: 'input',
+      at: 'input.processors',
+      from: 'historical event timestamps',
+      to: 'current timestamps at 1/200 time scale',
+    });
+    substitutions.push({
+      role: 'resource',
+      at: 'buffer.system_window',
+      from: 'one-minute window unit',
+      to: '300ms window unit for fixture execution',
+    });
+  }
+
   let leafIndex = 0;
 
   const substituteOutput = (node: YamlValue, at: string): YamlValue => {
@@ -481,6 +592,21 @@ export function planRun(
 
     if (kind === 'broker' && isYamlObject(next.broker)) {
       const broker = { ...next.broker };
+      if (
+        isYamlObject(broker.batching) &&
+        broker.batching.processors !== undefined
+      ) {
+        substitutions.push({
+          role: 'output',
+          at: `${at}.broker.batching`,
+          from: JSON.stringify({
+            count: broker.batching.count,
+            period: broker.batching.period,
+          }),
+          to: 'count=25, period=1s; batching processors retained',
+        });
+        broker.batching = { ...broker.batching, count: 25, period: '1s' };
+      }
 
       if (Array.isArray(broker.outputs)) {
         broker.outputs = broker.outputs.map((entry, index) =>
@@ -563,8 +689,48 @@ export function planRun(
     }
 
     if (!LOCAL_OUTPUTS.has(kind)) native = false;
+    const settings = next[kind];
+    const batching =
+      isYamlObject(settings) && isYamlObject(settings.batching)
+        ? settings.batching
+        : undefined;
     delete next[kind];
     next.file = { path: target, codec: 'lines' };
+    const format = standIns.outputFormats?.[leafIndex - 1];
+    if (format === 'parquet' || format === 'avro' || format === 'gzip') {
+      const processors = Array.isArray(next.processors) ? next.processors : [];
+      next.processors = [
+        ...processors,
+        format === 'parquet'
+          ? { parquet_decode: {} }
+          : { mapping: 'root = content().encode("base64")' },
+      ];
+      substitutions.push({
+        role: 'output',
+        at,
+        from: `${format} bytes`,
+        to:
+          format === 'parquet'
+            ? 'file after Parquet decoding'
+            : 'base64 framed file',
+      });
+    }
+
+    if (batching?.processors !== undefined) {
+      substitutions.push({
+        role: 'output',
+        at: `${at}.${kind}.batching`,
+        from: `count=${String(batching.count)}, period=${String(batching.period)}`,
+        to: 'count=25, period=1s; batching processors retained',
+      });
+      return {
+        broker: {
+          pattern: 'fan_out',
+          batching: { ...batching, count: 25, period: '1s' },
+          outputs: [next],
+        },
+      };
+    }
 
     return next;
   };

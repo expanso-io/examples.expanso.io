@@ -34,36 +34,7 @@ You can chain aggregation pipelines together to create "rollups". For example, y
 - Input: The 1-minute summaries from Pipeline 1
 - Output: 1-hour summaries per sensor
 
-```yaml title="1-Hour Rollup Pipeline"
-# This pipeline consumes the output of the 1-minute pipeline
-input:
-  kafka:
-    addresses: [ ${KAFKA_BROKERS} ]
-    topics: [ "1-minute-aggregates" ]
-
-pipeline:
-  processors:
-    # 1. WINDOW: Round the 1-minute window to an hourly one
-    - mapping: |
-        let parsed_time = this.window_start.parse_timestamp()
-        let hour_window = parsed_time.ts_format("2006-01-02T15:00:00Z")
-        root = this
-        root.group_key = this.sensor_id + ":" + hour_window
-
-    # 2. CACHE & GROUP (using a 1-hour TTL)
-    # ...
-
-    # 3. AGGREGATE the aggregates
-    - mapping: |
-        root = {
-          "sensor_id": this[0].sensor_id,
-          "hourly_window": this[0].group_key.split(":")[1],
-          # Sum the counts from the 1-minute buckets
-          "total_events_in_hour": this.map_each(agg -> agg.event_count).sum(),
-          # Average the averages for an hourly average
-          "hourly_avg_temp": this.map_each(agg -> agg.avg_temperature).mean()
-        }
-```
+See the [complete configuration](/data-transformation/aggregate-time-windows/complete-aggregation-pipeline) for the maintained sensor and location rollups. An hourly rollup needs its own buffer and weighted averages; averaging window averages without event counts can distort the result.
 
 ## Pattern 2: Advanced Trend Analysis
 
@@ -91,20 +62,6 @@ The basic sliding window provides a moving average. For more advanced trend anal
     }
 ```
 
-## Pattern 3: Grace Periods for Late Events
+## Pattern 3: Late Events
 
-Network latency can cause events to arrive late. If an event for the `10:00:00` window arrives at `10:01:05`, a strict 1-minute TTL would have already closed the window. To handle this, you set the cache `default_ttl` to be slightly longer than the window duration.
-
-- **Window Duration:** `60s`
-- **Grace Period:** `10s`
-- **Cache TTL:** `70s`
-
-```yaml title="Cache with Grace Period"
-config:
-  cache_resources:
-    - label: window_cache
-      memory:
-        default_ttl: 70s # 60s window + 10s grace period
-```
-
-This ensures the window stays "open" for an extra 10 seconds to accept late-arriving data before it is aggregated. Choosing the right grace period is a trade-off between accuracy and latency.
+Review event-time selection, window boundaries, and late-arrival behavior in the configured `system_window` buffer. A cache TTL is not a grace period for an accumulating event window. Test late and out-of-order records against the target executor before selecting a policy.

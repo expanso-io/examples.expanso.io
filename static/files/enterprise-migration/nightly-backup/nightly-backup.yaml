@@ -77,7 +77,7 @@ config:
           root = this
           # Create checksum from all original fields (excluding metadata)
           let data_fields = this.without("_table", "_backup_type", "_backup_metadata")
-          root._checksum = $data_fields.format_json().hash("md5")
+          root._checksum = $data_fields.format_json(no_indent: true).hash("md5").encode("hex")
 
   output:
     # Route to different paths based on table
@@ -87,31 +87,58 @@ config:
           output:
             gcp_cloud_storage:
               bucket: '${GCS_BACKUP_BUCKET}'
-              path: 'backups/orders/${!this._backup_metadata.backup_date}/orders-${!timestamp_unix()}.parquet'
+              path: 'backups/orders/${! meta("backup_date") }/orders-${!uuid_v4()}.parquet'
               content_type: application/octet-stream
               batching:
                 count: 10000
                 period: 60s
+                processors:
+                  - mapping: |
+                      meta backup_date = this._backup_metadata.backup_date
+                      root.record = this.format_json()
+                  - parquet_encode:
+                      default_compression: snappy
+                      schema:
+                        - name: record
+                          type: UTF8
 
         - check: this._table == "inventory"
           output:
             gcp_cloud_storage:
               bucket: '${GCS_BACKUP_BUCKET}'
-              path: 'backups/inventory/${!this._backup_metadata.backup_date}/inventory-full.parquet'
+              path: 'backups/inventory/${! meta("backup_date") }/inventory-full-${!uuid_v4()}.parquet'
               content_type: application/octet-stream
               batching:
                 count: 50000 # Inventory is full backup, larger batches
                 period: 120s
+                processors:
+                  - mapping: |
+                      meta backup_date = this._backup_metadata.backup_date
+                      root.record = this.format_json()
+                  - parquet_encode:
+                      default_compression: snappy
+                      schema:
+                        - name: record
+                          type: UTF8
 
         - check: this._table == "order_items"
           output:
             gcp_cloud_storage:
               bucket: '${GCS_BACKUP_BUCKET}'
-              path: 'backups/order_items/${!this._backup_metadata.backup_date}/items-${!timestamp_unix()}.parquet'
+              path: 'backups/order_items/${! meta("backup_date") }/items-${!uuid_v4()}.parquet'
               content_type: application/octet-stream
               batching:
                 count: 10000
                 period: 60s
+                processors:
+                  - mapping: |
+                      meta backup_date = this._backup_metadata.backup_date
+                      root.record = this.format_json()
+                  - parquet_encode:
+                      default_compression: snappy
+                      schema:
+                        - name: record
+                          type: UTF8
 
         # Fallback for unknown tables
         - output:

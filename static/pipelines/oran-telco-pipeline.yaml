@@ -1,270 +1,239 @@
-# Complete O-RAN Edge Telemetry Pipeline
-# Example configuration for an OpenShift SNO deployment
-name: oran-edge-telemetry-complete
+# O-RAN DU telemetry on Single-Node OpenShift (SNO)
+#
+# This is an Expanso job spec. Deploy it through Expanso Cloud:
+#
+#   expanso-cli job deploy oran-telco-pipeline.yaml
+#
+# The job targets the Expanso Edge agent that runs on the SNO node as a
+# restricted-SCC Deployment (see examples/integrations/oran-telco-pipeline/openshift/).
+# Every path, host, and credential below is satisfied by those manifests:
+#
+#   /data                         PersistentVolumeClaim  oran-telemetry-data
+#   /etc/expanso/kafka-ca/ca.crt  Secret                 oran-kafka-cluster-ca-cert (AMQ Streams)
+#   KAFKA_USERNAME/KAFKA_PASSWORD Secret                 expanso-oran (KafkaUser, SCRAM-SHA-512)
+#   OTEL_ENDPOINT                 Service                oran-collector:4318 (OpenTelemetry Collector)
+#
+# Validate offline before deploying:
+#
+#   expanso-edge validate oran-telco-pipeline.yaml
+name: oran-edge-telemetry
+description: Normalize DU telemetry on an SNO node and fan out to OpenTelemetry, Parquet on a PVC, and AMQ Streams Kafka
 type: pipeline
-version: '1.2.0'
+namespace: default
+labels:
+  example: oran-telco-pipeline
+  platform: openshift-sno
+
+# Node labels are set in the edge agent's config (edge-config.yaml in the ConfigMap).
+selector:
+  match_labels:
+    platform: openshift-sno
+    role: oran-du-telemetry
 
 config:
-  # Input configuration - hybrid collection approach
+  rate_limit_resources:
+    - label: du_api_polling
+      local:
+        count: 1
+        interval: 1s
+
   input:
     broker:
       inputs:
-        # Real-time API collection from DU nodes
-        - label: 'du_api_realtime'
-          http_client:
-            url: '${DU_ENDPOINT:http://du-001.oran.local:8080}/api/v1/metrics/realtime'
-            verb: GET
-            headers:
-              Authorization: 'Bearer ${DU_API_KEY}'
-              Accept: 'application/json'
-              User-Agent: 'expanso-edge-oran-collector/1.2.0'
-            rate_limit: '1/s'
-            timeout: '30s'
-
-            # Retry configuration
-            retries: 3
-            retry_period: '1s'
-            max_retry_backoff: '30s'
+        # 1. Adapter push. The DU exporter pod POSTs decoded telemetry to the
+        #    agent's in-cluster Service (expanso-edge:8080). No hostPath is needed.
+        - label: du_adapter_push
+          http_server:
+            address: 0.0.0.0:8080
+            path: /telemetry
+            allowed_verbs: [POST]
+            timeout: 30s
           processors:
             - mapping: |
-                # Parse API response and add metadata
+                root = this
+                root.collection_method = "adapter_push"
+                root.collector_timestamp = now()
+                root.du_id = this.du_id.or(env("DU_ID")).or("du-unknown")
+                root.cell_id = this.cell_id.or(env("CELL_ID")).or("cell-unknown")
+                root.gnb_id = this.gnb_id.or(env("GNB_ID")).or("gnb-unknown")
+
+        # 2. DU API polling over the cluster network.
+        - label: du_api_realtime
+          http_client:
+            url: '${DU_ENDPOINT:http://oran-du.oran-du.svc:8080}/api/v1/metrics/realtime'
+            verb: GET
+            rate_limit: du_api_polling
+            headers:
+              Authorization: 'Bearer ${DU_API_KEY}'
+              Accept: application/json
+              User-Agent: expanso-edge-oran-collector/2.0.0
+            timeout: 30s
+            retries: 3
+            retry_period: 1s
+            max_retry_backoff: 30s
+          processors:
+            - mapping: |
                 root = this
                 root.collection_method = "api_realtime"
                 root.collector_timestamp = now()
-                root.du_id = env("DU_ID") | this.du_id | "du-unknown"
-                root.cell_id = env("CELL_ID") | this.cell_id | "cell-unknown"
-                root.gnb_id = env("GNB_ID") | this.gnb_id | "gnb-unknown"
+                root.du_id = this.du_id.or(env("DU_ID")).or("du-unknown")
+                root.cell_id = this.cell_id.or(env("CELL_ID")).or("cell-unknown")
+                root.gnb_id = this.gnb_id.or(env("GNB_ID")).or("gnb-unknown")
 
-        # File-based collection for batch/historical data
-        - label: 'du_files_batch'
-          file:
-            paths:
-              - '/mnt/du-telemetry/ptp4l/*.log'
-              - '/mnt/du-telemetry/scheduler/*.log'
-              - '/mnt/du-telemetry/system/*.log'
-              - '/mnt/du-telemetry/rf/*.log'
-            scanner:
-              lines: {}
-          processors:
-            - mapping: |
-                # Parse log files based on source
-                let file_path = meta("path")
-                let raw_line = content().string()
-                let log_type = if $file_path.contains("ptp4l") {
-                  "ptp_timing"
-                } else if $file_path.contains("scheduler") {
-                  "prb_utilization"
-                } else if $file_path.contains("system") {
-                  "system_performance"
-                } else if $file_path.contains("rf") {
-                  "rf_measurements"
-                } else {
-                  "unknown"
-                }
-                let offset_match = $raw_line.re_find_all("offset: ([+-]?\\d+)ns")
-                let dl_match = $raw_line.re_find_all("DL_PRB: (\\d+)%")
-                let ul_match = $raw_line.re_find_all("UL_PRB: (\\d+)%")
-                let cpu_match = $raw_line.re_find_all("CPU: ([\\d.]+)%")
-                let mem_match = $raw_line.re_find_all("MEM: ([\\d.]+)%")
-                let rsrp_match = $raw_line.re_find_all("RSRP: ([+-]?\\d+)dBm")
-                let sinr_match = $raw_line.re_find_all("SINR: ([+-]?\\d+)dB")
-
-                root.collection_method = "file_batch"
-                root.collector_timestamp = now()
-                root.file_path = $file_path
-                root.du_id = env("DU_ID") | "du-unknown"
-                root.cell_id = env("CELL_ID") | "cell-unknown"
-                root.gnb_id = env("GNB_ID") | "gnb-unknown"
-                root.metric_type = $log_type
-                root.raw_line = $raw_line
-                root.ptp4l_offset_ns = if $offset_match.length() > 0 {
-                  $offset_match.0.1.number()
-                }
-                root.prb_dl_pct = if $dl_match.length() > 0 { $dl_match.0.1.number() }
-                root.prb_ul_pct = if $ul_match.length() > 0 { $ul_match.0.1.number() }
-                root.cpu_pct = if $cpu_match.length() > 0 { $cpu_match.0.1.number() }
-                root.memory_pct = if $mem_match.length() > 0 { $mem_match.0.1.number() }
-                root.rsrp_dbm = if $rsrp_match.length() > 0 { $rsrp_match.0.1.number() }
-                root.sinr_db = if $sinr_match.length() > 0 { $sinr_match.0.1.number() }
-
-        # Simulated data generator for testing/demo
-        - label: 'du_simulator'
+        # 3. Simulated DU telemetry so the job produces data before a DU is wired in.
+        - label: du_simulator
           generate:
             interval: '${SIMULATION_INTERVAL:10s}'
-            count: 0 # Infinite generation
+            count: 0
             mapping: |
-              # Generate realistic O-RAN telemetry for demo/testing
               root.timestamp = now()
               root.collection_method = "simulation"
-              root.du_id = "du-" + random_int(min:1, max:8).string()
-              root.cell_id = "cell-" + random_int(min:1, max:3).string()
-              root.gnb_id = env("GNB_ID") | "gnb-seattle-01"
+              let du_number = random_int(min: 1, max: 8).string()
+              root.du_id = "du-00" + $du_number
+              root.cell_id = "cell-" + $du_number
+              root.gnb_id = env("GNB_ID").or("gnb-seattle-01")
 
-              # PTP timing with realistic distribution
-              let base_offset = random_int(max: 200) - 100  # ±100ns baseline
-              let jitter = random_int(max: 20) - 10         # ±10ns jitter
-              root.ptp4l_offset_ns = base_offset + jitter
+              # PTP timing: +/-100 ns baseline with +/-10 ns jitter
+              root.ptp4l_offset_ns = (random_int(max: 200) - 100) + (random_int(max: 20) - 10)
 
-              # PRB utilization with diurnal pattern
+              # PRB utilization with a business-hours bump
               let hour = now().ts_format("15").number()
-              let business_hour_factor = if hour >= 8 && hour <= 18 { 1.5 } else { 0.7 }
-              root.prb_dl_pct = (random_int(min: 20, max: 70) * business_hour_factor).round()
-              root.prb_ul_pct = (random_int(min: 10, max: 40) * business_hour_factor).round()
+              let business_hour_factor = if $hour >= 8 && $hour <= 18 { 1.5 } else { 0.7 }
+              root.prb_dl_pct = [(random_int(min: 20, max: 70) * $business_hour_factor).round(), 95].min()
+              root.prb_ul_pct = [(random_int(min: 10, max: 40) * $business_hour_factor).round(), 85].min()
 
-              # System performance
               root.cpu_pct = random_int(min: 25, max: 85)
               root.memory_pct = random_int(min: 40, max: 80)
               root.disk_pct = random_int(min: 15, max: 60)
 
-              # RF measurements with path loss variation
-              root.rsrp_dbm = -(random_int(min: 70, max: 110))
+              root.rsrp_dbm = 0 - random_int(min: 70, max: 110)
               root.sinr_db = random_int(max: 27) - 2
 
-              # Additional simulated metrics
               root.active_ue_count = random_int(min: 5, max: 150)
               root.network_rx_mbps = random_int(min: 50, max: 800)
               root.network_tx_mbps = random_int(min: 20, max: 400)
 
-  # Processing pipeline - transformation and enrichment
   pipeline:
     processors:
-      # Input validation and cleanup
-      - label: 'input_validation'
+      # Drop records that cannot be attributed to a cell.
+      - label: input_validation
         mapping: |
-          # Ensure all messages have required fields
-          root = if this.du_id != null && this.du_id != "" &&
-            this.cell_id != null && this.cell_id != "" &&
-            this.timestamp != null {
+          root = if this.du_id.or("") != "" && this.cell_id.or("") != "" && this.timestamp != null {
             this
           } else {
-            deleted()  # Drop invalid records
+            deleted()
           }
 
-      # Timestamp normalization
-      - label: 'timestamp_processing'
+      # Normalize timestamps. RFC 3339 strings and Unix seconds are both accepted.
+      - label: timestamp_processing
         mapping: |
-          let event_time = this.timestamp.string().ts_parse("2006-01-02T15:04:05Z")
-          let hour = $event_time.ts_format("15").number()
+          let ts = this.timestamp.or(now())
           root = this
-          root.timestamp_ns = $event_time.ts_unix_nano()
-          root.timestamp_iso = $event_time.ts_format("2006-01-02T15:04:05.000000000Z")
+          root.timestamp_ns = $ts.ts_unix_nano()
+          root.timestamp_iso = $ts.ts_format("2006-01-02T15:04:05.000000000Z07:00")
           root.processed_at = now()
+          root.hour_of_day = $ts.ts_format("15").number()
+          root.day_of_week = $ts.ts_format("Monday")
+          root.is_business_hours = root.hour_of_day >= 8 && root.hour_of_day <= 18
 
-          # Time-based derived fields
-          root.hour_of_day = $hour
-          root.day_of_week = $event_time.ts_format("Monday")
-          root.is_business_hours = $hour >= 8 && $hour <= 18
-
-      # Site metadata enrichment
-      - label: 'site_enrichment'
+      # Site metadata from the agent's environment (ConfigMap oran-site).
+      - label: site_enrichment
         mapping: |
-          # Site hierarchy and metadata
-          let region = env("REGION") | "us-west-2"
-          let market = env("MARKET") | "seattle"
-          let sector = match this.cell_id {
+          root = this
+          root.region = env("REGION").or("us-west-2")
+          root.market = env("MARKET").or("seattle")
+          root.site_type = env("SITE_TYPE").or("urban-macro")
+          root.gnb_id = if this.gnb_id.or("gnb-unknown") == "gnb-unknown" {
+            "gnb-" + root.region + "-" + this.du_id
+          } else {
+            this.gnb_id
+          }
+          root.sector = match this.cell_id {
             "cell-1" => "alpha"
             "cell-2" => "beta"
             "cell-3" => "gamma"
             _ => "omni"
           }
-          let gnb_id = if this.gnb_id == "gnb-unknown" || this.gnb_id == null {
-            "gnb-" + $region + "-" + this.du_id.string()
-          } else {
-            this.gnb_id
-          }
-
-          root = this
-          root.region = $region
-          root.market = $market
-          root.site_type = env("SITE_TYPE") | "urban-macro"
-          root.gnb_id = $gnb_id
-          root.sector = $sector
-
-          # Site coordinates (would typically come from CMDB)
-          root.coordinates = {
-            "latitude": 47.6062,
-            "longitude": -122.3321,
-            "altitude_m": 15
-          }
-
-          # Network hierarchy for analytics
           root.network_hierarchy = {
-            "region": $region,
-            "market": $market,
-            "site_id": $gnb_id,
+            "region": root.region,
+            "market": root.market,
+            "site_id": root.gnb_id,
             "du_id": this.du_id,
             "cell_id": this.cell_id,
-            "sector": $sector
+            "sector": root.sector
           }
 
-      # PTP compliance analysis
-      - label: 'ptp_analysis'
+      # PTP review bands (ITU-T G.8271.1 offsets). Authored thresholds, not a timing diagnosis.
+      - label: ptp_analysis
         mapping: |
-          let abs_offset = if this.ptp4l_offset_ns < 0 {
-            0 - this.ptp4l_offset_ns
-          } else {
-            this.ptp4l_offset_ns
-          }
-          let compliance = match {
-            this.ptp4l_offset_ns == null => "unavailable"
-            $abs_offset < 100 => "compliant"
-            $abs_offset < 1000 => "degraded"
-            $abs_offset < 10000 => "critical"
-            _ => "non_compliant"
-          }
+          let abs_offset = this.ptp4l_offset_ns.or(0).abs()
           root = this
-          root.ptp_compliance = $compliance
-          root.ptp_score = match {
-            this.ptp4l_offset_ns == null => 0
-            $abs_offset < 100 => 100
-            $abs_offset < 1000 => (100 - (($abs_offset - 100) / 9)).round()
-            $abs_offset < 10000 => (90 - (($abs_offset - 1000) / 100)).round()
-            _ => 0
+          root.ptp_review = if this.ptp4l_offset_ns == null {
+            deleted()
+          } else if $abs_offset < 100 {
+            "within_band"
+          } else if $abs_offset < 1000 {
+            "degraded"
+          } else if $abs_offset < 10000 {
+            "critical"
+          } else {
+            "outside_band"
           }
-          root.ptp_alert_level = match $compliance {
-            "compliant" => "none"
+          root.ptp_score = if this.ptp4l_offset_ns == null {
+            deleted()
+          } else if $abs_offset < 100 {
+            100
+          } else if $abs_offset < 1000 {
+            (100 - (($abs_offset - 100) / 9)).round()
+          } else if $abs_offset < 10000 {
+            [(90 - (($abs_offset - 1000) / 100)).round(), 0].max()
+          } else {
+            0
+          }
+          root.ptp_alert_level = match root.ptp_review {
+            "within_band" => "none"
             "degraded" => "warning"
             "critical" => "major"
-            "non_compliant" => "critical"
-            _ => "unavailable"
+            "outside_band" => "critical"
+            _ => deleted()
           }
 
-      # PRB and capacity analysis
-      - label: 'capacity_analysis'
+      # PRB utilization and capacity bands.
+      - label: capacity_analysis
         mapping: |
-          let has_prb = this.prb_dl_pct != null && this.prb_ul_pct != null
-          let utilization = if $has_prb {
-            (this.prb_dl_pct + this.prb_ul_pct) / 2
-          }
           root = this
-          root.prb_total_utilization = $utilization
-          root.prb_efficiency = if $has_prb { $utilization.round() }
-          root.congestion_level = if $has_prb {
-            match {
-              this.prb_dl_pct < 50 => "low"
-              this.prb_dl_pct < 80 => "medium"
-              this.prb_dl_pct < 95 => "high"
-              _ => "critical"
-            }
-          }
-          root.capacity_headroom_pct = if $has_prb { 100 - this.prb_dl_pct }
-          root.spectral_efficiency_dl = if $has_prb {
-            match {
-              this.prb_dl_pct < 30 => 2.4
-              this.prb_dl_pct < 70 => 3.2
-              this.prb_dl_pct < 90 => 2.8
-              _ => 1.8
-            }
-          }
-          root.time_to_congestion_min = if $has_prb && this.prb_dl_pct > 70 {
-            ((95 - this.prb_dl_pct) / 0.5).round()
+          root = if this.prb_dl_pct == null || this.prb_ul_pct == null {
+            this
+          } else {
+            this.merge({
+              "prb_total_utilization": (this.prb_dl_pct + this.prb_ul_pct) / 2,
+              "prb_efficiency": ((this.prb_dl_pct + this.prb_ul_pct) / 2).round(),
+              "congestion_level": match {
+                this.prb_dl_pct < 50 => "low"
+                this.prb_dl_pct < 80 => "medium"
+                this.prb_dl_pct < 95 => "high"
+                _ => "critical"
+              },
+              "capacity_headroom_pct": 100 - this.prb_dl_pct,
+              "spectral_efficiency_dl": match {
+                this.prb_dl_pct < 30 => 2.4
+                this.prb_dl_pct < 70 => 3.2
+                this.prb_dl_pct < 90 => 2.8
+                _ => 1.8
+              },
+              "time_to_congestion_min": if this.prb_dl_pct > 70 {
+                ((95 - this.prb_dl_pct) / 0.5).round()
+              } else {
+                null
+              }
+            })
           }
 
-      # RF quality assessment
-      - label: 'rf_analysis'
+      # RF quality bands (3GPP TS 36.133 RSRP ranges, authored SINR ranges).
+      - label: rf_analysis
         mapping: |
-          let has_rf = this.rsrp_dbm != null && this.sinr_db != null
           let rsrp_score = match {
+            this.rsrp_dbm == null => 0
             this.rsrp_dbm > -80 => 100
             this.rsrp_dbm > -90 => 80
             this.rsrp_dbm > -100 => 60
@@ -272,6 +241,7 @@ config:
             _ => 20
           }
           let sinr_score = match {
+            this.sinr_db == null => 0
             this.sinr_db > 20 => 100
             this.sinr_db > 13 => 80
             this.sinr_db > 0 => 60
@@ -279,103 +249,90 @@ config:
             _ => 20
           }
           root = this
-          root.rsrp_quality = if $has_rf {
-            match {
-              this.rsrp_dbm > -80 => "excellent"
-              this.rsrp_dbm > -90 => "good"
-              this.rsrp_dbm > -100 => "fair"
-              this.rsrp_dbm > -110 => "poor"
-              _ => "very_poor"
-            }
-          }
-          root.sinr_quality = if $has_rf {
-            match {
-              this.sinr_db > 20 => "excellent"
-              this.sinr_db > 13 => "good"
-              this.sinr_db > 0 => "fair"
-              this.sinr_db > -6 => "poor"
-              _ => "very_poor"
-            }
-          }
-          root.rf_health_score = if $has_rf {
-            (($rsrp_score + $sinr_score) / 2).round()
-          }
-          root.estimated_coverage_radius_m = if $has_rf {
-            match {
-              this.rsrp_dbm > -80 => 500
-              this.rsrp_dbm > -90 => 1000
-              this.rsrp_dbm > -100 => 2000
-              this.rsrp_dbm > -110 => 3000
-              _ => 5000
-            }
+          root = if this.rsrp_dbm == null || this.sinr_db == null {
+            this
+          } else {
+            this.merge({
+              "rsrp_quality": match {
+                this.rsrp_dbm > -80 => "excellent"
+                this.rsrp_dbm > -90 => "good"
+                this.rsrp_dbm > -100 => "fair"
+                this.rsrp_dbm > -110 => "poor"
+                _ => "very_poor"
+              },
+              "sinr_quality": match {
+                this.sinr_db > 20 => "excellent"
+                this.sinr_db > 13 => "good"
+                this.sinr_db > 0 => "fair"
+                this.sinr_db > -6 => "poor"
+                _ => "very_poor"
+              },
+              "rf_health_score": (($rsrp_score + $sinr_score) / 2).round(),
+              "estimated_coverage_radius_m": match {
+                this.rsrp_dbm > -80 => 500
+                this.rsrp_dbm > -90 => 1000
+                this.rsrp_dbm > -100 => 2000
+                this.rsrp_dbm > -110 => 3000
+                _ => 5000
+              }
+            })
           }
 
-      # Final data quality and validation
-      - label: 'data_quality'
+      # Data quality flags and pipeline metadata.
+      - label: data_quality
         mapping: |
-          let ptp_valid = this.ptp4l_offset_ns != null
-          let prb_valid = this.prb_dl_pct != null && this.prb_ul_pct != null
-          let rf_valid = this.rsrp_dbm != null && this.sinr_db != null
-          let system_valid = this.cpu_pct != null
-          let timestamp_valid = this.timestamp_ns != null
-          let quality_fields = [
-            $ptp_valid,
-            $prb_valid,
-            $rf_valid,
-            $system_valid,
-            $timestamp_valid
-          ]
-          let quality_score = ($quality_fields.filter(v -> v == true).length() / $quality_fields.length()) * 100
-          root = this
-          root.data_quality = {
-            "ptp_valid": $ptp_valid,
-            "prb_valid": $prb_valid,
-            "rf_valid": $rf_valid,
-            "system_valid": $system_valid,
-            "timestamp_valid": $timestamp_valid
+          let quality = {
+            "ptp_valid": this.ptp4l_offset_ns != null,
+            "prb_valid": this.prb_dl_pct != null && this.prb_ul_pct != null,
+            "rf_valid": this.rsrp_dbm != null && this.sinr_db != null,
+            "system_valid": this.cpu_pct != null,
+            "timestamp_valid": this.timestamp_ns != null
           }
-          root.data_quality_score = $quality_score
+          let valid_count = $quality.values().filter(v -> v == true).length()
+          root = this
+          root.data_quality = $quality
+          root.data_quality_score = ($valid_count / 5) * 100
           root.pipeline_metadata = {
-            "pipeline_id": "oran-edge-telemetry-complete",
-            "pipeline_version": "1.2.0",
-            "processing_node": env("NODE_ID"),
-            "processing_timestamp": now().ts_format("2006-01-02T15:04:05Z"),
-            "data_quality_score": $quality_score
+            "pipeline_id": "oran-edge-telemetry",
+            "pipeline_version": "2.0.0",
+            "processing_node": env("NODE_ID").or("unknown"),
+            "processing_timestamp": now().ts_format("2006-01-02T15:04:05Z07:00"),
+            "data_quality_score": root.data_quality_score
           }
 
-      # Metrics collection for pipeline monitoring
-      - label: 'pipeline_metrics'
+      # Agent-side metrics. The edge agent exports these over OTLP to the same
+      # collector; see the telemetry block in edge-config.yaml.
+      - label: pipeline_metrics
         metric:
           type: counter
-          name: 'oran_telemetry_messages_processed'
+          name: oran_telemetry_messages_processed
           labels:
-            pipeline_id: 'oran-edge-telemetry'
-            du_id: '${!this.du_id}'
-            region: '${!this.region}'
-            collection_method: '${!this.collection_method}'
-
+            pipeline_id: oran-edge-telemetry
+            du_id: '${! this.du_id }'
+            region: '${! this.region }'
+            collection_method: '${! this.collection_method }'
+      - metric:
+          type: timing
+          name: oran_telemetry_processing_latency_ns
+          value: '${! now().ts_unix_nano() - this.timestamp_ns }'
       - metric:
           type: gauge
-          name: 'oran_telemetry_data_quality_score'
-          value: '${!this.data_quality_score}'
+          name: oran_telemetry_data_quality_score
+          value: '${! this.data_quality_score }'
           labels:
-            du_id: '${!this.du_id}'
+            du_id: '${! this.du_id }'
 
-  # Multi-destination output routing
   output:
     broker:
-      pattern: fan_out # Send to all destinations simultaneously
+      pattern: fan_out
       outputs:
-        # 1. Real-time observability - Grafana via OTEL
-        - label: 'grafana_otel'
+        # 1. Observability: OTLP/HTTP JSON to the OpenTelemetry Collector on the
+        #    node. OpenShift user-workload monitoring scrapes the collector's
+        #    Prometheus exporter (ServiceMonitor in the manifests). Records that
+        #    cannot be delivered land in a dead-letter file on the PVC.
+        - label: otel_collector
           processors:
-            - metric:
-                type: counter
-                name: 'oran_output_attempts'
-                labels:
-                  destination: 'grafana'
             - mapping: |
-                # Transform to OTLP format for Grafana
                 root = {
                   "resourceMetrics": [{
                     "resource": {
@@ -383,76 +340,64 @@ config:
                         {"key": "du_id", "value": {"stringValue": this.du_id}},
                         {"key": "cell_id", "value": {"stringValue": this.cell_id}},
                         {"key": "gnb_id", "value": {"stringValue": this.gnb_id}},
-                        {"key": "region", "value": {"stringValue": this.region}},
-                        {"key": "ptp_compliance", "value": {"stringValue": this.ptp_compliance}},
-                        {"key": "congestion_level", "value": {"stringValue": this.congestion_level}}
+                        {"key": "region", "value": {"stringValue": this.region}}
                       ]
                     },
                     "scopeMetrics": [{
-                      "scope": {"name": "oran.telemetry", "version": "1.2.0"},
+                      "scope": {"name": "oran.telemetry", "version": "2.0.0"},
                       "metrics": [
                         {
                           "name": "oran_ptp_offset_nanoseconds",
                           "description": "PTP timing offset from master clock",
                           "unit": "ns",
-                          "gauge": {
-                            "dataPoints": [{
-                              "timeUnixNano": this.timestamp_ns.string(),
-                              "asInt": this.ptp4l_offset_ns
-                            }]
-                          }
+                          "gauge": {"dataPoints": [{
+                            "timeUnixNano": this.timestamp_ns.string(),
+                            "asInt": this.ptp4l_offset_ns
+                          }]}
                         },
                         {
-                          "name": "oran_ptp_compliance_score",
-                          "description": "PTP compliance score (0-100)",
+                          "name": "oran_ptp_review_score",
+                          "description": "PTP review score (0-100)",
                           "unit": "1",
-                          "gauge": {
-                            "dataPoints": [{
-                              "timeUnixNano": this.timestamp_ns.string(),
-                              "asDouble": this.ptp_score
-                            }]
-                          }
+                          "gauge": {"dataPoints": [{
+                            "timeUnixNano": this.timestamp_ns.string(),
+                            "asDouble": this.ptp_score
+                          }]}
                         },
                         {
                           "name": "oran_prb_utilization_percent",
                           "description": "PRB utilization percentage",
                           "unit": "%",
-                          "gauge": {
-                            "dataPoints": [
-                              {
-                                "timeUnixNano": this.timestamp_ns.string(),
-                                "asDouble": this.prb_dl_pct,
-                                "attributes": [{"key": "direction", "value": {"stringValue": "downlink"}}]
-                              },
-                              {
-                                "timeUnixNano": this.timestamp_ns.string(),
-                                "asDouble": this.prb_ul_pct,
-                                "attributes": [{"key": "direction", "value": {"stringValue": "uplink"}}]
-                              }
-                            ]
-                          }
+                          "gauge": {"dataPoints": [
+                            {
+                              "timeUnixNano": this.timestamp_ns.string(),
+                              "asDouble": this.prb_dl_pct,
+                              "attributes": [{"key": "direction", "value": {"stringValue": "downlink"}}]
+                            },
+                            {
+                              "timeUnixNano": this.timestamp_ns.string(),
+                              "asDouble": this.prb_ul_pct,
+                              "attributes": [{"key": "direction", "value": {"stringValue": "uplink"}}]
+                            }
+                          ]}
                         },
                         {
                           "name": "oran_cpu_utilization_percent",
                           "description": "DU CPU utilization",
                           "unit": "%",
-                          "gauge": {
-                            "dataPoints": [{
-                              "timeUnixNano": this.timestamp_ns.string(),
-                              "asDouble": this.cpu_pct
-                            }]
-                          }
+                          "gauge": {"dataPoints": [{
+                            "timeUnixNano": this.timestamp_ns.string(),
+                            "asDouble": this.cpu_pct
+                          }]}
                         },
                         {
                           "name": "oran_rf_health_score",
                           "description": "RF quality health score",
                           "unit": "1",
-                          "gauge": {
-                            "dataPoints": [{
-                              "timeUnixNano": this.timestamp_ns.string(),
-                              "asDouble": this.rf_health_score
-                            }]
-                          }
+                          "gauge": {"dataPoints": [{
+                            "timeUnixNano": this.timestamp_ns.string(),
+                            "asDouble": this.rf_health_score
+                          }]}
                         }
                       ]
                     }]
@@ -460,35 +405,42 @@ config:
                 }
           fallback:
             - http_client:
-                url: '${OTEL_ENDPOINT:http://otel-collector:4318}/v1/metrics'
+                url: '${OTEL_ENDPOINT:http://oran-collector.oran-telemetry.svc:4318}/v1/metrics'
                 verb: POST
                 headers:
-                  Content-Type: 'application/json'
-                  Authorization: 'Bearer ${OTEL_TOKEN}'
-                timeout: '30s'
+                  Content-Type: application/json
+                timeout: 30s
                 retries: 3
-                retry_period: '1s'
-                max_retry_backoff: '30s'
+                retry_period: 1s
+                max_retry_backoff: 30s
             - file:
-                path: '/data/errors/grafana-${!now().ts_format("2006-01-02")}.jsonl'
+                path: '/data/dead-letter/otel-${! now().ts_format("2006-01-02") }.jsonl'
                 codec: lines
+              processors:
+                - mapping: |
+                    root = {
+                      "error_timestamp": now(),
+                      "error_destination": "otel_collector",
+                      "error_message": meta("fallback_error"),
+                      "original_payload": this
+                    }
 
-        # 2. Long-term storage - Parquet files
-        - label: 'parquet_storage'
+        # 2. Long-term storage: Parquet files on the PVC mounted at /data.
+        #    Each batch is encoded in memory and written as one file.
+        - label: parquet_pvc
           processors:
             - mapping: |
-                # Optimize for columnar storage
                 root = {
                   "timestamp_ns": this.timestamp_ns,
                   "date": this.timestamp_iso.slice(0, 10),
-                  "hour": this.timestamp_iso.slice(11, 13).number(),
+                  "hour": this.hour_of_day,
                   "du_id": this.du_id,
                   "cell_id": this.cell_id,
                   "gnb_id": this.gnb_id,
                   "region": this.region,
                   "sector": this.sector,
                   "ptp_offset_ns": this.ptp4l_offset_ns,
-                  "ptp_compliance": this.ptp_compliance,
+                  "ptp_review": this.ptp_review,
                   "ptp_score": this.ptp_score,
                   "prb_dl_pct": this.prb_dl_pct,
                   "prb_ul_pct": this.prb_ul_pct,
@@ -500,28 +452,59 @@ config:
                   "rf_health_score": this.rf_health_score,
                   "data_quality_score": this.data_quality_score
                 }
-          file:
-            path: '/data/oran-telemetry/${!this.date}/region=${!this.region}/gnb=${!this.gnb_id}/du-metrics-${!uuid_v4().string().slice(0,8)}.jsonl'
-            codec: lines
+          broker:
+            batching:
+              count: 10000
+              period: 5m
+              byte_size: 10000000
+              processors:
+                - parquet_encode:
+                    default_compression: zstd
+                    schema:
+                      - { name: timestamp_ns, type: INT64 }
+                      - { name: date, type: UTF8 }
+                      - { name: hour, type: INT32 }
+                      - { name: du_id, type: UTF8 }
+                      - { name: cell_id, type: UTF8 }
+                      - { name: gnb_id, type: UTF8 }
+                      - { name: region, type: UTF8 }
+                      - { name: sector, type: UTF8 }
+                      - { name: ptp_offset_ns, type: INT64, optional: true }
+                      - { name: ptp_review, type: UTF8, optional: true }
+                      - { name: ptp_score, type: INT32, optional: true }
+                      - { name: prb_dl_pct, type: DOUBLE, optional: true }
+                      - { name: prb_ul_pct, type: DOUBLE, optional: true }
+                      - { name: prb_efficiency, type: DOUBLE, optional: true }
+                      - { name: cpu_pct, type: DOUBLE, optional: true }
+                      - { name: memory_pct, type: DOUBLE, optional: true }
+                      - { name: rsrp_dbm, type: DOUBLE, optional: true }
+                      - { name: sinr_db, type: DOUBLE, optional: true }
+                      - { name: rf_health_score, type: DOUBLE, optional: true }
+                      - { name: data_quality_score, type: DOUBLE }
+            outputs:
+              - file:
+                  path: '/data/oran-telemetry/date=${! now().ts_format("2006-01-02") }/node=${! env("NODE_ID").or("unknown") }/part-${! uuid_v4() }.parquet'
+                  codec: all-bytes
 
-        # 3. Analytics platform - Cloudera via Kafka
-        - label: 'cloudera_kafka'
+        # 3. Analytics: AMQ Streams (Strimzi) Kafka on the cluster, TLS listener
+        #    on 9093 with SCRAM-SHA-512. The cluster CA is mounted from the
+        #    operator-managed Secret. Cloudera consumes from this topic.
+        - label: amq_streams_kafka
           processors:
             - mapping: |
-                # Cloudera-optimized format
                 root = {
-                  "schema": {"type": "oran_telemetry", "version": "1.2.0"},
+                  "schema": {"type": "oran_telemetry", "version": "2.0.0"},
                   "metadata": {
                     "event_time": this.timestamp_iso,
-                    "ingestion_time": now().ts_format("2006-01-02T15:04:05Z"),
-                    "pipeline_version": "1.2.0",
+                    "ingestion_time": now().ts_format("2006-01-02T15:04:05Z07:00"),
+                    "pipeline_version": "2.0.0",
                     "data_quality_score": this.data_quality_score
                   },
                   "network": this.network_hierarchy,
                   "telemetry": {
                     "timing": {
                       "ptp_offset_ns": this.ptp4l_offset_ns,
-                      "compliance": this.ptp_compliance,
+                      "review": this.ptp_review,
                       "score": this.ptp_score
                     },
                     "resources": {
@@ -541,69 +524,37 @@ config:
                     }
                   }
                 }
-          kafka:
-            addresses: ['${KAFKA_BOOTSTRAP_SERVERS}']
-            topic: 'oran-telemetry-structured'
-            key: '${!this.gnb_id}-${!this.cell_id}'
-            partition: '${!this.gnb_id.hash("xxhash") % 12}'
-            client_id: 'expanso-oran-pipeline'
-            sasl:
-              mechanism: 'SCRAM-SHA-512'
-              user: '${KAFKA_USERNAME}'
-              password: '${KAFKA_PASSWORD}'
-            tls:
-              enabled: true
-            compression: 'lz4'
-
-        # 4. Edge resilience buffer
-        - label: 'local_buffer'
-          processors:
-            - mapping: |
-                root = this
-                root.buffer_metadata = {
-                  "buffered_at": now(),
-                  "buffer_node": env("NODE_ID"),
-                  "buffer_reason": "edge_resilience"
-                }
-          file:
-            path: '/data/buffer/oran-${!count("buffer")}.jsonl'
-            codec: lines
-
-logger:
-  level: INFO
-  format: json
-
-metrics:
-  prometheus:
-    path: '/metrics'
-
-# Resource limits and deployment configuration
-resources:
-  limits:
-    memory: '2Gi'
-    cpu: '1000m'
-  requests:
-    memory: '1Gi'
-    cpu: '500m'
-
-# Environment variable references
-env:
-  - NODE_ID
-  - REGION
-  - MARKET
-  - SITE_TYPE
-  - DU_ENDPOINT
-  - DU_API_KEY
-  - OTEL_ENDPOINT
-  - OTEL_TOKEN
-  - KAFKA_BOOTSTRAP_SERVERS
-  - KAFKA_USERNAME
-  - KAFKA_PASSWORD
-
-# Health check configuration
-health_check:
-  enabled: true
-  interval: '30s'
-  timeout: '5s'
-  path: '/health'
-  port: 8080
+          fallback:
+            - kafka:
+                addresses:
+                  [
+                    '${KAFKA_BOOTSTRAP_SERVERS:oran-kafka-kafka-bootstrap.oran-telemetry.svc:9093}',
+                  ]
+                topic: oran-telemetry-structured
+                key: '${! this.network.site_id }-${! this.network.cell_id }'
+                client_id: expanso-oran-pipeline
+                tls:
+                  enabled: true
+                  root_cas_file: /etc/expanso/kafka-ca/ca.crt
+                sasl:
+                  mechanism: SCRAM-SHA-512
+                  user: '${KAFKA_USERNAME}'
+                  password: '${KAFKA_PASSWORD}'
+                compression: lz4
+                idempotent_write: false
+                ack_replicas: true
+                max_msg_bytes: 10485760
+                batching:
+                  count: 500
+                  period: 5s
+            - file:
+                path: '/data/dead-letter/kafka-${! now().ts_format("2006-01-02") }.jsonl'
+                codec: lines
+              processors:
+                - mapping: |
+                    root = {
+                      "error_timestamp": now(),
+                      "error_destination": "amq_streams_kafka",
+                      "error_message": meta("fallback_error"),
+                      "original_payload": this
+                    }
