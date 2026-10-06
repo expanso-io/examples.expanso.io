@@ -7,6 +7,7 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -1069,3 +1070,233 @@ for (const path of [
     assert.equal(_archive_metadata.data_classification, 'personal_data_eu');
   });
 }
+
+test('PII processing failures reach only the DLQ before fan-out', async () => {
+  const original = JSON.parse(
+    readFileSync('tests/fixtures/pipeline-inputs/remove-pii.jsonl', 'utf8')
+  );
+  delete original.location;
+  original.ssn = '123-45-6789';
+  const fixture = join(work, 'pii-without-location.jsonl');
+  writeFileSync(fixture, JSON.stringify(original) + '\n');
+  const outputs = await capture(
+    config('examples/data-security/remove-pii.yaml'),
+    fixture,
+    {},
+    'failed'
+  );
+  assert.equal(outputs.length, 3);
+  assert.equal(outputs[0], '');
+  assert.equal(outputs[1], '');
+  const rows = outputs[2]
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].event_id, original.event_id);
+  assert.equal(rows[0].ssn, original.ssn);
+  assert.equal(
+    rows[0].payment_method.full_number,
+    original.payment_method.full_number
+  );
+  const valid = await capture(
+    config('examples/data-security/remove-pii.yaml'),
+    'tests/fixtures/pipeline-inputs/remove-pii.jsonl'
+  );
+  verifyOutputs(
+    contracts['examples/data-security/remove-pii.yaml'],
+    [],
+    valid,
+    manifest.environment
+  );
+});
+
+test('ID deduplication accepts SQL timestamps without parsing a window', async () => {
+  const path = 'examples/data-transformation/deduplicate-events-complete.yaml';
+  const pipeline = config(path);
+  pipeline.cache_resources = parse(readFileSync(path, 'utf8')).cache_resources;
+  const rows = [
+    { event_id: 'first', timestamp: '2026-10-05 12:00:00' },
+    { event_id: 'second', timestamp: '2026-10-05 12:00:01' },
+    { event_id: 'first', timestamp: '2026-10-05 12:00:02' },
+  ];
+  const fixture = join(work, 'id-deduplication.jsonl');
+  writeFileSync(
+    fixture,
+    rows.map((row) => JSON.stringify(row)).join('\n') + '\n'
+  );
+  const outputs = (await execute(pipeline, fixture)) as Array<{
+    event_id: string;
+    dedup_key: string;
+  }>;
+  assert.deepEqual(outputs.map((row) => [row.event_id, row.dedup_key]).sort(), [
+    ['first', 'first'],
+    ['second', 'second'],
+  ]);
+  writeFileSync(
+    fixture,
+    [
+      {
+        event_id: 'a',
+        dedup_strategy: 'composite',
+        event_type: 'click',
+        source: 'web',
+        timestamp: '2026-10-05T12:00:00Z',
+      },
+      {
+        event_id: 'b',
+        dedup_strategy: 'composite',
+        event_type: 'click',
+        source: 'web',
+        timestamp: '2026-10-05T12:00:30Z',
+      },
+      {
+        event_id: 'c',
+        dedup_strategy: 'composite',
+        event_type: 'click',
+        source: 'web',
+        timestamp: '2026-10-05T12:01:00Z',
+      },
+    ]
+      .map((row) => JSON.stringify(row))
+      .join('\n') + '\n'
+  );
+  const composite = (await execute(pipeline, fixture)) as Array<{
+    dedup_key: string;
+  }>;
+  assert.deepEqual(
+    composite.map((row) => row.dedup_key).sort(),
+    ['2026-10-05T12:00:00Z', '2026-10-05T12:01:00Z'].map(
+      (timestamp) => `click:web:${Math.floor(Date.parse(timestamp) / 60000)}`
+    )
+  );
+});
+
+for (const path of [
+  'examples/enterprise-migration/nightly-backup/nightly-backup.yaml',
+  'static/files/enterprise-migration/nightly-backup/nightly-backup.yaml',
+]) {
+  test(`inventory backup batches retain unique Parquet objects: ${path}`, async () => {
+    const source = parse(readFileSync(path, 'utf8')).config;
+    const destination = source.output.switch.cases[1].output.gcp_cloud_storage;
+    const directory = mkdtempSync(join(work, 'inventory-'));
+    const pipeline: YamlObject = {
+      input: {
+        generate: {
+          count: 5,
+          mapping:
+            'root = {"_table":"inventory","row_id":counter(),"amount":2.99}',
+        },
+      },
+      pipeline: source.pipeline,
+      output: {
+        broker: {
+          pattern: 'fan_out',
+          batching: { ...destination.batching, count: 2, period: '1s' },
+          outputs: [
+            {
+              file: {
+                path: join(directory, destination.path),
+                codec: 'all-bytes',
+              },
+            },
+          ],
+        },
+      },
+    };
+    const validity = validateSource(
+      edge,
+      root,
+      stringify(pipeline),
+      manifest.environment
+    );
+    assert.equal(validity.status, 'PASS', JSON.stringify(validity));
+    const deployed = await agent.deploy({
+      name: `inventory-${++sequence}`,
+      type: 'pipeline',
+      config: pipeline,
+    });
+    assert.ok(deployed.ok, JSON.stringify(deployed));
+    try {
+      const deadline = Date.now() + 20_000;
+      let state = '';
+      while (Date.now() < deadline) {
+        state = (await agent.executionStatus(deployed.jobId))?.state ?? '';
+        if (['completed', 'failed', 'stopped'].includes(state)) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      assert.equal(state, 'completed');
+      const files = readdirSync(directory, { recursive: true }).filter((name) =>
+        String(name).endsWith('.parquet')
+      );
+      assert.ok(files.length >= 3 && files.length <= 5);
+      const decoded: Array<{ record: string }> = [];
+      for (const file of files) {
+        const bytes = readFileSync(join(directory, String(file)));
+        decoded.push(
+          ...((await execute({
+            input: {
+              generate: {
+                count: 1,
+                mapping: `root = ${JSON.stringify(bytes.toString('base64'))}.decode("base64")`,
+              },
+            },
+            pipeline: { processors: [{ parquet_decode: {} }] },
+            output: { stdout: {} },
+          })) as Array<{ record: string }>)
+        );
+      }
+      assert.equal(decoded.length, 5);
+      assert.equal(
+        new Set(decoded.map((row) => JSON.parse(row.record).row_id)).size,
+        5
+      );
+    } finally {
+      await agent.deleteJob(deployed.jobId);
+    }
+  });
+}
+
+test('executor resolution ignores the optional environment override', () => {
+  const previous = process.env.EXPANSO_EDGE_BIN;
+  process.env.EXPANSO_EDGE_BIN = join(work, 'missing-override');
+  try {
+    assert.deepEqual(
+      resolveEdgeBinary(root, { install: false, log: () => {} }),
+      edge
+    );
+  } finally {
+    if (previous === undefined) delete process.env.EXPANSO_EDGE_BIN;
+    else process.env.EXPANSO_EDGE_BIN = previous;
+  }
+});
+
+test('executor spawn errors propagate into dated and latest failure reports', async () => {
+  const destination = mkdtempSync(join(work, 'spawn-failure-'));
+  const unavailable = new LocalEdgeAgent(
+    { path: join(destination, 'missing-executor'), version: edge.version },
+    destination
+  );
+  let failure: unknown;
+  try {
+    await unavailable.start().catch((error) => {
+      failure = error;
+      writeFailureReport(destination, '2026-10-05', error);
+    });
+    assert.ok(failure instanceof Error);
+    for (const name of ['2026-10-05', 'latest']) {
+      const reportRoot = join(destination, 'validation-reports', name);
+      const report = JSON.parse(
+        readFileSync(join(reportRoot, 'report.json'), 'utf8')
+      );
+      assert.match(report.summary.failure, /ENOENT/);
+      assert.equal(report.summary.date, '2026-10-05');
+      assert.match(
+        readFileSync(join(reportRoot, 'README.md'), 'utf8'),
+        /Overall: \*\*FAIL\*\*/
+      );
+    }
+  } finally {
+    await unavailable.stop();
+  }
+});

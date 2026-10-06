@@ -50,33 +50,11 @@ function readVersion(binary: string): string | null {
 /**
  * Resolve the pinned expanso-edge binary.
  *
- * Order: `EXPANSO_EDGE_BIN` env override (must still match the pin), then
- * `.bin/expanso-edge`, then a fresh pinned install into `.bin/`.
  */
 export function resolveEdgeBinary(
   repositoryRoot: string,
   options: { install: boolean; log: (line: string) => void }
 ): EdgeBinary {
-  const override = process.env.EXPANSO_EDGE_BIN;
-
-  if (override) {
-    const version = readVersion(override);
-
-    if (version === null) {
-      throw new Error(
-        `EXPANSO_EDGE_BIN=${override} is not a runnable expanso-edge binary`
-      );
-    }
-
-    if (version !== PINNED_EDGE_VERSION) {
-      throw new Error(
-        `EXPANSO_EDGE_BIN reports ${version}; this harness is pinned to ${PINNED_EDGE_VERSION}`
-      );
-    }
-
-    return { path: override, version };
-  }
-
   const binDir = join(repositoryRoot, '.bin');
   const binary = join(binDir, 'expanso-edge');
 
@@ -497,7 +475,8 @@ export class LocalEdgeAgent {
     this.child.stdout?.on('data', append);
     this.child.stderr?.on('data', append);
 
-    const exited = new Promise<number | null>((resolve) => {
+    const exited = new Promise<number | null>((resolve, reject) => {
+      this.child?.once('error', reject);
       this.child?.on('exit', (code) => resolve(code));
     });
 
@@ -551,7 +530,7 @@ export class LocalEdgeAgent {
     const child = this.child;
     this.child = null;
 
-    if (!child || child.exitCode !== null) return;
+    if (!child?.pid || child.exitCode !== null) return;
 
     const exited = new Promise<void>((resolve) =>
       child.once('exit', () => resolve())

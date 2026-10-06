@@ -212,47 +212,38 @@ config:
 
   # Output to multiple destinations
   output:
-    broker:
-      pattern: fan_out
-      outputs:
-        # Destination 1: Analytics system (anonymized data)
-        - label: analytics
-          http_client:
-            url: '${ANALYTICS_ENDPOINT:http://analytics-api:8080}/events'
-            verb: POST
-            headers:
-              Content-Type: application/json
-            batching:
-              count: 100
-              period: 5s
-            retries: 3
-            retry_period: 1s
-            max_retry_backoff: 30s
-
-        # Destination 2: Audit log (for compliance)
-        - label: audit_trail
-          processors:
-            # Extract audit metadata
-            - mapping: |
-                root = meta("audit_log_success")
-
-          file:
-            path: '/var/log/expanso/pii-audit-${!timestamp_unix()}.jsonl'
-            codec: lines
-
-        # Destination 3: Dead letter queue (validation failures)
-        - label: dlq
-          switch:
-            cases:
-              # Only send failed validations to DLQ
-              - check: errored()
-                output:
+    switch:
+      cases:
+        - check: "!errored()"
+          output:
+            broker:
+              pattern: fan_out
+              outputs:
+                - label: analytics
+                  http_client:
+                    url: ${ANALYTICS_ENDPOINT:http://analytics-api:8080}/events
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                    batching:
+                      count: 100
+                      period: 5s
+                    retries: 3
+                    retry_period: 1s
+                    max_retry_backoff: 30s
+                - label: audit_trail
+                  processors:
+                    - mapping: |
+                        root = meta("audit_log_success")
                   file:
-                    path: '/var/log/expanso/pii-dlq-${!timestamp_unix()}.jsonl'
+                    path: /var/log/expanso/pii-audit-${!timestamp_unix()}.jsonl
                     codec: lines
-              # Otherwise, drop (success case)
-              - output:
-                  drop: {}
+        - check: errored()
+          output:
+            label: dlq
+            file:
+              path: /var/log/expanso/pii-dlq-${!timestamp_unix()}.jsonl
+              codec: lines
   rate_limit_resources:
     - label: http_ingest
       local:

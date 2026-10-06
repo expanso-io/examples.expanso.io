@@ -36,7 +36,7 @@ gs://backup-bucket/
 │   │       └── orders-1705363200.parquet
 │   ├── inventory/
 │   │   └── 2024-01-15/
-│   │       └── inventory-full.parquet
+│   │       └── inventory-full-<batch-id>.parquet
 │   └── order_items/
 │       └── 2024-01-15/
 │           └── items-1705363200.parquet
