@@ -157,7 +157,7 @@ export const GENERATED_EXPLORER_STAGES = [
         type: "added",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
@@ -281,7 +281,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "object",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
@@ -388,7 +388,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "object",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
@@ -420,7 +420,7 @@ export const GENERATED_EXPLORER_STAGES = [
       },
       { content: "},", indent: 1 },
       {
-        content: '"amount_usd": 135.54,',
+        content: '"amount_usd": 135.54000000000002,',
         indent: 1,
         key: "amount_usd",
         valueType: "number",
@@ -444,9 +444,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "02-normalize-currency.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    # Step 2: Normalize currency to USD\n    # DataStage replacement: Currency lookup and conversion\n    - branch:\n        processors:\n          - mapping: |\n              # Currency conversion rates (in production, fetch from API)\n              let rates = {\n                "USD": 1.0,\n                "EUR": 1.08,\n                "GBP": 1.27,\n                "JPY": 0.0067,\n                "CHF": 1.13,\n                "CAD": 0.74\n              }\n\n              root = this\n              root.original_amount = this.AMOUNT\n              root.original_currency = this.CURRENCY\n\n              # Convert to USD\n              root.amount_usd = if this.CURRENCY == "USD" {\n                this.AMOUNT\n              } else {\n                (this.AMOUNT * $rates.get(this.CURRENCY).or(1.0) * 100).round() / 100\n              }\n        result_map: |\n          root.original_amount = this.original_amount\n          root.original_currency = this.original_currency\n          root.amount_usd = this.amount_usd\n',
+      'pipeline:\n  processors:\n    # Step 2: Normalize currency to USD\n    # DataStage replacement: Currency lookup and conversion\n    - branch:\n        processors:\n          - mapping: |\n              # Currency conversion rates (in production, fetch from API)\n              let rates = {\n                "USD": 1.0,\n                "EUR": 1.08,\n                "GBP": 1.27,\n                "JPY": 0.0067,\n                "CHF": 1.13,\n                "CAD": 0.74\n              }\n\n              root = this\n              root.original_amount = this.AMOUNT\n              root.original_currency = this.CURRENCY\n\n              # Convert to USD\n              root.amount_usd = if this.CURRENCY == "USD" {\n                this.AMOUNT\n              } else {\n                this.AMOUNT * $rates.get(this.CURRENCY).or(1.0)\n              }\n        result_map: |\n          root.original_amount = this.original_amount\n          root.original_currency = this.original_currency\n          root.amount_usd = this.amount_usd\n',
     configSha256:
-      "sha256:713b1f7bc96c5aff6b9bdb36690cba8a59044c1c07729246132e1160f52e8a88",
+      "sha256:7c7f0bc023d2537ad510eabfc30cce0066719ca688879391fb66e1f856e4fd55",
   },
   {
     id: 3,
@@ -530,7 +530,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "object",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
@@ -561,7 +561,7 @@ export const GENERATED_EXPLORER_STAGES = [
       },
       { content: "},", indent: 1 },
       {
-        content: '"amount_usd": 135.54,',
+        content: '"amount_usd": 135.54000000000002,',
         indent: 1,
         key: "amount_usd",
         valueType: "number",
@@ -649,7 +649,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "object",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
@@ -695,7 +695,7 @@ export const GENERATED_EXPLORER_STAGES = [
         type: "added",
       },
       {
-        content: '"amount_usd": 135.54,',
+        content: '"amount_usd": 135.54000000000002,',
         indent: 1,
         key: "amount_usd",
         valueType: "number",
@@ -795,7 +795,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "object",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
@@ -838,7 +838,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"amount_usd": 135.54,',
+        content: '"amount_usd": 135.54000000000002,',
         indent: 1,
         key: "amount_usd",
         valueType: "number",
@@ -926,7 +926,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "object",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
@@ -970,7 +970,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"amount_usd": 135.54,',
+        content: '"amount_usd": 135.54000000000002,',
         indent: 1,
         key: "amount_usd",
         valueType: "number",
@@ -1087,7 +1087,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "object",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
@@ -1130,7 +1130,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"amount_usd": 135.54,',
+        content: '"amount_usd": 135.54000000000002,',
         indent: 1,
         key: "amount_usd",
         valueType: "number",
@@ -1164,7 +1164,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "object",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
@@ -1215,7 +1215,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"amount_usd": 135.54,',
+        content: '"amount_usd": 135.54000000000002,',
         indent: 1,
         key: "amount_usd",
         valueType: "number",
@@ -1317,7 +1317,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "object",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
@@ -1366,7 +1366,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"amount_usd": 135.54,',
+        content: '"amount_usd": 135.54000000000002,',
         indent: 1,
         key: "amount_usd",
         valueType: "number",
@@ -1448,7 +1448,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "object",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
@@ -1498,7 +1498,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"amount_usd": 135.54,',
+        content: '"amount_usd": 135.54000000000002,',
         indent: 1,
         key: "amount_usd",
         valueType: "number",
@@ -1600,10 +1600,10 @@ export const GENERATED_EXPLORER_STAGE_FAMILY = {
     canonicalPipelinePath:
       "examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml",
     pipelineSha256:
-      "sha256:e0f5a78899e2e15d05282894600de2cc567bd7be8436d5157f530da3d1def5b5",
+      "sha256:29cfd18c2f3c4dd4366755e1469ba074f23ee27886f870ce4926324e60673826",
     fullYamlFilename: "db2-to-bigquery.yaml",
     fullYaml:
-      '# DB2 to BigQuery Migration Pipeline\n# Replaces DataStage ETL with edge-native processing\n#\n# Use case: Nightly batch migration of financial transactions from\n# on-premise DB2 to Google BigQuery with DataStage-style transformations\n#\n# Key features:\n# - SQL query against DB2 via ODBC\n# - Currency normalization and enrichment\n# - Account number masking for compliance\n# - Transaction categorization\n# - Lineage metadata for audit trail\n# - Lands in BigQuery partitioned by date\n\nname: db2-to-bigquery-transactions\ndescription: Migrate financial transactions from DB2 to BigQuery with transformations\n\ninput:\n  # Query DB2 for yesterday\'s transactions\n  # Runs on a schedule (see deployment config)\n  sql_select:\n    driver: odbc\n    dsn: \'Driver={IBM DB2 ODBC Driver};Database=${DB2_DATABASE};Hostname=${DB2_HOST};Port=${DB2_PORT};Protocol=TCPIP;Uid=${DB2_USER};Pwd=${DB2_PASSWORD};\'\n    table: TRANSACTIONS\n    columns:\n      - TRANSACTION_ID\n      - ACCOUNT_NUMBER\n      - CUSTOMER_ID\n      - TRANSACTION_DATE\n      - TRANSACTION_TYPE\n      - AMOUNT\n      - CURRENCY\n      - MERCHANT_NAME\n      - MERCHANT_CATEGORY_CODE\n      - SOURCE_SYSTEM\n      - CREATED_AT\n    where: \'TRANSACTION_DATE >= CURRENT DATE - 1 DAY AND TRANSACTION_DATE < CURRENT DATE\'\n    args_mapping: \'\'\n\npipeline:\n  processors:\n    # Step 1: Add lineage metadata (critical for audit)\n    - mapping: |\n        root = this\n        root._lineage = {\n          "source_system": "DB2_PROD",\n          "source_table": "TRANSACTIONS",\n          "pipeline": "db2-to-bigquery-transactions",\n          "extracted_at": now(),\n          "node_id": env("NODE_ID").or("unknown")\n        }\n\n    # Step 2: Normalize currency to USD\n    # DataStage replacement: Currency lookup and conversion\n    - branch:\n        processors:\n          - mapping: |\n              # Currency conversion rates (in production, fetch from API)\n              let rates = {\n                "USD": 1.0,\n                "EUR": 1.08,\n                "GBP": 1.27,\n                "JPY": 0.0067,\n                "CHF": 1.13,\n                "CAD": 0.74\n              }\n\n              root = this\n              root.original_amount = this.AMOUNT\n              root.original_currency = this.CURRENCY\n\n              # Convert to USD\n              root.amount_usd = if this.CURRENCY == "USD" {\n                this.AMOUNT\n              } else {\n                (this.AMOUNT * $rates.get(this.CURRENCY).or(1.0) * 100).round() / 100\n              }\n        result_map: |\n          root.original_amount = this.original_amount\n          root.original_currency = this.original_currency\n          root.amount_usd = this.amount_usd\n\n    # Step 3: Mask account numbers for compliance\n    # Keep last 4 digits for reconciliation, hash full number for joins\n    - mapping: |\n        root = this\n        root.account_number_masked = "****-****-" + this.ACCOUNT_NUMBER.slice(-4)\n        root.account_number_hash = this.ACCOUNT_NUMBER.hash("sha256").encode("hex").slice(0, 16)\n        root = root.without("ACCOUNT_NUMBER")\n\n    # Step 4: Categorize transactions\n    # DataStage replacement: Lookup table / case statement\n    - mapping: |\n        root = this\n\n        # Map MCC codes to categories\n        let mcc = this.MERCHANT_CATEGORY_CODE.string()\n\n        root.transaction_category = match $mcc {\n          this.has_prefix("54") => "GROCERY",\n          this.has_prefix("55") => "AUTOMOTIVE",\n          this.has_prefix("58") => "RESTAURANT",\n          this.has_prefix("59") => "RETAIL",\n          this.has_prefix("47") => "TRANSPORTATION",\n          this.has_prefix("40") || this.has_prefix("41") => "TRAVEL",\n          this.has_prefix("60") || this.has_prefix("61") => "FINANCIAL",\n          this.has_prefix("80") => "PROFESSIONAL_SERVICES",\n          _ => "OTHER"\n        }\n\n    # Step 5: Standardize field names for BigQuery schema\n    - mapping: |\n        root.transaction_id = this.TRANSACTION_ID\n        root.customer_id = this.CUSTOMER_ID\n        root.transaction_date = this.TRANSACTION_DATE\n        root.transaction_type = this.TRANSACTION_TYPE\n        root.merchant_name = this.MERCHANT_NAME\n        root.merchant_category_code = this.MERCHANT_CATEGORY_CODE\n        root.source_system = this.SOURCE_SYSTEM\n        root.created_at = this.CREATED_AT\n\n        # Carry forward transformed fields\n        root.amount_usd = this.amount_usd\n        root.original_amount = this.original_amount\n        root.original_currency = this.original_currency\n        root.account_number_masked = this.account_number_masked\n        root.account_number_hash = this.account_number_hash\n        root.transaction_category = this.transaction_category\n        root._lineage = this._lineage\n\n        # Add BigQuery partition field\n        root._partition_date = this.TRANSACTION_DATE.ts_parse("2006-01-02").ts_format("2006-01-02")\n\n    # Step 6: Validate required fields before loading\n    - mapping: |\n        root = if this.transaction_id == null ||\n                  this.customer_id == null ||\n                  this.amount_usd == null {\n          throw("Missing required field for BigQuery load")\n        } else {\n          this\n        }\n\noutput:\n  gcp_bigquery:\n    project: \'${GCP_PROJECT}\'\n    dataset: financial_data\n    table: transactions\n    format: NEWLINE_DELIMITED_JSON\n    write_disposition: WRITE_APPEND\n    # Partition by transaction date for query efficiency\n    time_partitioning:\n      field: _partition_date\n      type: DAY\n    batching:\n      count: 1000\n      period: 30s\n',
+      '# DB2 to BigQuery Migration Pipeline\n# Replaces DataStage ETL with edge-native processing\n#\n# Use case: Nightly batch migration of financial transactions from\n# on-premise DB2 to Google BigQuery with DataStage-style transformations\n#\n# Key features:\n# - SQL query against DB2 via ODBC\n# - Currency normalization and enrichment\n# - Account number masking for compliance\n# - Transaction categorization\n# - Lineage metadata for audit trail\n# - Lands in BigQuery partitioned by date\n\nname: db2-to-bigquery-transactions\ndescription: Migrate financial transactions from DB2 to BigQuery with transformations\n\ninput:\n  # Query DB2 for yesterday\'s transactions\n  # Runs on a schedule (see deployment config)\n  sql_select:\n    driver: odbc\n    dsn: \'Driver={IBM DB2 ODBC Driver};Database=${DB2_DATABASE};Hostname=${DB2_HOST};Port=${DB2_PORT};Protocol=TCPIP;Uid=${DB2_USER};Pwd=${DB2_PASSWORD};\'\n    table: TRANSACTIONS\n    columns:\n      - TRANSACTION_ID\n      - ACCOUNT_NUMBER\n      - CUSTOMER_ID\n      - TRANSACTION_DATE\n      - TRANSACTION_TYPE\n      - AMOUNT\n      - CURRENCY\n      - MERCHANT_NAME\n      - MERCHANT_CATEGORY_CODE\n      - SOURCE_SYSTEM\n      - CREATED_AT\n    where: \'TRANSACTION_DATE >= CURRENT DATE - 1 DAY AND TRANSACTION_DATE < CURRENT DATE\'\n    args_mapping: \'\'\n\npipeline:\n  processors:\n    # Step 1: Add lineage metadata (critical for audit)\n    - mapping: |\n        root = this\n        root._lineage = {\n          "source_system": "DB2_PROD",\n          "source_table": "TRANSACTIONS",\n          "pipeline": "db2-to-bigquery-transactions",\n          "extracted_at": now(),\n          "node_id": env("NODE_ID").or("unknown")\n        }\n\n    # Step 2: Normalize currency to USD\n    # DataStage replacement: Currency lookup and conversion\n    - branch:\n        processors:\n          - mapping: |\n              # Currency conversion rates (in production, fetch from API)\n              let rates = {\n                "USD": 1.0,\n                "EUR": 1.08,\n                "GBP": 1.27,\n                "JPY": 0.0067,\n                "CHF": 1.13,\n                "CAD": 0.74\n              }\n\n              root = this\n              root.original_amount = this.AMOUNT\n              root.original_currency = this.CURRENCY\n\n              # Convert to USD\n              root.amount_usd = if this.CURRENCY == "USD" {\n                this.AMOUNT\n              } else {\n                this.AMOUNT * $rates.get(this.CURRENCY).or(1.0)\n              }\n        result_map: |\n          root.original_amount = this.original_amount\n          root.original_currency = this.original_currency\n          root.amount_usd = this.amount_usd\n\n    # Step 3: Mask account numbers for compliance\n    # Keep last 4 digits for reconciliation, hash full number for joins\n    - mapping: |\n        root = this\n        root.account_number_masked = "****-****-" + this.ACCOUNT_NUMBER.slice(-4)\n        root.account_number_hash = this.ACCOUNT_NUMBER.hash("sha256").encode("hex").slice(0, 16)\n        root = root.without("ACCOUNT_NUMBER")\n\n    # Step 4: Categorize transactions\n    # DataStage replacement: Lookup table / case statement\n    - mapping: |\n        root = this\n\n        # Map MCC codes to categories\n        let mcc = this.MERCHANT_CATEGORY_CODE.string()\n\n        root.transaction_category = match $mcc {\n          this.has_prefix("54") => "GROCERY",\n          this.has_prefix("55") => "AUTOMOTIVE",\n          this.has_prefix("58") => "RESTAURANT",\n          this.has_prefix("59") => "RETAIL",\n          this.has_prefix("47") => "TRANSPORTATION",\n          this.has_prefix("40") || this.has_prefix("41") => "TRAVEL",\n          this.has_prefix("60") || this.has_prefix("61") => "FINANCIAL",\n          this.has_prefix("80") => "PROFESSIONAL_SERVICES",\n          _ => "OTHER"\n        }\n\n    # Step 5: Standardize field names for BigQuery schema\n    - mapping: |\n        root.transaction_id = this.TRANSACTION_ID\n        root.customer_id = this.CUSTOMER_ID\n        root.transaction_date = this.TRANSACTION_DATE\n        root.transaction_type = this.TRANSACTION_TYPE\n        root.merchant_name = this.MERCHANT_NAME\n        root.merchant_category_code = this.MERCHANT_CATEGORY_CODE\n        root.source_system = this.SOURCE_SYSTEM\n        root.created_at = this.CREATED_AT\n\n        # Carry forward transformed fields\n        root.amount_usd = this.amount_usd\n        root.original_amount = this.original_amount\n        root.original_currency = this.original_currency\n        root.account_number_masked = this.account_number_masked\n        root.account_number_hash = this.account_number_hash\n        root.transaction_category = this.transaction_category\n        root._lineage = this._lineage\n\n        # Add BigQuery partition field\n        root._partition_date = this.TRANSACTION_DATE.ts_parse("2006-01-02").ts_format("2006-01-02")\n\n    # Step 6: Validate required fields before loading\n    - mapping: |\n        root = if this.transaction_id == null ||\n                  this.customer_id == null ||\n                  this.amount_usd == null {\n          throw("Missing required field for BigQuery load")\n        } else {\n          this\n        }\n\noutput:\n  gcp_bigquery:\n    project: \'${GCP_PROJECT}\'\n    dataset: financial_data\n    table: transactions\n    format: NEWLINE_DELIMITED_JSON\n    write_disposition: WRITE_APPEND\n    # Partition by transaction date for query efficiency\n    time_partitioning:\n      field: _partition_date\n      type: DAY\n    batching:\n      count: 1000\n      period: 30s\n',
   },
   stages: GENERATED_EXPLORER_STAGES,
 } satisfies GeneratedExplorerStageFamily;

@@ -408,7 +408,7 @@ export const nightlyBackupStages: Stage[] = [
         type: 'added',
       },
       {
-        content: '"backup_timestamp": "2026-10-05T18:24:42.203165-07:00",',
+        content: '"backup_timestamp": "2026-10-05T18:31:31.115835-07:00",',
         indent: 2,
         key: 'backup_timestamp',
         valueType: 'string',
@@ -531,7 +531,7 @@ export const nightlyBackupStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"backup_timestamp": "2026-10-05T18:24:42.203165-07:00",',
+        content: '"backup_timestamp": "2026-10-05T18:31:31.115835-07:00",',
         indent: 2,
         key: 'backup_timestamp',
         valueType: 'string',
@@ -641,7 +641,7 @@ export const nightlyBackupStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"backup_timestamp": "2026-10-05T18:24:42.203165-07:00",',
+        content: '"backup_timestamp": "2026-10-05T18:31:31.115835-07:00",',
         indent: 2,
         key: 'backup_timestamp',
         valueType: 'string',
@@ -763,7 +763,7 @@ export const nightlyBackupStages: Stage[] = [
         indent: 2,
       },
       {
-        content: '"backup_timestamp": "2026-10-05T18:24:42.203165-07:00",',
+        content: '"backup_timestamp": "2026-10-05T18:31:31.115835-07:00",',
         indent: 2,
       },
       {

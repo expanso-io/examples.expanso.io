@@ -117,14 +117,14 @@ export const GENERATED_EXPLORER_STAGES = [
         type: "added",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.909993-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
         type: "added",
       },
       {
-        content: '"pipeline": "eu-cross-border-transfer",',
+        content: '"pipeline": "eu-cross-border-compliance",',
         indent: 2,
         key: "pipeline",
         valueType: "string",
@@ -220,9 +220,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "01-tag-data-origin.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    # Step 1: Tag with source region (critical for compliance routing)\n    - mapping: |\n        root = this\n        root._data_origin = {\n          "region": "EU",\n          "country": env("SOURCE_COUNTRY").or("DE"),\n          "database": "transactions_eu",\n          "extracted_at": now(),\n          "pipeline": "eu-cross-border-transfer"\n        }\n',
+      'pipeline:\n  processors:\n    # Step 1: Tag with source region (critical for compliance routing)\n    - mapping: |\n        root = this\n        root._data_origin = {\n          "region": "EU",\n          "country": env("SOURCE_COUNTRY").or("DE"),\n          "database": "transactions_eu",\n          "extracted_at": now(),\n          "pipeline": "eu-cross-border-compliance"\n        }\n',
     configSha256:
-      "sha256:2d79d25645f7e78073546c8d08561d58192f30966428d04dab96a9f83b16e5ca",
+      "sha256:63e16af19ab43dce4da5572b5e7f5404c14fe4b267f19322a757967273c1e47e",
   },
   {
     id: 2,
@@ -251,13 +251,13 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.909993-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
       },
       {
-        content: '"pipeline": "eu-cross-border-transfer",',
+        content: '"pipeline": "eu-cross-border-compliance",',
         indent: 2,
         key: "pipeline",
         valueType: "string",
@@ -370,14 +370,14 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.909993-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
         type: "highlighted",
       },
       {
-        content: '"pipeline": "eu-cross-border-transfer",',
+        content: '"pipeline": "eu-cross-border-compliance",',
         indent: 2,
         key: "pipeline",
         valueType: "string",
@@ -554,13 +554,13 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.909993-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
       },
       {
-        content: '"pipeline": "eu-cross-border-transfer",',
+        content: '"pipeline": "eu-cross-border-compliance",',
         indent: 2,
         key: "pipeline",
         valueType: "string",
@@ -722,14 +722,14 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.909993-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
         type: "highlighted",
       },
       {
-        content: '"pipeline": "eu-cross-border-transfer",',
+        content: '"pipeline": "eu-cross-border-compliance",',
         indent: 2,
         key: "pipeline",
         valueType: "string",
@@ -889,13 +889,13 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.909993-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
       },
       {
-        content: '"pipeline": "eu-cross-border-transfer",',
+        content: '"pipeline": "eu-cross-border-compliance",',
         indent: 2,
         key: "pipeline",
         valueType: "string",
@@ -1046,14 +1046,14 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.909993-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
         type: "highlighted",
       },
       {
-        content: '"pipeline": "eu-cross-border-transfer",',
+        content: '"pipeline": "eu-cross-border-compliance",',
         indent: 2,
         key: "pipeline",
         valueType: "string",
@@ -1216,13 +1216,13 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.909993-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
       },
       {
-        content: '"pipeline": "eu-cross-border-transfer",',
+        content: '"pipeline": "eu-cross-border-compliance",',
         indent: 2,
         key: "pipeline",
         valueType: "string",
@@ -1369,14 +1369,14 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.909993-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
         type: "highlighted",
       },
       {
-        content: '"pipeline": "eu-cross-border-transfer",',
+        content: '"pipeline": "eu-cross-border-compliance",',
         indent: 2,
         key: "pipeline",
         valueType: "string",
@@ -1549,13 +1549,13 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.909993-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
       },
       {
-        content: '"pipeline": "eu-cross-border-transfer",',
+        content: '"pipeline": "eu-cross-border-compliance",',
         indent: 2,
         key: "pipeline",
         valueType: "string",
@@ -1714,14 +1714,14 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.909993-07:00",',
         indent: 2,
         key: "extracted_at",
         valueType: "string",
         type: "highlighted",
       },
       {
-        content: '"pipeline": "eu-cross-border-transfer",',
+        content: '"pipeline": "eu-cross-border-compliance",',
         indent: 2,
         key: "pipeline",
         valueType: "string",
@@ -1848,7 +1848,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"verification_timestamp": "2026-10-05T18:24:42.158584-07:00"',
+        content: '"verification_timestamp": "2026-10-05T18:31:31.056157-07:00"',
         indent: 2,
         key: "merchant_name",
         valueType: "string",
@@ -1917,10 +1917,10 @@ export const GENERATED_EXPLORER_STAGE_FAMILY = {
     canonicalPipelinePath:
       "examples/data-security/cross-border-gdpr/cross-border-gdpr.yaml",
     pipelineSha256:
-      "sha256:956c71eb59bdbeb586c812df158fd43c84cbc439f48d56ded56a9dc66a035e5c",
+      "sha256:0858120242a67316f65afe30b12906b695d53b52511a1b39260acfc0df4bba97",
     fullYamlFilename: "cross-border-gdpr.yaml",
     fullYaml:
-      '# Cross-Border GDPR Compliance Pipeline\n# Anonymize data before it leaves the EU for global analytics\n#\n# Use case: EU financial transaction data needs to be aggregated globally,\n# but GDPR Article 44+ restricts transfers of personal data outside EU/EEA.\n# Solution: Fully anonymize at the edge before cross-border transfer.\n#\n# Different from remove-pii example:\n# - Focuses on data RESIDENCY and cross-border transfers (not general PII removal)\n# - SQL database input (not HTTP streams)\n# - Financial transactions (not user activity)\n# - Dual output: anonymized to global, full data stays in-region\n# - GDPR Article 44 compliance audit trail\n#\n# Key features:\n# - Tiered anonymization (delete/hash/generalize)\n# - Dual destination: anonymized → global, raw → regional archive\n# - Compliance attestation metadata\n# - k-anonymity validation before transfer\n\nname: eu-cross-border-transfer\ndescription: GDPR-compliant data anonymization for cross-border analytics\n\ninput:\n  # Read from EU regional database\n  sql_select:\n    driver: postgres\n    dsn: \'postgres://${DB_USER}:${DB_PASSWORD}@${EU_DB_HOST}:5432/transactions_eu\'\n    table: customer_transactions\n    columns:\n      - transaction_id\n      - customer_id\n      - customer_name\n      - customer_email\n      - customer_dob\n      - customer_address\n      - iban\n      - transaction_amount\n      - transaction_currency\n      - merchant_name\n      - merchant_country\n      - transaction_timestamp\n      - ip_address\n    where: "transaction_timestamp >= NOW() - INTERVAL \'1 hour\'"\n\npipeline:\n  processors:\n    # Step 1: Tag with source region (critical for compliance routing)\n    - mapping: |\n        root = this\n        root._data_origin = {\n          "region": "EU",\n          "country": env("SOURCE_COUNTRY").or("DE"),\n          "database": "transactions_eu",\n          "extracted_at": now(),\n          "pipeline": "eu-cross-border-transfer"\n        }\n\n    # Step 2: Create GDPR compliance record BEFORE any transformation\n    - mapping: |\n        root = this\n        root._gdpr_compliance = {\n          "legal_basis": "legitimate_interest_analytics",\n          "original_pii_fields": [\n            "customer_id",\n            "customer_name",\n            "customer_email",\n            "customer_dob",\n            "customer_address",\n            "iban",\n            "ip_address"\n          ],\n          "anonymization_applied": true,\n          "transfer_type": "cross_border_eu_to_global",\n          "gdpr_article": "Article 44 - General principle for transfers"\n        }\n\n    # Step 3: DELETE - Remove fields with no analytics value\n    # These are deleted entirely, not recoverable\n    - mapping: |\n        root = this\n\n        # Full name - no analytics value, high risk\n        root = root.without("customer_name")\n\n        # Full address - no analytics value\n        root = root.without("customer_address")\n\n        # Date of birth - delete, keep only age bucket\n        root.customer_age_bucket = match {\n          this.customer_dob == null => "unknown",\n          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 25 * 365 * 24 * 3600 => "18-24",\n          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 35 * 365 * 24 * 3600 => "25-34",\n          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 45 * 365 * 24 * 3600 => "35-44",\n          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 55 * 365 * 24 * 3600 => "45-54",\n          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 65 * 365 * 24 * 3600 => "55-64",\n          _ => "65+"\n        }\n        root = root.without("customer_dob")\n\n    # Step 4: HASH - Pseudonymize identifiers for aggregate analytics\n    # One-way hash means this is anonymization, not pseudonymization\n    - mapping: |\n        root = this\n\n        # Customer ID → anonymized cohort ID\n        # Salt ensures can\'t be reversed even with rainbow tables\n        let salt = env("ANONYMIZATION_SALT").or("gdpr-compliance-2024")\n        root.anonymized_customer_id = (this.customer_id.string() + $salt).hash("sha256").encode("hex").slice(0, 12)\n        root = root.without("customer_id")\n\n        # Email → domain only (for B2B vs B2C analysis)\n        root.email_domain = if this.customer_email.contains("@") {\n          this.customer_email.split("@").index(1).lowercase()\n        } else {\n          "unknown"\n        }\n        root = root.without("customer_email")\n\n        # IBAN → country code only (for geographic analysis)\n        root.bank_country = this.iban.slice(0, 2)\n        root = root.without("iban")\n\n        # IP address → /16 subnet (country-level geolocation possible)\n        root.ip_subnet = if this.ip_address.contains(".") {\n          this.ip_address.split(".").slice(0, 2).join(".") + ".0.0/16"\n        } else {\n          "unknown"\n        }\n        root = root.without("ip_address")\n\n    # Step 5: GENERALIZE - Reduce precision on remaining fields\n    - mapping: |\n        root = this\n\n        # Transaction amount → bucket (preserves distribution analysis)\n        root.amount_bucket = match {\n          this.transaction_amount < 10 => "0-10",\n          this.transaction_amount < 50 => "10-50",\n          this.transaction_amount < 100 => "50-100",\n          this.transaction_amount < 500 => "100-500",\n          this.transaction_amount < 1000 => "500-1000",\n          this.transaction_amount < 5000 => "1000-5000",\n          _ => "5000+"\n        }\n\n        # Keep exact amount for aggregate SUM calculations\n        # (amount alone without identifier is not personal data)\n        root.transaction_amount = this.transaction_amount\n\n        # Timestamp → hour bucket (sufficient for pattern analysis)\n        root.transaction_hour = this.transaction_timestamp.ts_parse("2006-01-02T15:04:05Z").ts_format("2006-01-02T15:00:00Z")\n\n    # Step 6: Validate anonymization completeness\n    - mapping: |\n        # Check no PII fields remain\n        let pii_fields = ["customer_id", "customer_name", "customer_email",\n                         "customer_dob", "customer_address", "iban", "ip_address"]\n\n        let remaining_pii = $pii_fields.filter(f -> this.exists(f))\n\n        root = if $remaining_pii.length() > 0 {\n          throw("GDPR VIOLATION: PII fields still present: " + $remaining_pii.join(", "))\n        } else {\n          this\n        }\n\n        # Add compliance attestation\n        root._gdpr_compliance.anonymization_verified = true\n        root._gdpr_compliance.verification_timestamp = now()\n        root._gdpr_compliance.fields_removed = ["customer_name", "customer_address", "customer_dob"]\n        root._gdpr_compliance.fields_hashed = ["customer_id", "customer_email", "iban", "ip_address"]\n\noutput:\n  broker:\n    pattern: fan_out\n    outputs:\n      # Output 1: Anonymized data → Global analytics (BigQuery US)\n      # This data is no longer "personal data" under GDPR\n      - label: global_analytics\n        gcp_bigquery:\n          project: \'${GCP_GLOBAL_PROJECT}\'\n          dataset: global_analytics\n          table: anonymized_transactions\n          format: NEWLINE_DELIMITED_JSON\n          write_disposition: WRITE_APPEND\n          batching:\n            count: 500\n            period: 30s\n\n      # Output 2: Raw data → EU regional archive (stays in EU)\n      # Full data preserved for regulatory requirements\n      - label: eu_archive\n        processors:\n          # Re-add original data from input (captured in metadata)\n          - mapping: |\n              root = this\n              root._archive_metadata = {\n                "archived_at": now(),\n                "retention_policy": "7_years",\n                "data_classification": "personal_data_eu",\n                "gdpr_lawful_basis": "legal_obligation"\n              }\n        gcp_cloud_storage:\n          bucket: \'${EU_ARCHIVE_BUCKET}\' # Must be EU-region bucket\n          path: \'transactions/${!now().ts_format("2006/01/02")}/eu-${!timestamp_unix()}.json\'\n          content_type: application/json\n          storage_class: STANDARD\n          batching:\n            count: 1000\n            period: 60s\n\n      # Output 3: Compliance audit log\n      - label: compliance_audit\n        processors:\n          - mapping: |\n              root = {\n                "event_type": "cross_border_transfer",\n                "timestamp": now(),\n                "transaction_id": this.transaction_id,\n                "source_region": this._data_origin.region,\n                "destination": "global_analytics",\n                "anonymization_verified": this._gdpr_compliance.anonymization_verified,\n                "legal_basis": this._gdpr_compliance.legal_basis,\n                "gdpr_article": this._gdpr_compliance.gdpr_article\n              }\n        file:\n          path: \'/var/log/expanso/gdpr-audit-${!timestamp_format("2006-01-02")}.jsonl\'\n          codec: lines\n',
+      '# Cross-Border GDPR Compliance Pipeline\n# Anonymize data before it leaves the EU for global analytics\n#\n# Use case: EU financial transaction data needs to be aggregated globally,\n# but GDPR Article 44+ restricts transfers of personal data outside EU/EEA.\n# Solution: Fully anonymize at the edge before cross-border transfer.\n#\n# Different from remove-pii example:\n# - Focuses on data RESIDENCY and cross-border transfers (not general PII removal)\n# - SQL database input (not HTTP streams)\n# - Financial transactions (not user activity)\n# - Dual output: anonymized to global, full data stays in-region\n# - GDPR Article 44 compliance audit trail\n#\n# Key features:\n# - Tiered anonymization (delete/hash/generalize)\n# - Dual destination: anonymized → global, raw → regional archive\n# - Compliance attestation metadata\n# - k-anonymity validation before transfer\n\nname: eu-cross-border-compliance\ndescription: GDPR-compliant data anonymization for cross-border analytics\n\ninput:\n  # Read from EU regional database\n  sql_select:\n    driver: postgres\n    dsn: \'postgres://${DB_USER}:${DB_PASSWORD}@${EU_DB_HOST}:5432/transactions_eu\'\n    table: customer_transactions\n    columns:\n      - transaction_id\n      - customer_id\n      - customer_name\n      - customer_email\n      - customer_dob\n      - customer_address\n      - iban\n      - transaction_amount\n      - transaction_currency\n      - merchant_name\n      - merchant_country\n      - transaction_timestamp\n      - ip_address\n    where: "transaction_timestamp >= NOW() - INTERVAL \'1 hour\'"\n\npipeline:\n  processors:\n    # Step 1: Tag with source region (critical for compliance routing)\n    - mapping: |\n        root = this\n        root._data_origin = {\n          "region": "EU",\n          "country": env("SOURCE_COUNTRY").or("DE"),\n          "database": "transactions_eu",\n          "extracted_at": now(),\n          "pipeline": "eu-cross-border-compliance"\n        }\n\n    # Step 2: Create GDPR compliance record BEFORE any transformation\n    - mapping: |\n        root = this\n        root._gdpr_compliance = {\n          "legal_basis": "legitimate_interest_analytics",\n          "original_pii_fields": [\n            "customer_id",\n            "customer_name",\n            "customer_email",\n            "customer_dob",\n            "customer_address",\n            "iban",\n            "ip_address"\n          ],\n          "anonymization_applied": true,\n          "transfer_type": "cross_border_eu_to_global",\n          "gdpr_article": "Article 44 - General principle for transfers"\n        }\n\n    # Step 3: DELETE - Remove fields with no analytics value\n    # These are deleted entirely, not recoverable\n    - mapping: |\n        root = this\n\n        # Full name - no analytics value, high risk\n        root = root.without("customer_name")\n\n        # Full address - no analytics value\n        root = root.without("customer_address")\n\n        # Date of birth - delete, keep only age bucket\n        root.customer_age_bucket = match {\n          this.customer_dob == null => "unknown",\n          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 25 * 365 * 24 * 3600 => "18-24",\n          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 35 * 365 * 24 * 3600 => "25-34",\n          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 45 * 365 * 24 * 3600 => "35-44",\n          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 55 * 365 * 24 * 3600 => "45-54",\n          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 65 * 365 * 24 * 3600 => "55-64",\n          _ => "65+"\n        }\n        root = root.without("customer_dob")\n\n    # Step 4: HASH - Pseudonymize identifiers for aggregate analytics\n    # One-way hash means this is anonymization, not pseudonymization\n    - mapping: |\n        root = this\n\n        # Customer ID → anonymized cohort ID\n        # Salt ensures can\'t be reversed even with rainbow tables\n        let salt = env("ANONYMIZATION_SALT").or("gdpr-compliance-2024")\n        root.anonymized_customer_id = (this.customer_id.string() + $salt).hash("sha256").encode("hex").slice(0, 12)\n        root = root.without("customer_id")\n\n        # Email → domain only (for B2B vs B2C analysis)\n        root.email_domain = if this.customer_email.contains("@") {\n          this.customer_email.split("@").index(1).lowercase()\n        } else {\n          "unknown"\n        }\n        root = root.without("customer_email")\n\n        # IBAN → country code only (for geographic analysis)\n        root.bank_country = this.iban.slice(0, 2)\n        root = root.without("iban")\n\n        # IP address → /16 subnet (country-level geolocation possible)\n        root.ip_subnet = if this.ip_address.contains(".") {\n          this.ip_address.split(".").slice(0, 2).join(".") + ".0.0/16"\n        } else {\n          "unknown"\n        }\n        root = root.without("ip_address")\n\n    # Step 5: GENERALIZE - Reduce precision on remaining fields\n    - mapping: |\n        root = this\n\n        # Transaction amount → bucket (preserves distribution analysis)\n        root.amount_bucket = match {\n          this.transaction_amount < 10 => "0-10",\n          this.transaction_amount < 50 => "10-50",\n          this.transaction_amount < 100 => "50-100",\n          this.transaction_amount < 500 => "100-500",\n          this.transaction_amount < 1000 => "500-1000",\n          this.transaction_amount < 5000 => "1000-5000",\n          _ => "5000+"\n        }\n\n        # Keep exact amount for aggregate SUM calculations\n        # (amount alone without identifier is not personal data)\n        root.transaction_amount = this.transaction_amount\n\n        # Timestamp → hour bucket (sufficient for pattern analysis)\n        root.transaction_hour = this.transaction_timestamp.ts_parse("2006-01-02T15:04:05Z").ts_format("2006-01-02T15:00:00Z")\n\n    # Step 6: Validate anonymization completeness\n    - mapping: |\n        # Check no PII fields remain\n        let pii_fields = ["customer_id", "customer_name", "customer_email",\n                         "customer_dob", "customer_address", "iban", "ip_address"]\n\n        let remaining_pii = $pii_fields.filter(f -> this.exists(f))\n\n        root = if $remaining_pii.length() > 0 {\n          throw("GDPR VIOLATION: PII fields still present: " + $remaining_pii.join(", "))\n        } else {\n          this\n        }\n\n        # Add compliance attestation\n        root._gdpr_compliance.anonymization_verified = true\n        root._gdpr_compliance.verification_timestamp = now()\n        root._gdpr_compliance.fields_removed = ["customer_name", "customer_address", "customer_dob"]\n        root._gdpr_compliance.fields_hashed = ["customer_id", "customer_email", "iban", "ip_address"]\n\noutput:\n  broker:\n    pattern: fan_out\n    outputs:\n      # Output 1: Anonymized data → Global analytics (BigQuery US)\n      # This data is no longer "personal data" under GDPR\n      - label: global_analytics\n        gcp_bigquery:\n          project: \'${GCP_GLOBAL_PROJECT}\'\n          dataset: global_analytics\n          table: anonymized_transactions\n          format: NEWLINE_DELIMITED_JSON\n          write_disposition: WRITE_APPEND\n          batching:\n            count: 500\n            period: 30s\n\n      # Output 2: Raw data → EU regional archive (stays in EU)\n      # Full data preserved for regulatory requirements\n      - label: eu_archive\n        processors:\n          # Re-add original data from input (captured in metadata)\n          - mapping: |\n              root = this\n              root._archive_metadata = {\n                "archived_at": now(),\n                "retention_policy": "7_years",\n                "data_classification": "personal_data_eu",\n                "gdpr_lawful_basis": "legal_obligation"\n              }\n        gcp_cloud_storage:\n          bucket: \'${EU_ARCHIVE_BUCKET}\' # Must be EU-region bucket\n          path: \'transactions/${!now().ts_format("2006/01/02")}/eu-${!timestamp_unix()}.json\'\n          content_type: application/json\n          storage_class: STANDARD\n          batching:\n            count: 1000\n            period: 60s\n\n      # Output 3: Compliance audit log\n      - label: compliance_audit\n        processors:\n          - mapping: |\n              root = {\n                "event_type": "cross_border_transfer",\n                "timestamp": now(),\n                "transaction_id": this.transaction_id,\n                "source_region": this._data_origin.region,\n                "destination": "global_analytics",\n                "anonymization_verified": this._gdpr_compliance.anonymization_verified,\n                "legal_basis": this._gdpr_compliance.legal_basis,\n                "gdpr_article": this._gdpr_compliance.gdpr_article\n              }\n        file:\n          path: \'/var/log/expanso/gdpr-audit-${!timestamp_format("2006-01-02")}.jsonl\'\n          codec: lines\n',
   },
   stages: GENERATED_EXPLORER_STAGES,
 } satisfies GeneratedExplorerStageFamily;
