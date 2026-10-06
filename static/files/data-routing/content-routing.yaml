@@ -17,11 +17,11 @@ config:
     processors:
       # Parse JSON input and validate
       - mapping: |
-          root = this
-
           # Ensure severity field exists
-          if !this.severity.exists() {
+          root = if !this.exists("severity") {
             throw("Missing required field: severity")
+          } else {
+            this
           }
 
           # Normalize severity to uppercase
@@ -44,25 +44,22 @@ config:
                 Content-Type: application/json
                 Authorization: Token ${PAGERDUTY_TOKEN}
 
-              # Transform to PagerDuty event format
-              processors:
-                - mapping: |
-                    root.routing_key = env("PAGERDUTY_ROUTING_KEY")
-                    root.event_action = "trigger"
-                    root.payload = {
-                      "summary": this.message.or("Critical error occurred"),
-                      "severity": "critical",
-                      "source": this.source.or("unknown"),
-                      "timestamp": this.timestamp,
-                      "custom_details": this
-                    }
-
               # Fast delivery for critical alerts
-              max_retries: 5
-              retry_as_batch: false
-              backoff:
-                initial_interval: 500ms
-                max_interval: 5s
+              retries: 5
+              retry_period: 500ms
+              max_retry_backoff: 5s
+            # Transform to PagerDuty event format
+            processors:
+              - mapping: |
+                  root.routing_key = env("PAGERDUTY_ROUTING_KEY")
+                  root.event_action = "trigger"
+                  root.payload = {
+                    "summary": this.message.or("Critical error occurred"),
+                    "severity": "critical",
+                    "source": this.source.or("unknown"),
+                    "timestamp": this.timestamp,
+                    "custom_details": this
+                  }
 
         # Case 2: Warnings to Slack
         - check: this.severity == "WARNING" || this.severity == "WARN"
@@ -73,30 +70,30 @@ config:
               headers:
                 Content-Type: application/json
 
-              # Transform to Slack message format
-              processors:
-                - mapping: |
-                    root.text = ":warning: " + this.message.or("Warning")
-                    root.blocks = [
-                      {
-                        "type": "section",
-                        "text": {
-                          "type": "mrkdwn",
-                          "text": "*Severity:* " + this.severity + "\n*Source:* " + this.source.or("unknown") + "\n*Message:* " + this.message.or("N/A")
-                        }
-                      }
-                    ]
-
               # Batch warnings to avoid Slack rate limits
               batching:
                 count: 10
                 period: 30s
 
-              max_retries: 3
+              retries: 3
+            # Transform to Slack message format
+            processors:
+              - mapping: |
+                  root.text = ":warning: " + this.message.or("Warning")
+                  root.blocks = [
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "*Severity:* " + this.severity + "\n*Source:* " + this.source.or("unknown") + "\n*Message:* " + this.message.or("N/A")
+                      }
+                    }
+                  ]
 
         # Case 3: Everything else to Elasticsearch
         - output:
-            elasticsearch:
+            opensearch:
+              action: index
               urls:
                 - ${ELASTICSEARCH_URL:http://elasticsearch:9200}
 
@@ -107,10 +104,3 @@ config:
               batching:
                 count: 500
                 period: 10s
-
-              gzip_compression: true
-
-              max_retries: 3
-              backoff:
-                initial_interval: 1s
-                max_interval: 30s

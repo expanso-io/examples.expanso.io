@@ -33,31 +33,11 @@ You can add this logic to the same `mapping` processor you've been building in t
 
 1.  **Start with your Pipeline:** Open the `encrypt-pii.yaml` file from Step 2.
 
-2.  **Add the Address Encryption Logic:** Add the logic for the `billing_address` object to the _bottom_ of the existing `mapping` processor.
+2.  **Inspect the maintained mapping:** Review the selected fields, key lookup, and plaintext removal in the linked reference before adapting the processor.
 
-    ```yaml title="Add this to your 'mapping' processor"
-    # --- Logic from previous steps ---
-    # (The existing logic for card numbers, ssn, and email remains here)
+    See the [complete configuration](/data-security/encryption-patterns/complete-encryption-pipeline) for the maintained encryption mapping and its ciphertext fields.
 
-    # --- START: New additions for Address Data ---
-
-    if this.billing_address.exists() {
-      # 1. ENCRYPT the sensitive fields
-      root.billing_address.street_encrypted = this.billing_address.street.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
-      root.billing_address.zip_encrypted = this.billing_address.zip.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
-
-      # 2. PRESERVE the analytics-safe prefix
-      let clean_zip = this.billing_address.zip.re_replace_all("[^0-9]", "")
-      if clean_zip.length() >= 3 {
-        root.billing_address.zip_prefix = clean_zip.slice(0, 3)
-      }
-
-      # 3. DELETE the original fields
-      root.billing_address = this.billing_address.without("street", "zip")
-    }
-    ```
-
-    _Note: This step uses a separate `ADDRESS_ENCRYPTION_KEY`. Ensure you have set it as an environment variable._
+    _Note: Use the key variable names from the configuration you are adapting._
 
 ## Verification
 

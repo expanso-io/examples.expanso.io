@@ -66,43 +66,7 @@ Sometimes PII is inside the `message` string. We can use regex replacement (caut
 
 ## Complete Step 5 Configuration
 
-```yaml title="production-pipeline-step-5.yaml"
-input:
-  http_server:
-    address: '0.0.0.0:8080'
-    path: /logs/ingest
-    rate_limit: '1000/1s'
-    auth:
-      type: header
-      header: 'X-API-Key'
-      required_value: '${LOG_API_KEY}'
-
-pipeline:
-  processors:
-    - mapping: |
-        root = this.parse_json().catch({"message": content()})
-
-    # Redaction
-    - mapping: |
-        root = this
-
-        # 1. Email Redaction
-        if this.exists("email") {
-           root.email_hash = this.email.hash("sha256")
-           root = this.without("email")
-        }
-
-        # 2. Credit Card Masking (Field)
-        if this.exists("credit_card") {
-           root.credit_card = "****-****-****-" + this.credit_card.slice(-4)
-        }
-
-        # 3. Message Cleaning
-        root.message = this.message.re_replace_all("\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b", "[EMAIL]")
-
-output:
-  stdout: {}
-```
+See the [complete reference](/log-processing/production-pipeline/complete-production-pipeline) for the maintained input, named rate-limit resource, processors, and failure boundary.
 
 ## Deployment & Verification
 

@@ -112,9 +112,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "02-broker-fan-out-foundation.yaml",
     yamlCode:
-      "name: fan-out-foundation\ntype: pipeline\n\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - file:\n            path: /var/data/realtime.jsonl\n            batching: {count: 100, period: 5s}\n        - file:\n            path: /var/data/archive.jsonl\n            batching: {count: 1000, period: 30s}\n",
+      "name: fan-out-foundation\ntype: pipeline\n\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - file:\n            path: /var/data/realtime.jsonl\n        - file:\n            path: /var/data/archive.jsonl\n",
     configSha256:
-      "sha256:dd15d5c7c4b6ace7035759458f088cd2dd5f621694cacbcd93844406e07edc9f",
+      "sha256:f9aeba05d9b631d4ecb5e80b09b7d075b1a7d475ccc6565bc6ab0a8c5d9c0866",
   },
   {
     id: 3,
@@ -169,9 +169,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-kafka-real-time-streaming.yaml",
     yamlCode:
-      'name: kafka-fan-out\ntype: pipeline\n\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n\n  pipeline:\n    processors:\n      - mapping: |\n          root = this\n          root.edge_node_id = env("NODE_ID")\n          root.processing_timestamp = now()\n\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - kafka:\n            addresses: [kafka-1.example.com:9092]\n            topic: sensor-events\n            key: ${!json("sensor_id")}\n            batching: {count: 100, period: 2s}\n            compression: snappy\n        - file:\n            path: /var/data/archive.jsonl\n            batching: {count: 1000, period: 30s}\n',
+      'name: kafka-fan-out\ntype: pipeline\n\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n\n  pipeline:\n    processors:\n      - mapping: |\n          root = this\n          root.edge_node_id = env("NODE_ID")\n          root.processing_timestamp = now()\n\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - kafka:\n            addresses: [kafka-1.example.com:9092]\n            topic: sensor-events\n            key: ${!json("sensor_id")}\n            batching: {count: 100, period: 2s}\n            compression: snappy\n        - file:\n            path: /var/data/archive.jsonl\n',
     configSha256:
-      "sha256:3abc67b257bb1cf3beeb060e0086286c2a666310bee016a5d8e9688e9f0209ad",
+      "sha256:6ec1b45bb241fa847b3cab8dbef2e65ea20cbfbce8fc0094a4286557d6c85d1e",
   },
   {
     id: 4,
@@ -295,9 +295,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "05-elasticsearch-search-analytics.yaml",
     yamlCode:
-      'name: complete-fan-out\ntype: pipeline\n\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n\n  pipeline:\n    processors:\n      - mapping: |\n          root = this\n          root.edge_node_id = env("NODE_ID")\n          root.processing_timestamp = now()\n          root.analytics = {\n            "event_hour": this.timestamp.ts_hour(),\n            "temp_status": if this.temperature > 35 { "high" } else { "normal" }\n          }\n\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - kafka:\n            addresses: [kafka-1.example.com:9092]\n            topic: sensor-events\n            batching: {count: 100, period: 2s}\n        - aws_s3:\n            bucket: sensor-data-archive\n            path: data/dt=${!timestamp_date("2006-01-02")}/events.jsonl.gz\n            batching: {count: 10000, period: 30m}\n        - elasticsearch:\n            urls: [https://es-1.example.com:9200]\n            index: sensor-events-${!timestamp_date("2006-01-02")}\n            id: ${!json("event_id")}\n            batching: {count: 250, period: 10s}\n',
+      'name: complete-fan-out\ntype: pipeline\n\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n\n  pipeline:\n    processors:\n      - mapping: |\n          root = this\n          root.edge_node_id = env("NODE_ID")\n          root.processing_timestamp = now()\n          root.analytics = {\n            "event_hour": this.timestamp.ts_strftime("%H").number(),\n            "temp_status": if this.temperature > 35 { "high" } else { "normal" }\n          }\n\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - kafka:\n            addresses: [kafka-1.example.com:9092]\n            topic: sensor-events\n            batching: {count: 100, period: 2s}\n        - aws_s3:\n            bucket: sensor-data-archive\n            path: data/dt=${!timestamp_date("2006-01-02")}/events.jsonl.gz\n            batching: {count: 10000, period: 30m}\n        - opensearch:\n            action: index\n            urls: [https://es-1.example.com:9200]\n            index: sensor-events-${!timestamp_date("2006-01-02")}\n            id: ${!json("event_id")}\n            batching: {count: 250, period: 10s}\n',
     configSha256:
-      "sha256:efa454dcf201fd5045e5c9b616c51ca2a1e58ad77ec5522936e57e2d7f88c8df",
+      "sha256:c2f9cd6dabfd63bdee8a0142a1653bad5813c17d38cd36f8b2af1436a12dbec1",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 

@@ -9,30 +9,29 @@ labels:
 config:
   input:
     http_server:
-      address: "0.0.0.0:8080"
+      address: '0.0.0.0:8080'
       path: /logs
-      allowed_verbs: ["POST"]
+      allowed_verbs: ['POST']
 
   pipeline:
     processors:
       # Step 1: Detect log format
       - mapping: |
-          root = this
-          let content = this.string()
+          let content = content().string()
 
-          root.detected_format = if content.has_prefix("{") || content.has_prefix("[") {
+          root.detected_format = if $content.has_prefix("{") || $content.has_prefix("[") {
             "json"
-          } else if content.re_match("^<\\d+>") {
+          } else if $content.re_match("^<\\d+>") {
             "syslog"
-          } else if content.re_match("\\d+\\.\\d+\\.\\d+\\.\\d+.*HTTP/") {
+          } else if $content.re_match("\\d+\\.\\d+\\.\\d+\\.\\d+.*HTTP/") {
             "access_log"
-          } else if content.count(",") >= 2 && !content.contains("{") {
+          } else if $content.split(",").length() - 1 >= 2 && !$content.contains("{") {
             "csv"
           } else {
             "unknown"
           }
 
-          root.original = content
+          root.original = $content
           meta log_format = root.detected_format
 
       # Step 2: Parse based on detected format
@@ -41,14 +40,13 @@ config:
           - check: 'meta("log_format") == "json"'
             processors:
               - try:
-                  - json_documents:
-                      parts: []
+                  - mapping: root = this.original.parse_json()
                   - mapping: |
                       root = this
                       root.timestamp = this.timestamp.or(this."@timestamp").or(now())
                       root.level = this.level.or(this.severity).or("INFO").uppercase()
                       root.message = this.message.or(this.msg).or("")
-                catch:
+              - catch:
                   - mapping: |
                       root.parse_error = error()
                       root.format = "json"
@@ -57,6 +55,7 @@ config:
           # Access logs (Apache/Nginx)
           - check: 'meta("log_format") == "access_log"'
             processors:
+              - mapping: root = this.original
               - grok:
                   expressions:
                     - '%{IPORHOST:client_ip} %{USER:ident} %{USER:auth} \[%{HTTPDATE:timestamp}\] "%{WORD:method} %{NOTSPACE:path}(?: HTTP/%{NUMBER:http_version})?" %{NUMBER:status} (?:%{NUMBER:bytes}|-)'
@@ -71,6 +70,7 @@ config:
           # Syslog
           - check: 'meta("log_format") == "syslog"'
             processors:
+              - mapping: root = this.original
               - grok:
                   expressions:
                     - '<%{POSINT:priority}>%{SYSLOGTIMESTAMP:timestamp} %{SYSLOGHOST:hostname} %{DATA:program}(?:\[%{POSINT:pid}\])?: %{GREEDYDATA:message}'
@@ -79,18 +79,19 @@ config:
                   let pri = this.priority.number()
                   root.facility = (pri / 8).floor()
                   root.severity = pri % 8
-                  root.level = if this.severity <= 3 { "ERROR" }
-                              else if this.severity <= 4 { "WARN" }
+                  root.level = if root.severity <= 3 { "ERROR" }
+                              else if root.severity <= 4 { "WARN" }
                               else { "INFO" }
 
           # CSV logs
           - check: 'meta("log_format") == "csv"'
             processors:
-              - csv:
-                  columns: ["timestamp", "level", "service", "message"]
               - mapping: |
-                  root = this
-                  root.level = this.level.uppercase()
+                  let row = ("timestamp,level,service,message\n" + this.original).parse_csv().index(0)
+                  root.timestamp = $row.timestamp
+                  root.level = $row.level.uppercase()
+                  root.service = $row.service
+                  root.message = $row.message
 
           # Unknown format - keep original
           - processors:
@@ -108,23 +109,24 @@ config:
 
   output:
     switch:
-      # Parsed logs → analytics
-      - check: 'meta("log_format") != "parse_failed" && meta("log_format") != "unknown"'
-        output:
-          http_client:
-            url: "${ANALYTICS_ENDPOINT:http://analytics:8080}/logs"
-            verb: POST
-            headers:
-              Content-Type: application/json
-            batching:
-              count: 100
-              period: 5s
+      cases:
+        # Parsed logs → analytics
+        - check: 'meta("log_format") != "parse_failed" && meta("log_format") != "unknown"'
+          output:
+            http_client:
+              url: '${ANALYTICS_ENDPOINT:http://analytics:8080}/logs'
+              verb: POST
+              headers:
+                Content-Type: application/json
+              batching:
+                count: 100
+                period: 5s
 
-      # Failed/unknown → DLQ
-      - output:
-          file:
-            path: "/var/log/expanso/dlq/${!timestamp_unix_date('2006-01-02')}/unparsed.jsonl"
-            codec: lines
+        # Failed/unknown → DLQ
+        - output:
+            file:
+              path: "/var/log/expanso/dlq/${!timestamp_unix_date('2006-01-02')}/unparsed.jsonl"
+              codec: lines
 
 logger:
   level: INFO

@@ -9,9 +9,9 @@ labels:
 config:
   input:
     kafka:
-      addresses: ["${KAFKA_BROKERS:localhost:9092}"]
-      topics: ["${INPUT_TOPIC:raw-events}"]
-      consumer_group: "timestamp-normalizer"
+      addresses: ['${KAFKA_BROKERS:localhost:9092}']
+      topics: ['${INPUT_TOPIC:raw-events}']
+      consumer_group: 'timestamp-normalizer'
       start_from_oldest: false
 
   pipeline:
@@ -22,7 +22,7 @@ config:
           root.timestamp_original = this.timestamp
           root.processing_metadata = {
             "pipeline_version": "v1.3.0",
-            "processing_start": now().format_timestamp_iso8601(),
+            "processing_start": now().ts_format("2006-01-02T15:04:05Z07:00"),
             "stage": "format_parsing"
           }
 
@@ -31,99 +31,104 @@ config:
           let ts = this.timestamp.string()
 
           root = this
-          root.format_detected = if ts.re_match("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}") {
-            if ts.contains("Z") || ts.re_match("[-+]\\d{2}:?\\d{2}$") {
+          root.format_detected = if $ts.re_match("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}") {
+            if $ts.contains("Z") || $ts.re_match("[-+]\\d{2}:?\\d{2}$") {
               "iso8601_offset"
             } else {
               "iso8601_naive"
             }
-          } else if ts.re_match("^\\d{10}$") {
+          } else if $ts.re_match("^\\d{10}$") {
             "unix_seconds"
-          } else if ts.re_match("^\\d{13}$") {
+          } else if $ts.re_match("^\\d{13}$") {
             "unix_milliseconds"
-          } else if ts.re_match("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$") {
+          } else if $ts.re_match("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}(\\.\\d+)?$") {
             "custom_datetime"
           } else {
             "unknown"
           }
 
       # Step 3: Parse timestamp
+      - try:
+          - mapping: |
+              let format = this.format_detected
+              let ts = this.timestamp_original
+              let local_zone = this.timezone.or("UTC")
+              let local_offset = if $format == "custom_datetime" { $ts.ts_parse("2006-01-02 15:04:05").ts_format("-07:00", $local_zone) } else { null }
+              let local_candidate = if $local_offset != null { ($ts + " " + $local_offset).ts_parse("2006-01-02 15:04:05 -07:00") } else { null }
+              let local_resolved = if $local_candidate != null { ($ts + " " + $local_candidate.ts_format("-07:00", $local_zone)).ts_parse("2006-01-02 15:04:05 -07:00") } else { null }
+
+              root = this
+
+              root.timestamp_parsed = if $format == "iso8601_offset" {
+                $ts.ts_parse("2006-01-02T15:04:05Z07:00")
+              } else if $format == "iso8601_naive" {
+                ($ts.string() + "Z").ts_parse("2006-01-02T15:04:05Z07:00")
+              } else if $format == "unix_seconds" {
+                $ts.number()
+              } else if $format == "unix_milliseconds" {
+                (($ts.number() / 1000).floor().ts_format("2006-01-02T15:04:05", "UTC") + "." + ("000" + ($ts.number() % 1000).string()).slice(-3) + "Z").ts_parse("2006-01-02T15:04:05.000Z07:00")
+              } else if $format == "custom_datetime" {
+                if $local_resolved.ts_format("2006-01-02 15:04:05.999999999", $local_zone) == $ts.ts_parse("2006-01-02 15:04:05").ts_format("2006-01-02 15:04:05.999999999") {
+                    $local_resolved
+                  } else {
+                    throw("Invalid local timestamp for timezone: " + $local_zone)
+                  }
+              } else {
+                throw("Unsupported timestamp format: " + $format)
+              }
+
+              root.processing_metadata.parse_success = true
+
       - catch:
-        - mapping: |
-            let format = this.format_detected
-            let ts = this.timestamp_original
-
-            root = this
-
-            root.timestamp_parsed = if format == "iso8601_offset" {
-              ts.parse_timestamp_iso8601()
-            } else if format == "iso8601_naive" {
-              (ts.string() + "Z").parse_timestamp_iso8601()
-            } else if format == "unix_seconds" {
-              ts.timestamp_unix()
-            } else if format == "unix_milliseconds" {
-              (ts.number() / 1000).timestamp_unix()
-            } else if format == "custom_datetime" {
-              (ts.string() + " UTC").parse_timestamp("2006-01-02 15:04:05 MST")
-            } else {
-              throw("Unsupported timestamp format: " + format)
-            }
-
-            root.processing_metadata.parse_success = true
-
-        - mapping: |
-            root = this
-            root.processing_metadata.parse_success = false
-            root.processing_metadata.parse_error = error()
-            root.timestamp_parsed = null
+          - mapping: |
+              root = this
+              root.processing_metadata.parse_success = false
+              root.processing_metadata.parse_error = error()
+              root.timestamp_parsed = null
 
       # Step 4: Convert to UTC
       - mapping: |
           root = this
           root.processing_metadata.stage = "timezone_conversion"
 
-          root = if !this.processing_metadata.parse_success {
-            this
+          root.timestamp = if this.processing_metadata.parse_success {
+            this.timestamp_parsed.ts_format("2006-01-02T15:04:05.999999999Z07:00", "UTC")
           } else {
-            root.timestamp = this.timestamp_parsed.format_timestamp_iso8601("UTC")
-            root.processing_metadata.conversion_success = true
-            this
+            this.timestamp
           }
+          root.processing_metadata.conversion_success = if this.processing_metadata.parse_success { true }
 
       # Step 5: Enrich time metadata
       - mapping: |
           root = this
           root.processing_metadata.stage = "metadata_enrichment"
 
-          root = if !this.processing_metadata.parse_success {
-            this
-          } else {
-            let ts = this.timestamp.parse_timestamp_iso8601()
-            let year = ts.format_timestamp("2006", "UTC").number()
-            let month = ts.format_timestamp("01", "UTC").number()
-            let day = ts.format_timestamp("02", "UTC").number()
-            let hour = ts.format_timestamp("15", "UTC").number()
-            let dow = ts.format_timestamp("1", "UTC").number()
+          let parsed = this.processing_metadata.parse_success
+          let ts = if $parsed { this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00") } else { now() }
+          let year = $ts.ts_format("2006", "UTC").number()
+          let month = $ts.ts_format("01", "UTC").number()
+          let day = $ts.ts_format("02", "UTC").number()
+          let hour = $ts.ts_format("15", "UTC").number()
+          let dow = $ts.ts_strftime("%u", "UTC").number()
 
-            root.time_metadata = {
-              "year": year,
-              "month": month,
-              "day": day,
-              "hour": hour,
-              "day_of_week": ts.format_timestamp("Monday", "UTC"),
-              "is_weekend": dow >= 6,
-              "is_business_hours": (dow >= 1 && dow <= 5) && (hour >= 9 && hour < 17),
-              "quarter": if month <= 3 { "Q1" }
-                        else if month <= 6 { "Q2" }
-                        else if month <= 9 { "Q3" }
+          root.time_metadata = if $parsed {
+            {
+              "year": $year,
+              "month": $month,
+              "day": $day,
+              "hour": $hour,
+              "day_of_week": $ts.ts_format("Monday", "UTC"),
+              "is_weekend": $dow >= 6,
+              "is_business_hours": ($dow >= 1 && $dow <= 5) && ($hour >= 9 && $hour < 17),
+              "quarter": if $month <= 3 { "Q1" }
+                        else if $month <= 6 { "Q2" }
+                        else if $month <= 9 { "Q3" }
                         else { "Q4" },
-              "hour_bucket": ts.format_timestamp("2006-01-02T15", "UTC") + ":00:00Z",
-              "day_bucket": ts.format_timestamp("2006-01-02", "UTC")
+              "hour_bucket": $ts.ts_format("2006-01-02T15", "UTC") + ":00:00Z",
+              "day_bucket": $ts.ts_format("2006-01-02", "UTC")
             }
-
-            root.processing_metadata.enrichment_success = true
-            this
           }
+          root.processing_metadata.enrichment_success = if $parsed { true }
 
       # Step 6: Quality scoring
       - mapping: |
@@ -132,12 +137,12 @@ config:
           root.validation = {
             "parse_success": this.processing_metadata.parse_success,
             "timestamp_exists": this.timestamp.type() == "string",
-            "utc_format": this.timestamp.contains("Z")
+            "utc_format": this.timestamp.string().contains("Z")
           }
 
-          let validations = this.validation.values()
-          let true_count = validations.map_each(v -> if v { 1 } else { 0 }).sum()
-          root.quality_score = true_count / validations.length()
+          let validations = root.validation.values()
+          let true_count = $validations.map_each(v -> if v { 1 } else { 0 }).sum()
+          root.quality_score = $true_count / $validations.length()
 
       # Step 7: Clean output
       - mapping: |
@@ -145,15 +150,15 @@ config:
 
   output:
     kafka:
-      addresses: ["${KAFKA_BROKERS:localhost:9092}"]
-      topic: "${OUTPUT_TOPIC:normalized-timestamps}"
+      addresses: ['${KAFKA_BROKERS:localhost:9092}']
+      topic: '${OUTPUT_TOPIC:normalized-timestamps}'
       key: '${! json("event_id") }'
-      compression: "snappy"
+      compression: 'snappy'
 
 logger:
-  level: "${LOG_LEVEL:INFO}"
+  level: '${LOG_LEVEL:INFO}'
   format: json
 
 metrics:
   prometheus:
-    path: "/metrics"
+    path: '/metrics'

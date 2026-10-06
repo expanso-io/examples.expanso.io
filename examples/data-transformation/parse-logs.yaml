@@ -13,9 +13,7 @@ config:
   pipeline:
     processors:
       # Parse JSON
-      - json_documents:
-          parts: []
-
+      - mapping: root = content().parse_json()
       # Parse and normalize timestamp
       - mapping: |
           root = this
@@ -30,7 +28,7 @@ config:
       # Extract error details
       - mapping: |
           root = this
-          root.error_details = if this.error.exists() {
+          root.error_details = if this.exists("error") {
             {
               "message": this.error,
               "stack_trace": this.stack_trace.or(""),
@@ -54,7 +52,7 @@ config:
 
       # Filter by log level (only WARN, ERROR, FATAL)
       - mapping: |
-          root = if this.level.or("INFO") in ["WARN", "ERROR", "FATAL"] {
+          root = if ["WARN", "ERROR", "FATAL"].contains(this.level.or("INFO")) {
             this
           } else {
             deleted()
@@ -62,9 +60,9 @@ config:
 
   output:
     http_client:
-      url: "${LOG_ENDPOINT}/logs"
+      url: '${LOG_ENDPOINT}/logs'
       verb: POST
       batching:
         count: 100
         period: 10s
-      max_retries: 3
+      retries: 3

@@ -27,7 +27,7 @@ You will create a pipeline that takes a JSON message, validates it against an Av
 
 1.  **Define Schema:** Avro requires a schema that describes the data. You'll create a simple `.avsc` file.
 2.  **Prepare:** The incoming JSON data must be structured to perfectly match the schema. This often involves a `mapping` processor to ensure data types are correct (e.g., converting a timestamp string to an integer).
-3.  **Convert:** Use the `to_avro` processor to perform the conversion.
+3.  **Convert:** Select an encoder whose wire format and schema match the consumer. The maintained integration uses a Node.js subprocess.
 
 ## Implementation
 
@@ -49,46 +49,8 @@ You will create a pipeline that takes a JSON message, validates it against an Av
     }
     ```
 
-2.  **Create the Conversion Pipeline:** Copy the following configuration into a file named `json-to-avro.yaml`.
-
-    ```yaml title="json-to-avro.yaml"
-    name: json-to-avro-converter
-    description: A pipeline that converts JSON to Avro.
-
-    config:
-      input:
-        generate:
-          interval: 1s
-          mapping: |
-            root = {
-              "sensor_id": "sensor-1",
-              "temperature": 25.5,
-              "timestamp": now().ts_format_iso8601()
-            }
-
-      pipeline:
-        processors:
-          # 1. PREPARE: Ensure the data matches the Avro schema.
-          # The schema requires 'timestamp' to be a 'long' (integer),
-          # but our input is an ISO8601 string. We must convert it.
-          - mapping: |
-              root = this
-              root.timestamp = this.timestamp.parse_timestamp().unix_milli()
-
-          # 2. CONVERT: Convert the prepared JSON object to Avro binary format.
-          # This processor replaces the message content with the binary data.
-          - to_avro:
-              schema_path: 'file://./sensor.avsc'
-
-      output:
-        stdout:
-          codec: lines
-    ```
-
-3.  **Deploy and Observe:** Watch the logs. The output will not be readable JSON. It will be a stream of binary Avro data, which is exactly what a system like Kafka would expect.
+2.  **Inspect the maintained integration:** See the [JSON-to-Avro source](https://github.com/expanso-io/examples.expanso.io/blob/main/examples/data-transformation/transform-formats.yaml). It accepts `/sensors/ingest`, encodes a fixed sensor schema in a Node.js subprocess, and sends binary records to Kafka. Node.js must be available on each edge node. Its embedded schema differs from the illustrative schema above; do not substitute schemas without changing the encoder and consumer together.
 
 ## Verification
 
-The output in your console will look like garbled text, because it is binary data. This confirms the conversion was successful. A downstream system with access to the same Avro schema would be able to read this binary data and understand its structure perfectly.
-
-You have transformed JSON into a schema-enforced binary format.
+Decode emitted records with the matching schema and compare field values. Unreadable console bytes do not prove an Avro conversion. The [complete HTTP reference](/data-transformation/transform-formats/complete-pipeline) is a separate JSON/CSV/XML example.

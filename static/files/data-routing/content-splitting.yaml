@@ -20,15 +20,16 @@ config:
 
       # Step 2: Validate structure
       - mapping: |
-          if !this.readings.exists() || this.readings.type() != "array" {
+          root = if !this.exists("readings") || this.readings.type() != "array" {
             throw("Missing or invalid readings array")
+          } else {
+            this
           }
-          root = this
 
-      # Step 3: Split array into individual messages
+      # Step 3: Split the readings array into individual messages
+      - mapping: root = this.readings
       - unarchive:
           format: json_array
-          field: readings
 
       # Step 4: Enrich each split message with parent context
       - mapping: |
@@ -49,13 +50,13 @@ config:
               verb: POST
               headers:
                 Content-Type: application/json
-              max_retries: 5
+              retries: 5
 
         # Warning: Elevated temperature
         - check: this.value > 70.0 && this.value <= 80.0 && this.unit == "F"
           output:
             kafka:
-              addresses: ["${KAFKA_BROKERS}"]
+              addresses: ['${KAFKA_BROKERS}']
               topic: elevated-temp-warnings
               batching:
                 count: 50
@@ -66,6 +67,3 @@ config:
             file:
               path: /var/expanso/sensor-data/normal-${!timestamp_unix_date("2006-01-02")}.jsonl
               codec: lines
-              batching:
-                count: 1000
-                period: 5m

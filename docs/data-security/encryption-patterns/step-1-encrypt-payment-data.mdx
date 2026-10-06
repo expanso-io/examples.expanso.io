@@ -33,24 +33,9 @@ You can apply this pattern with a single `mapping` processor.
 
 1.  **Start with a Foundation:** Begin with a pipeline that simply passes through payment data, like the `encryption-foundation.yaml` from the previous tutorial.
 
-2.  **Add the Encryption Processor:** Add this processor to your pipeline. It implements the complete pattern in one step.
+2.  **Inspect the maintained mapping:** Review the selected fields, key lookup, and plaintext removal in the linked reference before adapting the processor.
 
-    ```yaml title="Add this processor to your pipeline"
-    - mapping: |
-        # 1. ENCRYPT
-        # Encrypt the full card number after cleaning it.
-        let clean_card = this.payment.card_number.re_replace_all("[^0-9]", "")
-        root.payment.card_number_encrypted = clean_card.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
-
-        # 2. PRESERVE
-        # Extract the last 4 digits and card brand.
-        root.payment.card_last_four = clean_card.slice(-4)
-        root.payment.card_brand = if clean_card.has_prefix("4") { "visa" } else { "unknown" }
-
-        # 3. DELETE
-        # Remove the original plaintext field.
-        root.payment = this.payment.without("card_number")
-    ```
+    See the [complete configuration](/data-security/encryption-patterns/complete-encryption-pipeline) for the maintained encryption mapping and its ciphertext fields.
 
 ## Verification
 
