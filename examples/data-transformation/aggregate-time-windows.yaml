@@ -14,7 +14,7 @@ config:
           let end = meta("window_end_timestamp").ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano() / 1000000000
           root = if batch_index() == 0 {
             {"sensor_id": this.sensor_id,
-             "window_start": ($end - env("WINDOW_MINUTE_SECONDS").or("60").number()).ts_format("2006-01-02T15:04:05Z07:00"),
+             "window_start": ($end - 60).ts_format("2006-01-02T15:04:05Z07:00"),
              "window_end": meta("window_end_timestamp"),
              "event_count": $values.length(),
              "temperature_avg": $values.sum() / $values.length(),
@@ -30,5 +30,5 @@ config:
         period: 10s
   buffer:
     system_window:
-      size: ${WINDOW_MINUTE:1m}
+      size: 1m
       timestamp_mapping: root = this.timestamp

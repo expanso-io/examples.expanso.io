@@ -45,6 +45,7 @@ import {
 import { renderIndex, renderReport, summarize } from './validation/report';
 import { writeFailureReport } from './validation/failure-report';
 import { verifyOutputs, type Expectation } from './validation/expectations';
+import { rebaseNormalizationFixture } from './validation/recent-timestamps';
 import type {
   PipelineFile,
   PipelineReport,
@@ -60,6 +61,7 @@ const FIXTURE_ROOT = 'tests/fixtures/pipeline-inputs';
 const RUN_TIMEOUT_MS = 45_000;
 
 interface ManifestEntry {
+  recentTimestamps?: boolean;
   expectation?: Expectation;
   fixture?: string;
   minRecords?: number;
@@ -221,9 +223,7 @@ async function runPipeline(
 
   const fixtureRelative = resolveFixture(entry, file);
 
-  const fixture = fixtureRelative
-    ? join(repositoryRoot, fixtureRelative)
-    : null;
+  let fixture = fixtureRelative ? join(repositoryRoot, fixtureRelative) : null;
 
   const outputDir = join(
     agent.dataDir,
@@ -233,10 +233,26 @@ async function runPipeline(
   );
 
   mkdirSync(outputDir, { recursive: true });
+  if (entry.recentTimestamps && fixture && entry.expectation) {
+    const recent = rebaseNormalizationFixture(
+      readFileSync(fixture, 'utf8'),
+      entry.expectation
+    );
+    fixture = join(outputDir, 'recent-timestamps.jsonl');
+    writeFileSync(fixture, recent.source);
+    entry.expectation = recent.expectation;
+  }
   let plan;
 
   try {
     plan = planRun(config, fixture, outputDir, standIns);
+    if (entry.recentTimestamps)
+      plan.substitutions.push({
+        role: 'input',
+        at: 'input.file',
+        from: 'historical normalization fixture timestamps',
+        to: 'previous-day timestamps and matching semantic expectations',
+      });
   } catch (error) {
     return {
       status: 'SKIP',

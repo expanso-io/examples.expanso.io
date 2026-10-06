@@ -47,7 +47,7 @@ pipeline:
         let first = $events.index(0)
         let values = $events.map_each(event -> event.temperature)
         let end = meta("window_end_timestamp").ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano() / 1000000000
-        let minute = env("WINDOW_MINUTE_SECONDS").or("60").number()
+        let minute = 60
         root = if batch_index() == 0 {
           {"aggregation": {
             "aggregation_type": $first.aggregation_type,
@@ -79,5 +79,5 @@ output:
         path: "/var/buffer/aggregations.jsonl"
 buffer:
   system_window:
-    size: ${WINDOW_MINUTE:1m}
+    size: 1m
     timestamp_mapping: root = this.timestamp

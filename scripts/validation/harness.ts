@@ -475,6 +475,31 @@ export function planRun(
     isYamlObject(config.buffer.system_window) &&
     fixturePath
   ) {
+    const window = config.buffer.system_window;
+    window.size = window.size === '5m' ? '1500ms' : '300ms';
+    if (window.slide !== undefined) window.slide = '300ms';
+    const scaleWindowMappings = (node: YamlValue): YamlValue => {
+      if (Array.isArray(node)) return node.map(scaleWindowMappings);
+      if (!isYamlObject(node)) return node;
+      return Object.fromEntries(
+        Object.entries(node).map(([key, value]) => [
+          key,
+          key === 'mapping' && isStringValue(value)
+            ? value
+                .replaceAll('let minute = 60', 'let minute = 0.3')
+                .replaceAll('($end - 60)', '($end - 0.3)')
+            : scaleWindowMappings(value),
+        ])
+      );
+    };
+    if (config.pipeline !== undefined)
+      config.pipeline = scaleWindowMappings(config.pipeline);
+    substitutions.push({
+      role: 'processor',
+      at: 'pipeline.processors',
+      from: '60-second window arithmetic',
+      to: '0.3-second window arithmetic for fixture execution',
+    });
     const first = JSON.parse(
       readFileSync(fixturePath, 'utf8')
         .split('\n')
@@ -528,7 +553,7 @@ export function planRun(
       role: 'resource',
       at: 'buffer.system_window',
       from: 'one-minute window unit',
-      to: '300ms window unit via WINDOW_MINUTE, WINDOW_SPAN, WINDOW_MINUTE_SECONDS',
+      to: '300ms window unit for fixture execution',
     });
   }
 

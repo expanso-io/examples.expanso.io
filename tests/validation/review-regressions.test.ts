@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { createServer } from 'node:http';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { join, resolve } from 'node:path';
 import { parse } from 'yaml';
 import {
   LocalEdgeAgent,
@@ -23,6 +29,7 @@ import type { PipelineReport } from '../../scripts/validation/types';
 import { discoverPipelineFiles } from '../../scripts/validation/inventory';
 import { writeFailureReport } from '../../scripts/validation/failure-report';
 import type { LocalStandIns } from '../../scripts/validation/harness';
+import { rebaseNormalizationFixture } from '../../scripts/validation/recent-timestamps';
 
 const root = process.cwd();
 const manifest = JSON.parse(
@@ -30,7 +37,11 @@ const manifest = JSON.parse(
 );
 const edge = resolveEdgeBinary(root, { install: false, log: () => {} });
 const work = mkdtempSync(join(root, '.bin', 'review-regressions-'));
-const agent = new LocalEdgeAgent(edge, work, manifest.environment);
+const agent = new LocalEdgeAgent(edge, work, {
+  ...manifest.environment,
+  REVIEW_BAD_ENCRYPTION_KEY: 'invalid',
+  REVIEW_EMPTY_ENCRYPTION_KEY: '',
+});
 let sequence = 0;
 before(async () => {
   await agent.start();
@@ -61,12 +72,13 @@ async function execute(
 async function capture(
   pipeline: YamlObject,
   fixture?: string,
-  standIns: LocalStandIns = {}
+  standIns: LocalStandIns = {},
+  expectedState = 'completed'
 ): Promise<string[]> {
   sequence += 1;
   const plan = planRun(
     pipeline,
-    fixture ? join(root, fixture) : null,
+    fixture ? resolve(root, fixture) : null,
     join(work, String(sequence)),
     standIns
   );
@@ -94,7 +106,7 @@ async function capture(
     }
     assert.equal(
       state,
-      'completed',
+      expectedState,
       existsSync(agent.pipelineLogPath(deployed.jobId))
         ? readFileSync(agent.pipelineLogPath(deployed.jobId), 'utf8')
         : JSON.stringify(await agent.executionStatus(deployed.jobId))
@@ -598,4 +610,150 @@ test('record contracts reject changed values and incorrect routing', () => {
       {}
     )
   );
+});
+
+for (const [path, keys] of [
+  [
+    'examples/data-security/encrypt-data.yaml',
+    ['CARD_ENCRYPTION_KEY', 'PII_ENCRYPTION_KEY', 'ADDRESS_ENCRYPTION_KEY'],
+  ],
+  [
+    'examples/data-security/encrypt-data-complete.yaml',
+    ['CARD_KEY', 'PII_KEY', 'ADDR_KEY'],
+  ],
+  [
+    'examples/data-security/encryption-patterns-complete.yaml',
+    [
+      'PAYMENT_ENCRYPTION_KEY',
+      'PII_ENCRYPTION_KEY',
+      'ADDRESS_ENCRYPTION_KEY',
+      'TEMPORAL_ENCRYPTION_KEY',
+    ],
+  ],
+  ['static/files/data-security/encrypt-data.yaml', ['CARD_ENCRYPTION_KEY']],
+] as const) {
+  test(`drops messages when encryption keys are invalid or missing: ${path}`, async () => {
+    for (const key of keys) {
+      for (const environment of [
+        'REVIEW_BAD_ENCRYPTION_KEY',
+        'REVIEW_EMPTY_ENCRYPTION_KEY',
+      ]) {
+        const pipeline = parse(
+          stringify(config(path)).replaceAll(
+            `env("${key}")`,
+            `env("${environment}")`
+          )
+        ) as YamlObject;
+        const texts = await capture(
+          pipeline,
+          'tests/fixtures/pipeline-inputs/encryption.jsonl',
+          {},
+          'failed'
+        );
+        assert.ok(texts.length > 0);
+        assert.ok(
+          texts.every((text) => text === ''),
+          'encryption failure emitted data'
+        );
+      }
+    }
+  });
+}
+
+test('raw arrays split into individual objects with shared batch metadata', async () => {
+  const pipeline = config(
+    'examples/data-routing/content-splitting-complete.yaml'
+  );
+  pipeline.input = {
+    generate: { count: 1, mapping: 'root = [{"sku":"A"},{"sku":"B"}]' },
+  };
+  const texts = await capture(pipeline);
+  assert.notEqual(texts[0], '', JSON.stringify(texts));
+  const rows = texts[0]
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.deepEqual(
+    rows.map((row) => row.sku),
+    ['A', 'B']
+  );
+  assert.equal(texts[1], '');
+  assert.equal(rows[0].batch_context.batch_id, rows[1].batch_context.batch_id);
+  for (const row of rows) {
+    assert.equal(row.batch_context.total_items, 2);
+    assert.ok(Number.isFinite(Date.parse(row.batch_context.received_at)));
+  }
+});
+
+for (const path of [
+  'examples/data-transformation/normalize-timestamps.yaml',
+  'examples/data-transformation/normalize-timestamps-complete.yaml',
+]) {
+  test(`normalization fixtures remain recent without bypassing age validation: ${path}`, async () => {
+    const old = readFileSync(
+      'tests/fixtures/pipeline-inputs/data-transformation.jsonl',
+      'utf8'
+    ).replaceAll('2026-10-05', '2000-01-01');
+    const recent = rebaseNormalizationFixture(old, contracts[path]);
+    const fixture = join(work, 'recent-normalization.jsonl');
+    writeFileSync(fixture, recent.source);
+    const texts = await capture(config(path), fixture);
+    verifyOutputs(recent.expectation, [], texts, manifest.environment);
+    const input = JSON.parse(recent.source.split('\n')[0]);
+    assert.ok(Date.now() - Date.parse(input.timestamp) < 2 * 86400000);
+    assert.ok(Date.parse(input.timestamp) < Date.now());
+    const later = rebaseNormalizationFixture(
+      old,
+      contracts[path],
+      new Date('2035-02-04T20:00:00Z')
+    );
+    assert.equal(
+      JSON.parse(later.source.split('\n')[0]).timestamp,
+      '2035-02-03T12:00:00.000Z'
+    );
+    const expectation = later.expectation;
+    assert.equal(expectation.kind, 'records');
+    if (expectation.kind === 'records')
+      assert.equal(
+        expectation.outputs[0].records![0].equals!.timestamp,
+        '2035-02-03T12:00:00Z'
+      );
+  });
+}
+
+test('normalization continues to reject genuinely stale production events', async () => {
+  const pipeline = config(
+    'examples/data-transformation/normalize-timestamps.yaml'
+  );
+  pipeline.input = {
+    generate: {
+      count: 1,
+      mapping: 'root = {"event_id":"old","timestamp":"2000-01-01T12:00:00Z"}',
+    },
+  };
+  await assert.rejects(
+    () => execute(pipeline),
+    /Timestamp too old|timestamp.*old/i
+  );
+});
+
+test('Splunk HEC envelopes mask PII in parsed and fallback log lines', async () => {
+  for (const prefix of ['2026-10-05 12:00:00 [ERROR] [worker] ', '']) {
+    const pipeline = config('static/pipelines/splunk-production-pipeline.yaml');
+    delete (pipeline.input as YamlObject).file;
+    pipeline.input = {
+      generate: {
+        count: 1,
+        mapping: `root = ${JSON.stringify(prefix + 'customer person@example.com SSN 123-45-6789 card 4532-1234-5678-9010 phone 4155551234')}`,
+      },
+    };
+    const rows = (await execute(pipeline)) as Array<{
+      event: { message: string; raw: string };
+    }>;
+    assert.equal(rows.length, 1);
+    const masked =
+      'customer ***@***.*** SSN ***-**-**** card ****-****-****-**** phone ***-***-****';
+    assert.equal(rows[0].event.message, masked);
+    assert.equal(rows[0].event.raw, prefix + masked);
+  }
 });

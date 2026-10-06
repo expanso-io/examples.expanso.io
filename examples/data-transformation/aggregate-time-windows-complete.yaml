@@ -41,7 +41,7 @@ config:
           format: json_array
       - mapping: |-
           let end = meta("window_end_timestamp").ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano() / 1000000000
-          let minute = env("WINDOW_MINUTE_SECONDS").or("60").number()
+          let minute = 60
           root = this.map_each(event -> [
             event.merge({"aggregation_type":"sliding","group_key":event.sensor_id+"|sliding","window_duration_minutes":5}),
             if event.timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano() / 1000000000 >= $end - $minute { event.merge({"aggregation_type":"tumbling","group_key":event.sensor_id+"|tumbling","window_duration_minutes":1}) },
@@ -57,7 +57,7 @@ config:
           let first = $events.index(0)
           let values = $events.map_each(event -> event.temperature)
           let end = meta("window_end_timestamp").ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano() / 1000000000
-          let minute = env("WINDOW_MINUTE_SECONDS").or("60").number()
+          let minute = 60
           root = if batch_index() == 0 {
             {"aggregation": {
               "aggregation_type": $first.aggregation_type,
@@ -97,8 +97,8 @@ config:
             codec: lines
   buffer:
     system_window:
-      size: ${WINDOW_SPAN:5m}
-      slide: ${WINDOW_MINUTE:1m}
+      size: 5m
+      slide: 1m
       timestamp_mapping: root = this.timestamp
 
 logger:
