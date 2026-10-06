@@ -85,15 +85,49 @@ async function openActionMenu(explorer: Locator): Promise<Locator> {
   return menu;
 }
 
+async function clickWithFreshFeedback(
+  button: Locator,
+  feedback: Locator
+): Promise<void> {
+  const previous = await feedback.allTextContents();
+  await button.click();
+  await expect(feedback).toBeVisible();
+  await expect.poll(() => feedback.allTextContents()).not.toEqual(previous);
+}
+
 async function expectDirectCopyFeedback(
   button: Locator,
-  expectedKind: 'success' | 'error'
+  expectedKind: 'success' | 'error',
+  operation: RegExp
 ): Promise<void> {
-  await expect(button).toHaveAttribute('data-copy-state', expectedKind);
   const anchor = button.locator('xpath=..');
   const role = expectedKind === 'success' ? 'status' : 'alert';
-  await expect(anchor.getByRole(role)).toBeVisible();
+  await clickWithFreshFeedback(button, anchor.getByRole(role));
+  await expect(button).toHaveAttribute('data-copy-state', expectedKind);
+  await expect(anchor.getByRole(role)).toContainText(operation);
 }
+
+test('action feedback requires a fresh response to each click', async ({
+  page,
+}) => {
+  await page.setContent(`
+    <button onclick="document.querySelector('[role=alert]').textContent = 'Could not copy stage YAML.'">Copy stage YAML</button>
+    <button>Copy full YAML</button>
+    <p role="alert">Could not copy share link.</p>
+  `);
+  const feedback = page.getByRole('alert');
+  await clickWithFreshFeedback(
+    page.getByRole('button', { name: 'Copy stage YAML' }),
+    feedback
+  );
+  await expect(feedback).toHaveText('Could not copy stage YAML.');
+  await expect(
+    clickWithFreshFeedback(
+      page.getByRole('button', { name: 'Copy full YAML' }),
+      feedback
+    )
+  ).rejects.toThrow();
+});
 
 test('the conformance inventory is the complete 26-example class', () => {
   expect(published).toHaveLength(26);
@@ -222,10 +256,13 @@ for (const record of published) {
     await page.keyboard.press('ArrowLeft');
     await expect(stages.first()).toHaveAttribute('aria-current', 'step');
 
-    for (const label of [/Copy input/i, /Copy output/i, /^Copy YAML$/i]) {
+    for (const [label, operation] of [
+      [/Copy input/i, /input /i],
+      [/Copy output/i, /output /i],
+      [/^Copy YAML$/i, /stage yaml/i],
+    ]) {
       const button = explorer.getByRole('button', { name: label }).first();
-      await button.click();
-      await expectDirectCopyFeedback(button, 'success');
+      await expectDirectCopyFeedback(button, 'success', operation);
     }
 
     for (const label of [
@@ -237,11 +274,14 @@ for (const record of published) {
       const button = menu.getByRole('button', { name: label });
 
       await expect(button).toBeVisible();
-      await button.click();
       const feedback = menu.locator('xpath=..').locator('[data-copy-toast]');
-      await expect(feedback).toBeVisible();
+      await clickWithFreshFeedback(button, feedback);
       await expect(feedback).toHaveAttribute('data-kind', 'success');
-      await expect(feedback).toContainText(/copied/i);
+      await expect(feedback).toHaveText(
+        label
+          .replace(/^Copy /, '')
+          .replace(/^./, (initial) => initial.toUpperCase()) + ' copied.'
+      );
     }
 
     for (const label of ['Download stage YAML', 'Download full YAML']) {
@@ -250,9 +290,12 @@ for (const record of published) {
 
       await expect(button).toBeVisible();
 
+      const feedback = menu
+        .locator('xpath=..')
+        .locator('[data-download-feedback]');
       const [download] = await Promise.all([
         page.waitForEvent('download'),
-        button.click(),
+        clickWithFreshFeedback(button, feedback),
       ]);
 
       expect(download.suggestedFilename()).toBe(
@@ -262,11 +305,12 @@ for (const record of published) {
       );
       await download.cancel();
 
-      const feedback = menu
-        .locator('xpath=..')
-        .locator('[data-download-feedback]');
-
       await expect(feedback).toBeVisible();
+      await expect(feedback).toHaveText(
+        (label === 'Download full YAML'
+          ? family.fullYamlFilename
+          : family.stages[0].yamlFilename) + ' download started.'
+      );
       await expect(feedback).toHaveAttribute('data-kind', 'success');
     }
 
@@ -278,10 +322,13 @@ for (const record of published) {
         },
       });
     });
-    for (const label of [/Copy input/i, /Copy output/i, /^Copy YAML$/i]) {
+    for (const [label, operation] of [
+      [/Copy input/i, /input /i],
+      [/Copy output/i, /output /i],
+      [/^Copy YAML$/i, /stage yaml/i],
+    ]) {
       const button = explorer.getByRole('button', { name: label }).first();
-      await button.click();
-      await expectDirectCopyFeedback(button, 'error');
+      await expectDirectCopyFeedback(button, 'error', operation);
     }
     for (const label of [
       'Copy share link',
@@ -289,11 +336,15 @@ for (const record of published) {
       'Copy full YAML',
     ]) {
       const menu = await openActionMenu(explorer);
-      await menu.getByRole('button', { name: label, exact: true }).click();
       const feedback = menu.locator('xpath=..').locator('[data-copy-toast]');
-      await expect(feedback).toBeVisible();
+      await clickWithFreshFeedback(
+        menu.getByRole('button', { name: label, exact: true }),
+        feedback
+      );
       await expect(feedback).toHaveAttribute('data-kind', 'error');
-      await expect(feedback).toContainText(/could not|failed|unable/i);
+      await expect(feedback).toContainText(
+        'Could not copy ' + label.replace(/^Copy /, '').toLowerCase()
+      );
     }
     await page.evaluate(() => {
       Object.defineProperty(URL, 'createObjectURL', {
@@ -305,11 +356,18 @@ for (const record of published) {
     });
     for (const label of ['Download stage YAML', 'Download full YAML']) {
       const menu = await openActionMenu(explorer);
-      await menu.getByRole('button', { name: label, exact: true }).click();
       const feedback = menu
         .locator('xpath=..')
         .locator('[data-download-feedback]');
-      await expect(feedback).toBeVisible();
+      await clickWithFreshFeedback(
+        menu.getByRole('button', { name: label, exact: true }),
+        feedback
+      );
+      await expect(feedback).toContainText(
+        label === 'Download full YAML'
+          ? 'Could not download the full YAML'
+          : 'Could not download the stage YAML'
+      );
       await expect(feedback).toHaveAttribute('data-kind', 'error');
     }
   });
@@ -326,9 +384,8 @@ for (const record of published) {
     const destinations = await actionLinks.evaluateAll((links) =>
       links.map((link) => (link as HTMLAnchorElement).href)
     );
-    for (const destination of destinations) {
+    for (const [index, destination] of destinations.entries()) {
       await page.goto(overviewURL, { waitUntil: 'networkidle' });
-      const index = destinations.indexOf(destination);
       await actionLinks.nth(index).click();
       await expect(page).toHaveURL(destination);
       await expect(page.locator('main')).toBeVisible();
