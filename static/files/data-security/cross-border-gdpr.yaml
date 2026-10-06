@@ -109,7 +109,7 @@ config:
           # Customer ID → anonymized cohort ID
           # Salt ensures can't be reversed even with rainbow tables
           let salt = env("ANONYMIZATION_SALT").or("gdpr-compliance-2024")
-          root.anonymized_customer_id = (this.customer_id.string() + $salt).hash("sha256").slice(0, 12)
+          root.anonymized_customer_id = (this.customer_id.string() + $salt).hash("sha256").encode("hex").slice(0, 12)
           root = root.without("customer_id")
 
           # Email → domain only (for B2B vs B2C analysis)

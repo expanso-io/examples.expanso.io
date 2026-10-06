@@ -54,34 +54,40 @@ config:
 
       # Step 2: Normalize currency to USD
       # DataStage replacement: Currency lookup and conversion
-      - mapping: |
-          # Currency conversion rates (in production, fetch from API)
-          let rates = {
-            "USD": 1.0,
-            "EUR": 1.08,
-            "GBP": 1.27,
-            "JPY": 0.0067,
-            "CHF": 1.13,
-            "CAD": 0.74
-          }
+      - branch:
+          processors:
+            - mapping: |
+                # Currency conversion rates (in production, fetch from API)
+                let rates = {
+                  "USD": 1.0,
+                  "EUR": 1.08,
+                  "GBP": 1.27,
+                  "JPY": 0.0067,
+                  "CHF": 1.13,
+                  "CAD": 0.74
+                }
 
-          root = this
-          root.original_amount = this.AMOUNT
-          root.original_currency = this.CURRENCY
+                root = this
+                root.original_amount = this.AMOUNT
+                root.original_currency = this.CURRENCY
 
-          # Convert to USD
-          root.amount_usd = if this.CURRENCY == "USD" {
-            this.AMOUNT
-          } else {
-            (this.AMOUNT * $rates.get(this.CURRENCY).or(1.0) * 100).round() / 100
-          }
+                # Convert to USD
+                root.amount_usd = if this.CURRENCY == "USD" {
+                  this.AMOUNT
+                } else {
+                  this.AMOUNT * $rates.get(this.CURRENCY).or(1.0)
+                }
+          result_map: |
+            root.original_amount = this.original_amount
+            root.original_currency = this.original_currency
+            root.amount_usd = this.amount_usd
 
       # Step 3: Mask account numbers for compliance
       # Keep last 4 digits for reconciliation, hash full number for joins
       - mapping: |
           root = this
           root.account_number_masked = "****-****-" + this.ACCOUNT_NUMBER.slice(-4)
-          root.account_number_hash = this.ACCOUNT_NUMBER.hash("sha256").slice(0, 16)
+          root.account_number_hash = this.ACCOUNT_NUMBER.hash("sha256").encode("hex").slice(0, 16)
           root = root.without("ACCOUNT_NUMBER")
 
       # Step 4: Categorize transactions

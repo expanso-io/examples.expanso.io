@@ -1,0 +1,8 @@
+pipeline:
+  processors:
+    # Step 2: Calculate row checksum for integrity verification
+    - mapping: |
+        root = this
+        # Create checksum from all original fields (excluding metadata)
+        let data_fields = this.without("_table", "_backup_type", "_backup_metadata")
+        root._checksum = $data_fields.format_json(no_indent: true).hash("md5").encode("hex")

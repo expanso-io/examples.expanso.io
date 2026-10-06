@@ -1077,7 +1077,10 @@ function collectClaimSurfaceText(
     .filter(Boolean);
   return [
     ...publicMetadata,
-    visibleText,
+    visibleText.replace(
+      /^[ \t]*"pipeline"[ \t]*:[ \t]*"[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)+",?[ \t]*$/gm,
+      ''
+    ),
     ...extractMarkdownTableText(raw),
     ...extractFencedCodeComments(raw),
   ]

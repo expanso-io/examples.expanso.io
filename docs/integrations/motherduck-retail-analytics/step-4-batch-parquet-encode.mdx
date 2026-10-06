@@ -20,93 +20,11 @@ claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2
 
 Individual JSON transactions become compressed, columnar Parquet. Compression ratio and query performance depend on schema, values, row-group sizing, codecs, storage, and query shape; benchmark generated files before making performance claims.
 
-## Batching Strategy
+## Batching and encoding
 
-Choose Parquet object sizes from measured write, discovery, and query behavior. The reference uses an authored micro-batch:
+The [canonical reference](../complete-pipeline) owns output batching, region grouping, metadata capture, and the Parquet schema. The [Explorer](../explorer) shows the flattened records and per-region objects.
 
-```yaml
-# Batch: collect 1000 transactions or flush every 10 seconds
-- batch:
-    count: 1000
-    period: 10s
-```
-
-At 10 TPS per store, that's roughly one Parquet file every 100 seconds (1000 rows), or a flush every 10 seconds during slow periods. Both produce well-sized files for DuckLake.
-
-## Flatten for Parquet
-
-The example maps selected fields into flat columns and serializes nested items as JSON strings for later inspection:
-
-```yaml
-# Prepare for Parquet encoding
-- mapping: |
-    root = this
-    # Serialize nested items array as JSON string for Parquet
-    root.items_json = this.items.format_json()
-    # Drop the original nested array
-    root = root.without("items")
-```
-
-## Encode to Parquet
-
-```yaml
-# Encode batch to Parquet with Zstandard compression
-- parquet_encode:
-    schema:
-      - name: txn_id
-        type: UTF8
-      - name: store_id
-        type: INT32
-      - name: terminal_id
-        type: INT32
-      - name: timestamp
-        type: UTF8
-      - name: type
-        type: UTF8
-      - name: payment_method
-        type: UTF8
-      - name: employee_id
-        type: UTF8
-      - name: items_json
-        type: UTF8
-      - name: item_count
-        type: INT32
-      - name: subtotal
-        type: DOUBLE
-      - name: tax_rate
-        type: DOUBLE
-      - name: tax_amount
-        type: DOUBLE
-      - name: total_amount
-        type: DOUBLE
-      - name: store_region
-        type: UTF8
-      - name: store_format
-        type: UTF8
-      - name: store_city
-        type: UTF8
-      - name: store_state
-        type: UTF8
-      - name: store_sqft
-        type: INT32
-      - name: hour_of_day
-        type: INT32
-      - name: day_of_week
-        type: UTF8
-      - name: is_weekend
-        type: BOOLEAN
-      - name: basket_size
-        type: INT32
-      - name: avg_item_price
-        type: DOUBLE
-      - name: anomaly_flags
-        type: UTF8
-      - name: is_anomaly
-        type: BOOLEAN
-      - name: quality_score
-        type: UTF8
-    default_compression: zstd
-```
+The output flushes at the configured count or period, then groups records by region before encoding. A mixed-region flush produces separate objects, so each file can contain fewer rows than the batch limit. Region metadata survives encoding for use in the object path.
 
 ## Measure Compression
 

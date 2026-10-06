@@ -40,39 +40,14 @@ In DataStage, categorization typically requires:
 
 ## Implementation
 
-Add the categorization processor after account masking:
-
-```yaml title="step-4-categorize.yaml"
-pipeline:
-  processors:
-    # Steps 1-3 from previous...
-
-    # Step 4: Categorize transactions by MCC
-    - mapping: |
-        root = this
-
-        # Map MCC code prefixes to categories
-        let mcc = this.MERCHANT_CATEGORY_CODE.string()
-
-        root.transaction_category = match mcc {
-          this.has_prefix("54") => "GROCERY",
-          this.has_prefix("55") => "AUTOMOTIVE",
-          this.has_prefix("58") => "RESTAURANT",
-          this.has_prefix("59") => "RETAIL",
-          this.has_prefix("47") => "TRANSPORTATION",
-          this.has_prefix("40") || this.has_prefix("41") => "TRAVEL",
-          this.has_prefix("60") || this.has_prefix("61") => "FINANCIAL",
-          this.has_prefix("80") => "PROFESSIONAL_SERVICES",
-          _ => "OTHER"
-        }
-```
+See the categorization processor in the [canonical reference](../complete-pipeline) and its captured input and output in the [Explorer](../explorer).
 
 ## Understanding the Code
 
 | Expression              | What It Does                               |
 | ----------------------- | ------------------------------------------ |
 | `.string()`             | Convert MCC to string for pattern matching |
-| `match mcc {...}`       | Pattern matching expression                |
+| `match $mcc {...}`      | Pattern matching expression                |
 | `this.has_prefix("54")` | Check if string starts with "54"           |
 | `\|\|`                  | Logical OR for multiple prefixes           |
 | `_ => "OTHER"`          | Default case (underscore = wildcard)       |
@@ -153,14 +128,14 @@ input:
 Add hierarchical categorization:
 
 ```yaml
-root.category_level1 = match mcc {
+root.category_level1 = match $mcc {
 this.has_prefix("5") => "RETAIL",
 this.has_prefix("4") => "TRAVEL",
 this.has_prefix("6") => "FINANCIAL",
 _ => "OTHER"
 }
 
-root.category_level2 = match mcc {
+root.category_level2 = match $mcc {
 this.has_prefix("54") => "GROCERY",
 this.has_prefix("58") => "DINING",
 _ => root.category_level1
@@ -172,7 +147,7 @@ _ => root.category_level1
 Add fraud indicators:
 
 ```yaml
-root.high_risk = match mcc {
+root.high_risk = match $mcc {
   this.has_prefix("59") => true,   # Misc retail
   this.has_prefix("79") => true,   # Recreation
   this.has_prefix("76") => true,   # Misc services

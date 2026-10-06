@@ -1,0 +1,21 @@
+pipeline:
+  processors:
+    # Step 6: Validate anonymization completeness
+    - mapping: |
+        # Check no PII fields remain
+        let pii_fields = ["customer_id", "customer_name", "customer_email",
+                         "customer_dob", "customer_address", "iban", "ip_address"]
+
+        let remaining_pii = $pii_fields.filter(f -> this.exists(f))
+
+        root = if $remaining_pii.length() > 0 {
+          throw("GDPR VIOLATION: PII fields still present: " + $remaining_pii.join(", "))
+        } else {
+          this
+        }
+
+        # Add compliance attestation
+        root._gdpr_compliance.anonymization_verified = true
+        root._gdpr_compliance.verification_timestamp = now()
+        root._gdpr_compliance.fields_removed = ["customer_name", "customer_address", "customer_dob"]
+        root._gdpr_compliance.fields_hashed = ["customer_id", "customer_email", "iban", "ip_address"]

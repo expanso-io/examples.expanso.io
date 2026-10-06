@@ -15,7 +15,7 @@ input:
               '../../../examples/integrations/medical-device-intelligence/maintenance-logs.csv',
             ]
           parse_header_row: true
-          batch_count: 0 # read all rows
+          batch_count: 1 # one row per message
         processors:
           - mapping: |
               root.source = "maintenance_log"
@@ -33,7 +33,7 @@ input:
         processors:
           - mapping: |
               root.source = "error_events"
-              root.data = this.parse_json()
+              root.data = this
 
       # Source 3: Freeform technician notes (text)
       - file:
@@ -45,7 +45,7 @@ input:
         processors:
           - mapping: |
               root.source = "technician_notes"
-              root.data = content()
+              root.data = content().string()
 
 pipeline:
   processors:
@@ -62,7 +62,7 @@ pipeline:
     # the authored mock response used when credentials are absent.
     - command:
         name: python3
-        args_mapping: '["./scripts/analyze_reports.py"]'
+        args_mapping: '[ "./scripts/analyze_reports.py" ]'
 
     # --- Stage 3: Shape the output ---
     # Ensure consistent structure for downstream consumers

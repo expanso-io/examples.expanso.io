@@ -1,0 +1,78 @@
+pipeline:
+  processors:
+    # 3. Flatten items for Parquet
+    - mapping: |
+        root = this
+        root.item_count = this.items.length()
+        root.items_json = this.items.format_json()
+        root.anomaly_flags = this.anomaly_flags.format_json()
+        root = root.without("items")
+
+output:
+  aws_s3:
+    # 4. Batch for optimal Parquet file size
+    batching:
+      count: 1000
+      period: 10s
+      # 5. Encode each batch to one Parquet object
+      processors:
+        - group_by_value:
+            value: '${! json("store_region") }'
+        - mapping: |
+            root = this
+            meta store_region = this.store_region
+        - parquet_encode:
+            schema:
+              - name: txn_id
+                type: UTF8
+              - name: store_id
+                type: INT32
+              - name: terminal_id
+                type: INT32
+              - name: timestamp
+                type: UTF8
+              - name: type
+                type: UTF8
+              - name: payment_method
+                type: UTF8
+              - name: employee_id
+                type: UTF8
+              - name: items_json
+                type: UTF8
+              - name: item_count
+                type: INT32
+              - name: subtotal
+                type: DOUBLE
+              - name: tax_rate
+                type: DOUBLE
+              - name: tax_amount
+                type: DOUBLE
+              - name: total_amount
+                type: DOUBLE
+              - name: store_region
+                type: UTF8
+              - name: store_format
+                type: UTF8
+              - name: store_city
+                type: UTF8
+              - name: store_state
+                type: UTF8
+              - name: store_sqft
+                type: INT32
+              - name: hour_of_day
+                type: INT32
+              - name: day_of_week
+                type: UTF8
+              - name: is_weekend
+                type: BOOLEAN
+              - name: basket_size
+                type: INT32
+              - name: avg_item_price
+                type: DOUBLE
+              - name: anomaly_flags
+                type: UTF8
+              - name: is_anomaly
+                type: BOOLEAN
+              - name: quality_score
+                type: UTF8
+            default_compression: zstd

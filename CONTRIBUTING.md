@@ -47,7 +47,7 @@ Every topology node is labeled `expanso-native`, `protocol-adapter`, `custom`, o
 
 ## Explorer V2
 
-Use Explorer V2 only when the interaction teaches a distinct task. It requires:
+Every published family requires an Explore route with canonical stage bindings and a generated stage family. See [canonical Explorer stage ownership](scripts/README.md#canonical-explorer-stage-ownership) for regeneration commands. Each Explorer must teach a distinct task and requires:
 
 - a canonical pipeline and deterministic fixture;
 - stable stage ids and semantic diffs;

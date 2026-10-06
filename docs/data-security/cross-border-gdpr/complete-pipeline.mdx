@@ -25,7 +25,7 @@ This reference pipeline combines six technical data-protection steps for a cross
 1. **Tag data origin** - Source region and extraction metadata
 2. **Create GDPR record** - Legal basis and PII field documentation
 3. **Delete high-risk fields** - Names, addresses, DOB → age bucket
-4. **Hash identifiers** - Customer ID, email, IBAN, IP
+4. **Pseudonymize and reduce identifiers** - Hash customer ID; retain email domain, IBAN country, and IP subnet
 5. **Generalize values** - Amount buckets, hour-level timestamps
 6. **Validate configured fields** - Technical gate before output
 
@@ -36,9 +36,9 @@ The configuration does not determine legal status or make the output anonymous. 
 ## Data Flow
 
 ```
-EU Database ──→ [Anonymization Pipeline] ──→ Global BigQuery (anonymized)
+EU Database ──→ [Transformation Pipeline] ──→ Global BigQuery
                         │
-                        ├──→ EU Archive (full data, stays in EU)
+                        ├──→ EU Archive (original data captured before transformation)
                         │
                         └──→ Audit Log (transformation records)
 ```
@@ -49,10 +49,11 @@ EU Database ──→ [Anonymization Pipeline] ──→ Global BigQuery (anonym
   {pipelineYaml}
 </CodeBlock>
 
-## Quick Test
+## Environment variables
+
+Set these values when adapting the external integrations:
 
 ```bash
-# Set environment variables
 export EU_DB_HOST=postgres.eu-west-1.internal
 export DB_USER=analytics_reader
 export DB_PASSWORD=<secret>
@@ -60,58 +61,11 @@ export SOURCE_COUNTRY=DE
 export ANONYMIZATION_SALT=$(openssl rand -hex 32)
 export GCP_GLOBAL_PROJECT=global-analytics
 export EU_ARCHIVE_BUCKET=eu-west-1-archive
-
-# Test with sample data
-echo '{
-  "transaction_id": "TXN-EU-2024-00001",
-  "customer_id": "CUST-DE-12345",
-  "customer_name": "Hans Schmidt",
-  "customer_email": "hans.schmidt@example.de",
-  "customer_dob": "1985-03-15",
-  "customer_address": "Hauptstraße 42, 10115 Berlin, Germany",
-  "iban": "DE89370400440532013000",
-  "transaction_amount": 249.99,
-  "transaction_currency": "EUR",
-  "merchant_name": "Tech Store GmbH",
-  "merchant_country": "DE",
-  "transaction_timestamp": "2024-01-15T14:32:17Z",
-  "ip_address": "91.64.42.17"
-}' | expanso-edge run --config cross-border-gdpr.yaml
 ```
 
-**Expected Output (transformed and pseudonymized):**
+## Sample transformation
 
-```json
-{
-  "transaction_id": "TXN-EU-2024-00001",
-  "anonymized_customer_id": "x9y8z7w6e5r4",
-  "email_domain": "example.de",
-  "bank_country": "DE",
-  "ip_subnet": "91.64.0.0/16",
-  "customer_age_bucket": "35-44",
-  "transaction_amount": 249.99,
-  "amount_bucket": "100-500",
-  "transaction_currency": "EUR",
-  "merchant_name": "Tech Store GmbH",
-  "merchant_country": "DE",
-  "transaction_hour": "2024-01-15T14:00:00Z",
-  "_data_origin": {
-    "region": "EU",
-    "country": "DE",
-    "database": "transactions_eu",
-    "extracted_at": "2024-01-15T02:00:00Z",
-    "pipeline": "eu-cross-border-minimization"
-  },
-  "_gdpr_compliance": {
-    "legal_basis": "legitimate_interest_analytics",
-    "anonymization_applied": true,
-    "anonymization_verified": true,
-    "verification_timestamp": "2024-01-15T02:00:00Z",
-    "fields_removed": ["customer_name", "customer_address", "customer_dob"],
-    "fields_hashed": ["customer_id", "customer_email", "iban", "ip_address"]
-  }
-}
-```
+Use the [Explorer checkpoints](../explorer) to inspect the sample input and transformed fields. These checkpoints do not establish database extraction or delivery to the external destinations.
 
 ## Illustrative deployment command
 
@@ -126,7 +80,7 @@ expanso-cli job deploy cross-border-gdpr.yaml \
   --selector data_policy=review-required
 
 # Verify deployment location
-expanso-cli job describe eu-cross-border-minimization
+expanso-cli job describe eu-cross-border-compliance
 ```
 
 ### Schedule Hourly
@@ -134,7 +88,7 @@ expanso-cli job describe eu-cross-border-minimization
 Run every hour for near-real-time analytics:
 
 ```yaml title="cross-border-gdpr-scheduled.yaml"
-name: eu-cross-border-minimization
+name: eu-cross-border-compliance
 schedule: '0 * * * *' # Every hour
 
 input:

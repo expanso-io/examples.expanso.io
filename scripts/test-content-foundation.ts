@@ -234,6 +234,36 @@ async function main(): Promise<void> {
   );
   await writeFile(stageManifestPath, validStageManifest);
 
+  await writeFile(
+    stageManifestPath,
+    validStageManifest.replace(
+      "'documented output'",
+      JSON.stringify('"pipeline": "eu-cross-border-compliance",')
+    )
+  );
+  const identifierPayload = await validateClaimsEvidence(common);
+  assert.equal(
+    identifierPayload.status,
+    'PASS',
+    JSON.stringify(identifierPayload.errors)
+  );
+  await writeFile(
+    stageManifestPath,
+    validStageManifest.replace(
+      "'documented output'",
+      JSON.stringify('/Us' + 'ers/private/customer ' + 'transcript')
+    )
+  );
+  const privatePayload = await validateClaimsEvidence(common);
+  assert.equal(privatePayload.status, 'FAIL');
+  assert.ok(
+    privatePayload.errors.some(
+      (finding) => finding.code === 'PRIVATE_EVIDENCE_LEAK'
+    ),
+    JSON.stringify(privatePayload.errors)
+  );
+  await writeFile(stageManifestPath, validStageManifest);
+
   await expectRouteClaimFailure(
     common,
     routePath,
@@ -455,7 +485,7 @@ async function main(): Promise<void> {
   );
 
   process.stdout.write(
-    `${JSON.stringify({ gateIds: ['content-validator-v1', 'claims-evidence-v1'], status: 'PASS', assertions: 35 })}\n`
+    `${JSON.stringify({ gateIds: ['content-validator-v1', 'claims-evidence-v1'], status: 'PASS', assertions: 38 })}\n`
   );
 }
 
