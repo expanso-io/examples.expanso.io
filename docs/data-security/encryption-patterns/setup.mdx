@@ -54,6 +54,8 @@ Then inspect the [Complete reference configuration](/data-security/encryption-pa
 - Load `CARD_ENCRYPTION_KEY_HEX` from the deployment secret manager as exactly 32 bytes encoded in hexadecimal.
 - Grant only the Expanso Edge workload identity access to the key and record the key version with every adapted output.
 - Store each generated nonce next to its ciphertext, never reuse a nonce with the same key, and delete CVV data instead of encrypting or logging it.
-- This file is a processor fragment. Embed it in a complete Expanso Edge job with authenticated inputs and approved outputs before deployment.
+- Load `PII_ENCRYPTION_KEY_HEX`, `ADDRESS_ENCRYPTION_KEY_HEX`, and `TEMPORAL_ENCRYPTION_KEY_HEX` as separate 32-byte hexadecimal keys and set `KEY_VERSION`.
+- The download is a complete pipeline. Put its loopback HTTP input behind authenticated TLS ingress and mount encrypted persistent storage at `ENCRYPTED_DATA_PATH` and `ENCRYPTION_AUDIT_PATH`, writable only by the workload.
+- The explorer uses the synthetic fixture and fixture keys in `examples/data-security/encryption-patterns/`; replace those keys through the secret manager for deployment.
 
 This route is a configuration review, not a verified execution guide.

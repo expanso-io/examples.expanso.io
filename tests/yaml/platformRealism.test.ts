@@ -41,7 +41,7 @@ output:
     assert.deepEqual(findings, []);
   });
 
-  it('rejects Kafka without TLS and SASL', () => {
+  it('rejects Kafka without TLS and authentication', () => {
     const findings = validatePlatformYamlSource(`
 output:
   kafka:
@@ -53,7 +53,6 @@ output:
       new Set(findings.map((item) => item.rule)),
       new Set([
         'kafka-tls',
-        'kafka-trust-root',
         'kafka-auth',
       ])
     );
@@ -67,13 +66,52 @@ output:
     topic: events
     tls:
       enabled: true
-      root_cas_file: "${'${KAFKA_CA_FILE}'}"
     sasl:
       mechanism: SCRAM-SHA-512
       user: "${'${KAFKA_USERNAME}'}"
       password: "${'${KAFKA_PASSWORD}'}"
 `);
 
+    assert.deepEqual(findings, []);
+  });
+
+  it('accepts Kafka client authentication with system trust', () => {
+    const findings = validatePlatformYamlSource(`
+output:
+  kafka:
+    addresses: [broker:9092]
+    topic: events
+    tls:
+      enabled: true
+      client_certs:
+        - cert_file: /mounted/client.pem
+          key_file: /mounted/client.key
+`);
+    assert.deepEqual(findings, []);
+  });
+
+  it('rejects an incomplete Kafka client certificate', () => {
+    const findings = validatePlatformYamlSource(`
+output:
+  kafka:
+    addresses: [broker:9092]
+    topic: events
+    tls:
+      enabled: true
+      client_certs:
+        - cert_file: /mounted/client.pem
+`);
+    assert.deepEqual(findings.map((item) => item.rule), ['kafka-auth']);
+  });
+
+  it('accepts residency routing to KMS-encrypted S3 buckets', () => {
+    const findings = validatePlatformYamlSource(`
+output:
+  aws_s3:
+    bucket: '${'${S3_BUCKET_PREFIX}'}-${'${! metadata("data_residency") }'}'
+    server_side_encryption: aws:kms
+    kms_key_id: "${'${S3_KMS_KEY_ARN}'}"
+`);
     assert.deepEqual(findings, []);
   });
 
@@ -95,7 +133,6 @@ volumes:
       new Set(findings.map((item) => item.rule)),
       new Set([
         'postgres-verify-full',
-        's3-deployment-bucket',
         's3-kms',
         's3-kms-key',
         'no-host-path',
@@ -103,7 +140,7 @@ volumes:
     );
   });
 
-  it('rejects literal S3 defaults and incomplete gzip object metadata', () => {
+  it('rejects incomplete gzip object metadata', () => {
     const findings = validatePlatformYamlSource(`
 output:
   broker:
@@ -120,7 +157,7 @@ output:
 
     assert.deepEqual(
       new Set(findings.map((item) => item.rule)),
-      new Set(['s3-deployment-bucket', 'gzip-content-encoding'])
+      new Set(['gzip-content-encoding'])
     );
   });
 

@@ -35,23 +35,71 @@ You can apply this pattern with a single `mapping` processor.
 
 2.  **Add the Encryption Processor:** Add this processor to your pipeline. It implements the complete pattern in one step.
 
-    ```yaml title="Add this processor to your pipeline"
+    ```yaml
+pipeline:
+  processors:
     - mapping: |
-        # 1. ENCRYPT
-        # Encrypt the full card number after cleaning it.
-        let clean_card = this.payment.card_number.re_replace_all("[^0-9]", "")
-        root.payment.card_number_encrypted = clean_card.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
+        root = this
+        let key = env("CARD_ENCRYPTION_KEY_HEX").decode("hex")
+        let key = if $key.length() != 32 { throw("Expected a 32-byte AES key") } else { $key }
 
-        # 2. PRESERVE
-        # Extract the last 4 digits and card brand.
-        root.payment.card_last_four = clean_card.slice(-4)
-        root.payment.card_brand = if clean_card.has_prefix("4") { "visa" } else { "unknown" }
+        # AES-GCM requires a unique nonce for each field encryption. Store the
+        # nonce next to the ciphertext so an authorized consumer can decrypt it.
+        let card_number_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+        root.payment.card_number_encrypted = if this.payment.card_number != null {
+          this.payment.card_number.encrypt_aes(
+            "gcm",
+            $key,
+            $card_number_nonce.decode("hex")
+          ).encode("base64")
+        }
+        root.payment.card_number_nonce = if this.payment.card_number != null {
+          $card_number_nonce
+        } else {
+          deleted()
+        }
 
-        # 3. DELETE
-        # Remove the original plaintext field.
-        root.payment = this.payment.without("card_number")
-    ```
+        # Keep last 4 digits only if the reviewed output contract needs them.
+        root.payment.card_last_four = if this.payment.card_number != null {
+          this.payment.card_number.re_replace_all("[^0-9]", "").slice(-4)
+        }
+
+        # Detect the card brand without retaining the account number.
+        root.payment.card_bin = if this.payment.card_number != null {
+          this.payment.card_number.re_replace_all("[^0-9]", "").slice(0, 6)
+        }
+        root.payment.card_brand = if this.payment.card_number != null {
+          match {
+            this.payment.card_number.re_match("^4") => "visa"
+            this.payment.card_number.re_match("^5[1-5]") => "mastercard"
+            this.payment.card_number.re_match("^3[47]") => "amex"
+            this.payment.card_number.re_match("^6(?:011|5)") => "discover"
+            _ => "unknown"
+          }
+        }
+
+        let cardholder_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+        root.payment.cardholder_name_encrypted = if this.payment.cardholder_name != null {
+          this.payment.cardholder_name.encrypt_aes(
+            "gcm",
+            $key,
+            $cardholder_nonce.decode("hex")
+          ).encode("base64")
+        }
+        root.payment.cardholder_name_nonce = if this.payment.cardholder_name != null {
+          $cardholder_nonce
+        } else {
+          deleted()
+        }
+
+        # CVV is deleted rather than retained in any form.
+        root.payment = root.payment.without(
+          "card_number",
+          "cvv",
+          "cardholder_name"
+        )
+```
 
 ## Verification
 
-When you run data through this pipeline, the output `payment` object will no longer contain the plaintext `card_number`. Instead, it will have the `card_number_encrypted`, `card_last_four`, and `card_brand` fields, satisfying both security requirements and business analytics needs. This same pattern can be applied to other sensitive payment fields like the CVV and cardholder name.
+When you run data through this pipeline, the output `payment` object will no longer contain the plaintext `card_number`. Instead, it will have the `card_number_encrypted`, `card_last_four`, and `card_brand` fields, satisfying both security requirements and business analytics needs. Encrypt cardholder names with a separate nonce. Delete CVV before any output; never retain it as ciphertext.

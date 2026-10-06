@@ -5,6 +5,7 @@ import csv
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
@@ -53,15 +54,34 @@ OUTPUT_SCHEMA = {
 }
 
 
-def load_fixtures():
-    with (DATA_DIR / "maintenance-logs.csv").open(
+def load_fixtures(command_input=None):
+    data_dir = Path(os.environ.get("MEDICAL_FIXTURE_DIR", str(DATA_DIR)))
+    with (data_dir / "maintenance-logs.csv").open(
         newline="", encoding="utf-8"
     ) as stream:
         maintenance = list(csv.DictReader(stream))
-    with (DATA_DIR / "error-events.json").open(encoding="utf-8") as stream:
+    with (data_dir / "error-events.json").open(encoding="utf-8") as stream:
         events = json.load(stream)
-    notes = (DATA_DIR / "technician-notes.txt").read_text(encoding="utf-8")
-    return {"maintenance": maintenance, "events": events, "notes": notes}
+    notes = (data_dir / "technician-notes.txt").read_text(encoding="utf-8")
+    fixtures = {"maintenance": maintenance, "events": events, "notes": notes}
+    if command_input is not None:
+        source = command_input["source"]
+        data = command_input["data"]
+        if source == "maintenance_log":
+            if not isinstance(data, dict):
+                raise ValueError("Maintenance input must be a row object")
+            fixtures["maintenance"] = [data]
+        elif source == "error_events":
+            if not isinstance(data, list):
+                raise ValueError("Error input must be an array")
+            fixtures["events"] = data
+        elif source == "technician_notes":
+            if not isinstance(data, str):
+                raise ValueError("Notes input must be text")
+            fixtures["notes"] = data
+        else:
+            raise ValueError("Unknown fixture source")
+    return fixtures
 
 
 def analyze_with_claude(fixtures):
@@ -120,7 +140,9 @@ def deterministic_mock():
 
 
 def main():
-    fixtures = load_fixtures()
+    command_text = "" if sys.stdin.isatty() else sys.stdin.read()
+    command_input = json.loads(command_text) if command_text.strip() else None
+    fixtures = load_fixtures(command_input)
     if os.environ.get("MEDICAL_ANALYZER_MODE") == "claude-subscription":
         result = analyze_with_claude(fixtures)
     else:

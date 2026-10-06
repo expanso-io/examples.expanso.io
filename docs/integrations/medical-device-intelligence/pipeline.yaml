@@ -27,7 +27,7 @@ input:
         processors:
           - mapping: |
               root.source = "error_events"
-              root.data = this.parse_json()
+              root.data = content().string().parse_json()
 
       # Source 3: Freeform technician notes (text)
       - file:
@@ -45,7 +45,7 @@ pipeline:
     # below independently reloads all three checked-in fixture files.
     - mapping: |
         root = this
-        meta batch_id = "BATCH-" + now().format_timestamp("20060102-1504")
+        meta batch_id = "BATCH-" + now().ts_format("20060102-1504")
         meta site = "Synthetic lab"
 
     # --- Stage 2: Invoke custom analysis code ---
@@ -58,9 +58,12 @@ pipeline:
     # --- Stage 3: Shape the output ---
     # Ensure consistent structure for downstream consumers
     - mapping: |
-        root = this.parse_json()
+        root = content().parse_json()
         root.pipeline_version = "1.0.0"
         root.processed_at = now()
+
+    - catch:
+        - mapping: root = deleted()
 
 output:
   broker:

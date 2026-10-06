@@ -1,9 +1,8 @@
-# Stage 3: Identity Field Encryption
-
 pipeline:
   processors:
-    # Email encryption with domain preservation
     - mapping: |
+        let key = env("PII_ENCRYPTION_KEY_HEX").decode("hex")
+        let key = if $key.length() != 32 { throw("Expected a 32-byte AES key") } else { $key }
         root = this
 
         # Extract email domain for B2B analytics
@@ -15,19 +14,39 @@ pipeline:
 
         # Phone encryption with area code preservation
         let phone_clean = this.customer.phone.re_replace_all("[^0-9+]", "")
-        root.customer.phone_country_code = if phone_clean.has_prefix("+1") { "+1" } else { "international" }
-        root.customer.phone_area_code = if phone_clean.length() == 12 { phone_clean.slice(2, 5) }
+        root.customer.phone_country_code = if $phone_clean.has_prefix("+1") { "+1" } else { "international" }
+        root.customer.phone_area_code = if $phone_clean.length() == 12 { $phone_clean.slice(2, 5) }
 
         # SSN encryption with last 4 preservation
         let ssn_clean = this.customer.ssn.re_replace_all("[^0-9]", "")
-        root.customer.ssn_last_four = ssn_clean.slice(-4)
+        root.customer.ssn_last_four = $ssn_clean.slice(-4)
 
         # Encrypt all PII fields
-        root.customer.email_encrypted = this.customer.email.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
-        root.customer.phone_encrypted = this.customer.phone.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
-        root.customer.ssn_encrypted = this.customer.ssn.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
-        root.customer.first_name_encrypted = this.customer.first_name.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
-        root.customer.last_name_encrypted = this.customer.last_name.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
+        let customer_email_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+        root.customer.email_encrypted = if this.customer.email != null {
+          this.customer.email.encrypt_aes("gcm", $key, $customer_email_nonce.decode("hex")).encode("base64")
+        }
+        root.customer.email_nonce = if this.customer.email != null { $customer_email_nonce } else { deleted() }
+        let customer_phone_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+        root.customer.phone_encrypted = if this.customer.phone != null {
+          this.customer.phone.encrypt_aes("gcm", $key, $customer_phone_nonce.decode("hex")).encode("base64")
+        }
+        root.customer.phone_nonce = if this.customer.phone != null { $customer_phone_nonce } else { deleted() }
+        let customer_ssn_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+        root.customer.ssn_encrypted = if this.customer.ssn != null {
+          this.customer.ssn.encrypt_aes("gcm", $key, $customer_ssn_nonce.decode("hex")).encode("base64")
+        }
+        root.customer.ssn_nonce = if this.customer.ssn != null { $customer_ssn_nonce } else { deleted() }
+        let customer_first_name_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+        root.customer.first_name_encrypted = if this.customer.first_name != null {
+          this.customer.first_name.encrypt_aes("gcm", $key, $customer_first_name_nonce.decode("hex")).encode("base64")
+        }
+        root.customer.first_name_nonce = if this.customer.first_name != null { $customer_first_name_nonce } else { deleted() }
+        let customer_last_name_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+        root.customer.last_name_encrypted = if this.customer.last_name != null {
+          this.customer.last_name.encrypt_aes("gcm", $key, $customer_last_name_nonce.decode("hex")).encode("base64")
+        }
+        root.customer.last_name_nonce = if this.customer.last_name != null { $customer_last_name_nonce } else { deleted() }
 
         # Remove plaintext PII
-        root.customer = this.customer.without("email", "phone", "ssn", "first_name", "last_name")
+        root.customer = root.customer.without("email", "phone", "ssn", "first_name", "last_name")

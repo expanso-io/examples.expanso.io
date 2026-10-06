@@ -1,26 +1,62 @@
-# Stage 2: Payment Field Encryption
-
 pipeline:
   processors:
-    # Extract card brand before encryption
     - mapping: |
         root = this
+        let key = env("CARD_ENCRYPTION_KEY_HEX").decode("hex")
+        let key = if $key.length() != 32 { throw("Expected a 32-byte AES key") } else { $key }
 
-        let card_num = this.payment.card_number.re_replace_all("[^0-9]", "")
-        root.payment.card_brand = match {
-          card_num.re_match("^4[0-9]{12,18}$") => "visa"
-          card_num.re_match("^5[1-5][0-9]{14}$") => "mastercard"
-          _ => "unknown"
+        # AES-GCM requires a unique nonce for each field encryption. Store the
+        # nonce next to the ciphertext so an authorized consumer can decrypt it.
+        let card_number_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+        root.payment.card_number_encrypted = if this.payment.card_number != null {
+          this.payment.card_number.encrypt_aes(
+            "gcm",
+            $key,
+            $card_number_nonce.decode("hex")
+          ).encode("base64")
+        }
+        root.payment.card_number_nonce = if this.payment.card_number != null {
+          $card_number_nonce
+        } else {
+          deleted()
         }
 
-        # Extract last 4 and BIN for customer service
-        root.payment.card_last_four = card_num.slice(-4)
-        root.payment.card_bin = card_num.slice(0, 6)
+        # Keep last 4 digits only if the reviewed output contract needs them.
+        root.payment.card_last_four = if this.payment.card_number != null {
+          this.payment.card_number.re_replace_all("[^0-9]", "").slice(-4)
+        }
 
-        # Encrypt sensitive payment fields
-        root.payment.card_number_encrypted = this.payment.card_number.encrypt_aes("gcm", env("PAYMENT_ENCRYPTION_KEY"))
-        root.payment.cvv_encrypted = this.payment.cvv.encrypt_aes("gcm", env("PAYMENT_ENCRYPTION_KEY"))
-        root.payment.cardholder_name_encrypted = this.payment.cardholder_name.encrypt_aes("gcm", env("PAYMENT_ENCRYPTION_KEY"))
+        # Detect the card brand without retaining the account number.
+        root.payment.card_bin = if this.payment.card_number != null {
+          this.payment.card_number.re_replace_all("[^0-9]", "").slice(0, 6)
+        }
+        root.payment.card_brand = if this.payment.card_number != null {
+          match {
+            this.payment.card_number.re_match("^4") => "visa"
+            this.payment.card_number.re_match("^5[1-5]") => "mastercard"
+            this.payment.card_number.re_match("^3[47]") => "amex"
+            this.payment.card_number.re_match("^6(?:011|5)") => "discover"
+            _ => "unknown"
+          }
+        }
 
-        # Remove plaintext payment fields
-        root.payment = this.payment.without("card_number", "cvv", "cardholder_name")
+        let cardholder_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+        root.payment.cardholder_name_encrypted = if this.payment.cardholder_name != null {
+          this.payment.cardholder_name.encrypt_aes(
+            "gcm",
+            $key,
+            $cardholder_nonce.decode("hex")
+          ).encode("base64")
+        }
+        root.payment.cardholder_name_nonce = if this.payment.cardholder_name != null {
+          $cardholder_nonce
+        } else {
+          deleted()
+        }
+
+        # CVV is deleted rather than retained in any form.
+        root.payment = root.payment.without(
+          "card_number",
+          "cvv",
+          "cardholder_name"
+        )

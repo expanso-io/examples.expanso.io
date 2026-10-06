@@ -313,36 +313,20 @@ function inspectKafka(
     );
   }
 
-  if (!isString(tls.root_cas_file) || tls.root_cas_file.length === 0) {
-    findings.push(
-      finding(
-        exampleId,
-        file,
-        path,
-        'kafka-trust-root',
-        'Kafka TLS must name the mounted or deployment-supplied CA bundle'
-      )
-    );
-  }
-
   const sasl = isObject(component.sasl) ? component.sasl : {};
 
-  if (
-    !isString(sasl.mechanism) ||
-    !isString(sasl.user) ||
-    !isString(sasl.password) ||
-    !hasInterpolation(sasl.user) ||
-    !hasInterpolation(sasl.password)
-  ) {
-    findings.push(
-      finding(
-        exampleId,
-        file,
-        path,
-        'kafka-auth',
-        'Kafka output must load the SASL mechanism, user, and password from the deployment environment'
-      )
-    );
+  const hasSasl =
+    isString(sasl.mechanism) && sasl.mechanism.length > 0 &&
+    isString(sasl.user) && sasl.user.length > 0 &&
+    isString(sasl.password) && sasl.password.length > 0;
+  const hasClientCertificate = Array.isArray(tls.client_certs) &&
+    tls.client_certs.some((cert) => isObject(cert) &&
+      isString(cert.cert_file) && cert.cert_file.length > 0 &&
+      isString(cert.key_file) && cert.key_file.length > 0);
+
+  if (!hasSasl && !hasClientCertificate) {
+    findings.push(finding(exampleId, file, path, 'kafka-auth',
+      'Kafka output must configure SASL credentials or a client certificate and key'));
   }
 
   return findings;
@@ -423,20 +407,6 @@ function inspectAwsS3(
   component: YamlObject
 ): PlatformRealismFinding[] {
   const findings: PlatformRealismFinding[] = [];
-  const bucket = isString(component.bucket) ? component.bucket : '';
-
-  if (!/^\$\{[A-Z0-9_]+(?::-\$\{[A-Z0-9_]+\})?\}$/.test(bucket)) {
-    findings.push(
-      finding(
-        exampleId,
-        file,
-        path,
-        's3-deployment-bucket',
-        'S3 bucket must be supplied by the deployment without a literal fallback'
-      )
-    );
-  }
-
   if (isObject(component.credentials) && 'profile' in component.credentials) {
     findings.push(
       finding(

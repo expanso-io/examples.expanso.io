@@ -1,16 +1,15 @@
-# Stage 5: Temporal Field Encryption
-
 pipeline:
   processors:
-    # Birth date encryption with age analytics preservation
     - mapping: |
+        let key = env("TEMPORAL_ENCRYPTION_KEY_HEX").decode("hex")
+        let key = if $key.length() != 32 { throw("Expected a 32-byte AES key") } else { $key }
         root = this
 
         # Parse birth date for analytics extraction
-        let birth_date = this.customer.date_of_birth.parse_timestamp("2006-01-02")
+        let birth_date = this.customer.date_of_birth.ts_parse("2006-01-02")
 
         # Extract temporal analytics before encryption
-        root.customer.birth_year = birth_date.ts_format("2006").number()
+        root.customer.birth_year = $birth_date.ts_format("2006").number()
         root.customer.current_age = now().ts_format("2006").number() - root.customer.birth_year
 
         # Generate age range for demographic analytics
@@ -33,16 +32,20 @@ pipeline:
         }
 
         # Extract birth season
-        let month = birth_date.ts_format("01").number()
+        let month = $birth_date.ts_format("01").number()
         root.customer.birth_season = match {
-          month >= 3 && month <= 5 => "spring"
-          month >= 6 && month <= 8 => "summer"
-          month >= 9 && month <= 11 => "autumn"
+          $month >= 3 && $month <= 5 => "spring"
+          $month >= 6 && $month <= 8 => "summer"
+          $month >= 9 && $month <= 11 => "autumn"
           _ => "winter"
         }
 
         # Encrypt exact birth date (HIPAA requirement)
-        root.customer.date_of_birth_encrypted = this.customer.date_of_birth.encrypt_aes("gcm", env("TEMPORAL_ENCRYPTION_KEY"))
+        let customer_date_of_birth_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+        root.customer.date_of_birth_encrypted = if this.customer.date_of_birth != null {
+          this.customer.date_of_birth.encrypt_aes("gcm", $key, $customer_date_of_birth_nonce.decode("hex")).encode("base64")
+        }
+        root.customer.date_of_birth_nonce = if this.customer.date_of_birth != null { $customer_date_of_birth_nonce } else { deleted() }
 
         # Remove plaintext birth date
         root.customer.date_of_birth = deleted()

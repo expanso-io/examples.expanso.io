@@ -1,8 +1,5 @@
-# Stage 6: Illustrative Key-Version Metadata
-
 pipeline:
   processors:
-    # Multi-tier key architecture
     - mapping: |
         root = this
 
@@ -34,8 +31,8 @@ pipeline:
         # Authored example metadata; values are not measurements
         root.operational_metrics = {
           "pipeline_health": "optimal",
-          "selected_field_count": 11,
-          "key_version": "v2",
+          "selected_field_count": 12,
+          "key_version": env("KEY_VERSION").or("unknown"),
           "fixture_status": "illustrative"
         }
 
@@ -49,16 +46,21 @@ pipeline:
             {"field": "customer.date_of_birth", "algorithm": "AES-256-GCM", "field_group": "temporal"},
             {"field": "billing_address.street", "algorithm": "AES-256-GCM", "field_group": "location"}
           ],
-          "selected_field_count": 11
+          "selected_field_count": 12
         }
-
-# Illustrative outputs with transformation metadata
-outputs:
-  - label: encrypted_data
-    file:
-      path: "./encrypted-data-${!timestamp_unix()}.jsonl"
-  - label: audit_trail
-    processors:
-      - mapping: root = meta("audit_trail")
-    file:
-      path: "./audit-trail-${!timestamp_unix()}.jsonl"
+    - catch:
+        - mapping: root = deleted()
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      - label: encrypted_data
+        file:
+          path: ${ENCRYPTED_DATA_PATH}/encrypted-${! uuid_v4() }.jsonl
+          codec: lines
+      - label: audit_trail
+        processors:
+          - mapping: root = metadata("audit_trail")
+        file:
+          path: ${ENCRYPTION_AUDIT_PATH}/audit-${! uuid_v4() }.jsonl
+          codec: lines
