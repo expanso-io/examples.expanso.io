@@ -15,7 +15,8 @@ interface LegacyFeatureAudit {
     feature: string;
     historyEvidence: string;
     currentProof: string;
-    status: 'retained' | 'restored';
+    status: 'retained' | 'restored' | 'pending';
+    dependency?: string;
   }>;
 }
 
@@ -121,14 +122,33 @@ describe('public example conformance', () => {
     assert.match(audit.redesignCommit, /^[0-9a-f]{40}$/);
     assert.equal(audit.features.length, 14);
     assert.equal(new Set(audit.features.map(({ id }) => id)).size, 14);
-    assert.ok(
-      audit.features.every(
-        (feature) =>
-          feature.feature.trim() &&
-          feature.historyEvidence.trim() &&
-          feature.currentProof.trim() &&
-          ['retained', 'restored'].includes(feature.status)
-      )
+
+    for (const feature of audit.features) {
+      assert.ok(feature.feature.trim(), `${feature.id} feature`);
+      assert.ok(feature.historyEvidence.trim(), `${feature.id} history proof`);
+      assert.ok(feature.currentProof.trim(), `${feature.id} current proof`);
+      assert.ok(
+        ['retained', 'restored', 'pending'].includes(feature.status),
+        `${feature.id} status`
+      );
+
+      if (feature.status === 'pending') {
+        assert.match(
+          feature.dependency ?? '',
+          /^https:\/\/github\.com\/expanso-io\/examples\.expanso\.io\/pull\/\d+$/,
+          `${feature.id} dependency`
+        );
+      }
+    }
+
+    const pending = audit.features
+      .filter(({ status }) => status === 'pending')
+      .map(({ id, dependency }) => `${id}: ${dependency}`);
+
+    assert.deepEqual(
+      pending,
+      [],
+      `Pre-redesign features still pending:\n${pending.join('\n')}`
     );
   });
 });
