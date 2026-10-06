@@ -34,7 +34,7 @@ for (const path of globSync('docs/**/*.mdx', {
     if (classifyPipelineCode(block.source)) renderedPipelineBlocks += 1;
     else if (hasUnclassifiedExpansoCode(block.source))
       failures.push(
-        `${path}#L${block.line}: Expanso-shaped YAML is not a recognised complete pipeline or fragment`
+        `${path}#L${block.line}: YAML is not a recognised complete pipeline, fragment, or infrastructure document`
       );
   }
 }

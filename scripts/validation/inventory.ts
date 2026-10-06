@@ -351,13 +351,12 @@ export function discoverPipelineFiles(repositoryRoot: string): PipelineFile[] {
       ([, id]) => id === family
     )?.[0];
 
-    const route =
-      isStringValue(metadata.slug)
-        ? metadata.slug
-        : path
-            .replace(/^docs\//, '')
-            .replace(/\.mdx$/, '')
-            .replace(/\/index$/, '');
+    const route = isStringValue(metadata.slug)
+      ? metadata.slug
+      : path
+          .replace(/^docs\//, '')
+          .replace(/\.mdx$/, '')
+          .replace(/\/index$/, '');
 
     for (const block of extractYamlCodeBlocks(page)) {
       const renderedKind = classifyPipelineCode(block.source);
@@ -377,7 +376,7 @@ export function discoverPipelineFiles(repositoryRoot: string): PipelineFile[] {
         liveRoute: `/${route.replace(/^\/+|\/+$/g, '')}/`,
         kind: unclassified ? 'invalid-yaml' : 'fragment',
         parseError: unclassified
-          ? 'Expanso-shaped YAML could not be classified as a complete pipeline or supported fragment'
+          ? 'YAML could not be classified as a complete pipeline, supported fragment, or infrastructure document'
           : undefined,
       };
 

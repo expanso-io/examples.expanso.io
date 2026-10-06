@@ -12,6 +12,8 @@ import { join } from 'node:path';
 import { createServer } from 'node:net';
 import { spawnSync } from 'node:child_process';
 import { parse, stringify } from 'yaml';
+import { globSync } from 'glob';
+import matter from 'gray-matter';
 import {
   classifyPipelineCode,
   extractYamlCodeBlocks,
@@ -1187,3 +1189,192 @@ for (const path of [
     ]);
   });
 }
+
+test('HTTP input sub-fragments are labeled, inventoried, and validated in context', () => {
+  const path =
+    'docs/log-processing/production-pipeline/step-1-configure-http-input.mdx';
+  const inventory = discoverPipelineFiles(root);
+  for (const block of pageBlocks(path)) {
+    assert.equal(classifyPipelineCode(block.source), 'fragment');
+    const entry = inventory.find(
+      (entry) => entry.path === `${path}#L${block.line}`
+    );
+    assert.equal(entry?.kind, 'fragment');
+    const wrapped = wrapFragment(entry?.document);
+    assert.ok(wrapped);
+    const result = validateSource(edge, root, wrapped.source, environment);
+    assert.equal(result.status, 'PASS', JSON.stringify(result.errors));
+  }
+  for (const source of [
+    'auth: {type: header, header: X-API-Key, required_value: fixture}',
+    'cors: {enabled: true, unsupported_option: true}',
+    'auth: {}\ncors: {enabled: true}',
+  ]) {
+    assert.equal(classifyPipelineCode(source), 'fragment');
+    const wrapped = wrapFragment(parse(source));
+    assert.ok(wrapped);
+    assert.equal(
+      validateSource(edge, root, wrapped.source, environment).status,
+      'FAIL'
+    );
+  }
+});
+
+test('every published YAML fence reaches classification or an explicit CI failure', () => {
+  const inventory = discoverPipelineFiles(root);
+  const failures: string[] = [];
+  let blocks = 0;
+  for (const path of globSync('docs/**/*.mdx').sort()) {
+    const page = readFileSync(path, 'utf8');
+    if (matter(page).data.draft === true) continue;
+    for (const block of extractYamlCodeBlocks(page)) {
+      blocks += 1;
+      const kind = classifyPipelineCode(block.source);
+      const unclassified = hasUnclassifiedExpansoCode(block.source);
+      const entry = inventory.find(
+        (entry) => entry.path === `${path}#L${block.line}`
+      );
+      if (kind === 'fragment') assert.equal(entry?.kind, 'fragment');
+      else if (kind === 'complete')
+        assert.ok(entry?.kind.startsWith('complete-'));
+      else if (unclassified) {
+        assert.equal(entry?.kind, 'invalid-yaml');
+        assert.ok(entry.parseError);
+        failures.push(`${path}#L${block.line}`);
+      } else assert.equal(entry, undefined);
+    }
+  }
+  assert.ok(blocks > 0);
+  const result = spawnSync(
+    process.execPath,
+    [
+      'node_modules/tsx/dist/cli.mjs',
+      'scripts/validate-pipeline-code-blocks.ts',
+    ],
+    { cwd: root, encoding: 'utf8' }
+  );
+  assert.equal(result.status, failures.length ? 1 : 0, result.stderr);
+  for (const location of failures)
+    assert.ok(result.stderr.includes(location), location);
+});
+
+test('opaque YAML cannot silently bypass the public validation CLI', () => {
+  const page = 'docs/review-unknown-fragment.mdx';
+  writeFileSync(
+    page,
+    '---\ntitle: Regression fixture\n---\n```yaml\nopaque_section: {}\n```\n'
+  );
+  try {
+    assert.equal(classifyPipelineCode('opaque_section: {}'), null);
+    assert.equal(hasUnclassifiedExpansoCode('opaque_section: {}'), true);
+    const result = spawnSync(
+      process.execPath,
+      [
+        'node_modules/tsx/dist/cli.mjs',
+        'scripts/validate-examples.ts',
+        '--no-run',
+        '--no-write',
+        '--files',
+        page,
+      ],
+      { cwd: root, encoding: 'utf8' }
+    );
+    assert.equal(result.status, 1);
+    assert.ok(result.stderr.includes(`${page}#L5`), result.stderr);
+  } finally {
+    rmSync(page, { force: true });
+  }
+});
+
+test('documented five-field CSV request executes the published parser', async () => {
+  const path =
+    'docs/data-transformation/parse-logs/step-4-multi-format-detection.mdx';
+  const page = readFileSync(path, 'utf8');
+  const payloads = [...page.matchAll(/-d '([^']+)'/g)].map((match) =>
+    JSON.parse(match[1])
+  );
+  const record = payloads.find((payload) =>
+    payload.raw_log.includes(',temperature,')
+  );
+  assert.ok(record);
+  const output = JSON.parse(
+    (await execute(pageBlocks(path)[0].source, [record])).toString()
+  );
+  assert.equal(output.parsed_by, 'csv_parser');
+  assert.equal(output.metric_name, 'temperature');
+  assert.equal(output.sensor_id, 'temp-sensor-01');
+  assert.equal(output.value, '35.5');
+  assert.equal(output.unit, 'celsius');
+});
+
+test('published HTTP API-key check rejects unauthorized requests before output', async () => {
+  const path =
+    'docs/log-processing/production-pipeline/step-1-configure-http-input.mdx';
+  const block = pageBlocks(path).find(
+    (block) => parse(block.source)?.input?.processors
+  );
+  assert.ok(block);
+  const wrapped = wrapFragment(parse(block.source));
+  assert.ok(wrapped);
+  const config = parse(wrapped.source);
+  const reservation = createServer();
+  await new Promise<void>((resolve, reject) => {
+    reservation.once('error', reject);
+    reservation.listen(0, '127.0.0.1', resolve);
+  });
+  const address = reservation.address();
+  assert.ok(address && typeof address !== 'string');
+  const port = address.port;
+  await new Promise<void>((resolve, reject) =>
+    reservation.close((error) => (error ? reject(error) : resolve()))
+  );
+  config.input.http_server.address = `127.0.0.1:${port}`;
+  const target = join(work, `http-auth-${++sequence}.jsonl`);
+  config.output = { file: { path: target, codec: 'lines' } };
+  const validation = validateSource(edge, root, stringify(config), environment);
+  assert.equal(validation.status, 'PASS', JSON.stringify(validation.errors));
+  const deployed = await agent.deploy({
+    name: `http-auth-${sequence}`,
+    type: 'pipeline',
+    config,
+  });
+  assert.ok(deployed.ok, JSON.stringify(deployed));
+  if (!deployed.ok) throw new Error(deployed.error);
+  try {
+    const url = `http://127.0.0.1:${port}/logs/ingest`;
+    const request = (key?: string) =>
+      fetch(url, {
+        method: 'POST',
+        body: JSON.stringify({ message: key ? 'accepted' : 'rejected' }),
+        headers: {
+          Origin: 'https://fixture.invalid',
+          ...(key ? { 'X-API-Key': key } : {}),
+        },
+        signal: AbortSignal.timeout(2000),
+      });
+    let response: Response | undefined;
+    const deadline = Date.now() + 10000;
+    while (!response && Date.now() < deadline) {
+      try {
+        response = await request();
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+    assert.ok(response);
+    assert.equal(response.status, 401);
+    assert.equal((await request('wrong-key')).status, 401);
+    const accepted = await request(environment.LOG_API_KEY);
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.headers.get('access-control-allow-origin'), '*');
+    assert.deepEqual(
+      readFileSync(target, 'utf8')
+        .trim()
+        .split('\n')
+        .map((row) => JSON.parse(row)),
+      [{ message: 'accepted' }]
+    );
+  } finally {
+    await agent.deleteJob(deployed.jobId);
+  }
+});

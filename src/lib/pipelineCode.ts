@@ -25,6 +25,7 @@ const PIPELINE_CONTAINER_KEYS = new Set([
 ]);
 
 const PIPELINE_FRAGMENT_KEYS = new Set([
+  'auth',
   'batch',
   'batching',
   'branch',
@@ -32,6 +33,7 @@ const PIPELINE_FRAGMENT_KEYS = new Set([
   'cache',
   'catch',
   'check',
+  'cors',
   'dedup',
   'elasticsearch',
   'fallback',
@@ -53,11 +55,13 @@ const PIPELINE_FRAGMENT_KEYS = new Set([
   'window',
 ]);
 
-function isObject(
-  value: ParsedYaml | undefined
-): value is ParsedYamlObject {
-  return value !== null && value !== undefined &&
-    !Array.isArray(value) && value instanceof Object;
+function isObject(value: ParsedYaml | undefined): value is ParsedYamlObject {
+  return (
+    value !== null &&
+    value !== undefined &&
+    !Array.isArray(value) &&
+    value instanceof Object
+  );
 }
 
 function isNonPipelineDocument(document: ParsedYaml): boolean {
@@ -118,7 +122,6 @@ export function classifyPipelineCode(source: string): PipelineCodeKind | null {
   return fragmentObject(config) ? 'fragment' : null;
 }
 
-/** Detect an Expanso-shaped YAML fence that the classifier cannot place. */
 export function hasUnclassifiedExpansoCode(source: string): boolean {
   if (classifyPipelineCode(source)) return false;
 
@@ -130,21 +133,10 @@ export function hasUnclassifiedExpansoCode(source: string): boolean {
       uniqueKeys: true,
     }) as ParsedYaml;
 
-    if (isNonPipelineDocument(document)) return false;
+    return !isNonPipelineDocument(document);
   } catch {
-    // A malformed Expanso-shaped fence must still fail the validation gate.
+    return true;
   }
-
-  const keys = [...source.matchAll(/^\s*(?:-\s*)?([a-z][a-z0-9_]*)\s*:/gm)].map(
-    (match) => match[1]
-  );
-
-  return keys.some(
-    (key) =>
-      PIPELINE_CONTAINER_KEYS.has(key) ||
-      PIPELINE_FRAGMENT_KEYS.has(key) ||
-      key.endsWith('_resources')
-  );
 }
 
 export function extractYamlCodeBlocks(page: string): Array<{

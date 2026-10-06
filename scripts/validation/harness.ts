@@ -856,6 +856,22 @@ export function wrapFragment(
   if (!isYamlObject(document)) return null;
   const body = isYamlObject(document.config) ? document.config : document;
 
+  if (
+    Object.keys(body).length > 0 &&
+    Object.keys(body).every((key) => key === 'auth' || key === 'cors')
+  ) {
+    return {
+      description:
+        'HTTP input fields wrapped in a minimal http_server pipeline',
+      source: stringifyYaml({
+        input: {
+          http_server: { address: '127.0.0.1:8080', path: '/post', ...body },
+        },
+        output: dropOutput,
+      }),
+    };
+  }
+
   const wrapped: YamlObject = canonicalConfig
     ? structuredClone(canonicalConfig)
     : {};
