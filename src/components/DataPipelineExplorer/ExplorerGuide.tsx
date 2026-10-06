@@ -35,14 +35,24 @@ export default function ExplorerGuide({ stages }: ExplorerGuideProps) {
   return (
     <section
       className={styles.guide}
+      style={{
+        display: 'grid',
+        margin: '2rem auto 0',
+        background: 'var(--example-surface)',
+      }}
       aria-labelledby={headingId}
       data-explorer-guide=""
     >
-      <div className={styles.howTo}>
+      <div>
         <h2 id={headingId} className="margin--none">
           How to use this explorer
         </h2>
-        <p style={{ margin: '0.65rem 0 0' }}>
+        <p
+          style={{
+            margin: '0.65rem 0 0',
+            color: 'var(--example-text-muted)',
+          }}
+        >
           Move between stages with the arrows or the numbered stage list. Each
           stage shows the input it receives on the left and the output it
           produces on the right, with the lines that changed marked. The
@@ -50,17 +60,24 @@ export default function ExplorerGuide({ stages }: ExplorerGuideProps) {
           final stage shows the complete pipeline.
         </p>
       </div>
-      <div className={styles.outline}>
+      <div>
         <h3 className="margin--none">
           {stages.length === 1
             ? 'The one stage'
             : `The ${stages.length} stages in order`}
         </h3>
-        <ol>
+        <ol style={{ margin: '0.75rem 0 0', paddingLeft: '1.5rem' }}>
           {stages.map((stage) => (
             <li key={stage.slug}>
               <Link to={stageHref(stage.slug)}>{stage.title}</Link>
-              <div>{stage.description}</div>
+              <div
+                style={{
+                  color: 'var(--example-text-muted)',
+                  overflowWrap: 'anywhere',
+                }}
+              >
+                {stage.description}
+              </div>
             </li>
           ))}
         </ol>
