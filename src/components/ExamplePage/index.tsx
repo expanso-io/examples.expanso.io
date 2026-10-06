@@ -206,7 +206,7 @@ export function ExampleHeader(props: ExampleHeaderProps) {
       >
         <p className={styles.eyebrow}>{eyebrow}</p>
         <h1 className={styles.title}>{title}</h1>
-        <dl className={styles.meta} aria-label="Example status">
+        <dl aria-label="Example status">
           <div>
             <dt>Level</dt>
             <dd>{projection.difficulty}</dd>
@@ -256,15 +256,15 @@ export function ExampleHeader(props: ExampleHeaderProps) {
       ) : null}
       {record && runHref && deployHref ? (
         <section
-          className={styles.runDeploy}
+          className={styles.surface}
           data-example-template-section="run-deploy"
           aria-labelledby={`${record.id}-run-deploy`}
         >
           <div>
-            <p className={styles.sectionLabel}>Next steps</p>
+            <p className={styles.eyebrow}>Next steps</p>
             <h2 id={`${record.id}-run-deploy`}>Run and deploy</h2>
           </div>
-          <div className={styles.runDeployGrid}>
+          <div className={styles.intro}>
             <section>
               <h3>
                 {record.executionStatus === 'offline-runnable'
