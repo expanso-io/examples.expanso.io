@@ -15,6 +15,7 @@ import { globSync } from 'glob';
 import { parse as parseYaml } from 'yaml';
 
 import { PUBLIC_CATALOG } from '../../src/catalog/registry';
+import { completePipelineRouteForFamily } from '../../src/catalog/completePipelineRoutes';
 import type { PipelineFile, PipelineKind } from './types';
 import {
   isStringValue,
@@ -76,6 +77,112 @@ function familyFromPath(path: string): string {
     return path.split('/')[2];
   }
 
+  if (path.startsWith('docs/')) return path.split('/')[2] ?? name;
+
+  if (path.startsWith('examples/integrations/')) {
+    if (path.startsWith('examples/integrations/scada-energy-edge/'))
+      return 'scada-energy-edge';
+    if (name.startsWith('oran-')) return 'oran-telco-pipeline';
+    if (name.startsWith('scada-')) return 'scada-energy-edge';
+    if (name.startsWith('splunk-')) return 'splunk-edge-processing';
+  }
+
+  if (path.startsWith('examples/data-transformation/step-')) {
+    if (/hash-based|fingerprint-based|id-based/.test(name))
+      return 'deduplicate-events';
+    if (/tumbling-window|sliding-window|session-window/.test(name))
+      return 'aggregate-time-windows';
+    if (/json-to-avro|avro-to-parquet|auto-detect/.test(name))
+      return 'transform-formats';
+    if (
+      /format-detection|parse-formats|json-parsing|csv-parsing|access-log|syslog/.test(
+        name
+      )
+    )
+      return 'parse-logs';
+    if (/normalize-utc/.test(name)) return 'normalize-timestamps';
+  }
+
+  if (path.startsWith('examples/data-security/step-')) {
+    if (/define-schema|validate-route|quality-metrics|no-validation/.test(name))
+      return 'enforce-schema';
+    if (
+      /payment-encryption|pii-encryption|address-encryption|temporal-encryption/.test(
+        name
+      )
+    )
+      return 'encryption-patterns';
+    if (
+      /encrypt-card|encrypt-pii|encrypt-address|add-metadata|production/.test(
+        name
+      )
+    )
+      return 'encrypt-data';
+    if (/delete-|hash-|pseudonymize|generalize/.test(name)) return 'remove-pii';
+  }
+
+  if (path.startsWith('examples/data-routing/step-')) {
+    if (/circuit-breakers|fallback|no-protection/.test(name))
+      return 'circuit-breakers';
+    if (
+      /severity-routing|geographic-routing|event-type-routing|priority-routing/.test(
+        name
+      )
+    )
+      return 'content-routing';
+    if (
+      /classify|tier-enhancement|multi-criteria|priority-output|starvation/.test(
+        name
+      )
+    )
+      return 'priority-queues';
+  }
+
+  if (path.startsWith('examples/log-processing/step-')) {
+    if (/lineage|restructure|batching/.test(name)) return 'enrich-export';
+    if (/unfiltered|parse-classify|filter-route/.test(name))
+      return 'filter-severity';
+    return 'production-pipeline';
+  }
+
+  const aliases: Readonly<Record<string, string>> = {
+    'complete-fan-out': 'fan-out-pattern',
+    'database-circuit-breaker-foundation': 'circuit-breakers',
+    'fan-out-complete': 'fan-out-pattern',
+    'fan-out-foundation': 'fan-out-pattern',
+    'fan-out-kafka': 'fan-out-pattern',
+    'fan-out-s3': 'fan-out-pattern',
+    'kafka-fan-out': 'fan-out-pattern',
+    's3-fan-out': 'fan-out-pattern',
+    'single-destination': 'fan-out-pattern',
+    'encryption-foundation': 'encrypt-data',
+    'schema-validation-foundation': 'enforce-schema',
+    'deduplication-foundation': 'deduplicate-events',
+    'format-transform-foundation': 'transform-formats',
+    'log-parsing-foundation': 'parse-logs',
+    'normalization-foundation': 'normalize-timestamps',
+    'tumbling-windows-foundation': 'aggregate-time-windows',
+    'enrichment-foundation': 'enrich-export',
+    'filtering-foundation': 'filter-severity',
+  };
+
+  if (aliases[name]) return aliases[name];
+
+  if (path === 'examples/data-routing/foundation.yaml')
+    return 'smart-buffering';
+  if (path === 'examples/data-routing/input.yaml') return 'priority-queues';
+  if (
+    path === 'examples/data-routing/pipeline.yaml' ||
+    path === 'examples/data-routing/order-processing-foundation.yaml'
+  )
+    return 'content-splitting';
+  if (path === 'examples/data-routing/step-0-original.yaml')
+    return 'content-routing';
+  if (path === 'examples/data-transformation/step-4-production.yaml')
+    return 'aggregate-time-windows';
+  if (path === 'examples/log-processing/input.yaml')
+    return 'production-pipeline';
+
   return name
     .replace(/^complete-/, '')
     .replace(/-complete$/, '')
@@ -98,8 +205,10 @@ function categoryFromPath(path: string): string {
 
 export function discoverPipelineFiles(repositoryRoot: string): PipelineFile[] {
   const catalogFamilies = new Map<string, string>();
+  const liveRoutes = new Map<string, string>();
 
   for (const record of PUBLIC_CATALOG.records) {
+    liveRoutes.set(record.id, record.routes.explore ?? record.routes.overview);
     if (record.completePipelinePath)
       catalogFamilies.set(record.completePipelinePath, record.id);
   }
@@ -145,12 +254,31 @@ export function discoverPipelineFiles(repositoryRoot: string): PipelineFile[] {
         strict: true,
         uniqueKeys: true,
       }) as YamlValue;
+      const kind = classify(document);
+      const standaloneRoute =
+        path === 'examples/getting-started/quickstart-complete.yaml'
+          ? '/getting-started/local-development/'
+          : path === 'static/files/first-results/filter-logs.yaml'
+            ? '/getting-started/process-data-locally/'
+            : path === 'static/files/first-results/process-locally.yaml'
+              ? '/getting-started/process-data-locally/'
+              : undefined;
 
       files.push({
         path,
-        kind: classify(document),
+        sourcePath: path,
+        source,
+        surface: 'file',
+        kind,
         category,
         family,
+        liveRoute:
+          standaloneRoute ??
+          (kind === 'fragment'
+            ? liveRoutes.get(family)
+            : (completePipelineRouteForFamily(family) ??
+              liveRoutes.get(family))),
+        canonicalPath: catalogFamilies.has(path) ? path : undefined,
         document,
       });
     } catch (error) {
@@ -159,6 +287,7 @@ export function discoverPipelineFiles(repositoryRoot: string): PipelineFile[] {
         kind: 'invalid-yaml',
         category,
         family,
+        liveRoute: liveRoutes.get(family),
         parseError:
           error instanceof Error ? error.message.split('\n')[0] : String(error),
       });
@@ -179,10 +308,15 @@ export function inventoryDigest(
     hash.update(file.path);
     hash.update('\0');
 
-    try {
-      hash.update(readFileSync(`${repositoryRoot}/${file.path}`));
-    } catch {
-      hash.update('<unreadable>');
+    if (file.source !== undefined) hash.update(file.source);
+    else {
+      try {
+        hash.update(
+          readFileSync(`${repositoryRoot}/${file.sourcePath ?? file.path}`)
+        );
+      } catch {
+        hash.update('<unreadable>');
+      }
     }
 
     hash.update('\n');

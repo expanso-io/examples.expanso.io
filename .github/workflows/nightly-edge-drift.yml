@@ -1,0 +1,244 @@
+name: Nightly Expanso Edge Drift
+
+on:
+  schedule:
+    - cron: '17 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: nightly-expanso-edge-drift
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 22.23.2
+  DRIFT_LABEL: edge-latest-drift
+
+jobs:
+  validate:
+    name: Validate pinned and latest Expanso Edge
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Read pinned version
+        id: pinned-version
+        run: |
+          version=$(node -e \
+            "const s=require('fs').readFileSync('scripts/validation/edge.ts','utf8'); process.stdout.write(s.match(/PINNED_EDGE_VERSION = '([^']+)'/)[1])")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Validate and run with pinned Expanso Edge
+        env:
+          EXPANSO_DISABLEANALYTICS: 'true'
+        run: |
+          npm run validate-examples -- \
+            --edge-version "${{ steps.pinned-version.outputs.version }}" \
+            --no-write
+
+      - name: Validate and run with latest Expanso Edge
+        id: latest-validation
+        continue-on-error: true
+        env:
+          EXPANSO_DISABLEANALYTICS: 'true'
+        run: |
+          set -o pipefail
+          npm run validate-examples -- \
+            --edge-version latest \
+            --no-write 2>&1 | tee latest-validation.log
+
+      - name: Read latest version
+        id: latest-version
+        if: always()
+        run: |
+          version=unresolved
+          if [ -x ./.bin/edge-latest/expanso-edge ]; then
+            detected=$(
+              ./.bin/edge-latest/expanso-edge version |
+                sed -nE 's/.*(v[0-9]+\.[0-9]+\.[0-9]+[^ ]*).*/\1/p' |
+                head -1
+            )
+            if [ -n "$detected" ]; then
+              version=$detected
+            fi
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the latest-only drift issue
+        if: steps.latest-validation.outcome == 'failure'
+        uses: actions/github-script@v7
+        env:
+          PINNED_VERSION: ${{ steps.pinned-version.outputs.version }}
+          LATEST_VERSION: ${{ steps.latest-version.outputs.version }}
+        with:
+          script: |
+            const fs = require('fs');
+            const {owner, repo} = context.repo;
+            const label = process.env.DRIFT_LABEL;
+            try {
+              await github.rest.issues.getLabel({owner, repo, name: label});
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({
+                owner,
+                repo,
+                name: label,
+                color: 'B60205',
+                description: 'Latest Expanso Edge breaks a published example',
+              });
+            }
+            const {data: issues} = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              state: 'open',
+              labels: label,
+              per_page: 100,
+            });
+            const log = fs.readFileSync('latest-validation.log', 'utf8');
+            const body = [
+              'The pinned release is green, but the latest Expanso Edge release failed the full public-example validation.',
+              '',
+              `- Pinned: \`${process.env.PINNED_VERSION}\``,
+              `- Latest: \`${process.env.LATEST_VERSION}\``,
+              `- Run: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+              '',
+              '<details><summary>Validation output</summary>',
+              '',
+              '```text',
+              log.slice(-50000),
+              '```',
+              '',
+              '</details>',
+            ].join('\n');
+            if (issues.length === 0) {
+              await github.rest.issues.create({
+                owner,
+                repo,
+                title: 'Latest Expanso Edge validation drift',
+                body,
+                labels: [label],
+              });
+            } else {
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: issues[0].number,
+                title: 'Latest Expanso Edge validation drift',
+                body,
+              });
+              for (const duplicate of issues.slice(1)) {
+                await github.rest.issues.update({
+                  owner,
+                  repo,
+                  issue_number: duplicate.number,
+                  state: 'closed',
+                  state_reason: 'not_planned',
+                });
+              }
+            }
+
+      - name: Close the resolved drift issue
+        if: steps.latest-validation.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const {data: issues} = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              state: 'open',
+              labels: process.env.DRIFT_LABEL,
+              per_page: 100,
+            });
+            for (const issue of issues) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issue.number,
+                body: `Resolved by green nightly validation: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+              });
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: issue.number,
+                state: 'closed',
+                state_reason: 'completed',
+              });
+            }
+
+      - name: Check whether the pin needs a bump
+        id: bump
+        if: steps.latest-validation.outcome == 'success'
+        env:
+          PINNED_VERSION: ${{ steps.pinned-version.outputs.version }}
+          LATEST_VERSION: ${{ steps.latest-version.outputs.version }}
+        run: |
+          newest=$(printf '%s\n%s\n' "$PINNED_VERSION" "$LATEST_VERSION" |
+            sort -V | tail -1)
+          if [ "$LATEST_VERSION" != "$PINNED_VERSION" ] &&
+            [ "$newest" = "$LATEST_VERSION" ]; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Regenerate reports with the new pin
+        if: steps.bump.outputs.needed == 'true'
+        env:
+          EXPANSO_DISABLEANALYTICS: 'true'
+          LATEST_VERSION: ${{ steps.latest-version.outputs.version }}
+        run: |
+          sed -i \
+            "s/PINNED_EDGE_VERSION = 'v[^']*'/PINNED_EDGE_VERSION = '$LATEST_VERSION'/" \
+            scripts/validation/edge.ts
+          npm run validate-examples -- \
+            --edge-version "$LATEST_VERSION" \
+            --date "$(date -u +%F)"
+
+      - name: Open or update the pin-bump pull request
+        if: steps.bump.outputs.needed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST_VERSION: ${{ steps.latest-version.outputs.version }}
+        run: |
+          branch="automation/expanso-edge-$LATEST_VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add scripts/validation/edge.ts validation-reports
+          git commit -m "chore: bump expanso-edge to $LATEST_VERSION"
+          remote_sha=$(git ls-remote --heads origin "refs/heads/$branch" |
+            awk '{print $1}')
+          git push \
+            --force-with-lease="refs/heads/$branch:$remote_sha" \
+            origin "HEAD:refs/heads/$branch"
+          existing=$(gh pr list --head "$branch" --state open --json url --jq '.[0].url // empty')
+          if [ -z "$existing" ]; then
+            gh pr create \
+              --base main \
+              --head "$branch" \
+              --title "chore: bump expanso-edge to $LATEST_VERSION" \
+              --body "Nightly validation passed every published complete pipeline and fragment with $LATEST_VERSION. This updates the pin and regenerated reports."
+          else
+            echo "Updated existing pull request: $existing"
+          fi
+
+      - name: Fail after recording latest drift
+        if: steps.latest-validation.outcome == 'failure'
+        run: exit 1

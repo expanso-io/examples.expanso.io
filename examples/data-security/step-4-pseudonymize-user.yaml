@@ -9,11 +9,6 @@ pipeline:
         # Get salt from environment
         let user_salt = env("USER_SALT").or("default-salt")
 
-        # Create consistent user_id from name
-        # Same name = same ID (pseudonymization)
-        # Different names = different IDs
-        root.user_id = "user_" + (this.user_name + user_salt)
-          .hash("sha256").slice(0, 12)
-
         # Remove original name
         root = this.without("user_name")
+        root.user_id = "user_" + (this.user_name + $user_salt).hash("sha256").slice(0, 12)

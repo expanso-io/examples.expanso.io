@@ -28,9 +28,12 @@ export function rebaseNormalizationFixture(
   const rebased = structuredClone(expectation);
   for (const output of rebased.outputs) {
     for (const record of output.records ?? []) {
-      const instant = instants.get(String(record.match?.event_id));
+      const eventId = record.match?.event_id ?? record.equals?.event_id;
+      const instant = instants.get(String(eventId));
+
       if (!instant)
         throw new Error('normalization expectation lacks a fixture event');
+
       updateRecord(record, instant);
     }
   }
@@ -47,7 +50,10 @@ function updateRecord(record: RecordCheck, instant: Date): void {
   const weekend = day === 0 || day === 6;
   const month = instant.getUTCMonth() + 1;
   const replacements: Record<string, string | number | boolean> = {
-    timestamp: iso.replace('.000Z', 'Z'),
+    timestamp: String(equals.timestamp).endsWith('.000Z')
+      ? iso
+      : iso.replace('.000Z', 'Z'),
+    time: iso.slice(0, 19).replace('T', ' '),
     'time_metadata.year': instant.getUTCFullYear(),
     'time_metadata.month': month,
     'time_metadata.day': instant.getUTCDate(),

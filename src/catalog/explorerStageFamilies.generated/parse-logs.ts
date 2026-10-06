@@ -346,9 +346,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "04-csv-data-parsing.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    # Parse CSV with named columns\n    - csv:\n        columns: [timestamp, metric_name, sensor_id, value, unit]\n        delimiter: ","\n\n    # Convert types and add sensor metadata\n    - mapping: |\n        root = this\n        root.timestamp_unix = this.timestamp.parse_timestamp("2006-01-02").ts_unix()\n        root.value_numeric = this.value.number()\n        root.sensor_metadata = if this.sensor_id.has_prefix("temp-") {\n          {"type": "temperature", "location": "warehouse"}\n        } else {\n          {"type": "unknown", "location": "unknown"}\n        }\n        root.alert = if this.metric_name == "temperature" && this.value_numeric > 30 {\n          {"level": "critical", "message": "Temperature exceeds threshold"}\n        }\n',
+      'pipeline:\n  processors:\n    # Parse CSV with named columns.\n    - mapping: |\n        let header = "timestamp,metric_name,sensor_id,value,unit\\n"\n        root = ($header + content().string()).parse_csv().index(0)\n\n    # Convert types and add sensor metadata\n    - mapping: |\n        root = this\n        root.timestamp_unix = this.timestamp.parse_timestamp("2006-01-02").ts_unix()\n        root.value_numeric = this.value.number()\n        root.sensor_metadata = if this.sensor_id.has_prefix("temp-") {\n          {"type": "temperature", "location": "warehouse"}\n        } else {\n          {"type": "unknown", "location": "unknown"}\n        }\n        root.alert = if this.metric_name == "temperature" && this.value_numeric > 30 {\n          {"level": "critical", "message": "Temperature exceeds threshold"}\n        }\n',
     configSha256:
-      "sha256:36b3cb4b520b2746d03d5177639bb351278f06cb65d71c24280bc46baaabf7e3",
+      "sha256:3b41c4af1ded18c4dd6b36da3f5a07fe33f771e6a59b1b686fb32e19d1f998a8",
   },
   {
     id: 5,

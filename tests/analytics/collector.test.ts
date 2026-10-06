@@ -32,7 +32,6 @@ before(async () => {
   ).outputFiles[0].text;
   browser = await chromium.launch({
     headless: true,
-    channel: process.env.ANALYTICS_BROWSER_CHANNEL,
   });
 });
 after(async () => {

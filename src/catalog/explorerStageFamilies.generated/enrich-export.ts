@@ -501,9 +501,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "05-configured-s3-object.yaml",
     yamlCode:
-      'output:\n  broker:\n    pattern: fan_out\n    outputs:\n      - aws_s3:\n          bucket: ${S3_BUCKET_NAME}\n          path: logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/logs_${!timestamp_unix()}.jsonl.gz\n          batching:\n            count: ${BATCH_COUNT:-200}\n            period: ${BATCH_PERIOD:-2m}\n            byte_size: ${BATCH_SIZE:-5242880}\n            processors:\n              - compress:\n                  algorithm: gzip\n                  level: 6\n          content_type: application/x-ndjson\n          content_encoding: gzip\n          storage_class: ${S3_STORAGE_CLASS:-STANDARD_IA}\n          credentials:\n            profile: ${AWS_PROFILE}\n          region: ${AWS_REGION}\n',
+      'output:\n  broker:\n    pattern: fan_out\n    outputs:\n      - aws_s3:\n          bucket: ${S3_BUCKET_NAME}\n          path: logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/logs_${!timestamp_unix()}.jsonl.gz\n          batching:\n            count: 200\n            period: ${BATCH_PERIOD:-2m}\n            byte_size: 5242880\n            processors:\n              - compress:\n                  algorithm: gzip\n                  level: 6\n          content_type: application/x-ndjson\n          content_encoding: gzip\n          storage_class: ${S3_STORAGE_CLASS:-STANDARD_IA}\n          credentials:\n            profile: ${AWS_PROFILE}\n          region: ${AWS_REGION}\n',
     configSha256:
-      "sha256:fba9fe3706f078eb3cc2b1b76f179a08a7232ea68c970e677fc57a0d3473a1a4",
+      "sha256:6b42514483d9c0029c57e5490700273f474ad0338bbd1d009b291bf5daa1021b",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 

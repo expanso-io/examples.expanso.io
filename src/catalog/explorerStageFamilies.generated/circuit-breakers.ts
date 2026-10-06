@@ -140,9 +140,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-database-circuit-breakers.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - cache:\n        operator: get\n        key: ${! this.sensor_id }\n        # Database circuit breaker settings\n        timeout: 2s          # Fast query timeout\n        max_connections: 10  # Connection pool limit\n\n    - catch:\n        - log:\n            message: "Cache lookup failed, using default"\n',
+      'cache_resources:\n  - label: lookup_cache\n    memory:\n      default_ttl: 5m\n\npipeline:\n  processors:\n    - cache:\n        resource: lookup_cache\n        operator: get\n        key: ${! this.sensor_id }\n\n    - catch:\n        - log:\n            message: "Cache lookup failed, using default"\n',
     configSha256:
-      "sha256:295619ad6b17bc8f128673d12466051a37a0e062e560750a07d0b1d7bda03ffc",
+      "sha256:2b89ae0b8e8253c2aa602f4d174fbc0df25104eb41f1e28d5b93d4bb6483bbba",
   },
   {
     id: 4,

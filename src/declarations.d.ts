@@ -15,6 +15,7 @@ declare module '@theme/CodeBlock' {
     children?: React.ReactNode;
     className?: string;
     language?: string;
+    pipelineKind?: 'fragment' | 'complete';
     title?: string;
   }
 

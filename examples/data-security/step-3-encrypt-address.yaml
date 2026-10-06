@@ -2,8 +2,13 @@ pipeline:
   processors:
     - mapping: |
         root = this
-        root.billing_address.street_encrypted = this.billing_address.street.encrypt_aes_gcm(env("ADDR_KEY"))
-        root.billing_address.zip_encrypted = this.billing_address.zip.encrypt_aes_gcm(env("ADDR_KEY"))
+        let key = env("ADDR_KEY").or(throw("ADDR_KEY is not set"))
+        let street_iv = uuid_v4().hash("sha256").slice(0, 12)
+        let zip_iv = uuid_v4().hash("sha256").slice(0, 12)
+        root.billing_address.street_nonce = $street_iv.encode("base64")
+        root.billing_address.street_encrypted = this.billing_address.street.string().encrypt_aes("gcm", $key, $street_iv).encode("base64")
+        root.billing_address.zip_nonce = $zip_iv.encode("base64")
+        root.billing_address.zip_encrypted = this.billing_address.zip.string().encrypt_aes("gcm", $key, $zip_iv).encode("base64")
         root.billing_address = root.billing_address.without("street", "zip")
     - catch:
         - mapping: root = deleted()

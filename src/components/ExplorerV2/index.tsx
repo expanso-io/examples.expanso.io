@@ -13,6 +13,8 @@ import {
   type ExplorerNavigationMethod,
 } from '../../analytics/events';
 import { captureExampleEvent } from '../../lib/analytics';
+import { completePipelineRouteForFamily } from '../../catalog/completePipelineRoutes';
+import PipelineBadge from '../PipelineBadge';
 import CopyActionButton, { CopyToast } from './CopyActionButton';
 import {
   copyResultFeedback,
@@ -848,11 +850,17 @@ export default function ExplorerV2({
         >
           <div className={styles.yamlPanel}>
             <div className={styles.yamlHeader}>
-              <span>
-                {isFinalStage && fullYaml
-                  ? 'Complete pipeline'
-                  : 'Stage configuration'}
-              </span>
+              <div className={styles.yamlClassification}>
+                <span>
+                  {isFinalStage && fullYaml
+                    ? 'Complete pipeline'
+                    : 'Stage configuration'}
+                </span>
+                <PipelineBadge
+                  kind={visibleYamlScope === 'full' ? 'complete' : 'fragment'}
+                  completeHref={completePipelineRouteForFamily(exampleId)}
+                />
+              </div>
               <code>{visibleYamlFilename}</code>
               <CopyActionButton
                 feedbackKey="yaml"

@@ -1,9 +1,9 @@
 pipeline:
   processors:
-    # Parse CSV with named columns
-    - csv:
-        columns: [timestamp, metric_name, sensor_id, value, unit]
-        delimiter: ","
+    # Parse CSV with named columns.
+    - mapping: |
+        let header = "timestamp,metric_name,sensor_id,value,unit\n"
+        root = ($header + content().string()).parse_csv().index(0)
 
     # Convert types and add sensor metadata
     - mapping: |

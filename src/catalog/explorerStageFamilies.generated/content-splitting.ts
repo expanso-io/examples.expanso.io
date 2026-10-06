@@ -262,9 +262,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-split-array-into-individual-messages.yaml",
     yamlCode:
-      "pipeline:\n  processors:\n    - mapping: |\n        meta device_id = this.device_id\n        meta timestamp = this.timestamp\n        meta location = this.location\n        root = this\n\n    # Split the readings array\n    - unarchive:\n        format: json_array\n        field: readings\n\noutput:\n  file:\n    path: /var/log/split-messages.jsonl\n",
+      "pipeline:\n  processors:\n    - mapping: |\n        meta device_id = this.device_id\n        meta timestamp = this.timestamp\n        meta location = this.location\n        root = this\n\n    # Split the readings array\n    - mapping: root = this.readings\n    - unarchive:\n        format: json_array\n\noutput:\n  file:\n    path: /var/log/split-messages.jsonl\n",
     configSha256:
-      "sha256:defb6d14362ec765d8c7607d92eb6017991b211dcb42cb6a710ae1ee9242866c",
+      "sha256:181011fc88b3af6129ab018395297bad07137fa79603ba9c439b8fc2023735b7",
   },
   {
     id: 4,
@@ -342,9 +342,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "04-restore-parent-context.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - mapping: |\n        meta device_id = this.device_id\n        meta timestamp = this.timestamp\n        meta location = this.location\n        root = this\n\n    - unarchive:\n        format: json_array\n        field: readings\n\n    # Restore parent context to each split message\n    - mapping: |\n        root = this\n        root.device_id = meta("device_id")\n        root.timestamp = meta("timestamp")\n        root.location = meta("location")\n\noutput:\n  file:\n    path: /var/log/enriched-messages.jsonl\n',
+      'pipeline:\n  processors:\n    - mapping: |\n        meta device_id = this.device_id\n        meta timestamp = this.timestamp\n        meta location = this.location\n        root = this\n\n    - mapping: root = this.readings\n    - unarchive:\n        format: json_array\n\n    # Restore parent context to each split message\n    - mapping: |\n        root = this\n        root.device_id = meta("device_id")\n        root.timestamp = meta("timestamp")\n        root.location = meta("location")\n\noutput:\n  file:\n    path: /var/log/enriched-messages.jsonl\n',
     configSha256:
-      "sha256:083099318db33165d6161196a869b473fa3ca34dcb04506e0af10d3ab7e50143",
+      "sha256:311f6334c3455f2b3175f6d4fa11df0e229ebc9b4a7faaa93364ac93300088fc",
   },
   {
     id: 5,
@@ -410,9 +410,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "05-content-based-routing.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - mapping: |\n        meta device_id = this.device_id\n        meta timestamp = this.timestamp\n        meta location = this.location\n        root = this\n\n    - unarchive:\n        format: json_array\n        field: readings\n\n    - mapping: |\n        root = this\n        root.device_id = meta("device_id")\n        root.timestamp = meta("timestamp")\n        root.location = meta("location")\n\n        # Add alert classification\n        root.alert_level = match {\n          this.value >= 80 => "critical"\n          this.value >= 75 => "warning"\n          _ => "normal"\n        }\n\n# Route based on individual temperature values\noutput:\n  switch:\n    cases:\n      - check: this.alert_level == "critical"\n        output:\n          http_client:\n            url: http://alerts.company.com/critical\n            verb: POST\n      - check: this.alert_level == "warning"\n        output:\n          kafka:\n            topic: temperature-warnings\n            addresses: ["kafka:9092"]\n      - output:\n          s3:\n            bucket: temperature-storage\n            path: normal/${timestamp_date()}/\n',
+      'pipeline:\n  processors:\n    - mapping: |\n        meta device_id = this.device_id\n        meta timestamp = this.timestamp\n        meta location = this.location\n        root = this\n\n    - mapping: root = this.readings\n    - unarchive:\n        format: json_array\n\n    - mapping: |\n        root = this\n        root.device_id = meta("device_id")\n        root.timestamp = meta("timestamp")\n        root.location = meta("location")\n\n        # Add alert classification\n        root.alert_level = match {\n          this.value >= 80 => "critical"\n          this.value >= 75 => "warning"\n          _ => "normal"\n        }\n\n# Route based on individual temperature values\noutput:\n  switch:\n    cases:\n      - check: this.alert_level == "critical"\n        output:\n          http_client:\n            url: http://alerts.company.com/critical\n            verb: POST\n      - check: this.alert_level == "warning"\n        output:\n          kafka:\n            topic: temperature-warnings\n            addresses: ["kafka:9092"]\n      - output:\n          aws_s3:\n            bucket: temperature-storage\n            path: normal/${timestamp_date()}/\n',
     configSha256:
-      "sha256:aca45819b13d349f7ce9bc09d012537a77d677460a02719d31f4312d1bcad4ca",
+      "sha256:e6c3bed0cc8d978f06d626629903412c2d857b902cf9715236c4eaa267e58e4c",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 

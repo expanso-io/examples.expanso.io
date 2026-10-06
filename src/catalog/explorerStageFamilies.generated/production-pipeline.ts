@@ -149,9 +149,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "06-fan-out.yaml",
     yamlCode:
-      "output:\n  broker:\n    pattern: fan_out\n    outputs:\n      # 1. Real-time alerts (high priority)\n      - switch:\n          cases:\n            - check: this.priority >= 7\n              output:\n                opensearch:\n                  action: index\n                  urls: [http://localhost:9200]\n                  index: logs-critical\n\n      # 2. Stream processing (all logs)\n      - kafka:\n          addresses: [localhost:9092]\n          topic: logs-stream\n\n      # 3. Long-term archival (S3)\n      - aws_s3:\n          bucket: logs-archive\n          path: ${!timestamp_unix()}.json\n",
+      "output:\n  broker:\n    pattern: fan_out\n    outputs:\n      # 1. Real-time alerts (high priority)\n      - switch:\n          cases:\n            - check: this.priority >= 7\n              output:\n                opensearch:\n                  action: index\n                  urls: [http://localhost:9200]\n                  index: logs-critical\n                  id: '${! uuid_v4() }'\n\n      # 2. Stream processing (all logs)\n      - kafka:\n          addresses: [localhost:9092]\n          topic: logs-stream\n\n      # 3. Long-term archival (S3)\n      - aws_s3:\n          bucket: logs-archive\n          path: ${!timestamp_unix()}.json\n",
     configSha256:
-      "sha256:ba47c5e605d74eaec2e83168d1f51c59c40ae988c72bbbb9e02d3d2a2c68879b",
+      "sha256:9dcbccd44edc1e5e130a1acde27acbaf6a1f6a88446324285ad21acb32d95521",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 

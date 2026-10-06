@@ -359,9 +359,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "02-encrypt-credit-card-data.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - mapping: |\n        root = this\n        root.payment.card_number_encrypted = this.payment.card_number.encrypt_aes_gcm(env("CARD_KEY"))\n        root.payment.cvv_encrypted = this.payment.cvv.encrypt_aes_gcm(env("CARD_KEY"))\n        root.payment.cardholder_name_encrypted = this.payment.cardholder_name.encrypt_aes_gcm(env("CARD_KEY"))\n        root.payment.card_last_four = this.payment.card_number.re_replace_all("[^0-9]", "").slice(-4)\n        root.payment.card_brand = match {\n          this.payment.card_number.has_prefix("4") => "visa",\n          this.payment.card_number.has_prefix("5") => "mastercard",\n          _ => "unknown"\n        }\n        root.payment = root.payment.without("card_number", "cvv", "cardholder_name")\n    - catch:\n        - mapping: root = deleted()\n',
+      'pipeline:\n  processors:\n    - mapping: |\n        root = this\n        let key = env("CARD_KEY").or(throw("CARD_KEY is not set"))\n        let card_iv = uuid_v4().hash("sha256").slice(0, 12)\n        let cvv_iv = uuid_v4().hash("sha256").slice(0, 12)\n        let name_iv = uuid_v4().hash("sha256").slice(0, 12)\n        root.payment.card_number_nonce = $card_iv.encode("base64")\n        root.payment.card_number_encrypted = this.payment.card_number.string().encrypt_aes("gcm", $key, $card_iv).encode("base64")\n        root.payment.cvv_nonce = $cvv_iv.encode("base64")\n        root.payment.cvv_encrypted = this.payment.cvv.string().encrypt_aes("gcm", $key, $cvv_iv).encode("base64")\n        root.payment.cardholder_name_nonce = $name_iv.encode("base64")\n        root.payment.cardholder_name_encrypted = this.payment.cardholder_name.string().encrypt_aes("gcm", $key, $name_iv).encode("base64")\n        root.payment.card_last_four = this.payment.card_number.re_replace_all("[^0-9]", "").slice(-4)\n        root.payment.card_brand = match {\n          this.payment.card_number.has_prefix("4") => "visa",\n          this.payment.card_number.has_prefix("5") => "mastercard",\n          _ => "unknown"\n        }\n        root.payment = root.payment.without("card_number", "cvv", "cardholder_name")\n    - catch:\n        - mapping: root = deleted()\n',
     configSha256:
-      "sha256:75102fcaf8bad75d508c966732c750ff950bc793d38192c219c06183348128c4",
+      "sha256:5af252b7f8266c3536d51a70c097958455190effdef17b51e2ba233374b1d984",
   },
   {
     id: 3,
@@ -460,9 +460,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-encrypt-pii-customer-data.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - mapping: |\n        root = this\n        root.customer.ssn_encrypted = this.customer.ssn.encrypt_aes_gcm(env("PII_KEY"))\n        root.customer.email_encrypted = this.customer.email.encrypt_aes_gcm(env("PII_KEY"))\n        root.customer.phone_encrypted = this.customer.phone.encrypt_aes_gcm(env("PII_KEY"))\n        root.customer.dob_encrypted = this.customer.date_of_birth.encrypt_aes_gcm(env("PII_KEY"))\n        root.customer.ssn_last_four = this.customer.ssn.re_replace_all("[^0-9]", "").slice(-4)\n        root.customer.email_domain = this.customer.email.split("@")[1]\n        root.customer.phone_area_code = this.customer.phone.re_find("\\\\+1-(\\\\d{3})-")[1]\n        root.customer = root.customer.without("ssn", "email", "phone", "date_of_birth")\n    - catch:\n        - mapping: root = deleted()\n',
+      'pipeline:\n  processors:\n    - mapping: |\n        root = this\n        let key = env("PII_KEY").or(throw("PII_KEY is not set"))\n        let ssn_iv = uuid_v4().hash("sha256").slice(0, 12)\n        let email_iv = uuid_v4().hash("sha256").slice(0, 12)\n        let phone_iv = uuid_v4().hash("sha256").slice(0, 12)\n        let dob_iv = uuid_v4().hash("sha256").slice(0, 12)\n        root.customer.ssn_nonce = $ssn_iv.encode("base64")\n        root.customer.ssn_encrypted = this.customer.ssn.string().encrypt_aes("gcm", $key, $ssn_iv).encode("base64")\n        root.customer.email_nonce = $email_iv.encode("base64")\n        root.customer.email_encrypted = this.customer.email.string().encrypt_aes("gcm", $key, $email_iv).encode("base64")\n        root.customer.phone_nonce = $phone_iv.encode("base64")\n        root.customer.phone_encrypted = this.customer.phone.string().encrypt_aes("gcm", $key, $phone_iv).encode("base64")\n        root.customer.dob_nonce = $dob_iv.encode("base64")\n        root.customer.dob_encrypted = this.customer.date_of_birth.string().encrypt_aes("gcm", $key, $dob_iv).encode("base64")\n        root.customer.ssn_last_four = this.customer.ssn.re_replace_all("[^0-9]", "").slice(-4)\n        root.customer.email_domain = this.customer.email.split("@").index(1)\n        root.customer.phone_area_code = this.customer.phone.re_replace_all("[^0-9]", "").slice(0, 3)\n        root.customer = root.customer.without("ssn", "email", "phone", "date_of_birth")\n    - catch:\n        - mapping: root = deleted()\n',
     configSha256:
-      "sha256:621cddfcbc357fe2c34ee1b360794dee1b1e1afd5fdd1f5e13b78824be70e77a",
+      "sha256:a983ec69e38beec195c26b2359da23de0ec396f3f5eb90cae4f4aa27f287453b",
   },
   {
     id: 4,
@@ -548,9 +548,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "04-encrypt-address-data.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - mapping: |\n        root = this\n        root.billing_address.street_encrypted = this.billing_address.street.encrypt_aes_gcm(env("ADDR_KEY"))\n        root.billing_address.zip_encrypted = this.billing_address.zip.encrypt_aes_gcm(env("ADDR_KEY"))\n        root.billing_address = root.billing_address.without("street", "zip")\n    - catch:\n        - mapping: root = deleted()\n',
+      'pipeline:\n  processors:\n    - mapping: |\n        root = this\n        let key = env("ADDR_KEY").or(throw("ADDR_KEY is not set"))\n        let street_iv = uuid_v4().hash("sha256").slice(0, 12)\n        let zip_iv = uuid_v4().hash("sha256").slice(0, 12)\n        root.billing_address.street_nonce = $street_iv.encode("base64")\n        root.billing_address.street_encrypted = this.billing_address.street.string().encrypt_aes("gcm", $key, $street_iv).encode("base64")\n        root.billing_address.zip_nonce = $zip_iv.encode("base64")\n        root.billing_address.zip_encrypted = this.billing_address.zip.string().encrypt_aes("gcm", $key, $zip_iv).encode("base64")\n        root.billing_address = root.billing_address.without("street", "zip")\n    - catch:\n        - mapping: root = deleted()\n',
     configSha256:
-      "sha256:94ff356ae306dd0424f1e310cac5577163fc84b51f60162057ff08e3657f5027",
+      "sha256:24d1b768fff81e3f3159aebb02f7b958e2969c8e042b60881825a9f99e1015d9",
   },
   {
     id: 5,

@@ -115,9 +115,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "02-define-json-schema.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - mapping: |\n        # Define JSON Schema for sensor data\n        let schema = {\n          "type": "object",\n          "required": ["sensor_id", "timestamp", "readings"],\n          "properties": {\n            "sensor_id": {"type": "string"},\n            "timestamp": {"type": "string", "format": "date-time"},\n            "readings": {\n              "type": "object",\n              "required": ["temperature_celsius", "humidity_percent"],\n              "properties": {\n                "temperature_celsius": {"type": "number", "minimum": -50, "maximum": 100},\n                "humidity_percent": {"type": "number", "minimum": 0, "maximum": 100}\n              }\n            }\n          }\n        }\n\n        # Validate message against schema\n        root = this.validate_json_schema(schema)\n',
+      'pipeline:\n  processors:\n    - json_schema:\n        schema: |\n          {\n            "type": "object",\n            "required": ["sensor_id", "timestamp", "readings"],\n            "properties": {\n              "sensor_id": {"type": "string"},\n              "timestamp": {"type": "string", "format": "date-time"},\n              "readings": {\n                "type": "object",\n                "required": ["temperature_celsius", "humidity_percent"],\n                "properties": {\n                  "temperature_celsius": {"type": "number", "minimum": -50, "maximum": 100},\n                  "humidity_percent": {"type": "number", "minimum": 0, "maximum": 100}\n                }\n              }\n            }\n          }\n',
     configSha256:
-      "sha256:c061430530bcdc2a93c48ff51f85d1ae7d9f6386ae982dc7e780e9efa8073c25",
+      "sha256:e33e3833b02cb0731d9463298c755bc9ceedc4df0cbb3d8e17278dfbacd7cf32",
   },
   {
     id: 3,
@@ -177,9 +177,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-validate-route.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - switch:\n        - check: this.validate_json_schema(schema)\n          processors:\n            - mapping: \'root = this.with("status", "valid")\'\n        - processors:\n            - mapping: \'root = this.with("status", "invalid")\'\n            - mapping: \'root.error = error()\'\n\noutput:\n  switch:\n    cases:\n      - check: this.status == "valid"\n        output:\n          kafka:\n            addresses: [localhost:9092]\n            topic: sensor-data-valid\n\n      - check: this.status == "invalid"\n        output:\n          kafka:\n            addresses: [localhost:9092]\n            topic: sensor-data-dlq\n',
+      'pipeline:\n  processors:\n    - try:\n        - json_schema:\n            schema: \'{"type":"object","required":["sensor_id"]}\'\n        - mapping: \'root = this.with("status", "valid")\'\n    - catch:\n        - mapping: |\n            root = this.with("status", "invalid")\n            root.error = error()\n\noutput:\n  switch:\n    cases:\n      - check: this.status == "valid"\n        output:\n          kafka:\n            addresses: [localhost:9092]\n            topic: sensor-data-valid\n\n      - check: this.status == "invalid"\n        output:\n          kafka:\n            addresses: [localhost:9092]\n            topic: sensor-data-dlq\n',
     configSha256:
-      "sha256:573e01076a6f7722d75a849d2c997e0a4dcb7ce49276220921b377bfcba41ebf",
+      "sha256:66b1dfd2e12fd336392fe8c0a655bd2297cb509d376de6324e1c78978f7698dc",
   },
   {
     id: 4,
@@ -243,9 +243,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "04-monitor-quality.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - switch:\n        - check: this.validate_json_schema(schema)\n          processors:\n            - mapping: \'root = this.with("status", "valid")\'\n            - metric:\n                type: counter\n                name: schema_validation_success\n                labels:\n                  sensor_id: ${! this.sensor_id }\n        - processors:\n            - mapping: \'root = this.with("status", "invalid")\'\n            - metric:\n                type: counter\n                name: schema_validation_failure\n                labels:\n                  sensor_id: ${! this.sensor_id }\n                  error_type: ${! error() }\n\nmetrics:\n  prometheus:\n    enabled: true\n    path: /metrics\n  # Export validation metrics every 10s\n',
+      'pipeline:\n  processors:\n    - try:\n        - json_schema:\n            schema: \'{"type":"object","required":["sensor_id"]}\'\n        - mapping: \'root = this.with("status", "valid")\'\n        - metric:\n            type: counter\n            name: schema_validation_success\n            labels:\n              sensor_id: ${! this.sensor_id }\n    - catch:\n        - mapping: \'root = this.with("status", "invalid")\'\n        - metric:\n            type: counter\n            name: schema_validation_failure\n            labels:\n              sensor_id: ${! this.sensor_id }\n\nmetrics:\n  prometheus:\n    enabled: true\n    path: /metrics\n  # Export validation metrics every 10s\n',
     configSha256:
-      "sha256:b43e7bc06d37408c757498a2714057f3dcef259431fee5d1e4512d788a47ca15",
+      "sha256:0c1fe89b785da11f9dc66d6f64817ff4c5f4ac26d5fcaed1b07307b6be28f412",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 

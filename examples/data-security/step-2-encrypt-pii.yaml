@@ -2,13 +2,22 @@ pipeline:
   processors:
     - mapping: |
         root = this
-        root.customer.ssn_encrypted = this.customer.ssn.encrypt_aes_gcm(env("PII_KEY"))
-        root.customer.email_encrypted = this.customer.email.encrypt_aes_gcm(env("PII_KEY"))
-        root.customer.phone_encrypted = this.customer.phone.encrypt_aes_gcm(env("PII_KEY"))
-        root.customer.dob_encrypted = this.customer.date_of_birth.encrypt_aes_gcm(env("PII_KEY"))
+        let key = env("PII_KEY").or(throw("PII_KEY is not set"))
+        let ssn_iv = uuid_v4().hash("sha256").slice(0, 12)
+        let email_iv = uuid_v4().hash("sha256").slice(0, 12)
+        let phone_iv = uuid_v4().hash("sha256").slice(0, 12)
+        let dob_iv = uuid_v4().hash("sha256").slice(0, 12)
+        root.customer.ssn_nonce = $ssn_iv.encode("base64")
+        root.customer.ssn_encrypted = this.customer.ssn.string().encrypt_aes("gcm", $key, $ssn_iv).encode("base64")
+        root.customer.email_nonce = $email_iv.encode("base64")
+        root.customer.email_encrypted = this.customer.email.string().encrypt_aes("gcm", $key, $email_iv).encode("base64")
+        root.customer.phone_nonce = $phone_iv.encode("base64")
+        root.customer.phone_encrypted = this.customer.phone.string().encrypt_aes("gcm", $key, $phone_iv).encode("base64")
+        root.customer.dob_nonce = $dob_iv.encode("base64")
+        root.customer.dob_encrypted = this.customer.date_of_birth.string().encrypt_aes("gcm", $key, $dob_iv).encode("base64")
         root.customer.ssn_last_four = this.customer.ssn.re_replace_all("[^0-9]", "").slice(-4)
-        root.customer.email_domain = this.customer.email.split("@")[1]
-        root.customer.phone_area_code = this.customer.phone.re_find("\\\\+1-(\\\\d{3})-")[1]
+        root.customer.email_domain = this.customer.email.split("@").index(1)
+        root.customer.phone_area_code = this.customer.phone.re_replace_all("[^0-9]", "").slice(0, 3)
         root.customer = root.customer.without("ssn", "email", "phone", "date_of_birth")
     - catch:
         - mapping: root = deleted()

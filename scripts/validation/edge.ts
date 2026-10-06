@@ -38,6 +38,8 @@ export interface EdgeBinary {
   version: string;
 }
 
+export type EdgeVersionRequest = typeof PINNED_EDGE_VERSION | 'latest' | string;
+
 function readVersion(binary: string): string | null {
   const result = spawnSync(binary, ['version'], { encoding: 'utf8' });
 
@@ -53,28 +55,44 @@ function readVersion(binary: string): string | null {
  */
 export function resolveEdgeBinary(
   repositoryRoot: string,
-  options: { install: boolean; log: (line: string) => void }
+  options: {
+    install: boolean;
+    log: (line: string) => void;
+    version?: EdgeVersionRequest;
+  }
 ): EdgeBinary {
-  const binDir = join(repositoryRoot, '.bin');
+  const requestedVersion = options.version ?? PINNED_EDGE_VERSION;
+  const binDir =
+    requestedVersion === PINNED_EDGE_VERSION
+      ? join(repositoryRoot, '.bin')
+      : join(
+          repositoryRoot,
+          '.bin',
+          `edge-${requestedVersion.replace(/[^a-zA-Z0-9.-]/g, '-')}`
+        );
   const binary = join(binDir, 'expanso-edge');
 
   if (existsSync(binary)) {
     const version = readVersion(binary);
 
-    if (version === PINNED_EDGE_VERSION) return { path: binary, version };
+    if (
+      version &&
+      (requestedVersion === 'latest' || version === requestedVersion)
+    )
+      return { path: binary, version };
     options.log(
-      `.bin/expanso-edge reports ${version ?? 'no version'}; reinstalling pinned ${PINNED_EDGE_VERSION}`
+      `${binary} reports ${version ?? 'no version'}; reinstalling ${requestedVersion}`
     );
   }
 
   if (!options.install) {
     throw new Error(
-      `pinned expanso-edge ${PINNED_EDGE_VERSION} is not installed in .bin/ and --no-install was given`
+      `expanso-edge ${requestedVersion} is not installed at ${binary} and installation is disabled`
     );
   }
 
   mkdirSync(binDir, { recursive: true });
-  options.log(`installing expanso-edge ${PINNED_EDGE_VERSION} into .bin/`);
+  options.log(`installing expanso-edge ${requestedVersion} into ${binDir}`);
   const installer = join(binDir, 'install-expanso-edge.sh');
 
   const download = spawnSync(
@@ -105,20 +123,21 @@ export function resolveEdgeBinary(
     );
   }
 
-  const install = spawnSync(
-    'bash',
-    [installer, '--version', PINNED_EDGE_VERSION, '--dir', binDir],
-    {
-      encoding: 'utf8',
-      timeout: INSTALL_TIMEOUT_MS,
-      env: {
-        ...process.env,
-        EXPANSO_INSTALL_DIR: binDir,
-        USE_SUDO: 'false',
-        EXPANSO_DISABLEANALYTICS: 'true',
-      },
-    }
-  );
+  const installArgs = [installer];
+
+  if (requestedVersion !== 'latest')
+    installArgs.push('--version', requestedVersion);
+  installArgs.push('--dir', binDir);
+  const install = spawnSync('bash', installArgs, {
+    encoding: 'utf8',
+    timeout: INSTALL_TIMEOUT_MS,
+    env: {
+      ...process.env,
+      EXPANSO_INSTALL_DIR: binDir,
+      USE_SUDO: 'false',
+      EXPANSO_DISABLEANALYTICS: 'true',
+    },
+  });
 
   if (install.status !== 0 || !existsSync(binary)) {
     throw new Error(
@@ -129,9 +148,12 @@ export function resolveEdgeBinary(
   chmodSync(binary, 0o755);
   const version = readVersion(binary);
 
-  if (version !== PINNED_EDGE_VERSION) {
+  if (
+    !version ||
+    (requestedVersion !== 'latest' && version !== requestedVersion)
+  ) {
     throw new Error(
-      `installer produced expanso-edge ${version ?? 'unknown'} instead of ${PINNED_EDGE_VERSION}`
+      `installer produced expanso-edge ${version ?? 'unknown'} instead of ${requestedVersion}`
     );
   }
 
@@ -326,7 +348,8 @@ export function validateSource(
   edge: EdgeBinary,
   cwd: string,
   source: string,
-  validationEnv: Readonly<Record<string, string>> = {}
+  validationEnv: Readonly<Record<string, string>> = {},
+  mode: ValidateResult['mode'] = 'wrapped'
 ): ValidateResult {
   const isolatedHome = join(cwd, '.bin', 'validation-home');
   mkdirSync(isolatedHome, { recursive: true });
@@ -353,7 +376,7 @@ export function validateSource(
   if (errors === null) {
     return {
       status: 'FAIL',
-      mode: 'wrapped',
+      mode,
       errors: [{ message: 'validator output could not be parsed' }],
       raw: `${result.stdout}\n${result.stderr}`.trim(),
     };
@@ -362,7 +385,7 @@ export function validateSource(
   if (result.status === 0) errors.push(...rateLimitErrors(source));
   return {
     status: result.status === 0 && errors.length === 0 ? 'PASS' : 'FAIL',
-    mode: 'wrapped',
+    mode,
     errors,
   };
 }

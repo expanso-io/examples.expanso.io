@@ -1,12 +1,13 @@
 pipeline:
   processors:
-    - switch:
-        - check: this.validate_json_schema(schema)
-          processors:
-            - mapping: 'root = this.with("status", "valid")'
-        - processors:
-            - mapping: 'root = this.with("status", "invalid")'
-            - mapping: 'root.error = error()'
+    - try:
+        - json_schema:
+            schema: '{"type":"object","required":["sensor_id"]}'
+        - mapping: 'root = this.with("status", "valid")'
+    - catch:
+        - mapping: |
+            root = this.with("status", "invalid")
+            root.error = error()
 
 output:
   switch:

@@ -180,9 +180,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "02-hash-based-deduplication.yaml",
     yamlCode:
-      '# Hash-based deduplication processor\ncache_resources:\n  - label: dedup_cache\n    memory:\n      default_ttl: 1h\n      cap: 100000\n\npipeline:\n  processors:\n    - mapping: |\n        root = this\n        # Generate SHA-256 hash of entire content\n        root.dedup_hash = this.format_json().hash("sha256")\n\n    - cache:\n        resource: dedup_cache\n        operator: get\n        key: ${! this.dedup_hash }\n\n    - mapping: |\n        root = if meta("cache") != null {\n          deleted()  # Drop exact duplicates\n        } else {\n          _ = cache_set("dedup_cache", this.dedup_hash, now(), "1h")\n          this\n        }\n',
+      "# Hash-based deduplication processor\ncache_resources:\n  - label: dedup_cache\n    memory:\n      default_ttl: 1h\n\npipeline:\n  processors:\n    - mapping: |\n        root = this\n        # Generate SHA-256 hash of entire content\n        root.dedup_hash = this.format_json().hash(\"sha256\")\n\n    - branch:\n        request_map: root = this.dedup_hash\n        processors:\n          - cache:\n              resource: dedup_cache\n              operator: exists\n              key: '${! content() }'\n        result_map: root.is_duplicate = content().string().bool()\n\n    - switch:\n        - check: '!this.is_duplicate'\n          processors:\n            - cache:\n                resource: dedup_cache\n                operator: set\n                key: '${! json(\"dedup_hash\") }'\n                value: '${! now() }'\n        - processors:\n            - mapping: root = deleted()\n",
     configSha256:
-      "sha256:5073f26eb2238bed14c3a834a6312e561d99106b9d7b3db473fbfd310df10736",
+      "sha256:aae15ec9fbde57d933f9ca73cf502a38d51ef89518d8bf8ba02c1c1cea5201a9",
   },
   {
     id: 3,
@@ -288,9 +288,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-fingerprint-based-deduplication.yaml",
     yamlCode:
-      '# Fingerprint-based deduplication\nprocessors:\n  - mapping: |\n      # Extract the selected comparison fields\n      let business_fields = {\n        "event_type": this.event_type,\n        "user_email": this.user.email,\n        "signup_source": this.signup_details.source,\n        "signup_plan": this.signup_details.plan\n      }\n\n      root.business_fingerprint = business_fields.format_json().hash("sha256")\n\n  - cache:\n      resource: dedup_cache\n      operator: get\n      key: ${! this.business_fingerprint }\n\n  - mapping: |\n      root = if meta("cache") != null {\n        deleted()  # Drop semantic duplicates\n      } else {\n        _ = cache_set("dedup_cache", this.business_fingerprint, now(), "6h")\n        this\n      }\n',
+      '# Fingerprint-based deduplication\nprocessors:\n  - mapping: |\n      # Extract only business-critical fields\n      let business_fields = {\n        "event_type": this.event_type,\n        "user_email": this.user.email,\n        "signup_source": this.signup_details.source,\n        "signup_plan": this.signup_details.plan\n      }\n\n      root.business_fingerprint = business_fields.format_json().hash("sha256")\n\n  - branch:\n      request_map: root = this.business_fingerprint\n      processors:\n        - cache:\n            resource: dedup_cache\n            operator: exists\n            key: \'${! content() }\'\n      result_map: root.is_duplicate = content().string().bool()\n\n  - switch:\n      - check: \'!this.is_duplicate\'\n        processors:\n          - cache:\n              resource: dedup_cache\n              operator: set\n              key: \'${! json("business_fingerprint") }\'\n              value: \'${! now() }\'\n      - processors:\n          - mapping: root = deleted()\n',
     configSha256:
-      "sha256:2917f6e7775474117f612b8a6cb214bf124a5b2d04b4d0c9712b0c00eb5e77ab",
+      "sha256:e0735cb7689583222d9fd1cffc5e1de3b4e0f51efbc832ad055efc7ed1ecdca5",
   },
   {
     id: 4,
@@ -394,9 +394,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "04-id-based-deduplication.yaml",
     yamlCode:
-      '# ID-based deduplication\nprocessors:\n  - mapping: |\n      # Validate and extract unique ID\n      root = if !this.exists("event_id") || this.event_id == "" {\n        throw("Missing event_id for ID-based deduplication")\n      } else {\n        this\n      }\n      root.unique_id = this.event_id.trim()\n\n  - cache:\n      resource: dedup_cache\n      operator: get\n      key: ${! this.unique_id }\n\n  - mapping: |\n      root = if meta("cache") != null {\n        deleted()  # Drop ID duplicates\n      } else {\n        _ = cache_set("dedup_cache", this.unique_id, now(), "30m")\n        this\n      }\n',
+      "# ID-based deduplication (fastest)\nprocessors:\n  - mapping: |\n      # Validate and extract unique ID\n      root = if !this.exists(\"event_id\") || this.event_id == \"\" {\n        throw(\"Missing event_id for ID-based deduplication\")\n      } else {\n        this\n      }\n      root.unique_id = this.event_id.trim()\n\n  - branch:\n      request_map: root = this.unique_id\n      processors:\n        - cache:\n            resource: dedup_cache\n            operator: exists\n            key: '${! content() }'\n      result_map: root.is_duplicate = content().string().bool()\n\n  - switch:\n      - check: '!this.is_duplicate'\n        processors:\n          - cache:\n              resource: dedup_cache\n              operator: set\n              key: '${! json(\"unique_id\") }'\n              value: '${! now() }'\n      - processors:\n          - mapping: root = deleted()\n",
     configSha256:
-      "sha256:8dd5426d0ed4eb6928b9c793abaa897a60fe93884b2d73005d9da49e7cc2ad96",
+      "sha256:be0e4682199b90beb921b674618634b8724d990914a71186b3c737be01619cdb",
   },
   {
     id: 5,
@@ -498,9 +498,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "05-external-cache-configuration.yaml",
     yamlCode:
-      '# Production distributed configuration\ncache_resources:\n  - label: distributed_cache\n    redis:\n      cluster_addresses:\n        - "redis-node-1:7001"\n        - "redis-node-2:7002"\n        - "redis-node-3:7003"\n      default_ttl: "1h"\n      pool_size: 50\n\n  - label: local_fallback_cache\n    memory:\n      default_ttl: "5m"\n      cap: 50000\n\nhttp:\n  address: "0.0.0.0:9090"\n  enabled: true\n  path: "/metrics"\n\npipeline:\n  processors:\n    # Auto-strategy selection\n    - mapping: |\n        root.dedup_strategy = if this.event_id.match("^[0-9a-fA-F-]{36}$") {\n          "id-based"\n        } else if this.event_type.in(["user_signup", "purchase"]) {\n          "fingerprint-based"\n        } else {\n          "hash-based"\n        }\n\n    # Circuit breaker with fallback\n    - branch:\n        request_map: |\n          root = if env("CIRCUIT_STATE") == "closed" {\n            this\n          } else {\n            deleted()  # Use local cache\n          }\n        processors:\n          - cache:\n              resource: distributed_cache\n              operator: get\n              key: ${! this.dedup_key }\n',
+      '# Production distributed configuration\ncache_resources:\n  - label: distributed_cache\n    redis:\n      url: "redis://redis-node-1:6379"\n      default_ttl: "1h"\n\n  - label: local_fallback_cache\n    memory:\n      default_ttl: "5m"\n\nhttp:\n  address: "0.0.0.0:9090"\n  enabled: true\n  path: "/metrics"\n\npipeline:\n  processors:\n    # Auto-strategy selection\n    - mapping: |\n        root.dedup_strategy = if this.event_id.re_match("^[0-9a-fA-F-]{36}$") {\n          "id-based"\n        } else if ["user_signup", "purchase"].contains(this.event_type) {\n          "fingerprint-based"\n        } else {\n          "hash-based"\n        }\n\n    # Circuit breaker with fallback\n    - branch:\n        request_map: |\n          root = if env("CIRCUIT_STATE") == "closed" {\n            this\n          } else {\n            deleted()  # Use local cache\n          }\n        processors:\n          - cache:\n              resource: distributed_cache\n              operator: get\n              key: ${! this.dedup_key }\n',
     configSha256:
-      "sha256:a9cf67e6229244d95a5ab1ea2b01679073e401e66fa5f103a96c7be58a35b902",
+      "sha256:ad54b4ab0dbfb57bc154e8004510bc75424619f139ab18fc84958a599146b164",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 

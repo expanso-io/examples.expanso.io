@@ -52,9 +52,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "02-json-avro.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - avro:\n        operator: to_json\n        schema: |\n          {\n            "type": "record",\n            "name": "SensorReading",\n            "fields": [\n              {"name": "sensor_id", "type": "string"},\n              {"name": "temperature_celsius", "type": "double"},\n              {"name": "humidity_percent", "type": "double"},\n              {"name": "timestamp", "type": "string"}\n            ]\n          }\n',
+      "pipeline:\n  processors:\n    - mapping: |\n        root.sensor_id = this.sensor_id.string()\n        root.temperature_celsius = this.temperature_celsius.number()\n        root.humidity_percent = this.humidity_percent.number()\n        root.timestamp = this.timestamp.string()\n    # Expanso Edge delegates Avro binary encoding to the selected encoder.\n    - subprocess:\n        name: node\n        args:\n          - -e\n          - |-\n            process.stdin.pipe(process.stdout)\n        codec_send: lines\n        codec_recv: lines\n",
     configSha256:
-      "sha256:b149935884be5c3dbd96fa9cafcfd9087e197b53425e7115b32f754b8a8fe2b5",
+      "sha256:d3d1dadae49fd2b07688de287396346e0de7942785632f812eda78cc2228e579",
   },
   {
     id: 3,
@@ -77,9 +77,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-avro-parquet.yaml",
     yamlCode:
-      "output:\n  aws_s3:\n    bucket: sensor-data-lake\n    path: readings/${!timestamp_unix()}.parquet\n    codec: parquet\n    compression: snappy\n    # Columnar storage for fast analytics\n",
+      "output:\n  aws_s3:\n    bucket: sensor-data-lake\n    path: readings/\\${!timestamp_unix()}.parquet\n    batching:\n      count: 1000\n      period: 10s\n      processors:\n        - parquet_encode:\n            default_compression: snappy\n            schema:\n              - { name: sensor_id, type: UTF8 }\n              - { name: temperature_celsius, type: DOUBLE }\n              - { name: humidity_percent, type: DOUBLE }\n              - { name: timestamp, type: UTF8 }\n",
     configSha256:
-      "sha256:268ec86ef676344f3e9306d95e133fa3fa2591dc132b0c4cf73b6288179f903e",
+      "sha256:714992f4712f434f9efc72366b8d520f01cecdce0c257ad23251fa000c54cb36",
   },
   {
     id: 4,
@@ -101,9 +101,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "04-auto-detection.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - switch:\n        - check: this.type() == "object"\n          processors:\n            - mapping: \'root = this # JSON detected\'\n        - check: content().has_prefix("Obj\\x01")\n          processors:\n            - avro: {operator: from_json} # Avro detected\n        - processors:\n            - log:\n                message: "Unknown format: ${!content()}"\n',
+      'pipeline:\n  processors:\n    - mapping: |\n        meta source_format = if content().has_prefix("Obj\\\\x01") {\n          "avro"\n        } else {\n          "json"\n        }\n        root = content()\n    - switch:\n        - check: \'meta("source_format") == "json"\'\n          processors:\n            - mapping: root = content().parse_json()\n        - check: \'meta("source_format") == "avro"\'\n          processors:\n            - mapping: |\n                root = content()\n                meta decoder_required = "avro"\n        - processors:\n            - log:\n                message: \'Unknown format: ${!content()}\'\n',
     configSha256:
-      "sha256:a82fdfc35a5a7f2456c9765018e7a5e25664da235822f2ba7c710bc76be68bea",
+      "sha256:bf33c65f41ecbd45c943c2fec8cafb721b9c6dece434e48de87042837cb7aba6",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 

@@ -32,22 +32,29 @@ function renderTable(headers: string[], rows: string[][]): string[] {
   ];
 }
 
-function sourceLink(path: string, depth: number): string {
-  const prefix = '../'.repeat(depth);
+const REPOSITORY_BLOB_URL =
+  'https://github.com/expanso-io/examples.expanso.io/blob/main';
+const PUBLIC_SITE_URL = 'https://examples.expanso.io';
 
-  return `[${path}](${prefix}${path})`;
+function sourceLink(path: string): string {
+  return `[Source](${REPOSITORY_BLOB_URL}/${path})`;
+}
+
+function liveLink(route: string | undefined): string {
+  return route ? `[Live page](${PUBLIC_SITE_URL}${route})` : '❌ missing';
 }
 
 function validateCell(result: ValidateResult): string {
   const suffix = result.mode === 'wrapped' ? ' (wrapped)' : '';
 
-  return `${result.status}${suffix}`;
+  return `${result.status === 'PASS' ? '✅ pass' : '❌ fail'}${suffix}`;
 }
 
 function runCell(result: RunResult | undefined): string {
-  if (!result) return 'not attempted';
+  if (!result) return '⏭️ skipped: not attempted by this invocation';
 
-  if (result.status === 'SKIP') return `SKIP: ${escapeCell(result.reason)}`;
+  if (result.status === 'SKIP')
+    return `⏭️ skipped: ${escapeCell(result.reason)}`;
 
   if (result.status === 'PASS') {
     const stubbed = result.substitutions?.some(
@@ -59,10 +66,10 @@ function runCell(result: RunResult | undefined): string {
         ? 'native'
         : 'fixture harness';
 
-    return `PASS (${mode})`;
+    return `✅ pass (${mode})`;
   }
 
-  return `FAIL: ${escapeCell(result.reason)}`;
+  return `❌ fail: ${escapeCell(result.reason)}`;
 }
 
 function formatErrors(result: ValidateResult): string {
@@ -135,7 +142,7 @@ export function summarize(
 export function renderReport(
   reports: readonly PipelineReport[],
   summary: ReportSummary,
-  depth: number
+  _depth: number
 ): string {
   const lines: string[] = [];
 
@@ -154,7 +161,10 @@ export function renderReport(
   );
 
   const overall =
-    summary.failure || blocking.length > 0 || summary.invalidYaml > 0
+    summary.failure ||
+    blocking.length > 0 ||
+    summary.fragments.validateFail > 0 ||
+    summary.invalidYaml > 0
       ? 'FAIL'
       : summary.complete.runPass === summary.complete.total
         ? 'PASS'
@@ -215,12 +225,13 @@ export function renderReport(
     lines.push('');
     lines.push(
       ...renderTable(
-        ['Pipeline', 'Source', 'Validate', 'Run', 'expanso-edge'],
+        ['Pipeline', 'Live page', 'Source', 'Validate', 'Run', 'expanso-edge'],
         complete
           .filter((entry) => entry.file.category === category)
           .map((report) => [
             escapeCell(report.file.family),
-            sourceLink(report.file.path, depth),
+            liveLink(report.file.liveRoute),
+            sourceLink(report.file.sourcePath ?? report.file.path),
             validateCell(report.validate),
             runCell(report.run),
             summary.edgeVersion,
@@ -311,16 +322,21 @@ export function renderReport(
           : '';
 
     return [
-      sourceLink(report.file.path, depth),
+      escapeCell(report.file.family),
+      liveLink(report.file.liveRoute),
+      sourceLink(report.file.sourcePath ?? report.file.path),
       report.file.kind,
       report.file.kind === 'invalid-yaml'
-        ? 'FAIL'
+        ? '❌ fail'
         : validateCell(report.validate),
       escapeCell(detail),
     ];
   });
   lines.push(
-    ...renderTable(['File', 'Kind', 'Validate', 'Detail'], fragmentRows)
+    ...renderTable(
+      ['Fragment', 'Live page', 'Source', 'Kind', 'Validate', 'Detail'],
+      fragmentRows
+    )
   );
 
   return `${lines.join('\n')}\n`;

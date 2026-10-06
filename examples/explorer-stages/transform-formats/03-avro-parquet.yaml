@@ -1,7 +1,15 @@
 output:
   aws_s3:
     bucket: sensor-data-lake
-    path: readings/${!timestamp_unix()}.parquet
-    codec: parquet
-    compression: snappy
-    # Columnar storage for fast analytics
+    path: readings/\${!timestamp_unix()}.parquet
+    batching:
+      count: 1000
+      period: 10s
+      processors:
+        - parquet_encode:
+            default_compression: snappy
+            schema:
+              - { name: sensor_id, type: UTF8 }
+              - { name: temperature_celsius, type: DOUBLE }
+              - { name: humidity_percent, type: DOUBLE }
+              - { name: timestamp, type: UTF8 }

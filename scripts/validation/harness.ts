@@ -753,7 +753,8 @@ export function planRun(
  * recognisable pipeline piece.
  */
 export function wrapFragment(
-  document: YamlValue | undefined
+  document: YamlValue | undefined,
+  canonicalConfig?: YamlObject
 ): { source: string; description: string } | null {
   const generateInput = {
     generate: { count: 1, interval: '1s', mapping: 'root = {}' },
@@ -766,29 +767,35 @@ export function wrapFragment(
   if (Array.isArray(document)) {
     if (document.length === 0) return null;
 
+    const wrapped: YamlObject = canonicalConfig
+      ? structuredClone(canonicalConfig)
+      : { input: generateInput, output: dropOutput };
+
+    wrapped.pipeline = { processors: document };
+
     return {
-      description: 'processor list wrapped in generate/drop pipeline',
-      source: stringifyYaml({
-        input: generateInput,
-        pipeline: { processors: document },
-        output: dropOutput,
-      }),
+      description: canonicalConfig
+        ? 'processor list wrapped in its canonical pipeline context'
+        : 'processor list wrapped in generate/drop pipeline',
+      source: stringifyYaml(wrapped),
     };
   }
 
   if (!isYamlObject(document)) return null;
   const body = isYamlObject(document.config) ? document.config : document;
-  const wrapped: YamlObject = {};
+  const wrapped: YamlObject = canonicalConfig
+    ? structuredClone(canonicalConfig)
+    : {};
   const parts: string[] = [];
 
-  for (const key of ['cache_resources', 'rate_limit_resources']) {
+  for (const key of ['buffer', 'cache_resources', 'rate_limit_resources']) {
     if (body[key] !== undefined) wrapped[key] = body[key];
   }
 
   if (body.input !== undefined) {
     wrapped.input = body.input;
     parts.push('input');
-  } else {
+  } else if (!canonicalConfig) {
     wrapped.input = generateInput;
   }
 
@@ -803,7 +810,7 @@ export function wrapFragment(
   if (body.output !== undefined) {
     wrapped.output = body.output;
     parts.push('output');
-  } else {
+  } else if (!canonicalConfig) {
     wrapped.output = dropOutput;
   }
 
@@ -815,9 +822,8 @@ export function wrapFragment(
     return {
       description: `single component '${keys[0]}' wrapped as a processor`,
       source: stringifyYaml({
-        input: generateInput,
+        ...(canonicalConfig ?? { input: generateInput, output: dropOutput }),
         pipeline: { processors: [body] },
-        output: dropOutput,
       }),
     };
   }

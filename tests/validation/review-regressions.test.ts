@@ -462,7 +462,7 @@ test('the emitted Markdown distinguishes skipped and stubbed execution', () => {
     ],
   };
   const markdown = renderReport(reports, summarize(reports, options), 2);
-  assert.match(markdown, /PASS \(stubbed fixture harness\)/);
+  assert.match(markdown, /✅ pass \(stubbed fixture harness\)/);
   assert.match(
     markdown,
     /Replaced processors and resources were not exercised as committed/
@@ -803,6 +803,26 @@ for (const path of [
       );
   });
 }
+
+test('normalization rebases foundation expectations keyed by equals', () => {
+  const recent = rebaseNormalizationFixture(
+    readFileSync(
+      'tests/fixtures/pipeline-inputs/data-transformation.jsonl',
+      'utf8'
+    ),
+    contracts['examples/data-transformation/normalization-foundation.yaml'],
+    new Date('2035-02-04T20:00:00Z')
+  );
+  const expectation = recent.expectation;
+
+  assert.equal(expectation.kind, 'records');
+  if (expectation.kind !== 'records') return;
+
+  const first = expectation.outputs[0].records![0].equals!;
+
+  assert.equal(first.timestamp, '2035-02-03T12:00:00.000Z');
+  assert.equal(first.time, '2035-02-03 12:00:00');
+});
 
 test('normalization continues to reject genuinely stale production events', async () => {
   const pipeline = config(

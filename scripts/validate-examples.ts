@@ -6,10 +6,11 @@
  * Usage:
  *   npm run validate-examples                       # validate + run, write reports
  *   npm run validate-examples -- --date 2026-10-05  # override the report date (UTC default)
+ *   npm run validate-examples -- --edge-version latest --no-write
+ *   npm run validate-examples -- --no-run --no-write --files <paths...>
  *
- * Exit code is 1 when any complete pipeline fails validation or execution, or
- * when a file in the inventory is not valid YAML. Fragment validation failures
- * are reported but do not fail the run.
+ * Exit code is 1 when any complete pipeline fails validation or execution, a
+ * fragment fails validation, or a file in the inventory is not valid YAML.
  */
 
 import {
@@ -21,7 +22,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
@@ -82,18 +83,37 @@ interface Manifest {
 
 interface Options {
   date: string;
+  edgeVersion: string;
+  files: string[];
+  run: boolean;
+  write: boolean;
 }
 
 function parseArgs(argv: readonly string[]): Options {
   const options: Options = {
     date: new Date().toISOString().slice(0, 10),
+    edgeVersion: PINNED_EDGE_VERSION,
+    files: [],
+    run: true,
+    write: true,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
 
     if (arg === '--date') options.date = argv[++index] ?? options.date;
-    else if (arg === '--help' || arg === '-h') {
+    else if (arg === '--edge-version')
+      options.edgeVersion = argv[++index] ?? options.edgeVersion;
+    else if (arg === '--no-run') options.run = false;
+    else if (arg === '--no-write') options.write = false;
+    else if (arg === '--files') {
+      options.files = argv
+        .slice(index + 1)
+        .map((path) =>
+          relative(repositoryRoot, resolve(path)).replaceAll('\\', '/')
+        );
+      break;
+    } else if (arg === '--help' || arg === '-h') {
       process.stdout.write(
         readFileSync(fileURLToPath(import.meta.url), 'utf8')
           .split('*/')[0]
@@ -105,6 +125,14 @@ function parseArgs(argv: readonly string[]): Options {
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(options.date))
     throw new Error(`--date must be YYYY-MM-DD, got ${options.date}`);
+  if (
+    !/^(?:latest|v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$/.test(
+      options.edgeVersion
+    )
+  )
+    throw new Error(
+      `--edge-version must be latest or a semantic version, got ${options.edgeVersion}`
+    );
 
   return options;
 }
@@ -406,6 +434,7 @@ async function runPipeline(
 function validate(
   file: PipelineFile,
   edge: ReturnType<typeof resolveEdgeBinary>,
+  filesByPath: ReadonlyMap<string, PipelineFile>,
   validationEnv: Readonly<Record<string, string>> = {}
 ): ValidateResult {
   if (file.kind === 'invalid-yaml') {
@@ -417,7 +446,13 @@ function validate(
   }
 
   if (file.kind === 'fragment') {
-    const wrapped = wrapFragment(file.document);
+    let canonicalConfig: YamlObject | undefined;
+
+    if (file.canonicalPath) {
+      const canonical = filesByPath.get(file.canonicalPath);
+      canonicalConfig = pipelineConfigOf(canonical?.document) ?? undefined;
+    }
+    const wrapped = wrapFragment(file.document, canonicalConfig);
 
     if (!wrapped) {
       return {
@@ -430,15 +465,74 @@ function validate(
     return validateSource(edge, repositoryRoot, wrapped.source, validationEnv);
   }
 
+  if (file.surface === 'page' && file.source)
+    return validateSource(
+      edge,
+      repositoryRoot,
+      file.source,
+      validationEnv,
+      'file'
+    );
+
   return validateFile(edge, repositoryRoot, file.path, validationEnv);
 }
 
-function writeReports(
+async function verifyLivePages(
+  reports: readonly PipelineReport[]
+): Promise<void> {
+  const missing = reports
+    .filter((report) => !report.file.liveRoute)
+    .map((report) => report.file.path);
+
+  if (missing.length > 0) {
+    throw new Error(
+      `live page mapping missing for ${missing.length} pipeline files:\n${missing.join('\n')}`
+    );
+  }
+
+  const baseUrl =
+    process.env.VALIDATION_LIVE_BASE_URL ?? 'https://examples.expanso.io';
+  const routes = [
+    ...new Set(reports.map((report) => report.file.liveRoute as string)),
+  ].sort();
+  const failures: string[] = [];
+
+  await Promise.all(
+    routes.map(async (route) => {
+      const url = new URL(route, baseUrl);
+
+      try {
+        const response = await fetch(url, {
+          redirect: 'follow',
+          signal: AbortSignal.timeout(15_000),
+        });
+
+        if (response.status !== 200)
+          failures.push(`${url.toString()} returned HTTP ${response.status}`);
+        await response.body?.cancel();
+      } catch (error) {
+        failures.push(
+          `${url.toString()} failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    })
+  );
+
+  if (failures.length > 0)
+    throw new Error(
+      `live page verification failed:\n${failures.sort().join('\n')}`
+    );
+
+  log(`verified ${routes.length} live pipeline pages return HTTP 200`);
+}
+
+async function writeReports(
   reports: PipelineReport[],
   options: Options,
   edgeVersion: string,
   digest: string
-): void {
+): Promise<void> {
+  await verifyLivePages(reports);
   const summary = summarize(reports, {
     date: options.date,
     edgeVersion,
@@ -480,10 +574,10 @@ function writeReports(
   );
 }
 
-function stripDocument(
-  report: PipelineReport
-): Omit<PipelineReport, 'file'> & { file: Omit<PipelineFile, 'document'> } {
-  const { document: _document, ...file } = report.file;
+function stripDocument(report: PipelineReport): Omit<PipelineReport, 'file'> & {
+  file: Omit<PipelineFile, 'document' | 'source'>;
+} {
+  const { document: _document, source: _source, ...file } = report.file;
 
   const run = report.run
     ? {
@@ -498,6 +592,7 @@ function stripDocument(
     : undefined;
 
   void _document;
+  void _source;
 
   return { ...report, file, run };
 }
@@ -511,13 +606,28 @@ async function main(): Promise<void> {
   const edge = resolveEdgeBinary(repositoryRoot, {
     install: true,
     log,
+    version: options.edgeVersion,
   });
 
   log(`expanso-edge ${edge.version} (${edge.path})`);
 
-  const files = discoverPipelineFiles(repositoryRoot).filter(
-    (file) => file.kind !== 'manifest'
-  );
+  const inventory = discoverPipelineFiles(repositoryRoot);
+  const allFiles = inventory.filter((file) => file.kind !== 'manifest');
+  const selectedPaths = new Set(options.files);
+  const files =
+    selectedPaths.size === 0
+      ? allFiles
+      : allFiles.filter((file) => selectedPaths.has(file.path));
+
+  if (selectedPaths.size > 0) {
+    const found = new Set(inventory.map((file) => file.path));
+    const missing = [...selectedPaths].filter((path) => !found.has(path));
+
+    if (missing.length > 0)
+      throw new Error(
+        `staged pipeline files were not found in the validation inventory:\n${missing.join('\n')}`
+      );
+  }
 
   const digest = inventoryDigest(repositoryRoot, files);
 
@@ -528,19 +638,20 @@ async function main(): Promise<void> {
   const manifest = loadManifest();
   const validationEnvironment = manifest.environment ?? {};
   const reports: PipelineReport[] = [];
+  const filesByPath = new Map(allFiles.map((file) => [file.path, file]));
 
   for (const file of files) {
     const entry = resolveManifestEntry(manifest, file);
     reports.push({
       file,
-      validate: validate(file, edge, {
+      validate: validate(file, edge, filesByPath, {
         ...validationEnvironment,
         ...entry.validationEnv,
       }),
     });
   }
 
-  {
+  if (options.run) {
     const workRoot = join(repositoryRoot, '.bin');
     mkdirSync(workRoot, { recursive: true });
     const workDir = mkdtempSync(join(workRoot, 'examples-validation-'));
@@ -584,7 +695,7 @@ async function main(): Promise<void> {
     );
   }
 
-  writeReports(reports, options, edge.version, digest);
+  if (options.write) await writeReports(reports, options, edge.version, digest);
 
   const summary = summarize(reports, {
     date: options.date,
@@ -601,7 +712,8 @@ async function main(): Promise<void> {
     summary.complete.validateFail > 0 ||
     summary.complete.runFail > 0 ||
     summary.complete.runSkip > 0 ||
-    summary.complete.runNotAttempted > 0 ||
+    (options.run && summary.complete.runNotAttempted > 0) ||
+    summary.fragments.validateFail > 0 ||
     summary.invalidYaml > 0
   ) {
     process.exitCode = 1;

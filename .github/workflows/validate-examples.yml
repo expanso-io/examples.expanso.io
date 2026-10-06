@@ -3,42 +3,8 @@ name: Validate Example Pipelines
 on:
   push:
     branches: [main]
-    paths:
-      - 'examples/**/*.yaml'
-      - 'examples/**/*.yml'
-      - 'static/files/**/*.yaml'
-      - 'static/files/**/*.yml'
-      - 'static/pipelines/**/*.yaml'
-      - 'static/pipelines/**/*.yml'
-      - 'docs/**/pipeline.yaml'
-      - 'docs/**/pipeline.yml'
-      - 'tests/fixtures/pipeline-inputs/**'
-      - 'scripts/validate-examples.ts'
-      - 'scripts/validation/**'
-      - 'tests/validation/**'
-      - 'validation-reports/**'
-      - '.github/workflows/validate-examples.yml'
-      - 'package.json'
-      - 'package-lock.json'
   pull_request:
     branches: [main]
-    paths:
-      - 'examples/**/*.yaml'
-      - 'examples/**/*.yml'
-      - 'static/files/**/*.yaml'
-      - 'static/files/**/*.yml'
-      - 'static/pipelines/**/*.yaml'
-      - 'static/pipelines/**/*.yml'
-      - 'docs/**/pipeline.yaml'
-      - 'docs/**/pipeline.yml'
-      - 'tests/fixtures/pipeline-inputs/**'
-      - 'scripts/validate-examples.ts'
-      - 'scripts/validation/**'
-      - 'tests/validation/**'
-      - 'validation-reports/**'
-      - '.github/workflows/validate-examples.yml'
-      - 'package.json'
-      - 'package-lock.json'
   workflow_dispatch:
 
 permissions:
@@ -53,7 +19,7 @@ env:
 
 jobs:
   validate:
-    name: Validate and run complete pipelines
+    name: Validate Example Pipelines
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -61,19 +27,74 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Detect validation-related changes
+        id: scope
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Manual run: validating every published pipeline."
+            exit 0
+          fi
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags origin "$BASE_REF"
+            base=$(git merge-base HEAD "origin/$BASE_REF")
+          elif [ -n "$BEFORE_SHA" ] &&
+            [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ] &&
+            git cat-file -e "$BEFORE_SHA^{commit}"; then
+            base=$BEFORE_SHA
+          else
+            base=$(git rev-parse HEAD^)
+          fi
+
+          changed=$(git diff --name-only "$base" HEAD)
+          relevant=$(printf '%s\n' "$changed" | grep -E \
+            '^(examples/.*\.ya?ml|static/(files|pipelines)/.*\.ya?ml|docs/.*/pipeline\.ya?ml|tests/|playwright\.config\.ts$|scripts/validate-examples\.ts$|scripts/validate-pipeline-code-blocks\.ts$|scripts/quality/validate-browser-isolation\.ts$|scripts/validation/|validation-reports/|src/catalog/|src/components/PipelineBadge/|src/lib/pipelineCode\.ts$|src/theme/CodeBlock/|\.github/workflows/(validate-examples|nightly-edge-drift)\.yml$|package(-lock)?\.json$|\.husky/pre-commit$|CONTRIBUTING\.md$)' || true)
+
+          if [ -z "$relevant" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No example, pipeline, fixture, report, badge, or validation-script changes; validation is a fast no-op."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Validation-related changes:"
+            printf '%s\n' "$relevant"
+          fi
+
       - name: Set up Node.js
+        if: steps.scope.outputs.run == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
       - name: Install dependencies
+        if: steps.scope.outputs.run == 'true'
         run: npm ci
 
       - name: Preserve pre-sweep pipeline features
+        if: steps.scope.outputs.run == 'true'
         run: npm run test-feature-preservation
 
+      - name: Enforce Playwright browser isolation
+        if: steps.scope.outputs.run == 'true'
+        run: npm run quality:browser-isolation
+
+      - name: Verify published pipeline code-block classification
+        if: steps.scope.outputs.run == 'true'
+        run: npm run validate-pipeline-blocks
+
+      - name: Require linked conformance tables
+        if: steps.scope.outputs.run == 'true'
+        run: |
+          npm run reports:conformance:links
+          git diff --exit-code -- validation-reports/conformance
+
       - name: Validate and run examples with pinned Expanso Edge
+        if: steps.scope.outputs.run == 'true'
         env:
           EXPANSO_DISABLEANALYTICS: 'true'
         run: |
@@ -82,9 +103,11 @@ jobs:
           npm run validate-examples -- --date "$report_date"
 
       - name: Print Expanso Edge version
+        if: steps.scope.outputs.run == 'true'
         run: ./.bin/expanso-edge version
 
       - name: Require committed validation reports
+        if: steps.scope.outputs.run == 'true'
         run: |
           git diff --exit-code -- \
             validation-reports

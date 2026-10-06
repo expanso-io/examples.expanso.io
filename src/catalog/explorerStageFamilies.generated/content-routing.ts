@@ -227,9 +227,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "02-severity-based-routing.yaml",
     yamlCode:
-      'output:\n  switch:\n    cases:\n      # Critical alerts to PagerDuty\n      - check: this.severity == "CRITICAL"\n        output:\n          http_client:\n            url: https://events.pagerduty.com/v2/enqueue\n\n      # Warnings to Slack\n      - check: this.severity == "WARN"\n        output:\n          http_client:\n            url: https://hooks.slack.com/warning\n\n      # Default: Info to Elasticsearch\n      - output:\n          opensearch:\n            action: index\n            index: application-logs\n',
+      'output:\n  switch:\n    cases:\n      # Critical alerts to PagerDuty\n      - check: this.severity == "CRITICAL"\n        output:\n          http_client:\n            url: https://events.pagerduty.com/v2/enqueue\n\n      # Warnings to Slack\n      - check: this.severity == "WARN"\n        output:\n          http_client:\n            url: https://hooks.slack.com/warning\n\n      # Default: Info to Elasticsearch\n      - output:\n          opensearch:\n            action: index\n            urls: [https://search.example.com:9200]\n            index: application-logs\n            id: \'${! uuid_v4() }\'\n',
     configSha256:
-      "sha256:ac8b4fd33b649e2b82e04c943aaf1d9b2ebb9d795535e715285b1505d5bde110",
+      "sha256:5a94499a01c146bbbfd9eed09dca7be1022060e06647d2bd4b6453adf304d246",
   },
   {
     id: 3,
@@ -345,9 +345,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-geographic-routing.yaml",
     yamlCode:
-      'output:\n  switch:\n    cases:\n      # EU data to EU systems (GDPR)\n      - check: this.region == "eu-west"\n        output:\n          broker:\n            pattern: fan_out\n            outputs:\n              - kafka:\n                  addresses: [eu-kafka.example.com:9092]\n              - aws_s3:\n                  bucket: eu-data-archive\n                  region: eu-west-1\n\n      # US East to regional cluster\n      - check: this.region == "us-east"\n        output:\n          kafka:\n            addresses: [us-east-kafka.example.com:9092]\n',
+      'output:\n  switch:\n    cases:\n      # EU data to EU systems (GDPR)\n      - check: this.region == "eu-west"\n        output:\n          broker:\n            pattern: fan_out\n            outputs:\n              - kafka:\n                  addresses: [eu-kafka.example.com:9092]\n                  topic: eu-events\n              - aws_s3:\n                  bucket: eu-data-archive\n                  region: eu-west-1\n\n      # US East to regional cluster\n      - check: this.region == "us-east"\n        output:\n          kafka:\n            addresses: [us-east-kafka.example.com:9092]\n            topic: us-east-events\n',
     configSha256:
-      "sha256:047ae77d943eb2a2be31bd82068084af0f38f4c7262f2a2039c87401daebf249",
+      "sha256:dcd8bff1896c6abb6dace49e205a88d28d491184a26929081c149523223c3345",
   },
   {
     id: 4,
@@ -489,9 +489,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "04-event-type-routing.yaml",
     yamlCode:
-      'output:\n  switch:\n    cases:\n      # Auth events to security systems\n      - check: |\n          this.event_type == "user.login" ||\n          this.event_type == "user.logout"\n        output:\n          broker:\n            pattern: fan_out\n            outputs:\n              - http_client:\n                  url: https://security-api.com/auth\n              - aws_s3:\n                  bucket: security-audit-logs\n\n      # Payment events to fraud detection\n      - check: this.event_type.has_prefix("payment.")\n        output:\n          broker:\n            outputs:\n              - kafka:\n                  topic: payment-events\n                  idempotent_write: true\n              - http_client:\n                  url: https://fraud-detection-api.com\n\n      # Telemetry to local storage\n      - check: this.event_type.has_prefix("telemetry.")\n        output:\n          file:\n            path: /var/expanso/telemetry.jsonl\n',
+      'output:\n  switch:\n    cases:\n      # Auth events to security systems\n      - check: |\n          this.event_type == "user.login" ||\n          this.event_type == "user.logout"\n        output:\n          broker:\n            pattern: fan_out\n            outputs:\n              - http_client:\n                  url: https://security-api.com/auth\n              - aws_s3:\n                  bucket: security-audit-logs\n\n      # Payment events to fraud detection\n      - check: this.event_type.has_prefix("payment.")\n        output:\n          broker:\n            outputs:\n              - kafka:\n                  addresses: [payments-kafka.example.com:9092]\n                  topic: payment-events\n                  idempotent_write: true\n              - http_client:\n                  url: https://fraud-detection-api.com\n\n      # Telemetry to local storage\n      - check: this.event_type.has_prefix("telemetry.")\n        output:\n          file:\n            path: /var/expanso/telemetry.jsonl\n',
     configSha256:
-      "sha256:4e5d0dcef145f134127ef689d0c7dd38186a4ab078ba2d1cd6781abac722e111",
+      "sha256:c9c761de6cf58b0d38be97746c517cb53c97dde083ba2677f935425bd6b87550",
   },
   {
     id: 5,
@@ -620,9 +620,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "05-priority-queue-routing.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - mapping: |\n        root = this\n        root.priority = if this.exists("priority") {\n          this.priority\n        } else if this.severity == "CRITICAL" {\n          "critical"\n        } else if this.user_tier == "premium" {\n          "high"\n        } else {\n          "normal"\n        }\n\noutput:\n  switch:\n    cases:\n      # Critical: immediate delivery\n      - check: this.priority == "critical"\n        output:\n          kafka:\n            topic: critical-queue\n            batching:\n              count: 1\n              period: 0s\n\n      # High: fast delivery\n      - check: this.priority == "high"\n        output:\n          kafka:\n            topic: high-priority-queue\n            batching:\n              count: 10\n              period: 1s\n\n      # Low: efficient batching\n      - check: this.priority == "low"\n        output:\n          kafka:\n            topic: low-priority-queue\n            batching:\n              count: 1000\n              period: 1m\n',
+      'pipeline:\n  processors:\n    - mapping: |\n        root = this\n        root.priority = if this.exists("priority") {\n          this.priority\n        } else if this.severity == "CRITICAL" {\n          "critical"\n        } else if this.user_tier == "premium" {\n          "high"\n        } else {\n          "normal"\n        }\n\noutput:\n  switch:\n    cases:\n      # Critical: immediate delivery\n      - check: this.priority == "critical"\n        output:\n          kafka:\n            addresses: [priority-kafka.example.com:9092]\n            topic: critical-queue\n            batching:\n              count: 1\n              period: 0s\n\n      # High: fast delivery\n      - check: this.priority == "high"\n        output:\n          kafka:\n            addresses: [priority-kafka.example.com:9092]\n            topic: high-priority-queue\n            batching:\n              count: 10\n              period: 1s\n\n      # Low: efficient batching\n      - check: this.priority == "low"\n        output:\n          kafka:\n            addresses: [priority-kafka.example.com:9092]\n            topic: low-priority-queue\n            batching:\n              count: 1000\n              period: 1m\n',
     configSha256:
-      "sha256:bba39d15b4ec598055438355036ce02518676e2f667a8d1e03b3fecc2e812d1e",
+      "sha256:9b869e1e257d4a2949b9ac7dd5589b9b9e762a183166da7c8f649e5489ddaf95",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 
