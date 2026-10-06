@@ -60,45 +60,13 @@ The `branch` processor creates an isolated scope:
 
 ## Expected Output
 
-**Input:**
-
-```json
-{
-  "AMOUNT": 125.50,
-  "CURRENCY": "EUR",
-  ...
-}
-```
-
-**Output:**
-
-```json
-{
-  "AMOUNT": 125.50,
-  "CURRENCY": "EUR",
-  "original_amount": 125.50,
-  "original_currency": "EUR",
-  "amount_usd": 135.54,
-  ...
-}
-```
+Use the [Explorer checkpoints](../explorer) for the sample input and converted fields.
 
 ## Production Considerations
 
 ### Dynamic Rate Fetching
 
-For real-time rates, call an external API:
-
-```yaml
-- branch:
-    processors:
-      - http:
-          url: 'https://api.exchangerate.host/latest?base=${! this.CURRENCY }'
-          verb: GET
-      - mapping: |
-          root = this
-          root.amount_usd = this.AMOUNT * this.rates.USD
-```
+For real-time rates, adapt the branch in the [canonical reference](../complete-pipeline) to call a reviewed rate API. Preserve the original amount and currency before replacing the branch payload with the API response, and retain the result mapping that returns converted fields to the original message.
 
 ### Rate Caching
 
