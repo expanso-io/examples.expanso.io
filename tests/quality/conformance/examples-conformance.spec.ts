@@ -1,6 +1,9 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import routeLedger from '../../../content/routes/route-dispositions-v1.json';
+import { GENERATED_EXPLORER_STAGE_CONFIGS } from '../../../src/catalog/explorerStageConfigs.generated';
+import { getCatalogOverviewProjection } from '../../../src/catalog/overviewProjection';
 import { EXAMPLE_RECORDS } from '../../../src/catalog/registry';
 
 const published = EXAMPLE_RECORDS.filter(
@@ -72,7 +75,7 @@ async function expectOrdered(elements: Locator[]): Promise<void> {
 
 async function openActionMenu(explorer: Locator): Promise<Locator> {
   const menu = explorer.locator('details').filter({
-    has: explorer.getByText('Copy & download', { exact: true }),
+    hasText: 'Copy & download',
   });
 
   if (!(await menu.evaluate((node: HTMLDetailsElement) => node.open))) {
@@ -127,21 +130,25 @@ for (const record of published) {
     await expect(
       explanation.getByRole('navigation', { name: 'Example actions' })
     ).toBeVisible();
+    const projection = getCatalogOverviewProjection(record.id).header;
+    await expect(explanation).toContainText(projection.problem);
+    await expect(explanation).toContainText(projection.outcome);
     await expect(guide).toBeVisible();
+    await expect(guide).toContainText(/\S/);
     await expect(runDeploy).toBeVisible();
     await expect(runDeploy.getByRole('heading', { level: 2 })).toHaveText(
       'Run and deploy'
     );
     await expectOrdered([explanation, guide, explorer, runDeploy]);
 
+    const family = GENERATED_EXPLORER_STAGE_CONFIGS[record.id];
+    expect(family).toBeDefined();
     const stages = explorer.locator('button[aria-label^="Stage "]');
-    expect(await stages.count()).toBeGreaterThan(1);
-    await expect(explorer.locator('[aria-current="step"]')).toHaveCount(1);
-    await expect(explorer.locator('[id$="-input-panel"]')).toContainText(/\S/);
-    await expect(explorer.locator('[id$="-output-panel"]')).toContainText(/\S/);
+    await expect(stages).toHaveCount(family.stages.length);
+    expect(family.stages.length).toBeGreaterThan(1);
     await expect(
-      explorer.locator('[id$="-yaml-panel"] pre code')
-    ).toContainText(/\S/);
+      explorer.getByRole('button', { name: 'Previous stage', exact: true })
+    ).toBeDisabled();
 
     const targetScroll = await explorer.evaluate((element) =>
       Math.max(
@@ -149,27 +156,71 @@ for (const record of published) {
         Math.round(element.getBoundingClientRect().top + scrollY - 24)
       )
     );
-
     expect(targetScroll).toBeGreaterThan(0);
     await page.evaluate((y) => scrollTo(0, y), targetScroll);
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(targetScroll);
 
-    const initialStage = await explorer
-      .locator('[aria-current="step"]')
-      .getAttribute('aria-label');
-
-    await page.evaluate(() => {
-      if (document.activeElement instanceof HTMLElement) {
-        document.activeElement.blur();
+    for (const [index, stage] of family.stages.entries()) {
+      const current = explorer.locator('[aria-current="step"]');
+      await expect(current).toHaveCount(1);
+      await expect(stages.nth(index)).toHaveAttribute('aria-current', 'step');
+      await expect(explorer.locator('[id$="-stage-panel"] h3')).toHaveText(
+        stage.title.replace(/^step\s+\d+\s*:\s*/i, '')
+      );
+      for (const [panel, lines] of [
+        ['input', stage.inputLines],
+        ['output', stage.outputLines],
+      ] as const) {
+        expect(lines.length).toBeGreaterThan(0);
+        const renderedLines = explorer.locator(
+          '[id$="-' + panel + '-panel"] pre code > span > span:last-child'
+        );
+        await expect
+          .poll(() => renderedLines.allTextContents())
+          .toEqual(lines.map(({ content }) => content));
       }
-    });
-    await page.keyboard.press('ArrowRight');
-    await expect(explorer.locator('[aria-current="step"]')).not.toHaveAttribute(
-      'aria-label',
-      initialStage ?? ''
+      await expect
+        .poll(() =>
+          explorer.locator('[id$="-yaml-panel"] pre code').textContent()
+        )
+        .toBe(
+          index === family.stages.length - 1 ? family.fullYaml : stage.yamlCode
+        );
+      if (index < family.stages.length - 1) {
+        await current.evaluate((node: HTMLElement) =>
+          node.focus({ preventScroll: true })
+        );
+        await page.keyboard.press('ArrowRight');
+        await expect(stages.nth(index + 1)).toHaveAttribute(
+          'aria-current',
+          'step'
+        );
+        await page.waitForTimeout(250);
+        expect(await page.evaluate(() => scrollY)).toBe(targetScroll);
+      }
+    }
+    await expect(
+      explorer.getByRole('button', { name: 'Next stage', exact: true })
+    ).toBeDisabled();
+    await explorer
+      .getByRole('button', { name: 'Previous stage', exact: true })
+      .click();
+    await expect(stages.nth(family.stages.length - 2)).toHaveAttribute(
+      'aria-current',
+      'step'
     );
-    await page.waitForTimeout(250);
-    expect(await page.evaluate(() => scrollY)).toBe(targetScroll);
+    await explorer
+      .getByRole('button', { name: 'Next stage', exact: true })
+      .click();
+    await expect(stages.last()).toHaveAttribute('aria-current', 'step');
+    await stages.first().click();
+    await expect(stages.first()).toHaveAttribute('aria-current', 'step');
+    await stages
+      .first()
+      .evaluate((node: HTMLElement) => node.focus({ preventScroll: true }));
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowLeft');
+    await expect(stages.first()).toHaveAttribute('aria-current', 'step');
 
     for (const label of [/Copy input/i, /Copy output/i, /^Copy YAML$/i]) {
       const button = explorer.getByRole('button', { name: label }).first();
@@ -185,10 +236,11 @@ for (const record of published) {
       const menu = await openActionMenu(explorer);
       const button = menu.getByRole('button', { name: label });
 
-      if ((await button.count()) === 0) continue;
+      await expect(button).toBeVisible();
       await button.click();
       const feedback = menu.locator('xpath=..').locator('[data-copy-toast]');
       await expect(feedback).toBeVisible();
+      await expect(feedback).toHaveAttribute('data-kind', 'success');
       await expect(feedback).toContainText(/copied/i);
     }
 
@@ -196,13 +248,18 @@ for (const record of published) {
       const menu = await openActionMenu(explorer);
       const button = menu.getByRole('button', { name: label });
 
-      if ((await button.count()) === 0) continue;
+      await expect(button).toBeVisible();
 
       const [download] = await Promise.all([
         page.waitForEvent('download'),
         button.click(),
       ]);
 
+      expect(download.suggestedFilename()).toBe(
+        label === 'Download full YAML'
+          ? family.fullYamlFilename
+          : family.stages[0].yamlFilename
+      );
       await download.cancel();
 
       const feedback = menu
@@ -221,10 +278,23 @@ for (const record of published) {
         },
       });
     });
-    const failedCopy = explorer.getByRole('button', { name: /Copy input/i });
-    await failedCopy.click();
-    await expectDirectCopyFeedback(failedCopy, 'error');
-
+    for (const label of [/Copy input/i, /Copy output/i, /^Copy YAML$/i]) {
+      const button = explorer.getByRole('button', { name: label }).first();
+      await button.click();
+      await expectDirectCopyFeedback(button, 'error');
+    }
+    for (const label of [
+      'Copy share link',
+      'Copy stage YAML',
+      'Copy full YAML',
+    ]) {
+      const menu = await openActionMenu(explorer);
+      await menu.getByRole('button', { name: label, exact: true }).click();
+      const feedback = menu.locator('xpath=..').locator('[data-copy-toast]');
+      await expect(feedback).toBeVisible();
+      await expect(feedback).toHaveAttribute('data-kind', 'error');
+      await expect(feedback).toContainText(/could not|failed|unable/i);
+    }
     await page.evaluate(() => {
       Object.defineProperty(URL, 'createObjectURL', {
         configurable: true,
@@ -233,15 +303,116 @@ for (const record of published) {
         },
       });
     });
-    const menu = await openActionMenu(explorer);
-    await menu.getByRole('button', { name: 'Download stage YAML' }).click();
+    for (const label of ['Download stage YAML', 'Download full YAML']) {
+      const menu = await openActionMenu(explorer);
+      await menu.getByRole('button', { name: label, exact: true }).click();
+      const feedback = menu
+        .locator('xpath=..')
+        .locator('[data-download-feedback]');
+      await expect(feedback).toBeVisible();
+      await expect(feedback).toHaveAttribute('data-kind', 'error');
+    }
+  });
 
-    const failedDownload = menu
-      .locator('xpath=..')
-      .locator('[data-download-feedback]');
+  test(`${record.id}: preserved actions, sidebar routes, and related examples`, async ({
+    page,
+  }) => {
+    await page.goto(record.routes.overview, { waitUntil: 'networkidle' });
+    const overviewURL = page.url();
+    const actionLinks = page.locator(
+      '[aria-label="Example actions"] a, [data-example-template-section="run-deploy"] a'
+    );
+    expect(await actionLinks.count()).toBeGreaterThanOrEqual(3);
+    const destinations = await actionLinks.evaluateAll((links) =>
+      links.map((link) => (link as HTMLAnchorElement).href)
+    );
+    for (const destination of destinations) {
+      await page.goto(overviewURL, { waitUntil: 'networkidle' });
+      const index = destinations.indexOf(destination);
+      await actionLinks.nth(index).click();
+      await expect(page).toHaveURL(destination);
+      await expect(page.locator('main')).toBeVisible();
+      const hash = new URL(destination).hash;
+      if (hash)
+        await expect(
+          page.locator(
+            '[id=' + JSON.stringify(decodeURIComponent(hash.slice(1))) + ']'
+          )
+        ).toBeVisible();
+      await expect(page.locator('main')).not.toContainText('Page Not Found');
+    }
 
-    await expect(failedDownload).toBeVisible();
-    await expect(failedDownload).toHaveAttribute('data-kind', 'error');
+    const routes = routeLedger.routes.filter(
+      (route) =>
+        route.familyId === record.id &&
+        route.publicationState === 'published' &&
+        route.sourceState === 'present'
+    );
+    expect(routes.length).toBeGreaterThan(1);
+    const setupRoute = record.routes.overview.replace(/\/$/, '') + '/setup';
+    expect(
+      routes.some(({ route }) => route.replace(/\/$/, '') === setupRoute)
+    ).toBe(true);
+    for (const route of routes) {
+      await page.goto(overviewURL, { waitUntil: 'networkidle' });
+      const sidebar = page.locator('.theme-doc-sidebar-menu');
+      const family = sidebar
+        .locator('li.theme-doc-sidebar-item-category')
+        .filter({
+          has: page.getByRole('link', { name: record.title, exact: true }),
+        })
+        .last();
+      await expect(family).toBeVisible();
+      const toggle = family.locator(':scope > div').getByRole('button');
+      if ((await toggle.getAttribute('aria-expanded')) !== 'true')
+        await toggle.click();
+      const destination = new URL(route.route, overviewURL);
+      const child = family.locator('a').filter({ hasText: /./ });
+      const hrefs = await child.evaluateAll((links) =>
+        links.map((link) =>
+          (link as HTMLAnchorElement).pathname.replace(/\/$/, '')
+        )
+      );
+      const index = hrefs.indexOf(destination.pathname.replace(/\/$/, ''));
+      expect(
+        index,
+        route.route + ' is reachable in its unfolded family'
+      ).toBeGreaterThanOrEqual(0);
+      await child.nth(index).click();
+      await expect
+        .poll(() => new URL(page.url()).pathname.replace(/\/$/, ''))
+        .toBe(destination.pathname.replace(/\/$/, ''));
+      await expect(page.locator('main')).toBeVisible();
+      await expect(page.locator('main')).not.toContainText('Page Not Found');
+    }
+
+    await page.goto(overviewURL, { waitUntil: 'networkidle' });
+    const related = page.getByRole('heading', {
+      name: 'Related examples',
+      exact: true,
+    });
+    await expect(related).toBeVisible();
+    const relatedLinks = related
+      .locator('xpath=following-sibling::*[1]')
+      .getByRole('link');
+    expect(await relatedLinks.count()).toBeGreaterThan(0);
+    const relatedURL = await relatedLinks
+      .first()
+      .evaluate((link: HTMLAnchorElement) => link.href);
+    expect(
+      published.some(
+        (example) =>
+          new URL(example.routes.overview, overviewURL).pathname.replace(
+            /\/$/,
+            ''
+          ) === new URL(relatedURL).pathname.replace(/\/$/, '')
+      )
+    ).toBe(true);
+    await relatedLinks.first().click();
+    await expect(page).toHaveURL(relatedURL);
+    await expect(
+      page.locator('[data-example-template-section="explanation"]')
+    ).toBeVisible();
   });
 
   test(`${record.id}: WCAG AA contrast and 320px reflow`, async ({ page }) => {

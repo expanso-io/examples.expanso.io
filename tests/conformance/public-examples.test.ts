@@ -88,7 +88,7 @@ describe('public example conformance', () => {
     }
   });
 
-  it('requires explanation, explorer, setup, and complete pipeline sources', () => {
+  it('requires overview, explorer, setup, and complete pipeline sources', () => {
     for (const record of published) {
       const overviewPath = sourcePathForRoute(record.routes.overview);
       const exploreRoute = record.routes.explore;
@@ -96,7 +96,6 @@ describe('public example conformance', () => {
       const explorerPath = sourcePathForRoute(exploreRoute);
       const setupPath = setupSourcePath(record.routes.overview);
       assert.ok(existsSync(overviewPath), `${record.id} overview source`);
-      assert.match(readFileSync(overviewPath, 'utf8'), /<ExampleHeader\b/);
       assert.ok(existsSync(explorerPath), `${record.id} Explorer source`);
       assert.ok(existsSync(setupPath), `${record.id} setup source`);
       const completePipelinePath = record.completePipelinePath;
@@ -121,7 +120,25 @@ describe('public example conformance', () => {
     assert.match(audit.historyBaseline, /^[0-9a-f]{40}$/);
     assert.match(audit.redesignCommit, /^[0-9a-f]{40}$/);
     assert.equal(audit.features.length, 14);
-    assert.equal(new Set(audit.features.map(({ id }) => id)).size, 14);
+    assert.deepEqual(
+      audit.features.map(({ id }) => id).sort(),
+      [
+        'explanation',
+        'page-actions',
+        'inline-explorer',
+        'explorer-guide',
+        'stage-navigation',
+        'stage-input-output',
+        'stage-configuration',
+        'run-deploy-guidance',
+        'family-sidebar',
+        'setup-guides',
+        'step-guides',
+        'complete-reference',
+        'troubleshooting',
+        'related-examples',
+      ].sort()
+    );
 
     for (const feature of audit.features) {
       assert.ok(feature.feature.trim(), `${feature.id} feature`);
