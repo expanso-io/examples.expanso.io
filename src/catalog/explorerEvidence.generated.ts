@@ -648,7 +648,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
     authoredStageModulePath:
       "docs/enterprise-migration/nightly-backup-full.stages.ts",
     authoredStageModuleSha256:
-      "sha256:34d602a1484b09cabc7f6ab9102612ac35f8404ada7d62fd740bf940f37fe5f3",
+      "sha256:e2d3436a11daad6503af8ae56dd3020e3997605c71e1293c7485cdf607581ea1",
     inputCheckpointPath:
       "examples/explorer-stages/nightly-backup/01-extract-multiple-tables.yaml",
     inputCheckpointSha256:

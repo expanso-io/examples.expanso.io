@@ -12255,24 +12255,15 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         outputLines: [
           {
-            content: "# Routed object paths from the sample run",
+            content: "# Configured destination for the displayed row",
             indent: 0,
             type: "highlighted",
           },
           {
-            content: "• backups/inventory/2026-10-05/inventory-full.parquet",
+            content: "• backups/orders/2026-10-05/orders-<unix>.parquet",
             indent: 0,
+            type: "highlighted",
           },
-          {
-            content:
-              "• backups/order_items/2026-10-05/items-1791246916.parquet",
-            indent: 0,
-          },
-          {
-            content: "• backups/orders/2026-10-05/orders-1791246916.parquet",
-            indent: 0,
-          },
-          { content: "", indent: 0 },
           {
             content:
               "# Storage class: NEARLINE, Parquet with SNAPPY compression",
@@ -12280,8 +12271,7 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
             type: "highlighted",
           },
           {
-            content:
-              "# Batching: 10000 rows or 60s; inventory 50000 rows or 120s",
+            content: "# Batching: 10000 rows or 60s",
             indent: 0,
             type: "highlighted",
           },

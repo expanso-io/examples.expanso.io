@@ -102,6 +102,33 @@ async function save(path, name, stages) {
   );
 }
 
+function backupRouteLines(fragment, row) {
+  const cases = fragment.output.switch.cases;
+  const [selected] = execute(
+    [
+      {
+        mapping: `root = match {\n${cases.map((entry, index) => `${entry.check ?? '_'} => ${index}`).join('\n')}\n}`,
+      },
+    ],
+    [row]
+  );
+  const destination = cases[selected].output.gcp_cloud_storage;
+  const path = destination.path
+    .replace(
+      '${!this._backup_metadata.backup_date}',
+      row._backup_metadata.backup_date
+    )
+    .replace('${!this._table}', row._table)
+    .replace('${!timestamp_unix()}', '<unix>');
+  return [
+    '# Configured destination for the displayed row',
+    `• ${path}`,
+    `# Storage class: ${destination.storage_class}, Parquet with ${destination.parquet_encoding.compression} compression`,
+    `# Batching: ${destination.batching.count} rows or ${destination.batching.period}`,
+    '# Delivery behavior: not assessed',
+  ].map((content) => ({ content, indent: 0, type: 'highlighted' }));
+}
+
 try {
   if (!write) {
     for (const path of [
@@ -159,7 +186,17 @@ try {
           'utf8'
         )
       );
-      if (!fragment.pipeline) break;
+      if (!fragment.pipeline) {
+        const output = backupRouteLines(fragment, current);
+        if (write) stage.outputLines = output;
+        else
+          assert.deepEqual(
+            stage.outputLines,
+            output,
+            `${id}: selected storage destination`
+          );
+        break;
+      }
       const [actual] = execute(fragment.pipeline.processors, [current]);
       if (write) {
         stage.inputLines = lines(current, stage.inputLines, actual, 'removed');
