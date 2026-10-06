@@ -209,12 +209,12 @@ function pipelineSummary(): Record<string, unknown> {
         completePipelinePath: 'examples/data-security/remove-pii-complete.yaml',
         expectedOutputPath:
           'examples/data-security/remove-pii/expected-output.jsonl',
-      executor: 'expanso-edge v2.1.22',
+        executor: 'expanso-edge v2.1.22',
         executed: true,
         assertedOutput: true,
         status: 'PASS',
-      reason:
-        'Pinned expanso-edge v2.1.22 validated and executed the canonical pipeline and produced the exact expected JSONL bytes.',
+        reason:
+          'Pinned expanso-edge v2.1.22 validated and executed the canonical pipeline and produced the exact expected JSONL bytes.',
       },
     ],
   };

@@ -74,11 +74,14 @@ for (const path of failedContracts) {
     const expectation = failedExpectations[path];
     assert.ok(expectation, path);
     const candidate = `tests/fixtures/pipeline-inputs/${file.family}.jsonl`;
-    const fixture = entry.fixture ?? (existsSync(candidate) ? candidate : undefined);
+    const fixture =
+      entry.fixture ?? (existsSync(candidate) ? candidate : undefined);
     const outputs = await capture(config(path), fixture, {
       inputMetadata: entry.inputMetadata,
       processors: entry.processorStandIns,
-      outputFormats: expectation.outputs.map((output) => output.format ?? 'jsonl'),
+      outputFormats: expectation.outputs.map(
+        (output) => output.format ?? 'jsonl'
+      ),
     });
     verifyOutputs(expectation, [], outputs, manifest.environment);
   });

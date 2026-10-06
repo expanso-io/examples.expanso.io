@@ -15,7 +15,21 @@ import type {
 } from './types';
 
 function escapeCell(text: string): string {
-  return text.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+  return text.replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim();
+}
+
+function renderTable(headers: string[], rows: string[][]): string[] {
+  const widths = headers.map((header, column) =>
+    Math.max(3, header.length, ...rows.map((row) => row[column].length))
+  );
+  const renderRow = (row: string[]) =>
+    `| ${row.map((cell, column) => cell.padEnd(widths[column])).join(' | ')} |`;
+
+  return [
+    renderRow(headers),
+    renderRow(widths.map((width) => '-'.repeat(width))),
+    ...rows.map(renderRow),
+  ];
 }
 
 function sourceLink(path: string, depth: number): string {
@@ -199,16 +213,20 @@ export function renderReport(
   for (const category of categories) {
     lines.push(`### ${category}`);
     lines.push('');
-    lines.push('| Pipeline | Source | Validate | Run | expanso-edge |');
-    lines.push('|---|---|---|---|---|');
-
-    for (const report of complete.filter(
-      (entry) => entry.file.category === category
-    )) {
-      lines.push(
-        `| ${escapeCell(report.file.family)} | ${sourceLink(report.file.path, depth)} | ${validateCell(report.validate)} | ${runCell(report.run)} | ${summary.edgeVersion} |`
-      );
-    }
+    lines.push(
+      ...renderTable(
+        ['Pipeline', 'Source', 'Validate', 'Run', 'expanso-edge'],
+        complete
+          .filter((entry) => entry.file.category === category)
+          .map((report) => [
+            escapeCell(report.file.family),
+            sourceLink(report.file.path, depth),
+            validateCell(report.validate),
+            runCell(report.run),
+            summary.edgeVersion,
+          ])
+      )
+    );
 
     lines.push('');
   }
@@ -284,10 +302,7 @@ export function renderReport(
     'These files are tutorial steps or component snippets, not complete pipelines. They are validated but never run.'
   );
   lines.push('');
-  lines.push('| File | Kind | Validate | Detail |');
-  lines.push('|---|---|---|---|');
-
-  for (const report of fragments) {
+  const fragmentRows = fragments.map((report) => {
     const detail =
       report.file.kind === 'invalid-yaml'
         ? (report.file.parseError ?? 'YAML parse error')
@@ -295,10 +310,18 @@ export function renderReport(
           ? (report.validate.errors[0]?.message ?? 'validation failed')
           : '';
 
-    lines.push(
-      `| ${sourceLink(report.file.path, depth)} | ${report.file.kind} | ${report.file.kind === 'invalid-yaml' ? 'FAIL' : validateCell(report.validate)} | ${escapeCell(detail)} |`
-    );
-  }
+    return [
+      sourceLink(report.file.path, depth),
+      report.file.kind,
+      report.file.kind === 'invalid-yaml'
+        ? 'FAIL'
+        : validateCell(report.validate),
+      escapeCell(detail),
+    ];
+  });
+  lines.push(
+    ...renderTable(['File', 'Kind', 'Validate', 'Detail'], fragmentRows)
+  );
 
   return `${lines.join('\n')}\n`;
 }
@@ -322,12 +345,15 @@ export function renderIndex(
     lines.push('');
   }
 
-  lines.push('| Date | Report |');
-  lines.push('|---|---|');
-
-  for (const date of [...dates].sort().reverse()) {
-    lines.push(`| ${date} | [${date}/README.md](${date}/README.md) |`);
-  }
+  lines.push(
+    ...renderTable(
+      ['Date', 'Report'],
+      [...dates]
+        .sort()
+        .reverse()
+        .map((date) => [date, `[${date}/README.md](${date}/README.md)`])
+    )
+  );
 
   return `${lines.join('\n')}\n`;
 }
