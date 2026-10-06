@@ -67,7 +67,7 @@ pipeline:
     # --- Stage 3: Shape the output ---
     # Ensure consistent structure for downstream consumers
     - mapping: |
-        root = this
+        root = content().parse_json()
         root.pipeline_version = "1.0.0"
         root.processed_at = now()
 
@@ -88,6 +88,5 @@ output:
             Content-Type: application/json
           max_in_flight: 1
           retries: 3
-          backoff:
-            initial_interval: 1s
-            max_interval: 10s
+          retry_period: 1s
+          max_retry_backoff: 10s

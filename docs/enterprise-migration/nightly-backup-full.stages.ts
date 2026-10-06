@@ -730,7 +730,7 @@ export const nightlyBackupStages: Stage[] = [
         type: 'normal',
       },
       {
-        content: '"_checksum": "de4bd45a0d46a3ac1a2b1a702ad93380",',
+        content: '"_checksum": "dc99f978e74b1d6fe17e5c52fe9738e1",',
         indent: 1,
         key: '_checksum',
         valueType: 'string',
@@ -872,7 +872,7 @@ export const nightlyBackupStages: Stage[] = [
         type: 'normal',
       },
       {
-        content: '"_checksum": "de4bd45a0d46a3ac1a2b1a702ad93380",',
+        content: '"_checksum": "dc99f978e74b1d6fe17e5c52fe9738e1",',
         indent: 1,
         key: '_checksum',
         valueType: 'string',
@@ -946,12 +946,12 @@ export const nightlyBackupStages: Stage[] = [
         type: 'highlighted',
       },
       {
-        content: '• backups/orders/2026-10-05/orders-<unix>.parquet',
+        content: '• backups/orders/2026-10-05/orders-<uuid>.parquet',
         indent: 0,
         type: 'highlighted',
       },
       {
-        content: '# Storage class: NEARLINE, Parquet with SNAPPY compression',
+        content: '# Parquet with snappy compression',
         indent: 0,
         type: 'highlighted',
       },

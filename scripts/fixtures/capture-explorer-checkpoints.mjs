@@ -114,16 +114,13 @@ function backupRouteLines(fragment, row) {
   );
   const destination = cases[selected].output.gcp_cloud_storage;
   const path = destination.path
-    .replace(
-      '${!this._backup_metadata.backup_date}',
-      row._backup_metadata.backup_date
-    )
+    .replace('${! meta("backup_date") }', row._backup_metadata.backup_date)
     .replace('${!this._table}', row._table)
-    .replace('${!timestamp_unix()}', '<unix>');
+    .replace('${!uuid_v4()}', '<uuid>');
   return [
     '# Configured destination for the displayed row',
     `• ${path}`,
-    `# Storage class: ${destination.storage_class}, Parquet with ${destination.parquet_encoding.compression} compression`,
+    `# Parquet with ${destination.batching.processors[1].parquet_encode.default_compression} compression`,
     `# Batching: ${destination.batching.count} rows or ${destination.batching.period}`,
     '# Delivery behavior: not assessed',
   ].map((content) => ({ content, indent: 0, type: 'highlighted' }));
@@ -137,7 +134,7 @@ try {
       'examples/explorer-stages/db2-to-bigquery/02-normalize-currency.yaml',
     ]) {
       const config = parse(readFileSync(path, 'utf8'));
-      const currency = config.pipeline.processors.find(
+      const currency = (config.config ?? config).pipeline.processors.find(
         (processor) => processor.branch
       );
       const rows = [
@@ -162,7 +159,7 @@ try {
     ]) {
       const config = parse(readFileSync(path, 'utf8'));
       assert.equal(config.name, 'eu-cross-border-compliance');
-      const [row] = execute([config.pipeline.processors[0]], [{}]);
+      const [row] = execute([config.config.pipeline.processors[0]], [{}]);
       assert.equal(row._data_origin.pipeline, config.name);
     }
   }
