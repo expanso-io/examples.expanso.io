@@ -325,6 +325,29 @@ export default function ExplorerV2({
     }
   }
 
+  useEffect(() => {
+    if (explorerIssue) return;
+    function handleDocumentKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      if (event.defaultPrevented) return;
+      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey)
+        return;
+      const target = event.target;
+      if (target instanceof HTMLElement) {
+        if (target.isContentEditable) return;
+        if (target.closest('input, textarea, select, [contenteditable]'))
+          return;
+        if (stageRailRef.current?.contains(target)) return;
+      }
+      const nextIndex = currentIndex + (event.key === 'ArrowRight' ? 1 : -1);
+      if (nextIndex < 0 || nextIndex >= stages.length) return;
+      event.preventDefault();
+      selectStage(nextIndex, 'keyboard');
+    }
+    document.addEventListener('keydown', handleDocumentKeyDown);
+    return () => document.removeEventListener('keydown', handleDocumentKeyDown);
+  });
+
   function handleStageKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     let nextIndex = currentIndex;
     if (event.key === 'ArrowLeft') nextIndex = Math.max(0, currentIndex - 1);
@@ -368,6 +391,9 @@ export default function ExplorerV2({
       showCopyFeedback(copyResultFeedback(feedbackKey, label, 'success'));
       if (feedbackKey.startsWith('menu-') && actionMenuRef.current) {
         actionMenuRef.current.open = false;
+        actionMenuRef.current
+          .querySelector('summary')
+          ?.focus({ preventScroll: true });
       }
       recordAnalyticsEvent(
         scope === 'share'

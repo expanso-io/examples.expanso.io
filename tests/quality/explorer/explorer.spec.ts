@@ -94,31 +94,48 @@ test('long stage labels stay inside their own controls', async ({ page }) => {
   }
 });
 
-test('stage navigation remains scoped to its controls', async ({ page }) => {
+test('arrow keys change the stage from anywhere on the page except text fields', async ({
+  page,
+}) => {
   const explorer = page.locator('[data-explorer-version="2"]');
-  const compact = await usesCompactStageSelector(explorer);
-  const current = compact
-    ? stageSelector(explorer)
-    : explorer.locator('[aria-current="step"]');
-  const initialValue = compact
-    ? await current.inputValue()
-    : await current.getAttribute('aria-label');
+  const target = await explorer.evaluate((element) => {
+    const top = element.getBoundingClientRect().top + window.scrollY;
+    return Math.max(0, Math.round(top - 24));
+  });
+  expect(target).toBeGreaterThan(0);
+  await page.evaluate((y) => window.scrollTo(0, y), target);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(target);
 
-  const outsideLink = page.locator('nav a').first();
-  await outsideLink.focus();
+  await page.evaluate(() => (document.activeElement as HTMLElement).blur());
+  expect(await page.evaluate(() => document.activeElement?.tagName)).toBe(
+    'BODY'
+  );
   await page.keyboard.press('ArrowRight');
-  if (compact) await expect(current).toHaveValue(initialValue ?? '');
-  else await expect(current).toHaveAttribute('aria-label', initialValue ?? '');
-
-  if (compact) {
-    // The browser owns the native popup; exercise our change handler directly.
-    await current.selectOption({ index: 1 });
-  } else {
-    await current.focus();
-    await page.keyboard.press('ArrowRight');
-  }
-  await expectCurrentStage(explorer, 1);
   await expect(page).toHaveURL(/stage=delete-payment-data/);
+  await expectCurrentStage(explorer, 1);
+  await page.keyboard.press('ArrowRight');
+  await expect(page).toHaveURL(/stage=hash-ip-address/);
+  await expectCurrentStage(explorer, 2);
+  await page.keyboard.press('ArrowLeft');
+  await expect(page).toHaveURL(/stage=delete-payment-data/);
+  await expectCurrentStage(explorer, 1);
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => window.scrollY)).toBe(target);
+
+  await page.evaluate(() => {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.id = 'arrow-key-probe';
+    document.body.append(input);
+    input.focus({ preventScroll: true });
+  });
+  await page.keyboard.press('ArrowRight');
+  await page.waitForTimeout(250);
+  await expect(page).toHaveURL(/stage=delete-payment-data/);
+  await expectCurrentStage(explorer, 1);
+  await page.evaluate(() =>
+    document.getElementById('arrow-key-probe')?.remove()
+  );
 });
 
 test('stage history and the change view are shareable and restorable', async ({
@@ -345,6 +362,9 @@ test('copy actions confirm where the reader clicked and close the menu', async (
   await expect
     .poll(() => menu.evaluate((d: HTMLDetailsElement) => d.open))
     .toBe(false);
+  await expect
+    .poll(() => summary.evaluate((el) => document.activeElement === el))
+    .toBe(true);
   await expect(toast).toHaveText('Full YAML copied.');
   const toastBox = await toast.boundingBox();
   const summaryBox = await summary.boundingBox();

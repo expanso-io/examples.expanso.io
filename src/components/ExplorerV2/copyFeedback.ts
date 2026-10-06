@@ -39,11 +39,11 @@ export function feedbackFor(
   return feedback !== null && feedback.key === key ? feedback : null;
 }
 
-export function copyButtonLabel(
-  idleLabel: string,
+export function copyButtonLabel<Idle>(
+  idleLabel: Idle,
   feedback: CopyFeedback | null,
   key: string
-): string {
+): Idle | 'Copied' | 'Copy failed' {
   const active = feedbackFor(feedback, key);
   if (active === null) return idleLabel;
   return active.kind === 'success' ? 'Copied' : 'Copy failed';

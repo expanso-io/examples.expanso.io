@@ -1,7 +1,11 @@
 import type { ReactNode } from 'react';
 import clsx from 'clsx';
 
-import { feedbackFor, type CopyFeedback } from './copyFeedback';
+import {
+  copyButtonLabel,
+  feedbackFor,
+  type CopyFeedback,
+} from './copyFeedback';
 import styles from './copyFeedback.module.css';
 
 interface CopyToastProps {
@@ -72,6 +76,7 @@ export default function CopyActionButton({
   'aria-label': ariaLabel,
 }: CopyActionButtonProps) {
   const active = feedbackFor(feedback, feedbackKey);
+  const label = copyButtonLabel(children, feedback, feedbackKey);
   const showToast =
     active !== null && (toast === 'always' || active.kind === 'error');
 
@@ -87,12 +92,10 @@ export default function CopyActionButton({
         {active?.kind === 'success' ? (
           <>
             <CheckIcon />
-            <span>Copied</span>
+            <span>{label}</span>
           </>
-        ) : active?.kind === 'error' ? (
-          'Copy failed'
         ) : (
-          children
+          label
         )}
       </button>
       {showToast ? (
