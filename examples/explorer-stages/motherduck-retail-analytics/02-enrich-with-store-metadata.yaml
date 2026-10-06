@@ -1,0 +1,41 @@
+pipeline:
+  processors:
+    # 1. Enrich with store metadata
+    - mapping: |
+        let stores = {
+          "1":  {"region": "NW", "format": "flagship",  "city": "Seattle",      "state": "WA", "sqft": 45000},
+          "2":  {"region": "NW", "format": "standard",  "city": "Portland",     "state": "OR", "sqft": 28000},
+          "3":  {"region": "NW", "format": "express",   "city": "Boise",        "state": "ID", "sqft": 12000},
+          "4":  {"region": "SW", "format": "flagship",  "city": "Los Angeles",  "state": "CA", "sqft": 52000},
+          "5":  {"region": "SW", "format": "standard",  "city": "Phoenix",      "state": "AZ", "sqft": 30000},
+          "6":  {"region": "SW", "format": "outlet",    "city": "Las Vegas",    "state": "NV", "sqft": 18000},
+          "7":  {"region": "NE", "format": "flagship",  "city": "New York",     "state": "NY", "sqft": 48000},
+          "8":  {"region": "NE", "format": "standard",  "city": "Boston",       "state": "MA", "sqft": 26000},
+          "9":  {"region": "SE", "format": "standard",  "city": "Atlanta",      "state": "GA", "sqft": 32000},
+          "10": {"region": "SE", "format": "express",   "city": "Miami",        "state": "FL", "sqft": 14000},
+          "11": {"region": "MW", "format": "flagship",  "city": "Chicago",      "state": "IL", "sqft": 42000},
+          "12": {"region": "MW", "format": "standard",  "city": "Minneapolis",  "state": "MN", "sqft": 25000}
+        }
+
+        let store_key = this.store_id.string()
+        let meta = $stores.get($store_key).or({
+          "region": ["NW","SW","NE","SE","MW"].index(this.store_id % 5),
+          "format": ["standard","standard","express","standard","outlet"].index(this.store_id % 5),
+          "city": "Store-" + this.store_id.string(),
+          "state": "US",
+          "sqft": 20000 + (this.store_id * 500)
+        })
+
+        root = this
+        root.store_region = $meta.region
+        root.store_format = $meta.format
+        root.store_city = $meta.city
+        root.store_state = $meta.state
+        root.store_sqft = $meta.sqft
+        root.hour_of_day = this.timestamp.ts_format("15").number()
+        root.day_of_week = this.timestamp.ts_format("Monday")
+        root.is_weekend = root.day_of_week == "Saturday" || root.day_of_week == "Sunday"
+        root.basket_size = this.items.length()
+        root.avg_item_price = if root.basket_size > 0 {
+          (this.subtotal.abs() / root.basket_size * 100).round() / 100
+        }

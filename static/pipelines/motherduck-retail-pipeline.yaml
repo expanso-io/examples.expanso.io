@@ -6,7 +6,6 @@
 #   AWS_REGION   - AWS region (default: us-east-1)
 
 name: motherduck-retail-pos
-type: pipeline
 
 config:
   input:
@@ -127,16 +126,15 @@ config:
     aws_s3:
       bucket: '${S3_BUCKET}'
       path: >-
-        transactions/region=${! meta("store_region") }/date=${! now().ts_format("2006-01-02") }/batch_${! timestamp_unix() }_${! count("s3_files") }.parquet
+        transactions/region=${! json("store_region") }/date=${! now().ts_format("2006-01-02") }/batch_${! timestamp_unix() }_${! count("s3_files") }.parquet
       content_type: application/octet-stream
       max_in_flight: 4
+      # 4. Batch for optimal Parquet file size
       batching:
         count: 1000
         period: 10s
+        # 5. Encode each batch to one Parquet object
         processors:
-          - group_by_value:
-              value: ${! json("store_region") }
-          - mapping: meta store_region = this.store_region
           - parquet_encode:
               schema:
                 - name: txn_id

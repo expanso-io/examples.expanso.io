@@ -303,6 +303,37 @@ for (const familyRoot of familyRoots) {
   }
 }
 
+for (const record of publishedRecords) {
+  if (record.routes.explore === undefined) {
+    errors.push(`published record ${record.id} has no Explorer route`);
+    continue;
+  }
+  const explorerMdx = routeToMdx(record.routes.explore);
+  if (!existsSync(explorerMdx)) {
+    errors.push(
+      `published record ${record.id} Explorer page does not exist: ${relative(repositoryRoot, explorerMdx)}`
+    );
+  }
+  const generatedFamily = join(
+    repositoryRoot,
+    'src/catalog/explorerStageFamilies.generated',
+    `${record.id}.ts`
+  );
+  if (!existsSync(generatedFamily)) {
+    errors.push(
+      `published record ${record.id} has no generated Explorer stage family: ${relative(repositoryRoot, generatedFamily)}`
+    );
+  }
+  if (
+    !existsSync(join(repositoryRoot, 'examples/explorer-stages', record.id)) &&
+    record.id !== 'remove-pii'
+  ) {
+    errors.push(
+      `published record ${record.id} has no canonical stage directory under examples/explorer-stages/`
+    );
+  }
+}
+
 for (const record of PUBLIC_CATALOG.records) {
   for (const [surface, route] of Object.entries(record.routes)) {
     const mdxPath = routeToMdx(route);

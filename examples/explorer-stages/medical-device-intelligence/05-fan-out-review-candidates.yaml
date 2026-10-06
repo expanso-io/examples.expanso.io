@@ -1,0 +1,20 @@
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      # Output 1: Write a local review copy
+      - file:
+          path: './output/review-candidates.json'
+          codec: lines
+
+      # Output 2: Forward the same candidate JSON to a fleet endpoint
+      - http_client:
+          url: 'http://localhost:8089/api/v1/review-candidates'
+          verb: POST
+          headers:
+            Content-Type: application/json
+          max_in_flight: 1
+          retries: 3
+          backoff:
+            initial_interval: 1s
+            max_interval: 10s

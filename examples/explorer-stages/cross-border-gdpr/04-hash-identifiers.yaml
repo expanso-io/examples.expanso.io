@@ -1,0 +1,32 @@
+pipeline:
+  processors:
+    # Step 4: HASH - Pseudonymize identifiers for aggregate analytics
+    # One-way hash means this is anonymization, not pseudonymization
+    - mapping: |
+        root = this
+
+        # Customer ID → anonymized cohort ID
+        # Salt ensures can't be reversed even with rainbow tables
+        let salt = env("ANONYMIZATION_SALT").or("gdpr-compliance-2024")
+        root.anonymized_customer_id = (this.customer_id.string() + $salt).hash("sha256").encode("hex").slice(0, 12)
+        root = root.without("customer_id")
+
+        # Email → domain only (for B2B vs B2C analysis)
+        root.email_domain = if this.customer_email.contains("@") {
+          this.customer_email.split("@").index(1).lowercase()
+        } else {
+          "unknown"
+        }
+        root = root.without("customer_email")
+
+        # IBAN → country code only (for geographic analysis)
+        root.bank_country = this.iban.slice(0, 2)
+        root = root.without("iban")
+
+        # IP address → /16 subnet (country-level geolocation possible)
+        root.ip_subnet = if this.ip_address.contains(".") {
+          this.ip_address.split(".").slice(0, 2).join(".") + ".0.0/16"
+        } else {
+          "unknown"
+        }
+        root = root.without("ip_address")

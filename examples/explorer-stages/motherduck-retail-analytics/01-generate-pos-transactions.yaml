@@ -1,0 +1,44 @@
+input:
+  generate:
+    interval: 100ms
+    mapping: |
+      root.txn_id = uuid_v4()
+      root.store_id = random_int(min: 1, max: 50)
+      root.terminal_id = random_int(min: 1, max: 10)
+      root.timestamp = now()
+
+      let roll = random_int(min: 1, max: 100)
+      root.type = match {
+        $roll <= 85 => "sale",
+        $roll <= 95 => "return",
+        _ => "exchange"
+      }
+
+      root.payment_method = ["card", "card", "card", "cash", "mobile", "gift_card"].index(random_int(min: 0, max: 5))
+      root.employee_id = "EMP-" + random_int(min: 1000, max: 9999).string()
+
+      let categories = ["grocery", "produce", "dairy", "bakery", "meat",
+                         "frozen", "beverage", "household", "personal_care", "electronics"]
+      let item_count = random_int(min: 1, max: 6)
+      root.items = range(0, $item_count).map_each(
+        {
+          "sku": "SKU-" + random_int(min: 10000, max: 99999).string(),
+          "name": "Item " + random_int(min: 1, max: 500).string(),
+          "category": $categories.index(random_int(min: 0, max: 9)),
+          "qty": random_int(min: 1, max: 4),
+          "unit_price": (random_int(min: 99, max: 4999).number() / 100)
+        }
+      )
+
+      root.subtotal = (root.items.map_each(this.qty * this.unit_price).sum() * 100).round() / 100
+      root.tax_rate = 0.0875
+      root.tax_amount = (root.subtotal * root.tax_rate * 100).round() / 100
+      root.total_amount = ((root.subtotal + root.tax_amount) * 100).round() / 100
+
+      root = if root.type == "return" {
+        root.assign({
+          "subtotal": -root.subtotal,
+          "tax_amount": -root.tax_amount,
+          "total_amount": -root.total_amount
+        })
+      }

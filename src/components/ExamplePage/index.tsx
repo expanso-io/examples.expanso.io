@@ -55,6 +55,10 @@ const explorerFamilyLoaders: Readonly<Record<string, ExplorerFamilyLoader>> = {
     import(
       '../../catalog/explorerStageFamilies.generated/smart-buffering'
     ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
+  'cross-border-gdpr': () =>
+    import(
+      '../../catalog/explorerStageFamilies.generated/cross-border-gdpr'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
   'encrypt-data': () =>
     import('../../catalog/explorerStageFamilies.generated/encrypt-data').then(
       (module) => module.GENERATED_EXPLORER_STAGE_FAMILY
@@ -90,6 +94,22 @@ const explorerFamilyLoaders: Readonly<Record<string, ExplorerFamilyLoader>> = {
   'transform-formats': () =>
     import(
       '../../catalog/explorerStageFamilies.generated/transform-formats'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
+  'db2-to-bigquery': () =>
+    import(
+      '../../catalog/explorerStageFamilies.generated/db2-to-bigquery'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
+  'nightly-backup': () =>
+    import('../../catalog/explorerStageFamilies.generated/nightly-backup').then(
+      (module) => module.GENERATED_EXPLORER_STAGE_FAMILY
+    ),
+  'medical-device-intelligence': () =>
+    import(
+      '../../catalog/explorerStageFamilies.generated/medical-device-intelligence'
+    ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
+  'motherduck-retail-analytics': () =>
+    import(
+      '../../catalog/explorerStageFamilies.generated/motherduck-retail-analytics'
     ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
   'oran-telco-pipeline': () =>
     import(

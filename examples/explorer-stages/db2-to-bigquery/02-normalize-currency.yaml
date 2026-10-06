@@ -1,0 +1,31 @@
+pipeline:
+  processors:
+    # Step 2: Normalize currency to USD
+    # DataStage replacement: Currency lookup and conversion
+    - branch:
+        processors:
+          - mapping: |
+              # Currency conversion rates (in production, fetch from API)
+              let rates = {
+                "USD": 1.0,
+                "EUR": 1.08,
+                "GBP": 1.27,
+                "JPY": 0.0067,
+                "CHF": 1.13,
+                "CAD": 0.74
+              }
+
+              root = this
+              root.original_amount = this.AMOUNT
+              root.original_currency = this.CURRENCY
+
+              # Convert to USD
+              root.amount_usd = if this.CURRENCY == "USD" {
+                this.AMOUNT
+              } else {
+                (this.AMOUNT * $rates.get(this.CURRENCY).or(1.0) * 100).round() / 100
+              }
+        result_map: |
+          root.original_amount = this.original_amount
+          root.original_currency = this.original_currency
+          root.amount_usd = this.amount_usd
