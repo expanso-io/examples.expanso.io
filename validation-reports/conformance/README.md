@@ -1,9 +1,9 @@
 # Public example conformance
 
-Latest report: 2026-10-05  
-Published examples swept: 26 of 26  
-Main baseline: `5a3a2af`  
-Scope: criteria 1 through 5, with automated enforcement for criteria 3 through 5
+- Latest report: 2026-10-05
+- Published examples swept: 26 of 26
+- Main baseline: `5a3a2af`
+- Scope: criteria 1 through 5, with automated enforcement for criteria 3 through 5
 
 The table records whole-criterion status. A cell stays pending until every part
 of that criterion has evidence. Code already fixed on this branch is listed
