@@ -92,6 +92,7 @@ export interface RunnabilityVerdict {
 }
 
 export interface LocalStandIns {
+  inputMetadata?: Readonly<Record<string, string>>;
   outputFormats?: readonly string[];
   processors?: Readonly<Record<string, YamlObject>>;
   paths?: Readonly<Record<string, { absolute: string; display: string }>>;
@@ -470,6 +471,26 @@ export function planRun(
     );
   }
 
+  if (fixturePath && standIns.inputMetadata && isYamlObject(config.input)) {
+    const processors = Array.isArray(config.input.processors)
+      ? config.input.processors
+      : [];
+    config.input.processors = [
+      {
+        mapping: Object.entries(standIns.inputMetadata)
+          .map(([key, value]) => `meta ${key} = ${JSON.stringify(value)}`)
+          .join('\n'),
+      },
+      ...processors,
+    ];
+    substitutions.push({
+      role: 'input',
+      at: 'input.processors',
+      from: 'request metadata',
+      to: 'registered fixture request metadata',
+    });
+  }
+
   if (
     isYamlObject(config.buffer) &&
     isYamlObject(config.buffer.system_window) &&
@@ -579,9 +600,9 @@ export function planRun(
             count: broker.batching.count,
             period: broker.batching.period,
           }),
-          to: 'count=25, period=1ms; batching processors retained',
+          to: 'count=25, period=1s; batching processors retained',
         });
-        broker.batching = { ...broker.batching, count: 25, period: '1ms' };
+        broker.batching = { ...broker.batching, count: 25, period: '1s' };
       }
 
       if (Array.isArray(broker.outputs)) {
@@ -697,12 +718,12 @@ export function planRun(
         role: 'output',
         at: `${at}.${kind}.batching`,
         from: `count=${String(batching.count)}, period=${String(batching.period)}`,
-        to: 'count=25, period=1ms; batching processors retained',
+        to: 'count=25, period=1s; batching processors retained',
       });
       return {
         broker: {
           pattern: 'fan_out',
-          batching: { ...batching, count: 25, period: '1ms' },
+          batching: { ...batching, count: 25, period: '1s' },
           outputs: [next],
         },
       };

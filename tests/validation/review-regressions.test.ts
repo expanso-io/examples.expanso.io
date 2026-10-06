@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { createServer } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+import { execFileSync } from 'node:child_process';
 import {
   existsSync,
   mkdtempSync,
@@ -44,6 +46,25 @@ const agent = new LocalEdgeAgent(edge, work, {
 });
 let sequence = 0;
 before(async () => {
+  execFileSync(
+    'openssl',
+    [
+      'req',
+      '-x509',
+      '-newkey',
+      'rsa:2048',
+      '-noenc',
+      '-keyout',
+      join(work, 'server.key'),
+      '-out',
+      join(work, 'server.crt'),
+      '-days',
+      '1',
+      '-subj',
+      '/CN=localhost',
+    ],
+    { stdio: 'ignore' }
+  );
   await agent.start();
 });
 after(async () => {
@@ -59,7 +80,9 @@ function config(path: string): YamlObject {
 async function execute(
   pipeline: YamlObject,
   fixture?: string,
-  standIns: LocalStandIns = {}
+  standIns: LocalStandIns = {
+    inputMetadata: manifest.families['encrypt-data'].inputMetadata,
+  }
 ): Promise<unknown[]> {
   return (await capture(pipeline, fixture, standIns)).flatMap((text) =>
     text
@@ -72,7 +95,9 @@ async function execute(
 async function capture(
   pipeline: YamlObject,
   fixture?: string,
-  standIns: LocalStandIns = {},
+  standIns: LocalStandIns = {
+    inputMetadata: manifest.families['encrypt-data'].inputMetadata,
+  },
   expectedState = 'completed'
 ): Promise<string[]> {
   sequence += 1;
@@ -647,7 +672,7 @@ for (const [path, keys] of [
         const texts = await capture(
           pipeline,
           'tests/fixtures/pipeline-inputs/encryption.jsonl',
-          {},
+          { inputMetadata: manifest.families['encrypt-data'].inputMetadata },
           'failed'
         );
         assert.ok(texts.length > 0);
@@ -756,4 +781,151 @@ test('Splunk HEC envelopes mask PII in parsed and fallback log lines', async () 
     assert.equal(rows[0].event.message, masked);
     assert.equal(rows[0].event.raw, prefix + masked);
   }
+});
+
+test('payment HTTPS ingestion rejects unauthenticated requests before forwarding', async () => {
+  const token = manifest.environment.PAYMENTS_INGEST_TOKEN;
+  for (const configured of [true, false]) {
+    const listener = createServer();
+    await new Promise<void>((resolve) =>
+      listener.listen(0, '127.0.0.1', resolve)
+    );
+    const address = listener.address();
+    assert.ok(address && typeof address === 'object');
+    const port = address.port;
+    await new Promise<void>((resolve, reject) =>
+      listener.close((error) => (error ? reject(error) : resolve()))
+    );
+    let pipeline = config('examples/data-security/encrypt-data.yaml');
+    if (!configured)
+      pipeline = parse(
+        stringify(pipeline).replaceAll(
+          'env("PAYMENTS_INGEST_TOKEN")',
+          'env("REVIEW_EMPTY_ENCRYPTION_KEY")'
+        )
+      ) as YamlObject;
+    const input = pipeline.input as YamlObject;
+    const server = input.http_server as YamlObject;
+    server.address = `127.0.0.1:${port}`;
+    server.cert_file = join(work, 'server.crt');
+    server.key_file = join(work, 'server.key');
+    const output = join(work, `authenticated-${configured}.jsonl`);
+    pipeline.output = { file: { path: output, codec: 'lines' } };
+    const validity = validateSource(
+      edge,
+      root,
+      stringify(pipeline),
+      manifest.environment
+    );
+    assert.equal(validity.status, 'PASS', JSON.stringify(validity));
+    const deployed = await agent.deploy({
+      name: `review-auth-${configured}`,
+      type: 'pipeline',
+      config: pipeline,
+    });
+    assert.ok(deployed.ok, JSON.stringify(deployed));
+    if (!deployed.ok) return;
+    const body = readFileSync(
+      'tests/fixtures/pipeline-inputs/encryption.jsonl',
+      'utf8'
+    ).split('\n')[0];
+    const send = (authorization?: string): Promise<number> =>
+      new Promise((resolve, reject) => {
+        const request = httpsRequest(
+          {
+            hostname: '127.0.0.1',
+            port,
+            path: '/payments/transactions',
+            method: 'POST',
+            rejectUnauthorized: false,
+            headers: {
+              'Content-Type': 'application/json',
+              ...(authorization ? { Authorization: authorization } : {}),
+            },
+          },
+          (response) => {
+            response.resume();
+            response.on('end', () => resolve(response.statusCode ?? 0));
+          }
+        );
+        request.on('error', reject);
+        request.setTimeout(3000, () =>
+          request.destroy(new Error('HTTPS request timed out'))
+        );
+        request.end(body);
+      });
+    try {
+      const deadline = Date.now() + 5000;
+      let status = 0;
+      while (Date.now() < deadline) {
+        try {
+          status = await send();
+          break;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ECONNREFUSED')
+            throw error;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+      assert.equal(status, 401);
+      assert.equal(await send('Bearer wrong-token'), 401);
+      assert.equal(existsSync(output) ? readFileSync(output, 'utf8') : '', '');
+      assert.equal(await send(`Bearer ${token}`), configured ? 200 : 401);
+      const rows = existsSync(output)
+        ? readFileSync(output, 'utf8')
+            .split('\n')
+            .filter(Boolean)
+            .map((line) => JSON.parse(line))
+        : [];
+      assert.equal(rows.length, configured ? 1 : 0);
+      if (configured) {
+        const expectation = manifest.families['encrypt-data']
+          .expectation as EncryptionExpectation;
+        verifyEncryption(
+          expectation,
+          [JSON.parse(body)],
+          rows,
+          manifest.environment
+        );
+      }
+    } finally {
+      await agent.deleteJob(deployed.jobId);
+    }
+  }
+});
+
+test('retail batching emits Parquet objects grouped by region', async () => {
+  const pipeline = config('static/pipelines/motherduck-retail-pipeline.yaml');
+  const texts = await capture(pipeline, undefined, { outputFormats: ['avro'] });
+  const objects = texts[0]
+    .trim()
+    .split('\n')
+    .map((line) => Buffer.from(line, 'base64'));
+  assert.ok(objects.length > 0 && objects.length <= 5);
+  const decoded: unknown[] = [];
+  for (const object of objects) {
+    assert.equal(object.subarray(0, 4).toString(), 'PAR1');
+    assert.equal(object.subarray(-4).toString(), 'PAR1');
+    const rows = await execute({
+      input: {
+        generate: {
+          count: 1,
+          mapping: `root = ${JSON.stringify(object.toString('base64'))}.decode("base64")`,
+        },
+      },
+      pipeline: { processors: [{ parquet_decode: {} }] },
+      output: { stdout: {} },
+    });
+    assert.equal(
+      new Set(rows.map((row) => (row as { store_region: string }).store_region))
+        .size,
+      1
+    );
+    decoded.push(...rows);
+  }
+  assert.equal(decoded.length, 25);
+  assert.equal(
+    new Set(decoded.map((row) => (row as { txn_id: string }).txn_id)).size,
+    25
+  );
 });

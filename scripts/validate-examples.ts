@@ -61,6 +61,7 @@ const FIXTURE_ROOT = 'tests/fixtures/pipeline-inputs';
 const RUN_TIMEOUT_MS = 45_000;
 
 interface ManifestEntry {
+  inputMetadata?: Record<string, string>;
   recentTimestamps?: boolean;
   expectation?: Expectation;
   fixture?: string;
@@ -161,6 +162,7 @@ function resolveFixture(
 
 function resolveStandIns(entry: ManifestEntry): LocalStandIns {
   return {
+    inputMetadata: entry.inputMetadata,
     outputFormats:
       entry.expectation?.kind === 'records'
         ? entry.expectation.outputs.map((output) => output.format ?? 'jsonl')

@@ -1,5 +1,5 @@
 name: payment-field-encryption
-description: Encrypt sensitive payment and PII data with AES-256-GCM
+description: Encrypt sensitive payment and PII data with AES-256-GCM; requires PAYMENTS_INGEST_TOKEN bearer authentication over TLS.
 type: pipeline
 namespace: production
 labels:
@@ -33,6 +33,19 @@ config:
       rate_limit: payments_ingest
       cert_file: /etc/expanso/certs/server.crt
       key_file: /etc/expanso/certs/server.key
+      sync_response:
+        status: ${! meta("auth_status").or("200") }
+        headers:
+          Content-Type: application/json
+    processors:
+      - switch:
+          - check: env("PAYMENTS_INGEST_TOKEN").or("") == "" || meta("Authorization").or("") != "Bearer " + env("PAYMENTS_INGEST_TOKEN").or("")
+            processors:
+              - mapping: |-
+                  root = {"error":"unauthorized"}
+                  meta auth_status = "401"
+              - sync_response: {}
+              - mapping: root = deleted()
 
   rate_limit_resources:
     - label: payments_ingest
