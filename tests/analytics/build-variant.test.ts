@@ -1,12 +1,20 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
+import { globSync } from 'glob';
 
 import {
   analyticsBlockedUrlPatterns,
   isAnalyticsHost,
+  unapprovedTags,
 } from '../../scripts/analytics-tags';
 import {
   reportProblems,
@@ -30,11 +38,7 @@ function fixture(files: Record<string, string>): string {
 
 const productionPage = [
   '<!doctype html><html><head>',
-  '<script>/^(docs|examples)\\.expanso\\.io$/.test(window.location.hostname)&&(window["ga-disable-G-X1RJ0QGN3Z"]=!0)</script>',
-  '<script>!function(e,t,a,n){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var g=t.getElementsByTagName(a)[0],m=t.createElement(a);m.async=!0,m.src="https://www.googletagmanager.com/gtm.js?id=GTM-MPSKFDMF",g.parentNode.insertBefore(m,g)}(window,document,"script","dataLayer")</script>',
-  '<script>function gtag(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],gtag("consent","default",{ad_storage:"denied"})</script>',
   '</head><body>',
-  '<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-MPSKFDMF" height="0" width="0"></iframe></noscript>',
   '<div id="__docusaurus"></div>',
   '<img referrerpolicy="no-referrer-when-downgrade" src="https://static.scarf.sh/a.png?x-pxid=82d5c930-f525-4047-bb21-25a09e68ed2d" alt="" width="0" height="0">',
   '</body></html>',
@@ -46,14 +50,18 @@ const productionScript =
 
 const unminifiedProductionPage = [
   '<!doctype html><html><head>',
-  "<script>/^(docs|examples)\\.expanso\\.io$/.test(window.location.hostname) && (window['ga-disable-G-X1RJ0QGN3Z'] = true)</script>",
-  "<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','GTM-MPSKFDMF');</script>",
-  "<script>\n  window.dataLayer = window.dataLayer || [];\n  function gtag(){dataLayer.push(arguments);}\n  gtag( 'consent', 'default', {\n    'ad_storage': 'denied'\n  });\n</script>",
   '</head><body>',
-  '<noscript>\n<iframe src = \'https://www.googletagmanager.com/ns.html?id=GTM-MPSKFDMF\' height="0" width="0"></iframe>\n</noscript>',
   '<div id="__docusaurus"></div>',
   "<img alt='' src = 'https://static.scarf.sh/a.png?x-pxid=82d5c930-f525-4047-bb21-25a09e68ed2d' width='0'>",
   '</body></html>',
+].join('');
+
+// The Google Tag Manager container and the old GA guard this site used to emit.
+// GTM fired GA4, Google Ads and six other vendors before any consent choice.
+const retiredGtmTags = [
+  '<script>/^(docs|examples)\\.expanso\\.io$/.test(window.location.hostname)&&(window["ga-disable-G-X1RJ0QGN3Z"]=!0)</script>',
+  '<script>!function(e,t,a,n){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var g=t.getElementsByTagName(a)[0],m=t.createElement(a);m.async=!0,m.src="https://www.googletagmanager.com/gtm.js?id=GTM-MPSKFDMF",g.parentNode.insertBefore(m,g)}(window,document,"script","dataLayer")</script>',
+  '<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-MPSKFDMF" height="0" width="0"></iframe></noscript>',
 ].join('');
 
 const plainPage =
@@ -77,7 +85,10 @@ describe('analytics build variant verifier', () => {
 
   it('names every file and marker when a normal build leaks a tag', () => {
     const root = fixture({
-      'index.html': productionPage,
+      'index.html': productionPage.replace(
+        '</head>',
+        `${retiredGtmTags}</head>`
+      ),
       'assets/js/main.js': productionScript,
       'about/index.html': plainPage.replace(
         '</body>',
@@ -123,17 +134,54 @@ describe('analytics build variant verifier', () => {
     assert.deepEqual(reportProblems(report), []);
   });
 
-  it('fails a production build whose GTM loader names another container', () => {
+  it('fails a production build that brings back the retired GTM container', () => {
     const root = fixture({
       'index.html': productionPage.replace(
-        'gtm.js?id=GTM-MPSKFDMF',
-        'gtm.js?id=GTM-OTHER00'
+        '</head>',
+        `${retiredGtmTags}</head>`
       ),
       'assets/js/main.js': productionScript,
     });
     const problems = reportProblems(verifyAnalyticsBuild(root, 'production'));
     assert.deepEqual(problems, [
-      'index.html is missing production tag gtm-loader',
+      'index.html carries unapproved analytics tag googletagmanager.com',
+      'index.html carries unapproved analytics tag GTM-MPSKFDMF',
+      'index.html carries unapproved analytics tag G-X1RJ0QGN3Z',
+    ]);
+  });
+
+  it('fails a production build that loads a GTM container with another id', () => {
+    const root = fixture({
+      'index.html': productionPage.replace(
+        '</head>',
+        `${retiredGtmTags.replaceAll('GTM-MPSKFDMF', 'GTM-OTHER00').replace(/<script>\/\^\(docs[^<]*<\/script>/, '')}</head>`
+      ),
+      'assets/js/main.js': productionScript,
+    });
+    const problems = reportProblems(verifyAnalyticsBuild(root, 'production'));
+    assert.deepEqual(problems, [
+      'index.html carries unapproved analytics tag googletagmanager.com',
+      'index.html carries unapproved analytics tag GTM-OTHER00',
+    ]);
+  });
+
+  it('fails a production build that loads a vendor the old container fired', () => {
+    const vendors = [
+      '<script async src="https://www.googletagmanager.com/gtag/js?id=AW-11179683646"></script>',
+      '<script src="https://js.hs-scripts.com/22582119.js"></script>',
+      '<script src="https://survey.survicate.com/workspaces/a057fe/web_surveys.js"></script>',
+      '<script src="https://r2.leadsy.ai/tag.js"></script>',
+    ].join('');
+    const root = fixture({
+      'index.html': productionPage.replace('</head>', `${vendors}</head>`),
+      'assets/js/main.js': productionScript,
+    });
+    const problems = reportProblems(verifyAnalyticsBuild(root, 'production'));
+    assert.deepEqual(problems, [
+      'index.html carries unapproved analytics tag hs-scripts.com',
+      'index.html carries unapproved analytics tag survicate.com',
+      'index.html carries unapproved analytics tag leadsy.ai',
+      'index.html carries unapproved analytics tag AW-11179683646',
     ]);
   });
 
@@ -178,6 +226,8 @@ describe('analytics host matching shared with the browser tests', () => {
     assert.equal(isAnalyticsHost('us.i.posthog.com'), true);
     assert.equal(isAnalyticsHost('web.t.expanso.io'), true);
     assert.equal(isAnalyticsHost('px.ads.linkedin.com'), true);
+    assert.equal(isAnalyticsHost('survey.survicate.com'), true);
+    assert.equal(isAnalyticsHost('r2.leadsy.ai'), true);
     assert.equal(isAnalyticsHost('examples.expanso.io'), false);
     assert.equal(isAnalyticsHost('docs.scarf.sh'), false);
     assert.equal(isAnalyticsHost('127.0.0.1'), false);
@@ -188,5 +238,26 @@ describe('analytics host matching shared with the browser tests', () => {
     assert.ok(patterns.includes('*static.scarf.sh/*'));
     assert.ok(patterns.includes('*googletagmanager.com/*'));
     assert.ok(patterns.every((pattern) => /^\*[a-z0-9.-]+\/\*$/.test(pattern)));
+  });
+});
+
+describe('analytics tags in the site sources', () => {
+  it('carry nothing outside the approved production tags', () => {
+    const sources = globSync(
+      [
+        'docusaurus.config.ts',
+        'plugins/**/*.{cjs,js,mjs,ts}',
+        'src/**/*.{css,js,jsx,ts,tsx}',
+        'static/**/*.{html,js}',
+      ],
+      { nodir: true, ignore: ['**/*.test.*'] }
+    ).sort();
+    assert.ok(sources.includes('docusaurus.config.ts'));
+    const problems = sources.flatMap((path) =>
+      unapprovedTags(readFileSync(path, 'utf8')).map(
+        (needle) => `${path} carries unapproved analytics tag ${needle}`
+      )
+    );
+    assert.deepEqual(problems, []);
   });
 });

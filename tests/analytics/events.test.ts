@@ -139,10 +139,7 @@ describe('analytics event schema v1', () => {
     const writers = files.filter((path) =>
       /dataLayer\??\.push\(/.test(readFileSync(path, 'utf8'))
     );
-    assert.deepEqual(writers, [
-      'src/analytics/events.ts',
-      'src/lib/analytics.ts',
-    ]);
+    assert.deepEqual(writers, ['src/analytics/events.ts']);
   });
 });
 

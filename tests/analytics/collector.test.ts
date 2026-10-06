@@ -40,45 +40,6 @@ after(async () => {
 });
 
 type Receipt = { event: string; properties: Record<string, any> };
-test('old linked GA destination is disabled before loaders on scoped hosts', async () => {
-  const plugin = createRequire(import.meta.url)(
-    '../../plugins/posthog-analytics.cjs'
-  )();
-  const guard = plugin.injectHtmlTags().headTags[0].innerHTML;
-  for (const [host, disabled] of [
-    ['examples.expanso.io', true],
-    ['docs.expanso.io', true],
-    ['expanso.io', false],
-    ['www.expanso.io', false],
-    ['examples.expanso.io.invalid', false],
-  ] as const) {
-    const context = await browser.newContext();
-    try {
-      const page = await context.newPage();
-      await page.route('**/*', (route) =>
-        route.fulfill({
-          contentType: 'text/html',
-          body: `<script>${guard}</script><script>window.guardAtLoader = window['ga-disable-G-X1RJ0QGN3Z'] === true;</script>`,
-        })
-      );
-      await page.goto(`https://${host}/`);
-      assert.equal(
-        await page.evaluate(() => (window as any).guardAtLoader),
-        disabled
-      );
-      assert.equal(
-        await page.evaluate(() => (window as any)['ga-disable-G-6YXD85WVC6']),
-        undefined
-      );
-      assert.equal(
-        await page.evaluate(() => (window as any)['ga-disable-AW-11179683646']),
-        undefined
-      );
-    } finally {
-      await context.close();
-    }
-  }
-});
 async function journey(
   options: {
     consent?: boolean;
