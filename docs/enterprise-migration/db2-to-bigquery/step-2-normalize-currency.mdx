@@ -39,47 +39,7 @@ In DataStage, currency conversion typically requires:
 
 ## Implementation
 
-Add the currency processor after lineage:
-
-```yaml title="step-2-currency.yaml"
-pipeline:
-  processors:
-    # Step 1: Lineage (from previous step)
-    - mapping: |
-        root = this
-        root._lineage = {
-          "source_system": "DB2_PROD",
-          "source_table": "TRANSACTIONS",
-          "pipeline": "db2-to-bigquery-transactions",
-          "extracted_at": now(),
-          "node_id": env("NODE_ID").or("unknown")
-        }
-
-    # Step 2: Currency normalization
-    - branch:
-        processors:
-          - mapping: |
-              # Currency conversion rates (USD base)
-              let rates = {
-                "USD": 1.0,
-                "EUR": 1.08,
-                "GBP": 1.27,
-                "JPY": 0.0067,
-                "CHF": 1.13,
-                "CAD": 0.74
-              }
-
-              root = this
-              root.original_amount = this.AMOUNT
-              root.original_currency = this.CURRENCY
-
-              # Convert to USD
-              root.amount_usd = if this.CURRENCY == "USD" {
-                this.AMOUNT
-              } else {
-                this.AMOUNT * $rates.get(this.CURRENCY).or(1.0)
-              }
-```
+The [canonical reference](./complete-pipeline) owns the currency processor, including the branch result mapping that returns converted fields to the original message. Inspect its input and output in the [Explorer](./explorer).
 
 ## Understanding the Code
 

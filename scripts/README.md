@@ -95,11 +95,11 @@ The performance, accessibility, and machine-journey contracts bind schemas, harn
 ## Canonical Explorer stage ownership
 
 ```bash
-npm run stages:canonical
+npm run validate-stages
 npm run test-stage-configs
 ```
 
-Explorer configuration lives under `examples/explorer-stages/` and is bound by `content/explorer-stage-bindings-v1.json`. Stage modules own presentation data only. After an intentional canonical YAML or manifest edit, run `npm run stages:canonical:write` to regenerate the browser map, then rerun both read-only gates above.
+Explorer configuration lives under `examples/explorer-stages/` and is bound by `content/explorer-stage-bindings-v1.json`. Stage modules own presentation data only. After an intentional canonical YAML or manifest edit, run `npm run stages:canonical:write` to regenerate the browser map, then rerun both read-only gates above. `validate-stages` also checks the deterministic fixture generator for drift. Use `npm run fixtures:explorer-stages -- --write` only when intentionally regenerating its declared sample inputs.
 
 ## Legacy structural tools
 
