@@ -64,13 +64,18 @@ You will now add a `try`/`catch` block to handle the database failure gracefully
     pipeline:
       processors:
         - try:
-            - sql_select:
-                driver: postgres
-                dsn: ${DB_CONNECTION_STRING}
-                table: users
-                columns: [user_name, user_tier]
-                where: user_id = ?
-                args_mapping: root = [this.user_id]
+            - branch:
+                processors:
+                  - sql_select:
+                      driver: postgres
+                      dsn: ${DB_CONNECTION_STRING}
+                      table: users
+                      columns: [user_name, user_tier]
+                      where: user_id = $1
+                      args_mapping: root = [this.user_id]
+                result_map: |
+                  root.user_name = this.index(0).user_name
+                  root.user_tier = this.index(0).user_tier
             - mapping: |
                 root = this
                 root.user_profile.name = this.user_name

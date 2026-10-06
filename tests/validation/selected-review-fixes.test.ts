@@ -8,6 +8,7 @@ import {
   rmSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { createServer } from 'node:net';
 import { spawnSync } from 'node:child_process';
 import { parse, stringify } from 'yaml';
 import {
@@ -620,3 +621,221 @@ test('published ORAN timestamps use seconds and preserve fractional precision', 
   );
   assert.equal(output.validation.timestamp, fractional.timestamp_iso);
 });
+
+test('published database circuit breaker enriches a healthy PostgreSQL result', async () => {
+  const location = spawnSync('pg_config', ['--bindir'], { encoding: 'utf8' });
+  assert.equal(location.status, 0, location.error?.message ?? location.stderr);
+  const binaries = location.stdout.trim();
+  const database = join(work, 'postgres');
+  const run = (command: string, args: string[]) => {
+    const result = spawnSync(join(binaries, command), args, {
+      encoding: 'utf8',
+      timeout: 20_000,
+    });
+    assert.equal(
+      result.status,
+      0,
+      result.error?.message ?? result.stderr + result.stdout
+    );
+  };
+  run('initdb', [
+    '-D',
+    database,
+    '-A',
+    'trust',
+    '-U',
+    'fixture',
+    '--no-locale',
+  ]);
+  const reservation = createServer();
+  await new Promise<void>((resolve, reject) => {
+    reservation.once('error', reject);
+    reservation.listen(0, '127.0.0.1', resolve);
+  });
+  const address = reservation.address();
+  assert.ok(address && typeof address !== 'string');
+  const port = address.port;
+  await new Promise<void>((resolve, reject) =>
+    reservation.close((error) => (error ? reject(error) : resolve()))
+  );
+  const dsn = `postgres://fixture@127.0.0.1:${port}/postgres?sslmode=disable`;
+
+  try {
+    run('pg_ctl', [
+      'start',
+      '-D',
+      database,
+      '-l',
+      join(work, 'postgres.log'),
+      '-o',
+      `-h 127.0.0.1 -k '' -p ${port}`,
+      '-w',
+      '-t',
+      '10',
+    ]);
+    run('psql', [
+      '-X',
+      '-d',
+      dsn,
+      '-v',
+      'ON_ERROR_STOP=1',
+      '-c',
+      'CREATE TABLE users (user_id text PRIMARY KEY, user_name text, user_tier text); ' +
+        "INSERT INTO users VALUES ('user_001', 'Ada', 'premium');",
+    ]);
+    const wrapped = wrapFragment(
+      parse(
+        pageBlocks(
+          'docs/data-routing/circuit-breakers/step-2-database-circuit-breakers.mdx'
+        )[0].source
+      )
+    );
+    assert.ok(wrapped);
+    const config = parse(wrapped.source);
+    config.pipeline.processors[0].try[0].branch.processors[0].sql_select.dsn =
+      dsn;
+    const output = JSON.parse(
+      (await execute(stringify(config), [{ user_id: 'user_001' }])).toString()
+    );
+    assert.equal(output.user_id, 'user_001');
+    assert.equal(output.db_enriched, true);
+    assert.equal(output.db_status, 'success');
+    assert.deepEqual(output.user_profile, { name: 'Ada', tier: 'premium' });
+    assert.equal(output.fallback_reason, undefined);
+  } finally {
+    run('pg_ctl', ['stop', '-D', database, '-m', 'fast', '-w', '-t', '10']);
+  }
+});
+
+test('published multi-array splitter emits tagged items and discounts with order context', async () => {
+  const wrapped = wrapFragment(
+    parse(
+      pageBlocks(
+        'docs/data-routing/content-splitting/step-4-advanced-patterns.mdx'
+      )[0].source
+    )
+  );
+  assert.ok(wrapped);
+  const records = [
+    {
+      order_id: 'order-a',
+      items: [
+        { sku: 'a', quantity: 2 },
+        { sku: 'b', quantity: 1 },
+      ],
+      applied_discounts: [
+        { code: 'sale', amount: 3 },
+        { code: 'loyalty', amount: 1 },
+      ],
+    },
+    {
+      order_id: 'order-b',
+      items: [],
+      applied_discounts: [{ code: 'welcome', amount: 2 }],
+    },
+    {
+      order_id: 'order-c',
+      items: [{ sku: 'c', quantity: 4 }],
+      applied_discounts: [],
+    },
+    { order_id: 'order-d', items: [], applied_discounts: [] },
+  ];
+  const outputs = (await execute(wrapped.source, records))
+    .toString()
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  const expected = [
+    { sku: 'a', quantity: 2, order_id: 'order-a', type: 'line_item' },
+    { sku: 'b', quantity: 1, order_id: 'order-a', type: 'line_item' },
+    {
+      code: 'sale',
+      amount: 3,
+      order_id: 'order-a',
+      type: 'discount_application',
+    },
+    {
+      code: 'loyalty',
+      amount: 1,
+      order_id: 'order-a',
+      type: 'discount_application',
+    },
+    {
+      code: 'welcome',
+      amount: 2,
+      order_id: 'order-b',
+      type: 'discount_application',
+    },
+    { sku: 'c', quantity: 4, order_id: 'order-c', type: 'line_item' },
+  ];
+  const key = (row: { order_id: string; sku?: string; code?: string }) =>
+    row.order_id + (row.sku ?? row.code);
+  assert.deepEqual(
+    outputs.sort((a, b) => key(a).localeCompare(key(b))),
+    expected.sort((a, b) => key(a).localeCompare(key(b)))
+  );
+});
+
+for (const [path, dedicated] of [
+  [
+    'docs/data-transformation/parse-logs/step-3-parse-syslog-messages.mdx',
+    true,
+  ],
+  [
+    'docs/data-transformation/parse-logs/step-4-multi-format-detection.mdx',
+    false,
+  ],
+] as const) {
+  test(`published syslog parser accepts optional PIDs and padded dates: ${path}`, async () => {
+    const fixtures = [
+      {
+        raw_log: '<134>Oct 20 14:23:45 edge-node-01 app[12345]: connected',
+        timestamp: 'Oct 20 14:23:45',
+        pid: '12345',
+        message: 'connected',
+      },
+      {
+        raw_log: '<134>Oct 7 14:23:45 edge-node-01 app: ready',
+        timestamp: 'Oct 7 14:23:45',
+        pid: '',
+        message: 'ready',
+      },
+      {
+        raw_log: '<134>Oct  7 14:23:45 edge-node-01 app: padded',
+        timestamp: 'Oct  7 14:23:45',
+        pid: '',
+        message: 'padded',
+      },
+      {
+        raw_log: '<134>Oct  7 14:23:45 edge-node-01 app[42]: padded-pid',
+        timestamp: 'Oct  7 14:23:45',
+        pid: '42',
+        message: 'padded-pid',
+      },
+    ];
+    const outputs = (
+      await execute(
+        pageBlocks(path)[0].source,
+        fixtures.map(({ raw_log }) => ({ raw_log }))
+      )
+    )
+      .toString()
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    assert.equal(outputs.length, fixtures.length);
+    for (const fixture of fixtures) {
+      const output = outputs.find((row) => row.message === fixture.message);
+      assert.ok(output);
+      assert.equal(output.timestamp, fixture.timestamp);
+      assert.equal(output.pid, fixture.pid);
+      assert.equal(output.tag, 'app');
+      assert.equal(output.hostname, 'edge-node-01');
+      assert.equal(output.priority, '134');
+      if (dedicated) {
+        assert.equal(output.facility, 16);
+        assert.equal(output.severity, 6);
+      } else assert.equal(output.parsed_by, 'syslog_parser');
+    }
+  });
+}
