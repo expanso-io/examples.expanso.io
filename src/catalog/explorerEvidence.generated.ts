@@ -253,7 +253,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
     authoredStageModulePath:
       "docs/data-security/cross-border-gdpr-full.stages.ts",
     authoredStageModuleSha256:
-      "sha256:777c33b36c68ce8668098c23b7a98c719c59c565457a6d45d576f6c520d850df",
+      "sha256:d550a8e104a93e7ab708640be9e88dd3aaec1d1a58fe8072cd8ab57a22173280",
     inputCheckpointPath:
       "examples/explorer-stages/cross-border-gdpr/01-tag-data-origin.yaml",
     inputCheckpointSha256:
@@ -608,7 +608,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
     authoredStageModulePath:
       "docs/enterprise-migration/db2-to-bigquery-full.stages.ts",
     authoredStageModuleSha256:
-      "sha256:83a5fc8be5da2385d5c75dceb11274d5a68fff12023f417475feda3f68648955",
+      "sha256:b41f7072e593a3541d506cfd3098226a6d2a8baca457c1f364eb8ffdd411d267",
     inputCheckpointPath:
       "examples/explorer-stages/db2-to-bigquery/01-add-lineage-metadata.yaml",
     inputCheckpointSha256:
@@ -648,7 +648,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
     authoredStageModulePath:
       "docs/enterprise-migration/nightly-backup-full.stages.ts",
     authoredStageModuleSha256:
-      "sha256:2a50b026059b583497f34511c025c20c021e2927aa8fdfb0b401bee6276c6deb",
+      "sha256:34d602a1484b09cabc7f6ab9102612ac35f8404ada7d62fd740bf940f37fe5f3",
     inputCheckpointPath:
       "examples/explorer-stages/nightly-backup/01-extract-multiple-tables.yaml",
     inputCheckpointSha256:
@@ -727,7 +727,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
     authoredStageModulePath:
       "docs/integrations/motherduck-retail-analytics-full.stages.ts",
     authoredStageModuleSha256:
-      "sha256:f132da6688c38248793f8950d37b055bfc3a5083e6de555c47b7660b21f575e5",
+      "sha256:14af540b8aaac15d9274e38692fd412eecd3bc1920eb6f27327360072aba8132",
     inputCheckpointPath:
       "examples/explorer-stages/motherduck-retail-analytics/01-generate-pos-transactions.yaml",
     inputCheckpointSha256:

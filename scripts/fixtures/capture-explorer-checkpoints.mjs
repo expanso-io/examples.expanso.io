@@ -11,6 +11,7 @@ import { resolve } from 'node:path';
 import ts from 'typescript';
 import { parse, stringify } from 'yaml';
 import { format } from 'prettier';
+import { checkpointLines } from './checkpoint-lines.mjs';
 
 const write = process.argv.includes('--write');
 const scratch = resolve('.nm-checkpoint-capture');
@@ -78,30 +79,17 @@ function json(lines) {
   );
 }
 
-function lines(value, previous = []) {
-  return JSON.stringify(value, null, 2)
-    .split('\n')
-    .map((line, index) => ({
-      ...previous[index],
-      content: line.trimStart(),
-      indent: (line.length - line.trimStart().length) / 2,
-    }))
-    .concat(
-      previous.filter(
-        (line) => !line.content.trim() || line.content.startsWith('#')
-      )
-    );
-}
-
-function highlightChanges(output, input) {
-  const unchanged = new Set(input.map((line) => line.content));
-  return output.map((line) => ({
-    ...line,
-    type:
-      unchanged.has(line.content) || /^[\s{}\[\],]*$/.test(line.content)
-        ? 'normal'
-        : 'highlighted',
-  }));
+function lines(
+  value,
+  previous = [],
+  comparison = value,
+  missingType = 'added'
+) {
+  return checkpointLines(value, comparison, missingType).concat(
+    previous.filter(
+      (line) => !line.content.trim() || line.content.startsWith('#')
+    )
+  );
 }
 
 async function save(path, name, stages) {
@@ -173,8 +161,10 @@ try {
       );
       if (!fragment.pipeline) break;
       const [actual] = execute(fragment.pipeline.processors, [current]);
-      if (write) stage.outputLines = lines(actual, stage.outputLines);
-      else {
+      if (write) {
+        stage.inputLines = lines(current, stage.inputLines, actual, 'removed');
+        stage.outputLines = lines(actual, stage.outputLines, current);
+      } else {
         const expected = json(stage.outputLines);
         if (index === start) {
           if (id === 'nightly-backup') {
@@ -273,7 +263,7 @@ try {
     assert.deepEqual(stages[4].inputLines, stages[3].outputLines);
   }
   if (write) {
-    stages[0].outputLines = lines(sample);
+    stages[0].outputLines = lines(sample, [], null);
     let current = sample;
     for (const stage of stages.slice(1, 3)) {
       stage.inputLines = lines(current);
@@ -283,8 +273,10 @@ try {
           'utf8'
         )
       );
-      current = execute(config.pipeline.processors, current);
-      stage.outputLines = lines(current);
+      const input = current;
+      current = execute(config.pipeline.processors, input);
+      stage.inputLines = lines(input, [], current, 'removed');
+      stage.outputLines = lines(current, [], input);
     }
     stages[3].inputLines = lines(current);
     stages[3].description =
@@ -318,8 +310,11 @@ try {
       })),
       { content: '# Delivery behavior: not assessed', indent: 0 },
     ];
-    for (const stage of stages) {
-      stage.outputLines = highlightChanges(stage.outputLines, stage.inputLines);
+    for (const stage of stages.slice(3)) {
+      stage.outputLines = stage.outputLines.map((line) => ({
+        ...line,
+        type: 'highlighted',
+      }));
     }
     stages[4].inputLines = stages[3].outputLines;
     await save(retailPath, retailName, stages);
