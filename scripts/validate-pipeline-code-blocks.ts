@@ -6,12 +6,13 @@ import { fileURLToPath } from 'node:url';
 
 import { globSync } from 'glob';
 
-import { classifyPipelineCode } from '../src/lib/pipelineCode';
+import {
+  classifyPipelineCode,
+  extractYamlCodeBlocks,
+} from '../src/lib/pipelineCode';
 import { discoverPipelineFiles } from './validation/inventory';
 
 const repositoryRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
-
-const fencePattern = /^```(?:yaml|yml)(?:[^\n]*)\n([\s\S]*?)^```/gm;
 
 const failures: string[] = [];
 
@@ -26,10 +27,10 @@ for (const path of globSync('docs/**/*.mdx', {
 }).sort()) {
   const page = readFileSync(`${repositoryRoot}/${path}`, 'utf8');
 
-  for (const match of page.matchAll(fencePattern)) {
+  for (const block of extractYamlCodeBlocks(page)) {
     yamlBlocks += 1;
 
-    if (classifyPipelineCode(match[1])) renderedPipelineBlocks += 1;
+    if (classifyPipelineCode(block.source)) renderedPipelineBlocks += 1;
   }
 }
 

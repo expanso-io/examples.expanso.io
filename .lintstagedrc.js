@@ -5,5 +5,5 @@ module.exports = {
   'examples/**/*.{yaml,yml}': validatePipeline,
   'static/files/**/*.{yaml,yml}': validatePipeline,
   'static/pipelines/**/*.{yaml,yml}': validatePipeline,
-  'docs/**/pipeline.{yaml,yml}': validatePipeline,
+  'docs/**/*.{yaml,yml,mdx}': validatePipeline,
 };

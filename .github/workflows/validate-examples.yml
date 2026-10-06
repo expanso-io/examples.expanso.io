@@ -53,7 +53,7 @@ jobs:
 
           changed=$(git diff --name-only "$base" HEAD)
           relevant=$(printf '%s\n' "$changed" | grep -E \
-            '^(examples/.*\.ya?ml|static/(files|pipelines)/.*\.ya?ml|docs/.*/pipeline\.ya?ml|tests/|playwright\.config\.ts$|scripts/validate-examples\.ts$|scripts/validate-pipeline-code-blocks\.ts$|scripts/quality/validate-browser-isolation\.ts$|scripts/validation/|validation-reports/|src/catalog/|src/components/PipelineBadge/|src/lib/pipelineCode\.ts$|src/theme/CodeBlock/|\.github/workflows/(validate-examples|nightly-edge-drift)\.yml$|package(-lock)?\.json$|\.husky/pre-commit$|CONTRIBUTING\.md$)' || true)
+            '^(examples/.*\.ya?ml|static/(files|pipelines)/.*\.ya?ml|docs/.*\.(ya?ml|mdx)|tests/|playwright\.config\.ts$|scripts/validate-examples\.ts$|scripts/validate-pipeline-code-blocks\.ts$|scripts/quality/validate-browser-isolation\.ts$|scripts/validation/|validation-reports/|src/catalog/|src/components/(PipelineBadge|ExplorerV2)/|src/lib/pipelineCode\.ts$|src/theme/CodeBlock/|\.github/workflows/(validate-examples|nightly-edge-drift)\.yml$|package(-lock)?\.json$|\.husky/pre-commit$|CONTRIBUTING\.md$|\.lintstagedrc\.js$)' || true)
 
           if [ -z "$relevant" ]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -78,6 +78,10 @@ jobs:
       - name: Preserve pre-sweep pipeline features
         if: steps.scope.outputs.run == 'true'
         run: npm run test-feature-preservation
+
+      - name: Verify validation and native encoder regressions
+        if: steps.scope.outputs.run == 'true'
+        run: npm run test-validation-regressions
 
       - name: Enforce Playwright browser isolation
         if: steps.scope.outputs.run == 'true'

@@ -61,24 +61,53 @@ export function resolveEdgeBinary(
     version?: EdgeVersionRequest;
   }
 ): EdgeBinary {
-  const requestedVersion = options.version ?? PINNED_EDGE_VERSION;
+  let requestedVersion = options.version ?? PINNED_EDGE_VERSION;
+  const latest = requestedVersion === 'latest';
+  if (latest) {
+    const release = spawnSync(
+      'curl',
+      [
+        '--fail',
+        '--location',
+        '--silent',
+        '--show-error',
+        '--connect-timeout',
+        '15',
+        '--max-time',
+        '60',
+        `https://get.expanso.io/api/edge/artifacts/resolve?os=${process.platform}&arch=${process.arch === 'x64' ? 'amd64' : process.arch}&release=stable`,
+      ],
+      { encoding: 'utf8', timeout: 65_000 }
+    );
+    if (release.status !== 0)
+      throw new Error(
+        `could not resolve latest Expanso Edge release: ${release.stderr.trim()}`
+      );
+    const metadata: unknown = JSON.parse(release.stdout);
+    if (
+      !metadata ||
+      typeof metadata !== 'object' ||
+      !('version' in metadata) ||
+      typeof metadata.version !== 'string' ||
+      !/^v\d+\.\d+\.\d+$/.test(metadata.version)
+    )
+      throw new Error('latest Expanso Edge release has no stable version tag');
+    requestedVersion = metadata.version;
+  }
   const binDir =
-    requestedVersion === PINNED_EDGE_VERSION
+    !latest && requestedVersion === PINNED_EDGE_VERSION
       ? join(repositoryRoot, '.bin')
       : join(
           repositoryRoot,
           '.bin',
-          `edge-${requestedVersion.replace(/[^a-zA-Z0-9.-]/g, '-')}`
+          `edge-${latest ? 'latest' : requestedVersion.replace(/[^a-zA-Z0-9.-]/g, '-')}`
         );
   const binary = join(binDir, 'expanso-edge');
 
   if (existsSync(binary)) {
     const version = readVersion(binary);
 
-    if (
-      version &&
-      (requestedVersion === 'latest' || version === requestedVersion)
-    )
+    if (version && version === requestedVersion)
       return { path: binary, version };
     options.log(
       `${binary} reports ${version ?? 'no version'}; reinstalling ${requestedVersion}`
@@ -125,8 +154,7 @@ export function resolveEdgeBinary(
 
   const installArgs = [installer];
 
-  if (requestedVersion !== 'latest')
-    installArgs.push('--version', requestedVersion);
+  installArgs.push('--version', requestedVersion);
   installArgs.push('--dir', binDir);
   const install = spawnSync('bash', installArgs, {
     encoding: 'utf8',
@@ -148,10 +176,7 @@ export function resolveEdgeBinary(
   chmodSync(binary, 0o755);
   const version = readVersion(binary);
 
-  if (
-    !version ||
-    (requestedVersion !== 'latest' && version !== requestedVersion)
-  ) {
+  if (!version || version !== requestedVersion) {
     throw new Error(
       `installer produced expanso-edge ${version ?? 'unknown'} instead of ${requestedVersion}`
     );

@@ -52,9 +52,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "02-json-avro.yaml",
     yamlCode:
-      "pipeline:\n  processors:\n    - mapping: |\n        root.sensor_id = this.sensor_id.string()\n        root.temperature_celsius = this.temperature_celsius.number()\n        root.humidity_percent = this.humidity_percent.number()\n        root.timestamp = this.timestamp.string()\n    # Expanso Edge delegates Avro binary encoding to the selected encoder.\n    - subprocess:\n        name: node\n        args:\n          - -e\n          - |-\n            process.stdin.pipe(process.stdout)\n        codec_send: lines\n        codec_recv: lines\n",
+      'pipeline:\n  processors:\n    - mapping: |\n        root.sensor_id = this.sensor_id.string()\n        root.temperature_celsius = this.temperature_celsius.number()\n        root.humidity_percent = this.humidity_percent.number()\n        root.timestamp = this.timestamp.string()\n    - avro:\n        operator: from_json\n        encoding: binary\n        schema: \'{"type":"record","name":"SensorReading","fields":[{"name":"sensor_id","type":"string"},{"name":"temperature_celsius","type":"double"},{"name":"humidity_percent","type":"double"},{"name":"timestamp","type":"string"}]}\'\n',
     configSha256:
-      "sha256:d3d1dadae49fd2b07688de287396346e0de7942785632f812eda78cc2228e579",
+      "sha256:330c28df3e315886a77379450ed6571d26eb86dbe733669cba48c633cc47da8c",
   },
   {
     id: 3,
@@ -101,9 +101,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "04-auto-detection.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - mapping: |\n        meta source_format = if content().has_prefix("Obj\\\\x01") {\n          "avro"\n        } else {\n          "json"\n        }\n        root = content()\n    - switch:\n        - check: \'meta("source_format") == "json"\'\n          processors:\n            - mapping: root = content().parse_json()\n        - check: \'meta("source_format") == "avro"\'\n          processors:\n            - mapping: |\n                root = content()\n                meta decoder_required = "avro"\n        - processors:\n            - log:\n                message: \'Unknown format: ${!content()}\'\n',
+      'pipeline:\n  processors:\n    - mapping: |\n        meta source_format = if content().slice(0, 4).encode("hex") == "4f626a01" {\n          "avro"\n        } else {\n          "json"\n        }\n        root = content()\n    - switch:\n        - check: \'meta("source_format") == "json"\'\n          processors:\n            - mapping: root = content().parse_json()\n        - check: \'meta("source_format") == "avro"\'\n          processors:\n            - mapping: |\n                root = content()\n                meta decoder_required = "avro"\n        - processors:\n            - log:\n                message: \'Unknown format: ${!content()}\'\n',
     configSha256:
-      "sha256:bf33c65f41ecbd45c943c2fec8cafb721b9c6dece434e48de87042837cb7aba6",
+      "sha256:cccdbc42dd7f1b310a90ae6e3dc907296ae124aded1ac884db6051531e047aff",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 

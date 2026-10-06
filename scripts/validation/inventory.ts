@@ -13,6 +13,11 @@ import { readFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import { globSync } from 'glob';
 import { parse as parseYaml } from 'yaml';
+import matter from 'gray-matter';
+import {
+  classifyPipelineCode,
+  extractYamlCodeBlocks,
+} from '../../src/lib/pipelineCode';
 
 import { PUBLIC_CATALOG } from '../../src/catalog/registry';
 import { completePipelineRouteForFamily } from '../../src/catalog/completePipelineRoutes';
@@ -28,7 +33,7 @@ const INVENTORY_GLOBS = [
   'examples/**/*.{yaml,yml}',
   'static/files/**/*.{yaml,yml}',
   'static/pipelines/**/*.{yaml,yml}',
-  'docs/**/pipeline.yaml',
+  'docs/**/*.{yaml,yml}',
 ];
 
 /** The pipeline config carried by a document, whether bare or wrapped in a job. */
@@ -40,7 +45,12 @@ export function pipelineConfigOf(
   if (document.config !== undefined && isYamlObject(document.config)) {
     const config = { ...document.config };
 
-    for (const key of ['buffer', 'cache_resources', 'rate_limit_resources']) {
+    for (const key of [
+      'buffer',
+      'cache_resources',
+      'rate_limit_resources',
+      'processor_resources',
+    ]) {
       if (document[key] !== undefined && config[key] === undefined)
         config[key] = document[key];
     }
@@ -278,7 +288,9 @@ export function discoverPipelineFiles(repositoryRoot: string): PipelineFile[] {
             ? liveRoutes.get(family)
             : (completePipelineRouteForFamily(family) ??
               liveRoutes.get(family))),
-        canonicalPath: catalogFamilies.has(path) ? path : undefined,
+        canonicalPath: [...catalogFamilies].find(
+          ([, id]) => id === family
+        )?.[0],
         document,
       });
     } catch (error) {
@@ -294,6 +306,52 @@ export function discoverPipelineFiles(repositoryRoot: string): PipelineFile[] {
     }
   }
 
+  for (const path of globSync('docs/**/*.mdx', {
+    cwd: repositoryRoot,
+    nodir: true,
+    posix: true,
+  }).sort()) {
+    const page = readFileSync(`${repositoryRoot}/${path}`, 'utf8');
+    const metadata = matter(page).data;
+    if (metadata.draft === true) continue;
+    const family = familyFromPath(path);
+    const canonicalPath = [...catalogFamilies].find(
+      ([, id]) => id === family
+    )?.[0];
+    const route =
+      typeof metadata.slug === 'string'
+        ? metadata.slug
+        : path
+            .replace(/^docs\//, '')
+            .replace(/\.mdx$/, '')
+            .replace(/\/index$/, '');
+    for (const block of extractYamlCodeBlocks(page)) {
+      if (!classifyPipelineCode(block.source)) continue;
+      const file: PipelineFile = {
+        path: `${path}#L${block.line}`,
+        sourcePath: path,
+        sourceLine: block.line,
+        source: block.source,
+        surface: 'page',
+        category: categoryFromPath(path),
+        family,
+        canonicalPath,
+        liveRoute: `/${route.replace(/^\/+|\/+$/g, '')}/`,
+        kind: 'invalid-yaml',
+      };
+      try {
+        file.document = parseYaml(block.source, {
+          strict: true,
+          uniqueKeys: true,
+        }) as YamlValue;
+        file.kind = classify(file.document);
+      } catch (error) {
+        file.parseError =
+          error instanceof Error ? error.message : String(error);
+      }
+      files.push(file);
+    }
+  }
   return files;
 }
 

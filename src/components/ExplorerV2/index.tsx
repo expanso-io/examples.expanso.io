@@ -15,6 +15,7 @@ import {
 import { captureExampleEvent } from '../../lib/analytics';
 import { completePipelineRouteForFamily } from '../../catalog/completePipelineRoutes';
 import PipelineBadge from '../PipelineBadge';
+import { classifyPipelineCode } from '../../lib/pipelineCode';
 import CopyActionButton, { CopyToast } from './CopyActionButton';
 import {
   copyResultFeedback,
@@ -857,7 +858,7 @@ export default function ExplorerV2({
                     : 'Stage configuration'}
                 </span>
                 <PipelineBadge
-                  kind={visibleYamlScope === 'full' ? 'complete' : 'fragment'}
+                  kind={classifyPipelineCode(visibleYaml) ?? 'fragment'}
                   completeHref={completePipelineRouteForFamily(exampleId)}
                 />
               </div>

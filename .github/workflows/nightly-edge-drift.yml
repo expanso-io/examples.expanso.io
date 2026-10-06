@@ -9,6 +9,7 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  actions: write
 
 concurrency:
   group: nightly-expanso-edge-drift
@@ -238,6 +239,18 @@ jobs:
           else
             echo "Updated existing pull request: $existing"
           fi
+
+      - name: Dispatch required checks for the pin-bump branch
+        if: steps.bump.outputs.needed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST_VERSION: ${{ steps.latest-version.outputs.version }}
+        run: |
+          branch="automation/expanso-edge-$LATEST_VERSION"
+          for workflow in ci.yml ai-check.yml phase1-foundation.yml \
+            entity-policy.yml validate-examples.yml; do
+            gh workflow run "$workflow" --ref "$branch"
+          done
 
       - name: Fail after recording latest drift
         if: steps.latest-validation.outcome == 'failure'

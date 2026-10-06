@@ -1,31 +1,47 @@
+import { parse } from 'yaml';
+
 export type PipelineCodeKind = 'fragment' | 'complete';
 
 export function classifyPipelineCode(source: string): PipelineCodeKind | null {
-  const text = source.trim();
+  if (!source.trim()) return null;
+  let document: unknown;
+  try {
+    document = parse(source, { strict: true, uniqueKeys: true });
+  } catch {
+    return /(?:^|\n)\s*(?:-\s*)?\w+\s*:/.test(source) ? 'fragment' : null;
+  }
+  if (Array.isArray(document)) return document.length ? 'fragment' : null;
+  if (!document || typeof document !== 'object') return null;
+  if ('apiVersion' in document && 'kind' in document) return null;
+  if ('services' in document || 'volumes' in document) return null;
+  const config = 'config' in document ? document.config : document;
+  return config &&
+    typeof config === 'object' &&
+    'input' in config &&
+    'output' in config
+    ? 'complete'
+    : 'fragment';
+}
 
-  if (!text) return null;
-
-  if (/^apiVersion\s*:/m.test(text) && /^kind\s*:/m.test(text)) return null;
-
-  if (/^(services|version)\s*:/m.test(text)) return null;
-
-  const pipelineSyntax =
-    /^(?:config|input|output|pipeline|processors|cache_resources|rate_limit_resources)\s*:/m.test(
-      text
-    ) ||
-    /^\s*-\s+(?:mapping|branch|switch|catch|try|cache|group_by|archive|unarchive|log|http)\s*:/m.test(
-      text
-    );
-
-  if (!pipelineSyntax) return null;
-
-  const topLevelComplete =
-    /^input\s*:/m.test(text) && /^output\s*:/m.test(text);
-
-  const jobComplete =
-    /^config\s*:/m.test(text) &&
-    /^ {2}input\s*:/m.test(text) &&
-    /^ {2}output\s*:/m.test(text);
-
-  return topLevelComplete || jobComplete ? 'complete' : 'fragment';
+export function extractYamlCodeBlocks(page: string): Array<{
+  source: string;
+  line: number;
+}> {
+  const blocks: Array<{ source: string; line: number }> = [];
+  const fence =
+    /^([ \t]*)(`{3,}|~{3,})(?:yaml|yml)\b[^\n]*\n([\s\S]*?)^\1\2[ \t]*$/gm;
+  for (const match of page.matchAll(fence)) {
+    const indentation = match[1];
+    const source = match[3]
+      .split('\n')
+      .map((line) =>
+        line.startsWith(indentation) ? line.slice(indentation.length) : line
+      )
+      .join('\n');
+    blocks.push({
+      source,
+      line: page.slice(0, match.index).split('\n').length + 1,
+    });
+  }
+  return blocks;
 }

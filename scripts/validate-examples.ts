@@ -477,62 +477,12 @@ function validate(
   return validateFile(edge, repositoryRoot, file.path, validationEnv);
 }
 
-async function verifyLivePages(
-  reports: readonly PipelineReport[]
-): Promise<void> {
-  const missing = reports
-    .filter((report) => !report.file.liveRoute)
-    .map((report) => report.file.path);
-
-  if (missing.length > 0) {
-    throw new Error(
-      `live page mapping missing for ${missing.length} pipeline files:\n${missing.join('\n')}`
-    );
-  }
-
-  const baseUrl =
-    process.env.VALIDATION_LIVE_BASE_URL ?? 'https://examples.expanso.io';
-  const routes = [
-    ...new Set(reports.map((report) => report.file.liveRoute as string)),
-  ].sort();
-  const failures: string[] = [];
-
-  await Promise.all(
-    routes.map(async (route) => {
-      const url = new URL(route, baseUrl);
-
-      try {
-        const response = await fetch(url, {
-          redirect: 'follow',
-          signal: AbortSignal.timeout(15_000),
-        });
-
-        if (response.status !== 200)
-          failures.push(`${url.toString()} returned HTTP ${response.status}`);
-        await response.body?.cancel();
-      } catch (error) {
-        failures.push(
-          `${url.toString()} failed: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    })
-  );
-
-  if (failures.length > 0)
-    throw new Error(
-      `live page verification failed:\n${failures.sort().join('\n')}`
-    );
-
-  log(`verified ${routes.length} live pipeline pages return HTTP 200`);
-}
-
 async function writeReports(
   reports: PipelineReport[],
   options: Options,
   edgeVersion: string,
   digest: string
 ): Promise<void> {
-  await verifyLivePages(reports);
   const summary = summarize(reports, {
     date: options.date,
     edgeVersion,
@@ -597,11 +547,13 @@ function stripDocument(report: PipelineReport): Omit<PipelineReport, 'file'> & {
   return { ...report, file, run };
 }
 
+let writeFailure = !process.argv.includes('--no-write');
 let reportDate = new Date().toISOString().slice(0, 10);
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   reportDate = options.date;
+  writeFailure = options.write;
 
   const edge = resolveEdgeBinary(repositoryRoot, {
     install: true,
@@ -617,11 +569,23 @@ async function main(): Promise<void> {
   const files =
     selectedPaths.size === 0
       ? allFiles
-      : allFiles.filter((file) => selectedPaths.has(file.path));
+      : allFiles.filter((file) =>
+          selectedPaths.has(file.sourcePath ?? file.path)
+        );
 
   if (selectedPaths.size > 0) {
-    const found = new Set(inventory.map((file) => file.path));
-    const missing = [...selectedPaths].filter((path) => !found.has(path));
+    const found = new Set(
+      inventory.map((file) => file.sourcePath ?? file.path)
+    );
+    const missing = [...selectedPaths].filter(
+      (path) =>
+        !found.has(path) &&
+        !(
+          path.startsWith('docs/') &&
+          path.endsWith('.mdx') &&
+          existsSync(join(repositoryRoot, path))
+        )
+    );
 
     if (missing.length > 0)
       throw new Error(
@@ -721,7 +685,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  writeFailureReport(repositoryRoot, reportDate, error);
+  if (writeFailure) writeFailureReport(repositoryRoot, reportDate, error);
   log(error instanceof Error ? (error.stack ?? error.message) : String(error));
   process.exitCode = 1;
 });

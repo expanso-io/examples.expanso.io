@@ -177,9 +177,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-validate-route.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - try:\n        - json_schema:\n            schema: \'{"type":"object","required":["sensor_id"]}\'\n        - mapping: \'root = this.with("status", "valid")\'\n    - catch:\n        - mapping: |\n            root = this.with("status", "invalid")\n            root.error = error()\n\noutput:\n  switch:\n    cases:\n      - check: this.status == "valid"\n        output:\n          kafka:\n            addresses: [localhost:9092]\n            topic: sensor-data-valid\n\n      - check: this.status == "invalid"\n        output:\n          kafka:\n            addresses: [localhost:9092]\n            topic: sensor-data-dlq\n',
+      'pipeline:\n  processors:\n    - try:\n        - json_schema:\n            schema: \'{"type": "object","required": ["sensor_id", "timestamp", "readings"],"properties": {"sensor_id": {"type": "string"},"timestamp": {"type": "string", "format": "date-time"},"readings": {"type": "object","required": ["temperature_celsius", "humidity_percent"],"properties": {"temperature_celsius": {"type": "number", "minimum": -50, "maximum": 100},"humidity_percent": {"type": "number", "minimum": 0, "maximum": 100}}}}}\'\n        - mapping: |\n            root = this\n            root.status = "valid"\n    - catch:\n        - mapping: |\n            root = this\n            root.status = "invalid"\n            root.error = error()\n\noutput:\n  switch:\n    cases:\n      - check: this.status == "valid"\n        output:\n          kafka:\n            addresses: [localhost:9092]\n            topic: sensor-data-valid\n\n      - check: this.status == "invalid"\n        output:\n          kafka:\n            addresses: [localhost:9092]\n            topic: sensor-data-dlq\n',
     configSha256:
-      "sha256:66b1dfd2e12fd336392fe8c0a655bd2297cb509d376de6324e1c78978f7698dc",
+      "sha256:6fcb2395fbfc137f67c00124fc3025c772269ec1f46154ca8efd62b14e58bc98",
   },
   {
     id: 4,
@@ -243,9 +243,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "04-monitor-quality.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - try:\n        - json_schema:\n            schema: \'{"type":"object","required":["sensor_id"]}\'\n        - mapping: \'root = this.with("status", "valid")\'\n        - metric:\n            type: counter\n            name: schema_validation_success\n            labels:\n              sensor_id: ${! this.sensor_id }\n    - catch:\n        - mapping: \'root = this.with("status", "invalid")\'\n        - metric:\n            type: counter\n            name: schema_validation_failure\n            labels:\n              sensor_id: ${! this.sensor_id }\n\nmetrics:\n  prometheus:\n    enabled: true\n    path: /metrics\n  # Export validation metrics every 10s\n',
+      'pipeline:\n  processors:\n    - try:\n        - json_schema:\n            schema: \'{"type": "object","required": ["sensor_id", "timestamp", "readings"],"properties": {"sensor_id": {"type": "string"},"timestamp": {"type": "string", "format": "date-time"},"readings": {"type": "object","required": ["temperature_celsius", "humidity_percent"],"properties": {"temperature_celsius": {"type": "number", "minimum": -50, "maximum": 100},"humidity_percent": {"type": "number", "minimum": 0, "maximum": 100}}}}}\'\n        - mapping: |\n            root = this\n            root.status = "valid"\n        - metric:\n            type: counter\n            name: schema_validation_success\n            labels:\n              sensor_id: ${! this.sensor_id }\n    - catch:\n        - mapping: |\n            root = this\n            root.status = "invalid"\n        - metric:\n            type: counter\n            name: schema_validation_failure\n            labels:\n              sensor_id: ${! this.sensor_id }\n',
     configSha256:
-      "sha256:0c1fe89b785da11f9dc66d6f64817ff4c5f4ac26d5fcaed1b07307b6be28f412",
+      "sha256:30d7d3c996614c225e9426879f31c394cc52edfe1f6f8a7e97a2540e03d04fa3",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 

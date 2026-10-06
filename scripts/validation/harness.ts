@@ -788,8 +788,16 @@ export function wrapFragment(
     : {};
   const parts: string[] = [];
 
-  for (const key of ['buffer', 'cache_resources', 'rate_limit_resources']) {
-    if (body[key] !== undefined) wrapped[key] = body[key];
+  for (const key of [
+    'buffer',
+    'cache_resources',
+    'rate_limit_resources',
+    'processor_resources',
+  ]) {
+    if (body[key] !== undefined) {
+      wrapped[key] = body[key];
+      parts.push(key);
+    }
   }
 
   if (body.input !== undefined) {
