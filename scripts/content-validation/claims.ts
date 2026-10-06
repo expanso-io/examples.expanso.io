@@ -310,7 +310,7 @@ export async function validateClaimsEvidence(
         file,
         text: collectClaimSurfaceText(
           raw,
-          analysis.visibleText,
+          analysis.blocks.map((block) => block.text).join('\n'),
           analysis.frontmatter
         ),
         frontmatter: analysis.frontmatter,
