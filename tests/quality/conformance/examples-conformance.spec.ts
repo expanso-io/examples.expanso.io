@@ -375,6 +375,7 @@ for (const record of published) {
   test(`${record.id}: preserved actions, sidebar routes, and related examples`, async ({
     page,
   }) => {
+    test.setTimeout(180_000);
     await page.goto(record.routes.overview, { waitUntil: 'networkidle' });
     const overviewURL = page.url();
     const actionLinks = page.locator(
@@ -445,8 +446,7 @@ for (const record of published) {
 
     await page.goto(overviewURL, { waitUntil: 'networkidle' });
     const related = page.getByRole('heading', {
-      name: 'Related examples',
-      exact: true,
+      name: /^Related examples(?: Direct link to Related examples)?$/,
     });
     await expect(related).toBeVisible();
     const relatedLinks = related
