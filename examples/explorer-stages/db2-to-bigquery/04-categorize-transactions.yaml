@@ -1,0 +1,21 @@
+pipeline:
+  processors:
+    # Step 4: Categorize transactions
+    # DataStage replacement: Lookup table / case statement
+    - mapping: |
+        root = this
+
+        # Map MCC codes to categories
+        let mcc = this.MERCHANT_CATEGORY_CODE.string()
+
+        root.transaction_category = match $mcc {
+          this.has_prefix("54") => "GROCERY",
+          this.has_prefix("55") => "AUTOMOTIVE",
+          this.has_prefix("58") => "RESTAURANT",
+          this.has_prefix("59") => "RETAIL",
+          this.has_prefix("47") => "TRANSPORTATION",
+          this.has_prefix("40") || this.has_prefix("41") => "TRAVEL",
+          this.has_prefix("60") || this.has_prefix("61") => "FINANCIAL",
+          this.has_prefix("80") => "PROFESSIONAL_SERVICES",
+          _ => "OTHER"
+        }

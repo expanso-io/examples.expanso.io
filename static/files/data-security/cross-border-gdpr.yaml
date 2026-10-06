@@ -18,7 +18,7 @@
 # - Compliance attestation metadata
 # - k-anonymity validation before transfer
 
-name: eu-cross-border-compliance
+name: eu-cross-border-transfer
 description: GDPR-compliant data anonymization for cross-border analytics
 
 input:
@@ -53,7 +53,7 @@ pipeline:
           "country": env("SOURCE_COUNTRY").or("DE"),
           "database": "transactions_eu",
           "extracted_at": now(),
-          "pipeline": "eu-cross-border-compliance"
+          "pipeline": "eu-cross-border-transfer"
         }
 
     # Step 2: Create GDPR compliance record BEFORE any transformation
@@ -106,7 +106,7 @@ pipeline:
         # Customer ID → anonymized cohort ID
         # Salt ensures can't be reversed even with rainbow tables
         let salt = env("ANONYMIZATION_SALT").or("gdpr-compliance-2024")
-        root.anonymized_customer_id = (this.customer_id.string() + $salt).hash("sha256").slice(0, 12)
+        root.anonymized_customer_id = (this.customer_id.string() + $salt).hash("sha256").encode("hex").slice(0, 12)
         root = root.without("customer_id")
 
         # Email → domain only (for B2B vs B2C analysis)
@@ -149,7 +149,7 @@ pipeline:
         root.transaction_amount = this.transaction_amount
 
         # Timestamp → hour bucket (sufficient for pattern analysis)
-        root.transaction_hour = this.transaction_timestamp.ts_parse("2006-01-02T15:04:05Z").format("2006-01-02T15:00:00Z")
+        root.transaction_hour = this.transaction_timestamp.ts_parse("2006-01-02T15:04:05Z").ts_format("2006-01-02T15:00:00Z")
 
     # Step 6: Validate anonymization completeness
     - mapping: |
@@ -157,7 +157,7 @@ pipeline:
         let pii_fields = ["customer_id", "customer_name", "customer_email",
                          "customer_dob", "customer_address", "iban", "ip_address"]
 
-        let remaining_pii = $pii_fields.filter(f -> this.get(f).exists())
+        let remaining_pii = $pii_fields.filter(f -> this.exists(f))
 
         root = if $remaining_pii.length() > 0 {
           throw("GDPR VIOLATION: PII fields still present: " + $remaining_pii.join(", "))
@@ -203,7 +203,7 @@ output:
               }
         gcp_cloud_storage:
           bucket: '${EU_ARCHIVE_BUCKET}' # Must be EU-region bucket
-          path: 'transactions/${!now().format("2006/01/02")}/eu-${!timestamp_unix()}.json'
+          path: 'transactions/${!now().ts_format("2006/01/02")}/eu-${!timestamp_unix()}.json'
           content_type: application/json
           storage_class: STANDARD
           batching:

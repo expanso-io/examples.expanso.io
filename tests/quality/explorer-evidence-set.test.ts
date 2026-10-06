@@ -30,10 +30,10 @@ describe('Explorer projection for external signed provenance', () => {
   it('binds every Explorer verification ID to exact canonical evidence', () => {
     const result = verifyExplorerEvidenceSet(evidenceSet(), expected);
     assert.equal(result.verdict, 'PASS');
-    assert.equal(result.records.length, 21);
+    assert.equal(result.records.length, 26);
     assert.equal(
       new Set(result.records.map(({ verificationId }) => verificationId)).size,
-      21
+      26
     );
   });
 

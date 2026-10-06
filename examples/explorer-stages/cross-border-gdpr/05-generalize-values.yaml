@@ -1,0 +1,23 @@
+pipeline:
+  processors:
+    # Step 5: GENERALIZE - Reduce precision on remaining fields
+    - mapping: |
+        root = this
+
+        # Transaction amount → bucket (preserves distribution analysis)
+        root.amount_bucket = match {
+          this.transaction_amount < 10 => "0-10",
+          this.transaction_amount < 50 => "10-50",
+          this.transaction_amount < 100 => "50-100",
+          this.transaction_amount < 500 => "100-500",
+          this.transaction_amount < 1000 => "500-1000",
+          this.transaction_amount < 5000 => "1000-5000",
+          _ => "5000+"
+        }
+
+        # Keep exact amount for aggregate SUM calculations
+        # (amount alone without identifier is not personal data)
+        root.transaction_amount = this.transaction_amount
+
+        # Timestamp → hour bucket (sufficient for pattern analysis)
+        root.transaction_hour = this.transaction_timestamp.ts_parse("2006-01-02T15:04:05Z").ts_format("2006-01-02T15:00:00Z")

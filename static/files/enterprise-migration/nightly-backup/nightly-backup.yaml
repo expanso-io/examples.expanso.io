@@ -62,7 +62,7 @@ pipeline:
     - mapping: |
         root = this
         root._backup_metadata = {
-          "backup_date": now().format("2006-01-02"),
+          "backup_date": now().ts_format("2006-01-02"),
           "backup_timestamp": now(),
           "source_host": env("DB_HOST").or("unknown"),
           "source_database": env("DB_NAME").or("unknown"),
@@ -75,7 +75,7 @@ pipeline:
         root = this
         # Create checksum from all original fields (excluding metadata)
         let data_fields = this.without("_table", "_backup_type", "_backup_metadata")
-        root._checksum = $data_fields.format_json().hash("md5")
+        root._checksum = $data_fields.format_json().hash("md5").encode("hex")
 
 output:
   # Route to different paths based on table

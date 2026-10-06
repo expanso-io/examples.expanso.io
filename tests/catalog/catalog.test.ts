@@ -94,14 +94,14 @@ describe('public catalog schema', () => {
     const explorerRecords = PUBLIC_CATALOG.records.filter(
       (record) => record.routes.explore !== undefined
     );
-    assert.equal(explorerRecords.length, 21);
+    assert.equal(explorerRecords.length, 26);
     assert.ok(explorerRecords.every((record) => record.explorerEvidence));
     assert.deepEqual(verifyExplorerProvenanceBindings(), {
       schemaDigest: EXPLORER_EVIDENCE_SCHEMA_DIGEST,
-      explorersVerified: 21,
-      architectureBindingsVerified: 20,
+      explorersVerified: 26,
+      architectureBindingsVerified: 25,
       strengthenedFidelityBindingsVerified: 1,
-      stagesVerified: 100,
+      stagesVerified: 126,
       status: 'PASS',
     });
   });
@@ -303,6 +303,17 @@ describe('public catalog schema', () => {
         delete routes.explore;
       }),
       'required when Explorer evidence is bound'
+    );
+  });
+
+  it('requires an Explorer route for every published example', () => {
+    expectFailure(
+      withRecord('nightly-backup', (record) => {
+        const routes = record.routes as Record<string, unknown>;
+        delete routes.explore;
+        delete record.explorerEvidence;
+      }),
+      'routes.explore: required for every published example'
     );
   });
 

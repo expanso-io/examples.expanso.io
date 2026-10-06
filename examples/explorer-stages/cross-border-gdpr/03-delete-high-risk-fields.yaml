@@ -1,0 +1,24 @@
+pipeline:
+  processors:
+    # Step 3: DELETE - Remove fields with no analytics value
+    # These are deleted entirely, not recoverable
+    - mapping: |
+        root = this
+
+        # Full name - no analytics value, high risk
+        root = root.without("customer_name")
+
+        # Full address - no analytics value
+        root = root.without("customer_address")
+
+        # Date of birth - delete, keep only age bucket
+        root.customer_age_bucket = match {
+          this.customer_dob == null => "unknown",
+          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 25 * 365 * 24 * 3600 => "18-24",
+          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 35 * 365 * 24 * 3600 => "25-34",
+          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 45 * 365 * 24 * 3600 => "35-44",
+          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 55 * 365 * 24 * 3600 => "45-54",
+          now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 65 * 365 * 24 * 3600 => "55-64",
+          _ => "65+"
+        }
+        root = root.without("customer_dob")

@@ -18,14 +18,14 @@
 # - Compliance attestation metadata
 # - k-anonymity validation before transfer
 
-name: eu-cross-border-compliance
+name: eu-cross-border-transfer
 description: GDPR-compliant data anonymization for cross-border analytics
 
 input:
   # Read from EU regional database
   sql_select:
     driver: postgres
-    dsn: "postgres://${DB_USER}:${DB_PASSWORD}@${EU_DB_HOST}:5432/transactions_eu"
+    dsn: 'postgres://${DB_USER}:${DB_PASSWORD}@${EU_DB_HOST}:5432/transactions_eu'
     table: customer_transactions
     columns:
       - transaction_id
@@ -53,7 +53,7 @@ pipeline:
           "country": env("SOURCE_COUNTRY").or("DE"),
           "database": "transactions_eu",
           "extracted_at": now(),
-          "pipeline": "eu-cross-border-compliance"
+          "pipeline": "eu-cross-border-transfer"
         }
 
     # Step 2: Create GDPR compliance record BEFORE any transformation
@@ -63,7 +63,7 @@ pipeline:
           "legal_basis": "legitimate_interest_analytics",
           "original_pii_fields": [
             "customer_id",
-            "customer_name", 
+            "customer_name",
             "customer_email",
             "customer_dob",
             "customer_address",
@@ -79,13 +79,13 @@ pipeline:
     # These are deleted entirely, not recoverable
     - mapping: |
         root = this
-        
+
         # Full name - no analytics value, high risk
         root = root.without("customer_name")
-        
+
         # Full address - no analytics value
         root = root.without("customer_address")
-        
+
         # Date of birth - delete, keep only age bucket
         root.customer_age_bucket = match {
           this.customer_dob == null => "unknown",
@@ -102,13 +102,13 @@ pipeline:
     # One-way hash means this is anonymization, not pseudonymization
     - mapping: |
         root = this
-        
+
         # Customer ID → anonymized cohort ID
         # Salt ensures can't be reversed even with rainbow tables
         let salt = env("ANONYMIZATION_SALT").or("gdpr-compliance-2024")
-        root.anonymized_customer_id = (this.customer_id.string() + $salt).hash("sha256").slice(0, 12)
+        root.anonymized_customer_id = (this.customer_id.string() + $salt).hash("sha256").encode("hex").slice(0, 12)
         root = root.without("customer_id")
-        
+
         # Email → domain only (for B2B vs B2C analysis)
         root.email_domain = if this.customer_email.contains("@") {
           this.customer_email.split("@").index(1).lowercase()
@@ -116,11 +116,11 @@ pipeline:
           "unknown"
         }
         root = root.without("customer_email")
-        
+
         # IBAN → country code only (for geographic analysis)
         root.bank_country = this.iban.slice(0, 2)
         root = root.without("iban")
-        
+
         # IP address → /16 subnet (country-level geolocation possible)
         root.ip_subnet = if this.ip_address.contains(".") {
           this.ip_address.split(".").slice(0, 2).join(".") + ".0.0/16"
@@ -132,7 +132,7 @@ pipeline:
     # Step 5: GENERALIZE - Reduce precision on remaining fields
     - mapping: |
         root = this
-        
+
         # Transaction amount → bucket (preserves distribution analysis)
         root.amount_bucket = match {
           this.transaction_amount < 10 => "0-10",
@@ -143,28 +143,28 @@ pipeline:
           this.transaction_amount < 5000 => "1000-5000",
           _ => "5000+"
         }
-        
+
         # Keep exact amount for aggregate SUM calculations
         # (amount alone without identifier is not personal data)
         root.transaction_amount = this.transaction_amount
-        
+
         # Timestamp → hour bucket (sufficient for pattern analysis)
-        root.transaction_hour = this.transaction_timestamp.ts_parse("2006-01-02T15:04:05Z").format("2006-01-02T15:00:00Z")
+        root.transaction_hour = this.transaction_timestamp.ts_parse("2006-01-02T15:04:05Z").ts_format("2006-01-02T15:00:00Z")
 
     # Step 6: Validate anonymization completeness
     - mapping: |
         # Check no PII fields remain
-        let pii_fields = ["customer_id", "customer_name", "customer_email", 
+        let pii_fields = ["customer_id", "customer_name", "customer_email",
                          "customer_dob", "customer_address", "iban", "ip_address"]
-        
-        let remaining_pii = $pii_fields.filter(f -> this.get(f).exists())
-        
+
+        let remaining_pii = $pii_fields.filter(f -> this.exists(f))
+
         root = if $remaining_pii.length() > 0 {
           throw("GDPR VIOLATION: PII fields still present: " + $remaining_pii.join(", "))
         } else {
           this
         }
-        
+
         # Add compliance attestation
         root._gdpr_compliance.anonymization_verified = true
         root._gdpr_compliance.verification_timestamp = now()
@@ -179,7 +179,7 @@ output:
       # This data is no longer "personal data" under GDPR
       - label: global_analytics
         gcp_bigquery:
-          project: "${GCP_GLOBAL_PROJECT}"
+          project: '${GCP_GLOBAL_PROJECT}'
           dataset: global_analytics
           table: anonymized_transactions
           format: NEWLINE_DELIMITED_JSON
@@ -202,8 +202,8 @@ output:
                 "gdpr_lawful_basis": "legal_obligation"
               }
         gcp_cloud_storage:
-          bucket: "${EU_ARCHIVE_BUCKET}"  # Must be EU-region bucket
-          path: "transactions/${!now().format(\"2006/01/02\")}/eu-${!timestamp_unix()}.json"
+          bucket: '${EU_ARCHIVE_BUCKET}' # Must be EU-region bucket
+          path: 'transactions/${!now().ts_format("2006/01/02")}/eu-${!timestamp_unix()}.json'
           content_type: application/json
           storage_class: STANDARD
           batching:
@@ -225,5 +225,5 @@ output:
                 "gdpr_article": this._gdpr_compliance.gdpr_article
               }
         file:
-          path: "/var/log/expanso/gdpr-audit-${!timestamp_format(\"2006-01-02\")}.jsonl"
+          path: '/var/log/expanso/gdpr-audit-${!timestamp_format("2006-01-02")}.jsonl'
           codec: lines
