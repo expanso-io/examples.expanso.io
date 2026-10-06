@@ -162,7 +162,7 @@ export const db2ToBigqueryStages: Stage[] = [
         type: 'added',
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -291,7 +291,7 @@ export const db2ToBigqueryStages: Stage[] = [
         valueType: 'object',
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -407,7 +407,7 @@ export const db2ToBigqueryStages: Stage[] = [
         valueType: 'object',
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -442,7 +442,7 @@ export const db2ToBigqueryStages: Stage[] = [
         indent: 1,
       },
       {
-        content: '"amount_usd": 135.54,',
+        content: '"amount_usd": 135.54000000000002,',
         indent: 1,
         key: 'amount_usd',
         valueType: 'number',
@@ -553,7 +553,7 @@ export const db2ToBigqueryStages: Stage[] = [
         valueType: 'object',
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -587,7 +587,7 @@ export const db2ToBigqueryStages: Stage[] = [
         indent: 1,
       },
       {
-        content: '"amount_usd": 135.54,',
+        content: '"amount_usd": 135.54000000000002,',
         indent: 1,
         key: 'amount_usd',
         valueType: 'number',
@@ -681,7 +681,7 @@ export const db2ToBigqueryStages: Stage[] = [
         valueType: 'object',
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -730,7 +730,7 @@ export const db2ToBigqueryStages: Stage[] = [
         type: 'added',
       },
       {
-        content: '"amount_usd": 135.54,',
+        content: '"amount_usd": 135.54000000000002,',
         indent: 1,
         key: 'amount_usd',
         valueType: 'number',
@@ -831,7 +831,7 @@ export const db2ToBigqueryStages: Stage[] = [
         valueType: 'object',
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -877,7 +877,7 @@ export const db2ToBigqueryStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"amount_usd": 135.54,',
+        content: '"amount_usd": 135.54000000000002,',
         indent: 1,
         key: 'amount_usd',
         valueType: 'number',
@@ -971,7 +971,7 @@ export const db2ToBigqueryStages: Stage[] = [
         valueType: 'object',
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -1018,7 +1018,7 @@ export const db2ToBigqueryStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"amount_usd": 135.54,',
+        content: '"amount_usd": 135.54000000000002,',
         indent: 1,
         key: 'amount_usd',
         valueType: 'number',
@@ -1136,7 +1136,7 @@ export const db2ToBigqueryStages: Stage[] = [
         valueType: 'object',
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -1182,7 +1182,7 @@ export const db2ToBigqueryStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"amount_usd": 135.54,',
+        content: '"amount_usd": 135.54000000000002,',
         indent: 1,
         key: 'amount_usd',
         valueType: 'number',
@@ -1222,7 +1222,7 @@ export const db2ToBigqueryStages: Stage[] = [
         valueType: 'object',
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -1276,7 +1276,7 @@ export const db2ToBigqueryStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"amount_usd": 135.54,',
+        content: '"amount_usd": 135.54000000000002,',
         indent: 1,
         key: 'amount_usd',
         valueType: 'number',
@@ -1379,7 +1379,7 @@ export const db2ToBigqueryStages: Stage[] = [
         valueType: 'object',
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -1431,7 +1431,7 @@ export const db2ToBigqueryStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"amount_usd": 135.54,',
+        content: '"amount_usd": 135.54000000000002,',
         indent: 1,
         key: 'amount_usd',
         valueType: 'number',
@@ -1519,7 +1519,7 @@ export const db2ToBigqueryStages: Stage[] = [
         valueType: 'object',
       },
       {
-        content: '"extracted_at": "2026-10-05T18:24:41.888949-07:00",',
+        content: '"extracted_at": "2026-10-05T18:31:30.519528-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -1572,7 +1572,7 @@ export const db2ToBigqueryStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"amount_usd": 135.54,',
+        content: '"amount_usd": 135.54000000000002,',
         indent: 1,
         key: 'amount_usd',
         valueType: 'number',

@@ -372,7 +372,7 @@ export const GENERATED_EXPLORER_STAGES = [
         type: "added",
       },
       {
-        content: '"backup_timestamp": "2026-10-05T18:24:42.203165-07:00",',
+        content: '"backup_timestamp": "2026-10-05T18:31:31.115835-07:00",',
         indent: 2,
         key: "backup_timestamp",
         valueType: "string",
@@ -490,7 +490,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"backup_timestamp": "2026-10-05T18:24:42.203165-07:00",',
+        content: '"backup_timestamp": "2026-10-05T18:31:31.115835-07:00",',
         indent: 2,
         key: "backup_timestamp",
         valueType: "string",
@@ -591,7 +591,7 @@ export const GENERATED_EXPLORER_STAGES = [
         valueType: "string",
       },
       {
-        content: '"backup_timestamp": "2026-10-05T18:24:42.203165-07:00",',
+        content: '"backup_timestamp": "2026-10-05T18:31:31.115835-07:00",',
         indent: 2,
         key: "backup_timestamp",
         valueType: "string",
@@ -702,7 +702,7 @@ export const GENERATED_EXPLORER_STAGES = [
       { content: '"_backup_metadata": {', indent: 1 },
       { content: '"backup_date": "2026-10-05",', indent: 2 },
       {
-        content: '"backup_timestamp": "2026-10-05T18:24:42.203165-07:00",',
+        content: '"backup_timestamp": "2026-10-05T18:31:31.115835-07:00",',
         indent: 2,
       },
       { content: '"node_id": "unknown",', indent: 2 },

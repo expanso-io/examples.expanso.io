@@ -93,6 +93,17 @@ function lines(value, previous = []) {
     );
 }
 
+function highlightChanges(output, input) {
+  const unchanged = new Set(input.map((line) => line.content));
+  return output.map((line) => ({
+    ...line,
+    type:
+      unchanged.has(line.content) || /^[\s{}\[\],]*$/.test(line.content)
+        ? 'normal'
+        : 'highlighted',
+  }));
+}
+
 async function save(path, name, stages) {
   writeFileSync(
     path,
@@ -104,6 +115,42 @@ async function save(path, name, stages) {
 }
 
 try {
+  if (!write) {
+    for (const path of [
+      'examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml',
+      'static/files/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml',
+      'examples/explorer-stages/db2-to-bigquery/02-normalize-currency.yaml',
+    ]) {
+      const config = parse(readFileSync(path, 'utf8'));
+      const currency = config.pipeline.processors.find(
+        (processor) => processor.branch
+      );
+      const rows = [
+        { AMOUNT: 1, CURRENCY: 'JPY' },
+        { AMOUNT: 1.125, CURRENCY: 'USD' },
+        { AMOUNT: 2, CURRENCY: 'EUR' },
+      ];
+      assert.deepEqual(
+        execute([currency], rows),
+        rows.map((row, index) => ({
+          ...row,
+          original_amount: row.AMOUNT,
+          original_currency: row.CURRENCY,
+          amount_usd: [0.0067, 1.125, 2.16][index],
+        })),
+        `${path}: currency precision and branch result mapping`
+      );
+    }
+    for (const path of [
+      'examples/data-security/cross-border-gdpr/cross-border-gdpr.yaml',
+      'static/files/data-security/cross-border-gdpr.yaml',
+    ]) {
+      const config = parse(readFileSync(path, 'utf8'));
+      assert.equal(config.name, 'eu-cross-border-compliance');
+      const [row] = execute([config.pipeline.processors[0]], [{}]);
+      assert.equal(row._data_origin.pipeline, config.name);
+    }
+  }
   for (const [category, id, name] of families) {
     const path = `docs/${category}/${id}-full.stages.ts`;
     const stages = (await load(path))[name];
@@ -271,6 +318,10 @@ try {
       })),
       { content: '# Delivery behavior: not assessed', indent: 0 },
     ];
+    for (const stage of stages) {
+      stage.outputLines = highlightChanges(stage.outputLines, stage.inputLines);
+    }
+    stages[4].inputLines = stages[3].outputLines;
     await save(retailPath, retailName, stages);
   }
   process.stdout.write(
