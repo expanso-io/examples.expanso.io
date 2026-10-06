@@ -1,0 +1,71 @@
+---
+title: Log triage pipeline
+sidebar_label: Pipeline
+sidebar_position: 2
+description: The complete Jev log-triage pipeline — YAML, stage walkthrough, quick test, and deploy
+keywords: [jev, ai, log-processing, triage, pipeline, yaml]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/log-processing/jev-log-triage.yaml';
+import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
+
+# Complete pipeline
+
+<CopyPipelineButton pipeline={pipelineYaml} />
+
+This pipeline combines the full decisions-at-the-edge pattern:
+
+- **HTTP input** — log events arrive at `POST /logs`
+- **Jev branch** — one typed decision per event (actionable, severity, team, impact)
+- **Confidence cascade** — page / notify / review / archive by confidence thresholds
+- **Fan-out** — stdout for the demo, per-decision files for the record
+
+## Full configuration
+
+<CodeBlock language="yaml" title="jev-log-triage.yaml">{pipelineYaml}</CodeBlock>
+
+## How it works, stage by stage
+
+1. **Parse and stamp** — `json_documents` parses the event; a `mapping` adds `received_at` and `node_id`.
+2. **Ask Jev** — a `mutation` records the start time, then a `branch` builds the Jev request (`state` + 4 questions), POSTs it with the `http` processor, and merges the typed answers back as `jev.answers`. The call is wrapped in `try/catch` so a Jev outage degrades to review instead of dropping events.
+3. **Cascade** — a `mapping` reads `jev.answers` with `.or()` defaults and sets `jev_decision` from the confidence thresholds.
+4. **Route** — a `switch` output fans out to `stdout` (always visible) plus one file per decision. In production, swap the `page` and `notify` file outputs for `http_client` calls to PagerDuty and Slack.
+
+## Try it
+
+### 1. Start the mock Jev server (no API key needed)
+
+```bash
+python3 examples/jev-mock-server.py &
+# Mock Jev API listening on http://localhost:8099/v1/systemone
+```
+
+### 2. Run the pipeline against the mock
+
+```bash
+JEV_API_URL=http://localhost:8099/v1/systemone \
+  expanso-edge run --config examples/log-processing/jev-log-triage.yaml
+```
+
+### 3. Send the sample events
+
+```bash
+while read -r line; do
+  curl -s -X POST http://localhost:8080/logs \
+    -H "Content-Type: application/json" -d "$line" > /dev/null
+done < examples/log-processing/jev-log-triage-input.jsonl
+```
+
+Watch stdout: each event comes back enriched with `jev.answers` and a `jev_decision`. Check `./data/jev-log-triage/` — the fatal database event lands in `page-*.jsonl`, the auth anomaly in `review-*.jsonl` or `notify-*.jsonl`, the health checks in `archive-*.jsonl`.
+
+### 4. With a real Jev key
+
+```bash
+export TYPESAFE_API_KEY="your-key"
+expanso-edge run --config examples/log-processing/jev-log-triage.yaml
+```
+
+## Deploy to Expanso Cloud
+
+Ship the same YAML to your edge fleet from the Expanso Cloud dashboard — set `TYPESAFE_API_KEY` as a pipeline secret and `NODE_ID` per node. Nothing else changes.

@@ -1,0 +1,53 @@
+---
+title: Semantic sensitivity classifier with Jev
+sidebar_label: Introduction
+sidebar_position: 1
+description: Every record gets a sensitivity class plus PII and credential judgment at the edge — then the matching masking policy is applied before data leaves the source.
+keywords: [jev, ai, data-security, pii, masking, redaction, governance, decisions-at-the-edge]
+---
+
+# Semantic sensitivity classifier → edge masking
+
+Regexes never knew what "sensitive" meant. Jev reads each record semantically — is this PII, are those credentials, what sensitivity class is this — and the pipeline applies the matching policy before the record leaves the source.
+
+## The problem
+
+- PII regexes miss context ("my SSN is..." vs "order #123-45") and drown in false positives
+- Credentials leak into logs, tickets, and training data because no pattern catches every format
+- Governance teams want policy enforcement *before* data moves, not audits after
+
+## How it works
+
+```
+POST /records ──▶ Jev (1 call, 3 questions) ──▶ policy ──▶ mask ──▶ forward
+                                                        │
+            ┌──────────────┬──────────────┬──────────────┴──────────────┐
+            ▼              ▼              ▼                             ▼
+     credentials or   confidential   PII present                  public
+     restricted       → tokenize     → mask                      → pass through
+     → quarantine
+     + alert
+```
+
+## The Jev questions
+
+| Question | Type | What it decides |
+|---|---|---|
+| `sensitivity` | Choice (public / internal / confidential / restricted) | The record's class |
+| `contains_pii` | Noul | Names, emails, SSNs, addresses, phones? |
+| `contains_credentials` | Noul | Passwords, API keys, tokens, secrets? |
+
+## The policy
+
+The cascade picks one policy per record, and a `mapping` applies it inline:
+
+- **quarantine** — credentials (≥ 0.7) or `restricted`: secrets redacted, record quarantined, security alerted
+- **tokenize** — `confidential`: emails and SSNs replaced with SHA-256 tokens (joinable, not reversible)
+- **mask** — PII present: sensitive fields replaced with `MASKED`
+- **pass** — public records flow untouched
+
+The policy applied is stamped on every record as `policy_applied`, so downstream systems and auditors can see exactly what happened at the edge.
+
+## Why this matters
+
+This is Expanso's core governance story with judgment attached: policy enforcement *before data moves*, now semantic instead of syntactic. The same pattern ports to training-data pipelines — mask before the lake, not after the leak.

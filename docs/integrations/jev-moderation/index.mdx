@@ -1,0 +1,47 @@
+---
+title: Moderation pre-filter with Jev
+sidebar_label: Introduction
+sidebar_position: 1
+description: Every piece of user content gets a category judgment inline at the edge. Safe content auto-allows; everything else queues for humans, most-uncertain first.
+keywords: [jev, ai, integrations, moderation, trust-and-safety, ugc, decisions-at-the-edge]
+---
+
+# Moderation pre-filter: humans only see the edge cases
+
+Content volume makes 100% human moderation impossible and 100% auto-moderation reckless. This pipeline splits the difference: Jev judges every post, the clearly-safe auto-publishes, and humans review the rest — working most-uncertain first.
+
+## The problem
+
+- UGC volume grows faster than trust & safety headcount
+- Auto-moderation with no confidence measure either over-blocks or under-blocks
+- Review queues are FIFO; the riskiest content waits behind the obvious cases
+
+## How it works
+
+```
+POST /content ──▶ Jev (1 call, 2 questions) ──▶ cascade
+                                                      │
+                          ┌───────────────────────────┴───────────────────┐
+                          ▼                                               ▼
+              safe + conf ≥ 0.9 + no human                       everything else
+              needed → allow                                    → review queue
+                                                                (priority = 1 − confidence)
+```
+
+## The Jev questions
+
+| Question | Type | What it decides |
+|---|---|---|
+| `category` | Choice (safe / spam / hate / sexual / self_harm / other) | Content class |
+| `needs_human` | Noul | Should a human review before publishing? |
+
+## The confidence cascade
+
+- **allow** — `safe` with confidence ≥ 0.9 and human-need < 0.5: publishes immediately
+- **review** — everything else, stamped with `review_priority = 1 − confidence` so moderators work the most uncertain cases first
+
+The queue ordering is the subtle win: reviewer time goes to the judgment calls, not to rubber-stamping obvious allows or obvious spam.
+
+## A note on scope
+
+Jev makes the *routing* decision, not the final moderation call on hard cases — those stay human. The pipeline's job is triage at a scale and cost (roughly $0.00001 per post) that makes 100% coverage affordable.

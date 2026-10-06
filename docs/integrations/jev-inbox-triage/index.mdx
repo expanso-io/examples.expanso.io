@@ -1,0 +1,52 @@
+---
+title: Inbox triage with Jev
+sidebar_label: Introduction
+sidebar_position: 1
+description: Every incoming email gets its tray, an urgency score and a human-written verdict judged inline at the edge. Urgent human mail pages the team; uncertain mail queues for review; promos and spam archive themselves.
+keywords: [jev, ai, integrations, inbox, email, triage, decisions-at-the-edge]
+---
+
+# Inbox triage with Jev
+
+Every incoming email lands at `POST /inbox`. Before anything touches a human's attention, Jev reads it — which tray it belongs in, how urgent it is, whether a human actually wrote it — and the pipeline acts on those answers with confidence gating.
+
+## The problem
+
+- Support inboxes are shared, unsorted, and reviewed oldest-first
+- Keyword filters misfile the mail that matters (an "urgent" promo vs. an actually-urgent outage report from a customer)
+- Nobody scores urgency, so the 9am "production is down" email sits behind a newsletter
+- Human-written mail that needs a personal reply looks identical to an automated receipt to every filter
+
+## How it works
+
+```
+POST /inbox ──▶ Jev (1 call, 3 questions) ──▶ cascade ──▶ files
+                                                        │
+     ┌──────────────┬───────────────┬──────────┴──────────┬──────────────┐
+     ▼              ▼               ▼                     ▼              ▼
+  urgent human   confident     tray confidence      promos/spam    filed to the
+  needs-reply    needs-reply   < 0.5 → human        → archive     tray file
+  → page team    → reply queue     review                            (updates, sales)
+```
+
+## The Jev questions
+
+| Question | Type | What it decides |
+|---|---|---|
+| `tray` | Choice (needs_reply / updates / promos / sales / spam) | Which inbox it belongs in |
+| `urgency` | Score (0–4) | How fast it needs attention |
+| `human_written` | Noul | Written by a person, or an automated sender? |
+
+The tray set mirrors the open-source [jevmail](https://github.com/fazlerocks/jevmail) project (Needs reply / Updates / Promos / Sales / Spam + 1–5 urgency + human-written boolean), an independent project by Fazle Rahman that this demo is inspired by — jevmail is unaffiliated with Expanso. Where jevmail stops at classification in a local SQLite database, this pipeline wraps the same Jev judgment call in a deterministic substrate: **dedupe** of retried webhook deliveries, an **audit trail** of every judgment (model, answers, confidence, and latency stamped on each event), a **confidence-gated review queue** for the uncertain calls, and **team routing** so triage decisions fan out to the right people and systems.
+
+## The confidence cascade
+
+- **alert** — needs_reply with urgency ≥ 3.0 and human-written ≥ 0.9: a person wrote in, it's urgent, and they expect an answer. Page the team.
+- **review** — tray confidence < 0.5: Jev isn't sure where this goes. A human reads it, with Jev's probability spread attached as the review UI.
+- **reply_queue** — confident needs_reply that isn't urgent: queued for a personal reply, oldest-first by urgency score.
+- **archive** — promos and spam file themselves away, out of sight.
+- **tray** — everything confident and non-urgent (updates, sales outreach) files into its tray for batched review.
+
+## Cost math
+
+One Jev call per message. A 150-token message at TypeSafe's published $0.042/MTok input costs roughly **$0.000006** — against a human triage touch typically estimated at $0.50–2 per message, and you recover the attention of everyone who no longer opens promos.

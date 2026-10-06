@@ -1,0 +1,59 @@
+---
+title: Inbox triage pipeline
+sidebar_label: Pipeline
+sidebar_position: 2
+description: The complete Jev inbox-triage pipeline — YAML, stage walkthrough, quick test, and deploy
+keywords: [jev, ai, integrations, inbox, email, triage, pipeline, yaml]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/integrations/jev-inbox-triage.yaml';
+import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
+
+# Complete pipeline
+
+<CopyPipelineButton pipeline={pipelineYaml} />
+
+- **HTTP input** — email events arrive at `POST /inbox`
+- **Jev branch** — tray, urgency score, and human-written verdict in one call
+- **Confidence cascade** — alert / reply_queue / review / archive / tray
+- **Fan-out** — stdout for the demo, per-decision tray files
+
+## Full configuration
+
+<CodeBlock language="yaml" title="jev-inbox-triage.yaml">{pipelineYaml}</CodeBlock>
+
+## How it works, stage by stage
+
+1. **Parse** — the `http_server` input parses the JSON email event; the guard mapping handles raw-string bodies.
+2. **Ask Jev** — the `branch` builds the request from the whole email (`this.string()` as state), POSTs it, and merges answers back as `jev.answers`, stamped with the model name and call latency for the audit trail. Wrapped in `try/catch` for graceful degradation: if Jev is unreachable, answers are empty and the cascade falls back to review.
+3. **Cascade** — thresholds on tray choice, urgency score, human-written verdict, and tray confidence set `jev_decision` and stamp `assigned_tray`.
+4. **Route** — `switch` fans out to stdout plus one dated file per decision; confident non-urgent mail lands in per-tray files (`tray-updates-*.jsonl`, `tray-sales-*.jsonl`).
+
+## Try it
+
+```bash
+# 1. Mock Jev (no API key needed)
+python3 examples/jev-mock-server.py &
+
+# 2. Run the pipeline
+JEV_API_URL=http://localhost:8099/v1/systemone \
+  expanso-edge run --config examples/integrations/jev-inbox-triage.yaml
+
+# 3. Send the sample emails
+while read -r line; do
+  curl -s -X POST http://localhost:8080/inbox \
+    -H "Content-Type: application/json" -d "$line" > /dev/null
+done < examples/integrations/jev-inbox-triage-input.jsonl
+```
+
+The urgent outage report (human-written, needs a reply) should land in `alert-*.jsonl`; the payment-method question in `reply_queue-*.jsonl`; the ambiguous "quick thought" email in `review-*.jsonl`; the promo and the crypto scam in `archive-*.jsonl`; the automated receipt in `tray-updates-*.jsonl`.
+
+## With a real Jev key
+
+```bash
+export TYPESAFE_API_KEY="your-key"
+expanso-edge run --config examples/integrations/jev-inbox-triage.yaml
+```
+
+In production, point your mail provider's sync webhook (Gmail push notifications, Outlook subscriptions) at `POST /inbox`, key a dedupe on `Message-ID` before the Jev branch so retried deliveries never double-charge, and swap the `alert` file output for an `http_client` call to your team's paging webhook.

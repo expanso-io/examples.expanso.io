@@ -1,0 +1,59 @@
+---
+title: Ticket router pipeline
+sidebar_label: Pipeline
+sidebar_position: 2
+description: The complete Jev ticket-router pipeline — YAML, stage walkthrough, quick test, and deploy
+keywords: [jev, ai, integrations, support, ticket-routing, pipeline, yaml]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/integrations/jev-ticket-router.yaml';
+import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
+
+# Complete pipeline
+
+<CopyPipelineButton pipeline={pipelineYaml} />
+
+- **HTTP input** — tickets arrive at `POST /tickets`
+- **Jev branch** — department, intent, frustration, urgency in one call
+- **Confidence cascade** — page / priority / triage / route
+- **Fan-out** — stdout for the demo, per-decision queue files
+
+## Full configuration
+
+<CodeBlock language="yaml" title="jev-ticket-router.yaml">{pipelineYaml}</CodeBlock>
+
+## How it works, stage by stage
+
+1. **Parse** — `json_documents` parses the webhook payload.
+2. **Ask Jev** — the `branch` builds the request from the whole ticket (`this.string()` as state), POSTs it, and merges answers back as `jev.answers`. Wrapped in `try/catch` for graceful degradation.
+3. **Cascade** — thresholds on urgency, frustration, and department confidence set `jev_decision` and stamp `assigned_department`.
+4. **Route** — `switch` fans out to stdout plus one queue file per decision; routed tickets land in per-department files.
+
+## Try it
+
+```bash
+# 1. Mock Jev (no API key needed)
+python3 examples/jev-mock-server.py &
+
+# 2. Run the pipeline
+JEV_API_URL=http://localhost:8099/v1/systemone \
+  expanso-edge run --config examples/integrations/jev-ticket-router.yaml
+
+# 3. Send the sample tickets
+while read -r line; do
+  curl -s -X POST http://localhost:8080/tickets \
+    -H "Content-Type: application/json" -d "$line" > /dev/null
+done < examples/integrations/jev-ticket-router-input.jsonl
+```
+
+The GDPR deletion ticket (all-caps, mentions legal) should land in `page-*.jsonl`; the duplicate-charge ticket in `priority-*.jsonl`; the SSO question in `routed-sales-*.jsonl`.
+
+## With a real Jev key
+
+```bash
+export TYPESAFE_API_KEY="your-key"
+expanso-edge run --config examples/integrations/jev-ticket-router.yaml
+```
+
+In production, point your helpdesk webhook at this pipeline and swap the `page` file output for an `http_client` call to your on-call paging API.

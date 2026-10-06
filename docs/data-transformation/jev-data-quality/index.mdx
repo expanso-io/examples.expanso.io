@@ -1,0 +1,46 @@
+---
+title: Data quality firewall with Jev
+sidebar_label: Introduction
+sidebar_position: 1
+description: Warehouse-bound rows are judged for quality and schema conformance at the edge. Bad rows quarantine with reasons attached; good rows flow through.
+keywords: [jev, ai, data-transformation, data-quality, quarantine, warehouse, decisions-at-the-edge]
+---
+
+# Data quality firewall
+
+Bad data is cheapest to catch at the source. This pipeline judges every warehouse-bound row — quality score, schema conformance — and quarantines the bad ones *with Jev's reasons attached*, before they poison downstream tables.
+
+## The problem
+
+- Schema validation catches malformed rows; it misses *wrong* rows (negative amounts, impossible values, plausible-but-broken)
+- Bad data is discovered in dbt at 3am, days after it landed
+- Quarantine without reasons just moves the debugging downstream
+
+## How it works
+
+```
+POST /rows ──▶ Jev (1 call, 2 questions) ──▶ cascade
+                                                  │
+                          ┌───────────────────────┴───────────────────────┐
+                          ▼                                               ▼
+              quality < 1 or not conformant                    good rows
+              → quarantine (reasons attached)                  → warehouse
+```
+
+## The Jev questions
+
+| Question | Type | What it decides |
+|---|---|---|
+| `quality` | Score (0–4: corrupt → pristine) | Overall fitness for analytics |
+| `conformant` | Noul | Matches the expected schema and plausible value ranges? |
+
+The `conformant` question carries the schema in its instructions — Jev checks types *and* plausibility (a $99,999,999.99 order, a 4-letter currency code) in one judgment.
+
+## The confidence cascade
+
+- **quarantine** — quality < 1 or conformance < 0.3: row quarantined with its Jev scores attached, so the fix starts from the reason, not from scratch
+- **warehouse** — everything else flows through
+
+## Why this matters
+
+This is data contracts with judgment: not just "is this field a number" but "does this row make sense." The quarantine file becomes a prioritized data-quality backlog — each row annotated with *why* it failed.
