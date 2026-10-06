@@ -1,72 +1,53 @@
+name: aggregate-time-windows
+type: pipeline
 config:
   input:
-    http_server:
-      address: '0.0.0.0:8080'
-      path: /sensors/readings
-
+    broker:
+      inputs:
+        - http_server:
+            address: 127.0.0.1:8080
+            path: /sensors/readings
+            allowed_verbs:
+              - POST
+        - kafka:
+            addresses:
+              - ${KAFKA_TLS_BROKERS}
+            tls:
+              enabled: true
+              root_cas_file: ${KAFKA_CA_FILE}
+            sasl:
+              mechanism: SCRAM-SHA-512
+              user: ${KAFKA_USERNAME}
+              password: ${KAFKA_PASSWORD}
+            topics:
+              - sensor-events
+            consumer_group: time-window-aggregation-${INSTANCE_ID}
   pipeline:
+    threads: 1
     processors:
-      # Parse JSON input
-      - json_documents:
-          parts: []
-
-      # Assign time bucket (round to minute)
-      - mapping: |
-          root = this
-          root.time_bucket = this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00")
-                                            .ts_round("1m")
-                                            .ts_format("2006-01-02T15:04:05Z07:00")
-          root.group_key = this.sensor_id + "|" + root.time_bucket
-
-      # Cache events in 1-minute windows
-      - cache:
-          resource: window_cache
-          operator: add
-          key: ${! this.group_key }
-          value: ${! this }
-          ttl: '60s'
-
-      # Aggregate when window closes
-      - group_by:
-          - check: this.group_key != ""
-            processors:
-              - cache:
-                  resource: window_cache
-                  operator: get
-                  key: ${! this.group_key }
-
-              - mapping: |
-                  let events = this
-                  let first = events.index(0)
-
-                  root.sensor_id = first.sensor_id
-                  root.time_bucket = first.time_bucket
-                  root.window_start = first.time_bucket
-                  root.window_end = first.time_bucket.ts_parse("2006-01-02T15:04:05Z07:00")
-                                                      .ts_add("1m")
-                                                      .ts_format("2006-01-02T15:04:05Z07:00")
-
-                  # Aggregations
-                  root.event_count = events.length()
-                  root.temperature_avg = events.map_each(e -> e.temperature).mean()
-                  root.temperature_min = events.map_each(e -> e.temperature).min()
-                  root.temperature_max = events.map_each(e -> e.temperature).max()
-
-  resources:
-    caches:
-      window_cache:
-        memory:
-          default_ttl: '60s'
-          compaction_interval: '10s'
-
+      - command:
+          name: uv
+          args_mapping: root = ["run", "--no-project", env("RECORD_TRANSFORMS_SCRIPT"), "aggregate"]
+      - catch:
+          - mapping: root = deleted()
+      - unarchive:
+          format: json_array
   output:
-    http_client:
-      url: '${ANALYTICS_HTTPS_URL}/metrics/aggregated'
-      verb: POST
-      headers:
-        Authorization: 'Bearer ${ANALYTICS_API_TOKEN}'
-      batching:
-        count: 50
-        period: 10s
-      tls:
-        enabled: true
+    broker:
+      pattern: fan_out
+      outputs:
+        - http_client:
+            url: ${ANALYTICS_HTTPS_URL}/metrics/aggregated
+            verb: POST
+            headers:
+              Authorization: Bearer ${ANALYTICS_API_TOKEN}
+              Content-Type: application/json
+            tls:
+              enabled: true
+            retries: 3
+            batching:
+              count: 50
+              period: 10s
+        - file:
+            path: ${AGGREGATION_ARCHIVE_PATH}/aggregations.jsonl
+            codec: lines

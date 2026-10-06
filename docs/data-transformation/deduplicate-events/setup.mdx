@@ -21,9 +21,12 @@ Before building the deduplication pipeline, you'll set up cache resources and pr
 
 ## Prerequisites
 
-The canonical pipeline uses an in-process cache capped at 100,000 entries with a one-hour TTL. It does not connect to Kafka or Redis. Put its HTTP listener behind authenticated TLS ingress and allow egress only to the analytics service.
+The canonical pipeline preserves the HTTP interface and the complete examples processing modes. Put HTTP listeners behind authenticated TLS ingress.
 
 ## Deployment contract
+
+Mount `scripts/examples/record_transforms.py` read-only and set `RECORD_TRANSFORMS_SCRIPT` to its absolute mounted path. Include `uv` in the workload image; the helper uses only the Python standard library. Set `EXAMPLE_STATE_PATH` to a SQLite file on an encrypted persistent volume exclusive to this workload. Keep its database and WAL files across restarts. Aggregation uses a monotonically advancing event-time watermark: later events close minute windows and update trailing five-minute windows; out-of-order events fail closed. Deduplication retains identity, composite, and content-hash keys for one hour. Configure the output paths on workload-owned persistent volumes, Kafka TLS brokers and SASL credentials where used, and authenticated HTTPS service URLs and tokens.
+
 
 ## Step 1: Configure Example-Specific Variables
 

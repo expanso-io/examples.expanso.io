@@ -5,131 +5,104 @@ namespace: production
 labels:
   category: log-processing
   pattern: production-pipeline
-
 config:
   input:
     http_server:
-      address: '0.0.0.0:8080'
+      address: 127.0.0.1:8080
       path: /logs/ingest
-      allowed_verbs: [ 'POST' ]
-      rate_limit: '1000/1s'
-
+      allowed_verbs:
+        - POST
+      rate_limit: ingress_limit
   pipeline:
     processors:
-      # Step 1: Parse and validate JSON
-      - json_documents:
-          parts: []
-
-      - mapping: |
+      - mapping: |-
           root = this
           root.timestamp = this.timestamp.or(now())
-          root.level = this.level.uppercase().or("INFO")
+          root.level = this.level.or("INFO").uppercase()
           root.service = this.service.or("unknown")
           root.message = this.message.or("")
-
-      # Step 2: Enrich with metadata
-      - mapping: |
-          root = this
-          root.metadata = {
-            "node_id": env("NODE_ID").or("unknown"),
-            "region": env("REGION").or("unknown"),
-            "received_at": now(),
-            "request_id": uuid_v4()
-          }
-
-      # Step 3: Calculate severity score for routing
-      - mapping: |
-          root = this
-          root.severity_score = match this.level {
-            "FATAL" | "CRITICAL" => 5,
-            "ERROR" => 4,
-            "WARN" => 3,
-            "INFO" => 2,
-            _ => 1
-          }
-
-          root.priority = if this.severity_score >= 4 { "high" }
-                         else if this.severity_score >= 3 { "medium" }
-                         else { "low" }
-
+          root.metadata = {"node_id": env("NODE_ID").or("unknown"), "region": env("REGION").or("unknown"), "node_region": env("NODE_REGION").or("unknown"), "received_at": now(), "processed_at": now(), "request_id": uuid_v4(), "pipeline_name": "log-processing-pipeline", "pipeline_version": "1.0"}
+          root.timestamp_normalized = root.timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_format("2006-01-02T15:04:05Z07:00")
+          root.hour = root.timestamp_normalized.ts_parse("2006-01-02T15:04:05Z07:00").ts_format("15")
+          root.day_of_week = root.timestamp_normalized.ts_parse("2006-01-02T15:04:05Z07:00").ts_format("Monday")
+          root.severity_score = match root.level { "FATAL" | "CRITICAL" => 5, "ERROR" => 4, "WARN" | "WARNING" => 3, "INFO" => 2, _ => 1 }
+          root.is_high_priority = root.severity_score >= 4
+          root.priority = if root.severity_score >= 4 { "high" } else if root.severity_score >= 3 { "medium" } else { "low" }
           meta priority = root.priority
-
-      # Step 4: Filter noise (health checks, debug in prod)
-      - mapping: |
+      - mapping: |-
           let msg = this.message.lowercase()
-          root = if msg.contains("health check") || msg.contains("heartbeat") {
-            deleted()
-          } else if this.level == "DEBUG" && env("DEBUG_ENABLED").or("false") != "true" {
-            deleted()
-          } else {
-            this
-          }
-
-      # Step 5: Redact PII
-      - mapping: |
-          root = this
-          # Redact common PII patterns
-          root.message = this.message.
-            re_replace_all("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}", "[EMAIL]").
-            re_replace_all("\\d{3}-\\d{2}-\\d{4}", "[SSN]").
-            re_replace_all("4\\d{3}[\\s-]?\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}", "[CARD]")
-
-          # Hash IPs if present
-          root.source_ip = if this.source_ip.exists() {
-            this.source_ip.hash("sha256").slice(0, 12)
-          } else { deleted() }
-
+          root = if $msg.contains("health check") || $msg.contains("heartbeat") || (this.level == "DEBUG" && env("DEBUG_ENABLED").or("false") != "true") { deleted() } else { this }
+      - mapping: |-
+          root = this.without("password", "secret", "token", "api_key")
+          root.message = this.message.re_replace_all("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}", "[EMAIL]").re_replace_all("\\d{3}-\\d{2}-\\d{4}", "[SSN]").re_replace_all("4\\d{3}[\\s-]?\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}", "[CARD]")
+          root.source_ip = if this.source_ip != null { this.source_ip.hash("sha256").encode("hex").slice(0, 12) } else { deleted() }
+          root.ip_address = if this.ip_address != null { this.ip_address.hash("sha256").encode("hex").slice(0, 16) } else { deleted() }
+      - catch:
+          - mapping: root = deleted()
   output:
     broker:
       pattern: fan_out
       outputs:
-        # Elasticsearch for search
         - switch:
-            - check: 'this.severity_score >= 2'
-              output:
-                http_client:
-                  url: "${ELASTICSEARCH_HTTPS_URL}/logs-${!timestamp_unix_date('2006.01.02')}/_doc"
-                  verb: POST
-                  headers:
-                    Content-Type: application/json
-                    Authorization: 'ApiKey ${ELASTICSEARCH_API_KEY}'
-                  batching:
-                    count: 100
-                    period: 5s
-                  tls:
-                    enabled: true
-
-        # S3 for archival
+            cases:
+              - check: this.severity_score >= 2
+                output:
+                  http_client:
+                    url: ${ELASTICSEARCH_HTTPS_URL}/logs-${!now().ts_format("2006.01.02")}/_doc
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                      Authorization: ApiKey ${ELASTICSEARCH_API_KEY}
+                    batching:
+                      count: 100
+                      period: 5s
+                    tls:
+                      enabled: true
+              - output:
+                  drop: {}
         - aws_s3:
-            bucket: '${S3_BUCKET}'
-            path: "logs/${!timestamp_unix_date('2006/01/02')}/${!uuid_v4()}.jsonl"
+            bucket: ${S3_BUCKET}
+            path: logs/${! now().ts_format("2006/01/02") }/${! uuid_v4() }.jsonl.gz
             batching:
               count: 500
               period: 60s
-            compression: gzip
+              processors:
+                - compress:
+                    algorithm: gzip
             server_side_encryption: aws:kms
-            kms_key_id: '${S3_KMS_KEY_ARN}'
-
-        # Alerts for critical logs
+            kms_key_id: ${S3_KMS_KEY_ARN}
+            region: ${AWS_REGION}
+            content_encoding: gzip
         - switch:
-            - check: 'meta("priority") == "high"'
-              output:
-                http_client:
-                  url: '${ALERT_HTTPS_WEBHOOK_URL}'
-                  verb: POST
-                  headers:
-                    Content-Type: application/json
-                    Authorization: 'Bearer ${ALERT_API_TOKEN}'
-                  batching:
-                    count: 1
-                    period: 1s
-                  tls:
-                    enabled: true
-
-logger:
-  level: INFO
-  format: json
-
-metrics:
-  prometheus:
-    path: /metrics
+            cases:
+              - check: meta("priority") == "high"
+                output:
+                  http_client:
+                    url: ${ALERT_HTTPS_WEBHOOK_URL}
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                      Authorization: Bearer ${ALERT_API_TOKEN}
+                    batching:
+                      count: 1
+                      period: 1s
+                    tls:
+                      enabled: true
+              - output:
+                  drop: {}
+        - kafka:
+            addresses:
+              - ${KAFKA_TLS_BROKERS}
+            topic: logs-stream
+            tls:
+              enabled: true
+              root_cas_file: ${KAFKA_CA_FILE}
+            sasl:
+              mechanism: SCRAM-SHA-512
+              user: ${KAFKA_USERNAME}
+              password: ${KAFKA_PASSWORD}
+  rate_limit_resources:
+    - label: ingress_limit
+      local:
+        count: 1000
+        interval: 1s

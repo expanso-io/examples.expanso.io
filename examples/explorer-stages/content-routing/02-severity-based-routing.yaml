@@ -33,6 +33,18 @@ output:
             retries: 3
             tls:
               enabled: true
+          processors:
+            - mapping: |
+                root.text = ":warning: " + this.message.or("Warning")
+                root.blocks = [
+                  {
+                    "type": "section",
+                    "text": {
+                      "type": "mrkdwn",
+                      "text": "*Severity:* " + this.severity + "\n*Source:* " + this.source.or("unknown") + "\n*Message:* " + this.message.or("N/A")
+                    }
+                  }
+                ]
       - output:
           http_client:
             url: ${ELASTICSEARCH_HTTPS_URL}/application-logs/_doc/${! this.event_id.or(uuid_v4()) }

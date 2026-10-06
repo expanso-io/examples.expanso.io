@@ -7,9 +7,17 @@ import {
   validateDeploymentManifestSource,
   validatePlatformYamlSource,
   validatePublishedPlatformExamples,
+  validatePlatformPayloadContracts,
 } from '../../scripts/validate-platform-realism';
 
 describe('platform realism policy', () => {
+  it('executes Slack payload processors and rejects a warning without text or blocks', async () => {
+    const output = 'output:\n  http_client:\n    url: ${SLACK_HTTPS_WEBHOOK_URL}\n';
+    const options = { exampleId: 'fixture', file: 'slack.yaml' };
+    assert.deepEqual((await validatePlatformPayloadContracts(output, options)).map(f => f.rule), ['slack-payload']);
+    const mapped = output + '  processors:\n    - mapping: |\n        root.text = this.message\n';
+    assert.deepEqual(await validatePlatformPayloadContracts(mapped, options), []);
+  });
   it('rejects plaintext and unauthenticated external HTTP outputs', () => {
     const findings = validatePlatformYamlSource(`
 output:

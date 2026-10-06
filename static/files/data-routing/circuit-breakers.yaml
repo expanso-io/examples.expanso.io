@@ -1,10 +1,47 @@
-- http_client:
-    url: '${DOWNSTREAM_HTTPS_URL}/endpoint'
-    headers:
-      Authorization: 'Bearer ${DOWNSTREAM_API_TOKEN}'
-    timeout: 5s
-    retries: 3 # Failure threshold
-    retry_period: 1s # Initial backoff
-    max_retry_backoff: 30s # Maximum backoff
-    tls:
-      enabled: true
+name: circuit-breakers
+type: pipeline
+config:
+  input:
+    http_server:
+      address: 127.0.0.1:8080
+      path: /process
+      allowed_verbs:
+        - POST
+  output:
+    fallback:
+      - http_client:
+          url: ${DOWNSTREAM_HTTPS_URL}/endpoint
+          verb: POST
+          headers:
+            Authorization: Bearer ${DOWNSTREAM_API_TOKEN}
+            Content-Type: application/json
+          tls:
+            enabled: true
+          retries: 3
+          timeout: 5s
+          retry_period: 1s
+          max_retry_backoff: 30s
+      - http_client:
+          url: ${SECONDARY_HTTPS_URL}/process
+          verb: POST
+          headers:
+            Authorization: Bearer ${SECONDARY_API_TOKEN}
+            Content-Type: application/json
+          tls:
+            enabled: true
+          retries: 1
+          timeout: 5s
+      - file:
+          path: ${CIRCUIT_BUFFER_PATH}/failed-requests.jsonl
+          codec: lines
+      - kafka:
+          addresses:
+            - ${KAFKA_TLS_BROKERS}
+          topic: dlq-circuit-breaker-failures
+          tls:
+            enabled: true
+            root_cas_file: ${KAFKA_CA_FILE}
+          sasl:
+            mechanism: SCRAM-SHA-512
+            user: ${KAFKA_USERNAME}
+            password: ${KAFKA_PASSWORD}

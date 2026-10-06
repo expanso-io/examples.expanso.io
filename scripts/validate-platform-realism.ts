@@ -2,9 +2,11 @@ import { readFile } from 'node:fs/promises';
 import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 
 import { glob } from 'glob';
-import { parseAllDocuments } from 'yaml';
+import { parseAllDocuments, stringify } from 'yaml';
 
 import { PUBLIC_CATALOG } from '../src/catalog/registry';
 import { GENERATED_EXPLORER_STAGE_CONFIGS } from '../src/catalog/explorerStageConfigs.generated';
@@ -852,6 +854,9 @@ export async function validatePublishedPlatformExamples(
 
     try {
       const source = await readFile(absolutePath, 'utf8');
+      findings.push(...await validatePlatformPayloadContracts(source, {
+        exampleId: record.id, file: record.completePipelinePath, root,
+      }));
       findings.push(
         ...validatePlatformYamlSource(source, {
           exampleId: record.id,
@@ -866,6 +871,9 @@ export async function validatePublishedPlatformExamples(
           exampleId: record.id,
           file: copy.copyPath!,
           requiredComponents: requiredComponents[record.id],
+        }));
+        findings.push(...await validatePlatformPayloadContracts(copySource, {
+          exampleId: record.id, file: copy.copyPath!, root,
         }));
         const normalized = (yaml: string) => parseAllDocuments(yaml.replace(/[\t ]+$/gm, '')).map((document) => document.toJS());
         if (!isDeepStrictEqual(normalized(copySource), normalized(source))) {
@@ -882,6 +890,9 @@ export async function validatePublishedPlatformExamples(
         findings.push(...validatePlatformYamlSource(stageSource, {
           exampleId: record.id,
           file: stage.configPath,
+        }));
+        findings.push(...await validatePlatformPayloadContracts(stageSource, {
+          exampleId: record.id, file: stage.configPath, root,
         }));
       }
     } catch (error) {
@@ -936,6 +947,49 @@ export async function validatePublishedPlatformExamples(
     findings,
     status: findings.length === 0 ? 'PASS' : 'FAIL',
   };
+}
+
+export async function validatePlatformPayloadContracts(
+  source: string,
+  options: { exampleId: string; file: string; root?: string }
+): Promise<PlatformRealismFinding[]> {
+  const outputs: YamlObject[] = [];
+  function collect(value: unknown): void {
+    if (!value || typeof value !== 'object') return;
+    const object = value as YamlObject;
+    if (isObject(object.http_client) && isString(object.http_client.url) &&
+        /SLACK|hooks\.slack\.com/i.test(object.http_client.url)) outputs.push(object);
+    for (const child of Object.values(object)) collect(child);
+  }
+  for (const document of parseAllDocuments(source)) {
+    if (!document.errors.length) collect(document.toJS());
+  }
+  const findings: PlatformRealismFinding[] = [];
+  for (const output of outputs) {
+    const scratch = await mkdtemp(resolve(options.root ?? repositoryRoot, '.nm-payload-'));
+    try {
+      const file = resolve(scratch, 'payload.yaml');
+      await writeFile(file, stringify({
+        http: { enabled: false }, input: { stdin: { codec: 'lines' } },
+        pipeline: { processors: output.processors ?? [] },
+        output: { stdout: { codec: 'lines' } }, logger: { level: 'ERROR' },
+      }));
+      const result = spawnSync('benthos', ['run', file], {
+        input: JSON.stringify({ severity: 'WARN', source: 'fixture', message: 'Synthetic warning', timestamp: '2026-10-05T00:00:00Z' }) + '\n',
+        encoding: 'utf8', timeout: 10000,
+      });
+      const payload = result.status === 0 && result.stdout.trim()
+        ? JSON.parse(result.stdout.trim()) : null;
+      if (!payload || !(typeof payload.text === 'string' && payload.text.trim()) &&
+          !(Array.isArray(payload.blocks) && payload.blocks.length > 0)) {
+        findings.push(finding(options.exampleId, options.file, '$', 'slack-payload',
+          'Slack output must produce nonempty text or blocks for its warning input'));
+      }
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  }
+  return findings;
 }
 
 async function main() {

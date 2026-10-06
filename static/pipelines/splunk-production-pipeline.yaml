@@ -566,13 +566,18 @@ output:
                   - mapping: |
                       root = {
                         "alert_type": "log_event",
-                        "severity": this.final_priority,
+                        "severity": if this.final_priority == "critical" { "critical" } else { "warning" },
                         "title": this.event_category + " event on " + this.host,
                         "description": this.message_masked,
                         "timestamp": now(),
                         "source": this.host + ":" + this.source_file,
                         "classification": this.data_classification,
-                        "index": this.target_index
+                        "index": this.target_index,
+                        "metadata": {
+                          "log_level": this.log_level,
+                          "event_category": this.event_category,
+                          "risk_score": this.risk_score.number().catch(0)
+                        }
                       }
                 http_client:
                   url: ${ALERTING_HTTPS_WEBHOOK_URL}

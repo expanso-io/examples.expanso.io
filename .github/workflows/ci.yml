@@ -23,6 +23,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Set up uv for record transformation contracts
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.8.22'
+
+      - name: Set up Go for the processor test harness
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21.13'
+          cache: false
+
+      - name: Install pinned processor test harness
+        env:
+          GOBIN: ${{ runner.temp }}/processor-bin
+        run: |
+          set -euo pipefail
+          go install \
+            github.com/benthosdev/benthos/v4/cmd/benthos@v4.13.0
+          echo "${GOBIN}" >> "${GITHUB_PATH}"
+
       - name: Validate showcased job with Expanso CLI v2.1.19
         env:
           EXPANSO_DISABLEANALYTICS: 'true'

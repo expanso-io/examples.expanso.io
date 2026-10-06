@@ -39,6 +39,11 @@ Put port 8080 behind authenticated TLS ingress. Restrict egress to the configure
 
 ## Deployment contract
 
+Mount `scripts/examples/sensor_reading.avsc` beside the helper. Kafka receives raw Avro records using this schema; provide the same schema to consumers. The HTTP response honors the request's `Accept` header for JSON, CSV, or XML, while sensor records also retain their Avro Kafka delivery.
+
+Mount `scripts/examples/record_transforms.py` read-only and set `RECORD_TRANSFORMS_SCRIPT` to its absolute mounted path. Include `uv` in the workload image; the helper uses only the Python standard library. Configure the output paths on workload-owned persistent volumes, Kafka TLS brokers and SASL credentials where used, and authenticated HTTPS service URLs and tokens.
+
+
 The authenticated ingress, Kafka TLS listener, SCRAM credentials, topic ACL, and read-only CA mount above are required for deployment.
 
 ## Step 2: Review the embedded schema

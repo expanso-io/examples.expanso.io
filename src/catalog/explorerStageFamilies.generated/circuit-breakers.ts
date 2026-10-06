@@ -209,10 +209,10 @@ export const GENERATED_EXPLORER_STAGE_FAMILY = {
     },
     canonicalPipelinePath: "static/files/data-routing/circuit-breakers.yaml",
     pipelineSha256:
-      "sha256:f3bbfd3ec14f6ebc862bed82b970d7e19f7c989c22fedac0deb9ecd4f7fdaf8d",
+      "sha256:5dd4ae56184dd5bfd70d5470cdaa8780760fe9a4bff047c8947874b820c83c6c",
     fullYamlFilename: "circuit-breakers.yaml",
     fullYaml:
-      "- http_client:\n    url: '${DOWNSTREAM_HTTPS_URL}/endpoint'\n    headers:\n      Authorization: 'Bearer ${DOWNSTREAM_API_TOKEN}'\n    timeout: 5s\n    retries: 3 # Failure threshold\n    retry_period: 1s # Initial backoff\n    max_retry_backoff: 30s # Maximum backoff\n    tls:\n      enabled: true\n",
+      "name: circuit-breakers\ntype: pipeline\nconfig:\n  input:\n    http_server:\n      address: 127.0.0.1:8080\n      path: /process\n      allowed_verbs:\n        - POST\n  output:\n    fallback:\n      - http_client:\n          url: ${DOWNSTREAM_HTTPS_URL}/endpoint\n          verb: POST\n          headers:\n            Authorization: Bearer ${DOWNSTREAM_API_TOKEN}\n            Content-Type: application/json\n          tls:\n            enabled: true\n          retries: 3\n          timeout: 5s\n          retry_period: 1s\n          max_retry_backoff: 30s\n      - http_client:\n          url: ${SECONDARY_HTTPS_URL}/process\n          verb: POST\n          headers:\n            Authorization: Bearer ${SECONDARY_API_TOKEN}\n            Content-Type: application/json\n          tls:\n            enabled: true\n          retries: 1\n          timeout: 5s\n      - file:\n          path: ${CIRCUIT_BUFFER_PATH}/failed-requests.jsonl\n          codec: lines\n      - kafka:\n          addresses:\n            - ${KAFKA_TLS_BROKERS}\n          topic: dlq-circuit-breaker-failures\n          tls:\n            enabled: true\n            root_cas_file: ${KAFKA_CA_FILE}\n          sasl:\n            mechanism: SCRAM-SHA-512\n            user: ${KAFKA_USERNAME}\n            password: ${KAFKA_PASSWORD}\n",
   },
   stages: GENERATED_EXPLORER_STAGES,
 } satisfies GeneratedExplorerStageFamily;
