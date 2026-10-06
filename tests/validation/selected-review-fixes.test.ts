@@ -52,7 +52,8 @@ async function execute(
   records: unknown[],
   raw = false,
   inputBytes?: Buffer,
-  expectedState = 'completed'
+  expectedState = 'completed',
+  captureRouting = false
 ): Promise<Buffer> {
   const document = parse(source);
   const config = document.config ?? document;
@@ -66,9 +67,20 @@ async function execute(
   config.input = {
     file: { paths: [input], codec: inputBytes ? 'all-bytes' : 'lines' },
   };
-  config.output = {
-    file: { path: target, codec: raw ? 'all-bytes' : 'lines' },
-  };
+  const targets: string[] = [];
+  if (captureRouting) {
+    assert.equal(config.output.switch.cases.length, 2);
+    config.output.switch.cases.forEach(
+      (entry: { output: unknown }, index: number) => {
+        const path = target + '-' + index;
+        targets.push(path);
+        entry.output = { file: { path, codec: 'lines' } };
+      }
+    );
+  } else
+    config.output = {
+      file: { path: target, codec: raw ? 'all-bytes' : 'lines' },
+    };
   const validation = validateSource(edge, root, stringify(config), environment);
   assert.equal(validation.status, 'PASS', JSON.stringify(validation.errors));
 
@@ -99,7 +111,11 @@ async function execute(
       readFileSync(agent.pipelineLogPath(deployed.jobId), 'utf8')
     );
 
-    return readFileSync(target);
+    return captureRouting
+      ? Buffer.from(
+          JSON.stringify(targets.map((path) => readFileSync(path, 'utf8')))
+        )
+      : readFileSync(target);
   } finally {
     await agent.deleteJob(deployed.jobId);
   }
@@ -1035,3 +1051,139 @@ test('published JSON parser guards malformed data and classifies parsed objects'
       fixture.expected
     );
 });
+
+test('published branch and grok fragments are inventoried, labeled, and validate', () => {
+  const inventory = discoverPipelineFiles(root);
+  const canonical = parse(
+    pageBlocks(
+      'docs/data-transformation/deduplicate-events/step-1-hash-based-exact-duplicates.mdx'
+    )[0].source
+  ).config;
+  for (const [path, component] of [
+    [
+      'docs/data-transformation/deduplicate-events/step-3-id-based-unique-identifiers.mdx',
+      'branch',
+    ],
+    ['docs/data-transformation/parse-logs/troubleshooting.mdx', 'grok'],
+  ]) {
+    const block = pageBlocks(path).find(
+      (block) => parse(block.source)?.[0]?.[component]
+    );
+    assert.ok(block);
+    assert.equal(classifyPipelineCode(block.source), 'fragment');
+    const entry = inventory.find(
+      (entry) => entry.sourcePath === path && entry.source === block.source
+    );
+    assert.equal(entry?.kind, 'fragment');
+    assert.ok(entry?.document);
+    const wrapped = wrapFragment(
+      entry.document,
+      component === 'branch' ? canonical : undefined
+    );
+    assert.ok(wrapped);
+    assert.equal(
+      validateSource(edge, root, wrapped.source, environment).status,
+      'PASS'
+    );
+  }
+});
+
+test('published access parser preserves unknown byte counts and parses numeric ones', async () => {
+  const rows = (
+    await execute(
+      pageBlocks(
+        'docs/data-transformation/parse-logs/step-4-multi-format-detection.mdx'
+      )[0].source,
+      [
+        {
+          raw_log:
+            '127.0.0.1 - - [01/Jan/2025:12:00:00 +0000] "GET / HTTP/1.1" 304 -',
+        },
+        {
+          raw_log:
+            '127.0.0.1 - - [01/Jan/2025:12:00:00 +0000] "GET / HTTP/1.1" 200 123',
+        },
+      ]
+    )
+  )
+    .toString()
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.equal(rows.length, 2);
+  assert.equal(rows.find((row) => row.status === 304)?.bytes, null);
+  assert.equal(rows.find((row) => row.status === 200)?.bytes, 123);
+  for (const row of rows) {
+    assert.equal(row.parsed_by, 'access_log_parser');
+    assert.equal(row.ip, '127.0.0.1');
+    assert.equal(row.request, 'GET / HTTP/1.1');
+  }
+});
+
+for (const path of [
+  'examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml',
+  'static/files/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml',
+  'docs/enterprise-migration/db2-to-bigquery/step-6-validate-required-fields.mdx',
+]) {
+  test(`published DB2 routing isolates invalid records from the BigQuery path: ${path}`, async () => {
+    const completePath =
+      'examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml';
+    const manifest = JSON.parse(
+      readFileSync('tests/fixtures/pipeline-inputs/manifest.json', 'utf8')
+    );
+    const expectations = JSON.parse(
+      readFileSync('tests/fixtures/pipeline-inputs/expectations.json', 'utf8')
+    );
+    const records = readFileSync(
+      manifest.pipelines[completePath].fixture,
+      'utf8'
+    )
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    let config;
+    if (path.endsWith('.mdx')) {
+      const complete = parse(readFileSync(completePath, 'utf8')).config;
+      const fragment = parse(pageBlocks(path)[0].source);
+      config = {
+        ...complete,
+        ...fragment,
+        pipeline: {
+          processors: [
+            ...complete.pipeline.processors.slice(0, -1),
+            ...fragment.pipeline.processors,
+          ],
+        },
+      };
+    } else config = parse(readFileSync(path, 'utf8')).config;
+    assert.ok(config.output.switch.cases[1].output.gcp_bigquery);
+    const outputs: string[] = JSON.parse(
+      (
+        await execute(
+          stringify(config),
+          records,
+          false,
+          undefined,
+          'completed',
+          true
+        )
+      ).toString()
+    );
+    verifyOutputs(expectations[completePath], records, outputs, environment);
+    const rejected = outputs[0]
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const accepted = outputs[1]
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    assert.equal(rejected.length, 1);
+    assert.equal(rejected[0].transaction_id == null, true);
+    assert.equal(rejected[0].customer_id, 'CUST-INVALID');
+    assert.deepEqual(accepted.map((row) => row.transaction_id).sort(), [
+      'TXN-2026-001',
+      'TXN-2026-002',
+    ]);
+  });
+}

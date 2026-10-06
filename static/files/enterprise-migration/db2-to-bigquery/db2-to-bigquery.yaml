@@ -134,23 +134,31 @@ config:
           root._partition_date = this.TRANSACTION_DATE.ts_parse("2006-01-02").ts_format("2006-01-02")
 
       # Step 6: Validate required fields before loading
-      - mapping: |
-          root = if this.transaction_id == null ||
-                    this.customer_id == null ||
-                    this.amount_usd == null {
-            throw("Missing required field for BigQuery load")
-          } else {
-            this
-          }
+      - switch:
+          - check: this.transaction_id == null || this.customer_id == null || this.amount_usd == null
+            processors:
+              - mapping: |
+                  root = this
+                  root._error = "Missing required field for BigQuery load"
+                  root._failed_at = now()
 
   output:
-    gcp_bigquery:
-      project: '${GCP_PROJECT}'
-      dataset: financial_data
-      table: transactions
-      format: NEWLINE_DELIMITED_JSON
-      write_disposition: WRITE_APPEND
-      # Partition the destination table by _partition_date when creating it in BigQuery.
-      batching:
-        count: 1000
-        period: 30s
+    switch:
+      cases:
+        - check: errored() || this._error != null
+          output:
+            file:
+              path: etl-dlq.jsonl
+              codec: lines
+        - check: '!errored() && this._error == null'
+          output:
+            gcp_bigquery:
+              project: '${GCP_PROJECT}'
+              dataset: financial_data
+              table: transactions
+              format: NEWLINE_DELIMITED_JSON
+              write_disposition: WRITE_APPEND
+              # Partition the destination table by _partition_date when creating it in BigQuery.
+              batching:
+                count: 1000
+                period: 30s

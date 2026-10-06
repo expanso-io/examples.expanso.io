@@ -27,6 +27,7 @@ const PIPELINE_CONTAINER_KEYS = new Set([
 const PIPELINE_FRAGMENT_KEYS = new Set([
   'batch',
   'batching',
+  'branch',
   'broker',
   'cache',
   'catch',
@@ -35,6 +36,7 @@ const PIPELINE_FRAGMENT_KEYS = new Set([
   'elasticsearch',
   'fallback',
   'gcp_cloud_storage',
+  'grok',
   'http',
   'http_client',
   'kafka',

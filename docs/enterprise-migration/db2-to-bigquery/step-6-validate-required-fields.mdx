@@ -42,47 +42,61 @@ In DataStage, validation typically requires:
 2. **Reject links** to capture bad records
 3. **Separate error handling jobs**
 
-**Expanso simplifies this** with conditional `throw()` that stops processing.
+Mark invalid records and route them through an output switch.
 
 ## Implementation
 
-Add the validation processor as the final step:
+Add validation after steps 1–5 and replace the output with this switch:
 
 ```yaml title="step-6-validate.yaml"
 pipeline:
   processors:
-    # Steps 1-5 from previous...
+    - switch:
+        - check: this.transaction_id == null || this.customer_id == null || this.amount_usd == null
+          processors:
+            - mapping: |
+                root = this
+                root._error = "Missing required field for BigQuery load"
+                root._failed_at = now()
 
-    # Step 6: Validate required fields before BigQuery load
-    - mapping: |
-        root = if this.transaction_id == null || 
-                  this.customer_id == null || 
-                  this.amount_usd == null {
-          throw("Missing required field for BigQuery load")
-        } else {
-          this
-        }
+output:
+  switch:
+    cases:
+      - check: errored() || this._error != null
+        output:
+          file:
+            path: etl-dlq.jsonl
+            codec: lines
+      - check: '!errored() && this._error == null'
+        output:
+          gcp_bigquery:
+            project: '${GCP_PROJECT}'
+            dataset: financial_data
+            table: transactions
+            format: NEWLINE_DELIMITED_JSON
+            write_disposition: WRITE_APPEND
+            # Partition the destination table by _partition_date when creating it in BigQuery.
+            batching:
+              count: 1000
+              period: 30s
 ```
 
 ## Understanding the Code
 
-| Expression           | What It Does                        |
-| -------------------- | ----------------------------------- |
-| `this.field == null` | Check if field is missing or null   |
-| `\|\|`               | Logical OR (any condition triggers) |
-| `throw("message")`   | Stop processing with error          |
-| `else { this }`      | Pass record through unchanged       |
+| Expression           | What It Does                                |
+| -------------------- | ------------------------------------------- |
+| `this.field == null` | Check for a missing or null field           |
+| `root._error`        | Mark a rejected record with a reason        |
+| `errored()`          | Route earlier processor failures to the DLQ |
+| `output.switch`      | Deliver each record to the DLQ or BigQuery  |
 
 ## Expected Behavior
 
-**Valid Record:** Passes through unchanged
+**Valid Record:** Reaches the BigQuery output unchanged
 
 **Invalid Record (missing customer_id):**
 
-```
-ERROR: Missing required field for BigQuery load
-Record: {"transaction_id": "TXN-001", "amount_usd": 100.00, ...}
-```
+The file DLQ receives the rejected record with `_error` and `_failed_at`. The BigQuery output does not receive it.
 
 ## Production Considerations
 
@@ -106,24 +120,7 @@ Identify which field is missing:
 
 ### Dead Letter Queue
 
-Route bad records to a DLQ instead of failing:
-
-```yaml
-pipeline:
-  processors:
-    # ... transformation steps ...
-
-    - switch:
-        - check: this.transaction_id == null || this.customer_id == null
-          processors:
-            - mapping: |
-                root = this
-                root._error = "Missing required field"
-                root._failed_at = now()
-            - mapping: root.destination = "etl-dlq"
-        - processors:
-            - mapping: root = this # Valid records continue
-```
+The output switch above writes rejected records to `etl-dlq.jsonl`. Set that path to durable storage on the Edge node. Records with an error flag or a processor error never enter the BigQuery case.
 
 ### Type Validation
 
