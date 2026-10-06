@@ -1336,30 +1336,36 @@ for (const path of [
   }
 }
 
-test('smart buffering step 4 satisfies its computed priority contract', async () => {
-  const path = 'examples/data-routing/smart-buffering-step-4.yaml';
-  const outputs = await capture(
-    config(path),
-    'tests/fixtures/pipeline-inputs/data-routing.jsonl'
-  );
-  const expectation = contracts[path];
-  verifyOutputs(expectation, [], outputs, manifest.environment);
-  const corrupted = outputs.map(
-    (text) =>
-      text
-        .trim()
-        .split('\n')
-        .map((line) => {
-          const row = JSON.parse(line);
-          row.priority_score += 1;
-          return JSON.stringify(row);
-        })
-        .join('\n') + '\n'
-  );
-  assert.throws(() =>
-    verifyOutputs(expectation, [], corrupted, manifest.environment)
-  );
-});
+for (const path of [
+  'examples/data-routing/smart-buffering-step-4.yaml',
+  'examples/data-routing/smart-buffering.yaml',
+  'static/files/data-routing/smart-buffering.yaml',
+]) {
+  test(`smart buffering satisfies its computed priority contract: ${path}`, async () => {
+    const outputs = await capture(
+      config(path),
+      'tests/fixtures/pipeline-inputs/data-routing.jsonl'
+    );
+    const expectation = contracts[path];
+    verifyOutputs(expectation, [], outputs, manifest.environment);
+    const corrupted = outputs.map(
+      (text) =>
+        text
+          .trim()
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => {
+            const row = JSON.parse(line);
+            row.priority_score += 1;
+            return JSON.stringify(row);
+          })
+          .join('\n') + '\n'
+    );
+    assert.throws(() =>
+      verifyOutputs(expectation, [], corrupted, manifest.environment)
+    );
+  });
+}
 
 for (const path of [
   'examples/data-transformation/transform-formats.yaml',
