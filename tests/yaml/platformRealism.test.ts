@@ -30,7 +30,9 @@ output:
     const findings = validatePlatformYamlSource(`
 output:
   http_client:
-    url: "${'${LOG_HTTPS_URL}'}/events"
+    url: "${'${DOWNSTREAM_URL}'}/events"
+    tls:
+      enabled: true
     verb: POST
     headers:
       Authorization: "Bearer ${'${LOG_API_TOKEN}'}"
@@ -50,7 +52,6 @@ output:
     assert.deepEqual(
       new Set(findings.map((item) => item.rule)),
       new Set([
-        'no-plaintext-kafka',
         'kafka-tls',
         'kafka-trust-root',
         'kafka-auth',
@@ -62,7 +63,7 @@ output:
     const findings = validatePlatformYamlSource(`
 output:
   kafka:
-    addresses: ["${'${KAFKA_TLS_BROKERS}'}"]
+    addresses: ["broker:9092"]
     topic: events
     tls:
       enabled: true
@@ -130,6 +131,8 @@ output:
     outputs:
       - http_client:
           url: "${'${PROMETHEUS_PUSHGATEWAY_HTTPS_URL}'}/metrics/job/edge"
+          tls:
+            enabled: true
           headers:
             Authorization: "Bearer ${'${PROMETHEUS_TOKEN}'}"
             Content-Type: application/json

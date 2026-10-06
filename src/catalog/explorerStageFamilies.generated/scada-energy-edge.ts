@@ -27,9 +27,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "01-adapter-output.yaml",
     yamlCode:
-      "input:\n  socket:\n    network: tcp\n    address: 0.0.0.0:4195\n    codec: lines\n",
+      "input:\n  socket:\n    network: tcp\n    address: 127.0.0.1:4195\n    codec: lines\n",
     configSha256:
-      "sha256:0597ca71b2e3c57bedf6b183b1ff0139e0fa2a9da967cf09d0c84e35b7f09795",
+      "sha256:9a58a99f3035c80fb49d9eac3c1c46a8ec346ce125438d67ac82f9bf68fd3c90",
   },
   {
     id: 2,
@@ -196,9 +196,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "04-route-selected-records.yaml",
     yamlCode:
-      'output:\n  broker:\n    outputs:\n      - kafka:\n          addresses: ["${KAFKA_BROKERS:localhost:9092}"]\n          topic: "${KAFKA_TOPIC:scada-review-events}"\n      - file:\n          path: "${LOCAL_ARCHIVE_PATH:/tmp/scada-review-events.jsonl}"\n          codec: lines\n',
+      "output:\n  broker:\n    outputs:\n      - kafka:\n          addresses:\n            - ${KAFKA_TLS_BROKERS}\n          topic: ${KAFKA_TOPIC:scada-review-events}\n          tls:\n            enabled: true\n            root_cas_file: ${KAFKA_CA_FILE}\n          sasl:\n            mechanism: SCRAM-SHA-512\n            user: ${KAFKA_USERNAME}\n            password: ${KAFKA_PASSWORD}\n      - file:\n          path: ${SCADA_ARCHIVE_PATH}/scada-review-events.jsonl\n          codec: lines\n",
     configSha256:
-      "sha256:4d7dad779f78dbae8db9b1dde0f610af4a695f5c8320829aee327fc58bc18a2e",
+      "sha256:60d2e9f3cd55fa42253a7ccd5cd5216a8ebf9a57a6d3506c5df932b39822bb80",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 

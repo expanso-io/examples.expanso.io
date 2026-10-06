@@ -44,9 +44,9 @@ Both `test` commands exit successfully. The fixture prints a synthetic transacti
 ## Deployment contract
 
 - Install the IBM Db2 ODBC driver on the selected edge nodes and mount `DB2_CA_CERT` read-only.
-- Set `DB2_TLS_PORT` to the database TLS listener, load the database password and `ACCOUNT_HASH_KEY` from the secret manager, and restrict the Db2 role to `SELECT` on `TRANSACTIONS`.
+- Set `DB2_TLS_PORT` to the database TLS listener, load the database password and `ACCOUNT_HASH_KEY` from the secret manager, and restrict the Db2 role to `SELECT` on `TRANSACTIONS` and the governed `CURRENCY_RATES` table. That table must contain one positive numeric `USD_RATE` per `(CURRENCY, RATE_DATE)`, including USD, with dates matching `TRANSACTION_DATE`. Missing, duplicate, or invalid rates reject the record.
 - Use Google Cloud workload identity and grant append access only to the pre-provisioned `financial_data.transactions` table.
-- Create that table with a DAY partition on `_partition_date` and schema fields that preserve both `amount` and `currency` before deploying the job.
+- Create that table with a DAY partition on `_partition_date` and schema fields that preserve `amount_usd`, `original_amount`, and `original_currency` before deploying the job.
 
 ## Cleanup
 

@@ -180,11 +180,14 @@ config:
             if this.customer.ssn != null { "customer.ssn" },
             if this.customer.email != null { "customer.email" }
           ].filter(v -> v != null)
-          root = if sensitive_found.length() > 0 {
-            throw("Encryption validation failed: " + sensitive_found.join(", "))
+          root = if $sensitive_found.length() > 0 {
+            throw("Encryption validation failed: " + $sensitive_found.join(", "))
           } else {
             this
           }
+
+      - catch:
+          - mapping: root = deleted()
 
   output:
     broker:

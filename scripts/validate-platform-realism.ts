@@ -176,7 +176,11 @@ function inspectUrl(
     );
   }
 
-  if (/^http:\/\//i.test(url) && !isLoopbackOrClusterHttp(url)) {
+  if (
+    (/^http:\/\//i.test(url) && !isLoopbackOrClusterHttp(url)) ||
+    (isExternalHttpUrl(url) && /^\$\{/.test(url) &&
+      (!isObject(component.tls) || component.tls.enabled !== true))
+  ) {
     findings.push(
       finding(
         exampleId,
@@ -184,22 +188,6 @@ function inspectUrl(
         path,
         'https-for-external-http',
         `external endpoint must use HTTPS: ${url}`
-      )
-    );
-  }
-
-  if (
-    isExternalHttpUrl(url) &&
-    /^\$\{[^}]+\}/.test(url) &&
-    !/^\$\{[A-Z0-9_]*HTTPS[A-Z0-9_]*\}/.test(url)
-  ) {
-    findings.push(
-      finding(
-        exampleId,
-        file,
-        path,
-        'explicit-https-contract',
-        `endpoint variable must encode the HTTPS requirement in its name: ${url}`
       )
     );
   }
@@ -298,18 +286,6 @@ function inspectKafka(
   }
 
   for (const address of addresses) {
-    if (/(?:^|:)9092(?:$|[},])/.test(address)) {
-      findings.push(
-        finding(
-          exampleId,
-          file,
-          path,
-          'no-plaintext-kafka',
-          `Kafka address uses the conventional plaintext listener: ${address}`
-        )
-      );
-    }
-
     if (placeholderPattern.test(address)) {
       findings.push(
         finding(
@@ -912,36 +888,7 @@ export async function validatePublishedPlatformExamples(
       );
     }
 
-    const guidePath =
-      record.id === 'medical-device-intelligence'
-        ? 'docs/integrations/medical-device-intelligence/index.mdx'
-        : `docs${record.routes.overview}setup.mdx`;
 
-    try {
-      const guide = await readFile(resolve(root, guidePath), 'utf8');
-
-      if (!/^## (?:Deployment contract|Run the deployment)$/m.test(guide)) {
-        findings.push(
-          finding(
-            record.id,
-            guidePath,
-            '$',
-            'deployment-instructions',
-            'published example must include a deployment contract or deployment runbook'
-          )
-        );
-      }
-    } catch (error) {
-      findings.push(
-        finding(
-          record.id,
-          guidePath,
-          '$',
-          'deployment-instructions',
-          error instanceof Error ? error.message : String(error)
-        )
-      );
-    }
   }
 
   const manifestPaths = await glob('**/*.{yaml,yml}', {

@@ -45,7 +45,7 @@ The file check exits successfully. The final command identifies the database inp
 - Use certificate-verified PostgreSQL with the CA, client certificate, and client key mounted read-only. Restrict the database role to `SELECT` on `orders`, `inventory`, and `order_items`.
 - Use Google Cloud workload identity and grant object-create access only to the configured backup bucket prefix.
 - Pre-provision the bucket with public access disabled, retention and lifecycle policy reviewed, and encryption controlled by the deployment.
-- The outputs are gzip-compressed NDJSON with SHA-256 row checksums. Test a restore into an isolated database before treating the export as a recoverable backup.
+- Each output is a real Snappy-compressed Parquet object with `table`, `backup_type`, `backup_date`, `row_checksum`, and `row_json` columns. The JSON column retains the complete row and recovery metadata; the checksum covers the original fields. Date and table partition metadata survives encoding, and each object has a UUID name. Test a restore into an isolated database before treating the export as a recoverable backup.
 
 ## Cleanup
 

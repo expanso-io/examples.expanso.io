@@ -18,151 +18,48 @@ claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2
 
 # Step 4: Route to Storage
 
-Route each table's data to organized cloud storage paths with compression and appropriate storage classes.
-
-## The Goal
-
-- Route records to table-specific paths
-- Organize by date for easy recovery
-- Compress with Parquet for cost efficiency
-- Use Nearline storage class for backups
-
-## Implementation
+Preserve the table, backup date, and object UUID in message metadata before encoding. The output writes one Snappy-compressed Parquet object per row to the corresponding table and date prefix.
 
 ```yaml title="step-4-route.yaml"
+pipeline:
+  processors:
+    - mapping: |
+        meta backup_date = this._backup_metadata.backup_date
+        meta backup_table = this._table
+        meta backup_object_id = uuid_v4()
 output:
-  switch:
-    cases:
-      # Orders table
-      - check: this._table == "orders"
-        output:
-          gcp_cloud_storage:
-            bucket: '${GCS_BACKUP_BUCKET}'
-            path: 'backups/orders/${!this._backup_metadata.backup_date}/orders-${!timestamp_unix()}.parquet'
-            content_type: application/octet-stream
-            storage_class: NEARLINE
-            batching:
-              count: 10000
-              period: 60s
-            parquet_encoding:
-              compression: SNAPPY
-
-      # Inventory table
-      - check: this._table == "inventory"
-        output:
-          gcp_cloud_storage:
-            bucket: '${GCS_BACKUP_BUCKET}'
-            path: 'backups/inventory/${!this._backup_metadata.backup_date}/inventory-full.parquet'
-            content_type: application/octet-stream
-            storage_class: NEARLINE
-            batching:
-              count: 50000
-              period: 120s
-            parquet_encoding:
-              compression: SNAPPY
-
-      # Order items table
-      - check: this._table == "order_items"
-        output:
-          gcp_cloud_storage:
-            bucket: '${GCS_BACKUP_BUCKET}'
-            path: 'backups/order_items/${!this._backup_metadata.backup_date}/items-${!timestamp_unix()}.parquet'
-            content_type: application/octet-stream
-            storage_class: NEARLINE
-            batching:
-              count: 10000
-              period: 60s
-            parquet_encoding:
-              compression: SNAPPY
-
-      # Fallback for unknown tables
-      - output:
-          gcp_cloud_storage:
-            bucket: '${GCS_BACKUP_BUCKET}'
-            path: 'backups/unknown/${!this._table}/${!this._backup_metadata.backup_date}/data-${!timestamp_unix()}.json'
-            content_type: application/json
-            storage_class: NEARLINE
-            batching:
-              count: 1000
-              period: 30s
+  processors:
+    - mapping: |
+        root.table = this._table
+        root.backup_type = this._backup_type
+        root.backup_date = this._backup_metadata.backup_date
+        root.row_checksum = this._checksum
+        root.row_json = this.format_json()
+    - parquet_encode:
+        schema:
+          - name: table
+            type: UTF8
+          - name: backup_type
+            type: UTF8
+          - name: backup_date
+            type: UTF8
+          - name: row_checksum
+            type: UTF8
+          - name: row_json
+            type: UTF8
+        default_compression: snappy
+    - catch:
+        - mapping: root = deleted()
+  gcp_cloud_storage:
+    bucket: ${GCS_BACKUP_BUCKET}
+    path: backups/${! metadata("backup_table") }/${! metadata("backup_date") }/${! metadata("backup_object_id") }.parquet
+    content_type: application/vnd.apache.parquet
 ```
 
-## Understanding the Code
+The Parquet schema contains `table`, `backup_type`, `backup_date`, `row_checksum`, and `row_json`. The JSON column preserves all source fields and recovery metadata without guessing database column types. Read `row_json` during restore and verify the SHA-256 checksum over the original fields.
 
-| Component                               | Purpose                       |
-| --------------------------------------- | ----------------------------- |
-| `switch.cases`                          | Route based on `_table` field |
-| `${!this._backup_metadata.backup_date}` | Dynamic path from record      |
-| `${!timestamp_unix()}`                  | Unique file suffix            |
-| `storage_class: NEARLINE`               | Authored storage-class choice |
-| `parquet_encoding.compression: SNAPPY`  | Authored codec choice         |
+Provision the bucket with the required storage class, retention policy, and encryption before deployment. The workload needs object-create permission only; UUID object names avoid overwriting previous rows.
 
-## Choose a Storage Class
+Encoding failures are deleted before storage. Monitor failed processing and test recovery in an isolated database before treating the export as a recoverable backup.
 
-Provider pricing changes by region, operation, retention period, retrieval pattern, and contract. Use the current provider calculator and your measured access pattern; this repository does not pin a price table.
-
-## Evaluate Parquet
-
-Measure object size, encode/decode behavior, restore behavior, and downstream query plans with representative records before choosing an encoding. This example supplies no compression or query benchmark.
-
-## Path Organization
-
-```
-gs://backup-bucket/
-└── backups/
-    ├── orders/
-    │   ├── 2024-01-14/
-    │   │   ├── orders-1705190400.parquet
-    │   │   └── orders-1705194000.parquet
-    │   └── 2024-01-15/
-    │       └── orders-1705276800.parquet
-    ├── inventory/
-    │   └── 2024-01-15/
-    │       └── inventory-full.parquet
-    └── order_items/
-        └── 2024-01-15/
-            └── items-1705276800.parquet
-```
-
-## Production Considerations
-
-### AWS S3 Alternative
-
-```yaml
-output:
-  aws_s3:
-    bucket: '${S3_BACKUP_BUCKET}'
-    path: 'backups/orders/${!this._backup_metadata.backup_date}/orders-${!timestamp_unix()}.parquet'
-    storage_class: GLACIER_IR # Similar to Nearline
-    batching:
-      count: 10000
-```
-
-### Encryption at Rest
-
-Enable server-side encryption:
-
-```yaml
-gcp_cloud_storage:
-  # GCS encrypts by default, but for customer-managed keys:
-  kms_key_name: 'projects/.../cryptoKeys/backup-key'
-```
-
-### Retention with Object Lifecycle
-
-```bash
-# Set via gsutil (delete after 1 year)
-gsutil lifecycle set lifecycle.json gs://${GCS_BACKUP_BUCKET}
-```
-
----
-
-## Complete Pipeline
-
-You've built all 4 backup steps! See the complete configuration:
-
-<div className="margin-top--lg margin-bottom--lg">
-  <a href="../complete-pipeline" className="button button--primary button--lg">
-    📖 Complete Pipeline →
-  </a>
-</div>
+**Next:** [Complete pipeline](/enterprise-migration/nightly-backup/complete-pipeline).

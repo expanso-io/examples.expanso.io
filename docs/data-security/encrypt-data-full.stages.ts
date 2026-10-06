@@ -2,850 +2,1767 @@ import type { Stage } from '@site/src/components/DataPipelineExplorer/types';
 
 export const encryptDataStages: Stage[] = [
   {
-    id: 1,
-    slug: 'original-payment-data',
-    title: 'Step 1: Original Payment Data',
-    description:
-      'Start with a synthetic payment record containing clear payment, identity, and location fields.',
-    inputLines: [
-      { content: '{', indent: 0 },
+    "id": 1,
+    "slug": "original-payment-data",
+    "title": "Step 1: Original Payment Data",
+    "description": "Start with a synthetic payment record containing clear payment, identity, and location fields.",
+    "inputLines": [
       {
-        content: '"transaction_id": "txn_20251020_001",',
-        indent: 1,
-        key: 'transaction_id',
-        valueType: 'string',
+        "content": "{",
+        "indent": 0
       },
       {
-        content: '"timestamp": "2025-10-20T14:30:00Z",',
-        indent: 1,
-        key: 'timestamp',
-        valueType: 'string',
+        "content": "\"transaction_id\": \"txn_20251020_001\",",
+        "indent": 1
       },
       {
-        content: '"merchant_id": "merchant_789",',
-        indent: 1,
-        key: 'merchant_id',
-        valueType: 'string',
+        "content": "\"timestamp\": \"2025-10-20T14:30:00Z\",",
+        "indent": 1
       },
       {
-        content: '"amount": 127.50,',
-        indent: 1,
-        key: 'amount',
-        valueType: 'number',
+        "content": "\"merchant_id\": \"merchant_789\",",
+        "indent": 1
       },
       {
-        content: '"currency": "USD",',
-        indent: 1,
-        key: 'currency',
-        valueType: 'string',
-      },
-      { content: '"payment": {', indent: 1, key: 'payment' },
-      {
-        content: '"card_number": "4532-1234-5678-9010",',
-        indent: 2,
-        key: 'card_number',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"amount\": 127.5,",
+        "indent": 1
       },
       {
-        content: '"cvv": "123",',
-        indent: 2,
-        key: 'cvv',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"currency\": \"USD\",",
+        "indent": 1
       },
       {
-        content: '"expiration": "12/27",',
-        indent: 2,
-        key: 'expiration',
-        valueType: 'string',
+        "content": "\"payment\": {",
+        "indent": 1
       },
       {
-        content: '"cardholder_name": "Sarah Johnson"',
-        indent: 2,
-        key: 'cardholder_name',
-        valueType: 'string',
-        type: 'highlighted',
-      },
-      { content: '},', indent: 1 },
-      { content: '"customer": {', indent: 1, key: 'customer' },
-      {
-        content: '"email": "sarah.johnson@example.com",',
-        indent: 2,
-        key: 'email',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"card_number\": \"4532-1234-5678-9010\",",
+        "indent": 2
       },
       {
-        content: '"phone": "+1-415-555-0123",',
-        indent: 2,
-        key: 'phone',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"cvv\": \"123\",",
+        "indent": 2
       },
       {
-        content: '"ssn": "123-45-6789",',
-        indent: 2,
-        key: 'ssn',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"expiration\": \"12/27\",",
+        "indent": 2
       },
       {
-        content: '"date_of_birth": "1985-03-15"',
-        indent: 2,
-        key: 'date_of_birth',
-        valueType: 'string',
-        type: 'highlighted',
-      },
-      { content: '},', indent: 1 },
-      { content: '"billing_address": {', indent: 1, key: 'billing_address' },
-      {
-        content: '"street": "123 Main St",',
-        indent: 2,
-        key: 'street',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"cardholder_name\": \"Sarah Johnson\"",
+        "indent": 2
       },
       {
-        content: '"city": "San Francisco",',
-        indent: 2,
-        key: 'city',
-        valueType: 'string',
+        "content": "},",
+        "indent": 1
       },
       {
-        content: '"state": "CA",',
-        indent: 2,
-        key: 'state',
-        valueType: 'string',
+        "content": "\"customer\": {",
+        "indent": 1
       },
       {
-        content: '"zip": "94102",',
-        indent: 2,
-        key: 'zip',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"email\": \"sarah.johnson@example.com\",",
+        "indent": 2
       },
       {
-        content: '"country": "US"',
-        indent: 2,
-        key: 'country',
-        valueType: 'string',
+        "content": "\"phone\": \"+1-415-555-0123\",",
+        "indent": 2
       },
-      { content: '}', indent: 1 },
-      { content: '}', indent: 0 },
+      {
+        "content": "\"ssn\": \"123-45-6789\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth\": \"1985-03-15\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"billing_address\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"street\": \"123 Main St\",",
+        "indent": 2
+      },
+      {
+        "content": "\"city\": \"San Francisco\",",
+        "indent": 2
+      },
+      {
+        "content": "\"state\": \"CA\",",
+        "indent": 2
+      },
+      {
+        "content": "\"zip\": \"94102\",",
+        "indent": 2
+      },
+      {
+        "content": "\"country\": \"US\"",
+        "indent": 2
+      },
+      {
+        "content": "}",
+        "indent": 1
+      },
+      {
+        "content": "}",
+        "indent": 0
+      }
     ],
-    outputLines: [
-      { content: '{', indent: 0 },
+    "outputLines": [
       {
-        content: '"transaction_id": "txn_20251020_001",',
-        indent: 1,
-        key: 'transaction_id',
-        valueType: 'string',
+        "content": "{",
+        "indent": 0
       },
       {
-        content: '"timestamp": "2025-10-20T14:30:00Z",',
-        indent: 1,
-        key: 'timestamp',
-        valueType: 'string',
+        "content": "\"transaction_id\": \"txn_20251020_001\",",
+        "indent": 1
       },
       {
-        content: '"merchant_id": "merchant_789",',
-        indent: 1,
-        key: 'merchant_id',
-        valueType: 'string',
+        "content": "\"timestamp\": \"2025-10-20T14:30:00Z\",",
+        "indent": 1
       },
       {
-        content: '"amount": 127.50,',
-        indent: 1,
-        key: 'amount',
-        valueType: 'number',
+        "content": "\"merchant_id\": \"merchant_789\",",
+        "indent": 1
       },
       {
-        content: '"currency": "USD",',
-        indent: 1,
-        key: 'currency',
-        valueType: 'string',
-      },
-      { content: '"payment": {', indent: 1, key: 'payment' },
-      {
-        content: '"card_number": "4532-1234-5678-9010",',
-        indent: 2,
-        key: 'card_number',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"amount\": 127.5,",
+        "indent": 1
       },
       {
-        content: '"cvv": "123",',
-        indent: 2,
-        key: 'cvv',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"currency\": \"USD\",",
+        "indent": 1
       },
       {
-        content: '"expiration": "12/27",',
-        indent: 2,
-        key: 'expiration',
-        valueType: 'string',
+        "content": "\"payment\": {",
+        "indent": 1
       },
       {
-        content: '"cardholder_name": "Sarah Johnson"',
-        indent: 2,
-        key: 'cardholder_name',
-        valueType: 'string',
-        type: 'highlighted',
-      },
-      { content: '},', indent: 1 },
-      { content: '"customer": {', indent: 1, key: 'customer' },
-      {
-        content: '"email": "sarah.johnson@example.com",',
-        indent: 2,
-        key: 'email',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"card_number\": \"4532-1234-5678-9010\",",
+        "indent": 2
       },
       {
-        content: '"phone": "+1-415-555-0123",',
-        indent: 2,
-        key: 'phone',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"cvv\": \"123\",",
+        "indent": 2
       },
       {
-        content: '"ssn": "123-45-6789",',
-        indent: 2,
-        key: 'ssn',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"expiration\": \"12/27\",",
+        "indent": 2
       },
       {
-        content: '"date_of_birth": "1985-03-15"',
-        indent: 2,
-        key: 'date_of_birth',
-        valueType: 'string',
-        type: 'highlighted',
-      },
-      { content: '},', indent: 1 },
-      { content: '"billing_address": {', indent: 1, key: 'billing_address' },
-      {
-        content: '"street": "123 Main St",',
-        indent: 2,
-        key: 'street',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"cardholder_name\": \"Sarah Johnson\"",
+        "indent": 2
       },
       {
-        content: '"city": "San Francisco",',
-        indent: 2,
-        key: 'city',
-        valueType: 'string',
+        "content": "},",
+        "indent": 1
       },
       {
-        content: '"state": "CA",',
-        indent: 2,
-        key: 'state',
-        valueType: 'string',
+        "content": "\"customer\": {",
+        "indent": 1
       },
       {
-        content: '"zip": "94102",',
-        indent: 2,
-        key: 'zip',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"email\": \"sarah.johnson@example.com\",",
+        "indent": 2
       },
       {
-        content: '"country": "US"',
-        indent: 2,
-        key: 'country',
-        valueType: 'string',
+        "content": "\"phone\": \"+1-415-555-0123\",",
+        "indent": 2
       },
-      { content: '}', indent: 1 },
-      { content: '}', indent: 0 },
-    ],
+      {
+        "content": "\"ssn\": \"123-45-6789\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth\": \"1985-03-15\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"billing_address\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"street\": \"123 Main St\",",
+        "indent": 2
+      },
+      {
+        "content": "\"city\": \"San Francisco\",",
+        "indent": 2
+      },
+      {
+        "content": "\"state\": \"CA\",",
+        "indent": 2
+      },
+      {
+        "content": "\"zip\": \"94102\",",
+        "indent": 2
+      },
+      {
+        "content": "\"country\": \"US\"",
+        "indent": 2
+      },
+      {
+        "content": "}",
+        "indent": 1
+      },
+      {
+        "content": "}",
+        "indent": 0
+      }
+    ]
   },
   {
-    id: 2,
-    slug: 'encrypt-credit-card-data',
-    title: 'Step 2: Encrypt Credit Card Data',
-    description:
-      'Select the synthetic card number and CVV fields for the configured encryption processor.',
-    inputLines: [
-      { content: '{', indent: 0 },
-      { content: '"payment": {', indent: 1, key: 'payment' },
+    "id": 2,
+    "slug": "encrypt-credit-card-data",
+    "title": "Step 2: Encrypt Credit Card Data",
+    "description": "Encrypt the card number and name with AES-GCM, retain their nonces, and delete CVV.",
+    "inputLines": [
       {
-        content: '"card_number": "4532-1234-5678-9010",',
-        indent: 2,
-        key: 'card_number',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "{",
+        "indent": 0
       },
       {
-        content: '"cvv": "123",',
-        indent: 2,
-        key: 'cvv',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"transaction_id\": \"txn_20251020_001\",",
+        "indent": 1
       },
       {
-        content: '"expiration": "12/27",',
-        indent: 2,
-        key: 'expiration',
-        valueType: 'string',
+        "content": "\"timestamp\": \"2025-10-20T14:30:00Z\",",
+        "indent": 1
       },
       {
-        content: '"cardholder_name": "Sarah Johnson"',
-        indent: 2,
-        key: 'cardholder_name',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"merchant_id\": \"merchant_789\",",
+        "indent": 1
       },
-      { content: '}', indent: 1 },
-      { content: '}', indent: 0 },
+      {
+        "content": "\"amount\": 127.5,",
+        "indent": 1
+      },
+      {
+        "content": "\"currency\": \"USD\",",
+        "indent": 1
+      },
+      {
+        "content": "\"payment\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"card_number\": \"4532-1234-5678-9010\",",
+        "indent": 2
+      },
+      {
+        "content": "\"cvv\": \"123\",",
+        "indent": 2
+      },
+      {
+        "content": "\"expiration\": \"12/27\",",
+        "indent": 2
+      },
+      {
+        "content": "\"cardholder_name\": \"Sarah Johnson\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"customer\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"email\": \"sarah.johnson@example.com\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone\": \"+1-415-555-0123\",",
+        "indent": 2
+      },
+      {
+        "content": "\"ssn\": \"123-45-6789\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth\": \"1985-03-15\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"billing_address\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"street\": \"123 Main St\",",
+        "indent": 2
+      },
+      {
+        "content": "\"city\": \"San Francisco\",",
+        "indent": 2
+      },
+      {
+        "content": "\"state\": \"CA\",",
+        "indent": 2
+      },
+      {
+        "content": "\"zip\": \"94102\",",
+        "indent": 2
+      },
+      {
+        "content": "\"country\": \"US\"",
+        "indent": 2
+      },
+      {
+        "content": "}",
+        "indent": 1
+      },
+      {
+        "content": "}",
+        "indent": 0
+      }
     ],
-    outputLines: [
-      { content: '{', indent: 0 },
-      { content: '"payment": {', indent: 1, key: 'payment' },
+    "outputLines": [
       {
-        content: '"card_number_encrypted": "AES256:YWJjZGVm...8f3e2a1b",',
-        indent: 2,
-        key: 'card_number_encrypted',
-        valueType: 'string',
-        type: 'added',
+        "content": "{",
+        "indent": 0
       },
       {
-        content: '"cvv_encrypted": "AES256:cGFzc3dv...1a2b3c4d",',
-        indent: 2,
-        key: 'cvv_encrypted',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"transaction_id\": \"txn_20251020_001\",",
+        "indent": 1
       },
       {
-        content: '"cardholder_name_encrypted": "AES256:bmFtZXN0...9f8e7d6c",',
-        indent: 2,
-        key: 'cardholder_name_encrypted',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"timestamp\": \"2025-10-20T14:30:00Z\",",
+        "indent": 1
       },
       {
-        content: '"card_last_four": "9010",',
-        indent: 2,
-        key: 'card_last_four',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"merchant_id\": \"merchant_789\",",
+        "indent": 1
       },
       {
-        content: '"card_brand": "visa",',
-        indent: 2,
-        key: 'card_brand',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"amount\": 127.5,",
+        "indent": 1
       },
       {
-        content: '"expiration": "12/27"',
-        indent: 2,
-        key: 'expiration',
-        valueType: 'string',
+        "content": "\"currency\": \"USD\",",
+        "indent": 1
       },
-      { content: '}', indent: 1 },
-      { content: '}', indent: 0 },
-    ],
+      {
+        "content": "\"payment\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"expiration\": \"12/27\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_last_four\": \"9010\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_brand\": \"visa\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_number_encrypted\": \"lpCo/ZX8nEv4v3QMZp7j7DXPHZHZgdSisDEbapgMAYu6QJU=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_number_nonce\": \"52860578201ae859fc217382\",",
+        "indent": 2
+      },
+      {
+        "content": "\"cardholder_name_encrypted\": \"FQY/TPv7A9USu5VN9OMdxTXSJ7a3w+Y1HV8lHj0=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"cardholder_name_nonce\": \"d4bd8726adf662873155fa49\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"customer\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"email\": \"sarah.johnson@example.com\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone\": \"+1-415-555-0123\",",
+        "indent": 2
+      },
+      {
+        "content": "\"ssn\": \"123-45-6789\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth\": \"1985-03-15\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"billing_address\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"street\": \"123 Main St\",",
+        "indent": 2
+      },
+      {
+        "content": "\"city\": \"San Francisco\",",
+        "indent": 2
+      },
+      {
+        "content": "\"state\": \"CA\",",
+        "indent": 2
+      },
+      {
+        "content": "\"zip\": \"94102\",",
+        "indent": 2
+      },
+      {
+        "content": "\"country\": \"US\"",
+        "indent": 2
+      },
+      {
+        "content": "}",
+        "indent": 1
+      },
+      {
+        "content": "}",
+        "indent": 0
+      }
+    ]
   },
   {
-    id: 3,
-    slug: 'encrypt-pii-customer-data',
-    title: 'Step 3: Encrypt PII Customer Data',
-    description:
-      'Select identity fields for encryption and retain the authored derived fields.',
-    inputLines: [
-      { content: '{', indent: 0 },
-      { content: '"customer": {', indent: 1, key: 'customer' },
+    "id": 3,
+    "slug": "encrypt-pii-customer-data",
+    "title": "Step 3: Encrypt PII Customer Data",
+    "description": "Encrypt identity fields with AES-GCM and retain nonces and derived analytics fields.",
+    "inputLines": [
       {
-        content: '"email": "sarah.johnson@example.com",',
-        indent: 2,
-        key: 'email',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "{",
+        "indent": 0
       },
       {
-        content: '"phone": "+1-415-555-0123",',
-        indent: 2,
-        key: 'phone',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"transaction_id\": \"txn_20251020_001\",",
+        "indent": 1
       },
       {
-        content: '"ssn": "123-45-6789",',
-        indent: 2,
-        key: 'ssn',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"timestamp\": \"2025-10-20T14:30:00Z\",",
+        "indent": 1
       },
       {
-        content: '"date_of_birth": "1985-03-15"',
-        indent: 2,
-        key: 'date_of_birth',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"merchant_id\": \"merchant_789\",",
+        "indent": 1
       },
-      { content: '}', indent: 1 },
-      { content: '}', indent: 0 },
+      {
+        "content": "\"amount\": 127.5,",
+        "indent": 1
+      },
+      {
+        "content": "\"currency\": \"USD\",",
+        "indent": 1
+      },
+      {
+        "content": "\"payment\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"expiration\": \"12/27\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_last_four\": \"9010\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_brand\": \"visa\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_number_encrypted\": \"lpCo/ZX8nEv4v3QMZp7j7DXPHZHZgdSisDEbapgMAYu6QJU=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_number_nonce\": \"52860578201ae859fc217382\",",
+        "indent": 2
+      },
+      {
+        "content": "\"cardholder_name_encrypted\": \"FQY/TPv7A9USu5VN9OMdxTXSJ7a3w+Y1HV8lHj0=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"cardholder_name_nonce\": \"d4bd8726adf662873155fa49\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"customer\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"email\": \"sarah.johnson@example.com\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone\": \"+1-415-555-0123\",",
+        "indent": 2
+      },
+      {
+        "content": "\"ssn\": \"123-45-6789\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth\": \"1985-03-15\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"billing_address\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"street\": \"123 Main St\",",
+        "indent": 2
+      },
+      {
+        "content": "\"city\": \"San Francisco\",",
+        "indent": 2
+      },
+      {
+        "content": "\"state\": \"CA\",",
+        "indent": 2
+      },
+      {
+        "content": "\"zip\": \"94102\",",
+        "indent": 2
+      },
+      {
+        "content": "\"country\": \"US\"",
+        "indent": 2
+      },
+      {
+        "content": "}",
+        "indent": 1
+      },
+      {
+        "content": "}",
+        "indent": 0
+      }
     ],
-    outputLines: [
-      { content: '{', indent: 0 },
-      { content: '"customer": {', indent: 1, key: 'customer' },
+    "outputLines": [
       {
-        content: '"ssn_encrypted": "AES256:c3NuZGF0...7e6d5c4b",',
-        indent: 2,
-        key: 'ssn_encrypted',
-        valueType: 'string',
-        type: 'added',
+        "content": "{",
+        "indent": 0
       },
       {
-        content: '"email_encrypted": "AES256:ZW1haWxk...6d5c4b3a",',
-        indent: 2,
-        key: 'email_encrypted',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"transaction_id\": \"txn_20251020_001\",",
+        "indent": 1
       },
       {
-        content: '"phone_encrypted": "AES256:cGhvbmVk...5c4b3a2g",',
-        indent: 2,
-        key: 'phone_encrypted',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"timestamp\": \"2025-10-20T14:30:00Z\",",
+        "indent": 1
       },
       {
-        content: '"dob_encrypted": "AES256:ZG9iZGF0...4b3a2g1h",',
-        indent: 2,
-        key: 'dob_encrypted',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"merchant_id\": \"merchant_789\",",
+        "indent": 1
       },
       {
-        content: '"ssn_last_four": "6789",',
-        indent: 2,
-        key: 'ssn_last_four',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"amount\": 127.5,",
+        "indent": 1
       },
       {
-        content: '"email_domain": "example.com",',
-        indent: 2,
-        key: 'email_domain',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"currency\": \"USD\",",
+        "indent": 1
       },
       {
-        content: '"phone_area_code": "415"',
-        indent: 2,
-        key: 'phone_area_code',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"payment\": {",
+        "indent": 1
       },
-      { content: '}', indent: 1 },
-      { content: '}', indent: 0 },
-    ],
+      {
+        "content": "\"expiration\": \"12/27\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_last_four\": \"9010\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_brand\": \"visa\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_number_encrypted\": \"lpCo/ZX8nEv4v3QMZp7j7DXPHZHZgdSisDEbapgMAYu6QJU=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_number_nonce\": \"52860578201ae859fc217382\",",
+        "indent": 2
+      },
+      {
+        "content": "\"cardholder_name_encrypted\": \"FQY/TPv7A9USu5VN9OMdxTXSJ7a3w+Y1HV8lHj0=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"cardholder_name_nonce\": \"d4bd8726adf662873155fa49\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"customer\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"ssn_last_four\": \"6789\",",
+        "indent": 2
+      },
+      {
+        "content": "\"email_domain\": \"example.com\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_area_code\": \"141\",",
+        "indent": 2
+      },
+      {
+        "content": "\"birth_year\": 1985,",
+        "indent": 2
+      },
+      {
+        "content": "\"ssn_encrypted\": \"mHk4hhUSNKyrm+8uqc5zUKfgzSK0ldV3Nu9b\",",
+        "indent": 2
+      },
+      {
+        "content": "\"ssn_nonce\": \"de7c2ff8f51df67359fd7292\",",
+        "indent": 2
+      },
+      {
+        "content": "\"email_encrypted\": \"kYxzQn3uiaoSRP2T7e1OUoHoLAoAl4jhO12cTAFr1XhdZLlnl1bJu78=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"email_nonce\": \"b228b001aaf1433bfec2db4f\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_encrypted\": \"FHavKi6h3xhC/Y/i7McfcU5mkiSgToR8hi5vQ99QBg==\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_nonce\": \"ffa3a72cd946d9ec90ce902a\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth_encrypted\": \"AeSdHlZVlbvGjXvpTd3Y/pXiKdwgOZLQ1YE=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth_nonce\": \"1111c29e0d4307c1780e94f9\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"billing_address\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"street\": \"123 Main St\",",
+        "indent": 2
+      },
+      {
+        "content": "\"city\": \"San Francisco\",",
+        "indent": 2
+      },
+      {
+        "content": "\"state\": \"CA\",",
+        "indent": 2
+      },
+      {
+        "content": "\"zip\": \"94102\",",
+        "indent": 2
+      },
+      {
+        "content": "\"country\": \"US\"",
+        "indent": 2
+      },
+      {
+        "content": "}",
+        "indent": 1
+      },
+      {
+        "content": "}",
+        "indent": 0
+      }
+    ]
   },
   {
-    id: 4,
-    slug: 'encrypt-address-data',
-    title: 'Step 4: Encrypt Address Data',
-    description:
-      'Select street and postal-code fields while retaining city, state, and country in the authored output.',
-    inputLines: [
-      { content: '{', indent: 0 },
-      { content: '"billing_address": {', indent: 1, key: 'billing_address' },
+    "id": 4,
+    "slug": "encrypt-address-data",
+    "title": "Step 4: Encrypt Address Data",
+    "description": "Select street and postal-code fields while retaining city, state, and country in the authored output.",
+    "inputLines": [
       {
-        content: '"street": "123 Main St",',
-        indent: 2,
-        key: 'street',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "{",
+        "indent": 0
       },
       {
-        content: '"city": "San Francisco",',
-        indent: 2,
-        key: 'city',
-        valueType: 'string',
+        "content": "\"transaction_id\": \"txn_20251020_001\",",
+        "indent": 1
       },
       {
-        content: '"state": "CA",',
-        indent: 2,
-        key: 'state',
-        valueType: 'string',
+        "content": "\"timestamp\": \"2025-10-20T14:30:00Z\",",
+        "indent": 1
       },
       {
-        content: '"zip": "94102",',
-        indent: 2,
-        key: 'zip',
-        valueType: 'string',
-        type: 'highlighted',
+        "content": "\"merchant_id\": \"merchant_789\",",
+        "indent": 1
       },
       {
-        content: '"country": "US"',
-        indent: 2,
-        key: 'country',
-        valueType: 'string',
+        "content": "\"amount\": 127.5,",
+        "indent": 1
       },
-      { content: '}', indent: 1 },
-      { content: '}', indent: 0 },
+      {
+        "content": "\"currency\": \"USD\",",
+        "indent": 1
+      },
+      {
+        "content": "\"payment\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"expiration\": \"12/27\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_last_four\": \"9010\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_brand\": \"visa\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_number_encrypted\": \"lpCo/ZX8nEv4v3QMZp7j7DXPHZHZgdSisDEbapgMAYu6QJU=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_number_nonce\": \"52860578201ae859fc217382\",",
+        "indent": 2
+      },
+      {
+        "content": "\"cardholder_name_encrypted\": \"FQY/TPv7A9USu5VN9OMdxTXSJ7a3w+Y1HV8lHj0=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"cardholder_name_nonce\": \"d4bd8726adf662873155fa49\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"customer\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"ssn_last_four\": \"6789\",",
+        "indent": 2
+      },
+      {
+        "content": "\"email_domain\": \"example.com\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_area_code\": \"141\",",
+        "indent": 2
+      },
+      {
+        "content": "\"birth_year\": 1985,",
+        "indent": 2
+      },
+      {
+        "content": "\"ssn_encrypted\": \"mHk4hhUSNKyrm+8uqc5zUKfgzSK0ldV3Nu9b\",",
+        "indent": 2
+      },
+      {
+        "content": "\"ssn_nonce\": \"de7c2ff8f51df67359fd7292\",",
+        "indent": 2
+      },
+      {
+        "content": "\"email_encrypted\": \"kYxzQn3uiaoSRP2T7e1OUoHoLAoAl4jhO12cTAFr1XhdZLlnl1bJu78=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"email_nonce\": \"b228b001aaf1433bfec2db4f\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_encrypted\": \"FHavKi6h3xhC/Y/i7McfcU5mkiSgToR8hi5vQ99QBg==\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_nonce\": \"ffa3a72cd946d9ec90ce902a\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth_encrypted\": \"AeSdHlZVlbvGjXvpTd3Y/pXiKdwgOZLQ1YE=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth_nonce\": \"1111c29e0d4307c1780e94f9\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"billing_address\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"street\": \"123 Main St\",",
+        "indent": 2
+      },
+      {
+        "content": "\"city\": \"San Francisco\",",
+        "indent": 2
+      },
+      {
+        "content": "\"state\": \"CA\",",
+        "indent": 2
+      },
+      {
+        "content": "\"zip\": \"94102\",",
+        "indent": 2
+      },
+      {
+        "content": "\"country\": \"US\"",
+        "indent": 2
+      },
+      {
+        "content": "}",
+        "indent": 1
+      },
+      {
+        "content": "}",
+        "indent": 0
+      }
     ],
-    outputLines: [
-      { content: '{', indent: 0 },
-      { content: '"billing_address": {', indent: 1, key: 'billing_address' },
+    "outputLines": [
       {
-        content: '"street_encrypted": "AES256:c3RyZWV0...3a2g1h0f",',
-        indent: 2,
-        key: 'street_encrypted',
-        valueType: 'string',
-        type: 'added',
+        "content": "{",
+        "indent": 0
       },
       {
-        content: '"zip_encrypted": "AES256:emlwZGF0...2g1h0f9e",',
-        indent: 2,
-        key: 'zip_encrypted',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"transaction_id\": \"txn_20251020_001\",",
+        "indent": 1
       },
       {
-        content: '"city": "San Francisco",',
-        indent: 2,
-        key: 'city',
-        valueType: 'string',
+        "content": "\"timestamp\": \"2025-10-20T14:30:00Z\",",
+        "indent": 1
       },
       {
-        content: '"state": "CA",',
-        indent: 2,
-        key: 'state',
-        valueType: 'string',
+        "content": "\"merchant_id\": \"merchant_789\",",
+        "indent": 1
       },
       {
-        content: '"country": "US"',
-        indent: 2,
-        key: 'country',
-        valueType: 'string',
+        "content": "\"amount\": 127.5,",
+        "indent": 1
       },
-      { content: '}', indent: 1 },
-      { content: '}', indent: 0 },
-    ],
+      {
+        "content": "\"currency\": \"USD\",",
+        "indent": 1
+      },
+      {
+        "content": "\"payment\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"expiration\": \"12/27\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_last_four\": \"9010\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_brand\": \"visa\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_number_encrypted\": \"lpCo/ZX8nEv4v3QMZp7j7DXPHZHZgdSisDEbapgMAYu6QJU=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_number_nonce\": \"52860578201ae859fc217382\",",
+        "indent": 2
+      },
+      {
+        "content": "\"cardholder_name_encrypted\": \"FQY/TPv7A9USu5VN9OMdxTXSJ7a3w+Y1HV8lHj0=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"cardholder_name_nonce\": \"d4bd8726adf662873155fa49\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"customer\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"ssn_last_four\": \"6789\",",
+        "indent": 2
+      },
+      {
+        "content": "\"email_domain\": \"example.com\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_area_code\": \"141\",",
+        "indent": 2
+      },
+      {
+        "content": "\"birth_year\": 1985,",
+        "indent": 2
+      },
+      {
+        "content": "\"ssn_encrypted\": \"mHk4hhUSNKyrm+8uqc5zUKfgzSK0ldV3Nu9b\",",
+        "indent": 2
+      },
+      {
+        "content": "\"ssn_nonce\": \"de7c2ff8f51df67359fd7292\",",
+        "indent": 2
+      },
+      {
+        "content": "\"email_encrypted\": \"kYxzQn3uiaoSRP2T7e1OUoHoLAoAl4jhO12cTAFr1XhdZLlnl1bJu78=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"email_nonce\": \"b228b001aaf1433bfec2db4f\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_encrypted\": \"FHavKi6h3xhC/Y/i7McfcU5mkiSgToR8hi5vQ99QBg==\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_nonce\": \"ffa3a72cd946d9ec90ce902a\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth_encrypted\": \"AeSdHlZVlbvGjXvpTd3Y/pXiKdwgOZLQ1YE=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth_nonce\": \"1111c29e0d4307c1780e94f9\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"billing_address\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"city\": \"San Francisco\",",
+        "indent": 2
+      },
+      {
+        "content": "\"state\": \"CA\",",
+        "indent": 2
+      },
+      {
+        "content": "\"country\": \"US\",",
+        "indent": 2
+      },
+      {
+        "content": "\"street_encrypted\": \"kraUixfb9IRW1rTsdspmNM3hV2UCKNSWt1XC\",",
+        "indent": 2
+      },
+      {
+        "content": "\"street_nonce\": \"c3af7140b21eaae7d4be1b74\",",
+        "indent": 2
+      },
+      {
+        "content": "\"zip_encrypted\": \"9Y0HgXmp1hsFBdZZSNWvM+Vm9lbD\",",
+        "indent": 2
+      },
+      {
+        "content": "\"zip_nonce\": \"cec741b3ae70c6947a7bc394\"",
+        "indent": 2
+      },
+      {
+        "content": "}",
+        "indent": 1
+      },
+      {
+        "content": "}",
+        "indent": 0
+      }
+    ]
   },
   {
-    id: 5,
-    slug: 'add-encryption-metadata',
-    title: 'Step 5: Add Encryption Metadata',
-    description:
-      'Add authored metadata describing the selected example transformations.',
-    inputLines: [
-      { content: '{', indent: 0 },
+    "id": 5,
+    "slug": "add-encryption-metadata",
+    "title": "Step 5: Add Encryption Metadata",
+    "description": "Add encryption metadata; timestamps and key version shown here are fixture values.",
+    "inputLines": [
       {
-        content: '// Encrypted transaction data from previous steps',
-        indent: 1,
-        type: 'comment',
+        "content": "{",
+        "indent": 0
       },
-      { content: '"payment": { ... },', indent: 1, key: 'payment' },
-      { content: '"customer": { ... },', indent: 1, key: 'customer' },
       {
-        content: '"billing_address": { ... }',
-        indent: 1,
-        key: 'billing_address',
+        "content": "\"transaction_id\": \"txn_20251020_001\",",
+        "indent": 1
       },
-      { content: '}', indent: 0 },
+      {
+        "content": "\"timestamp\": \"2025-10-20T14:30:00Z\",",
+        "indent": 1
+      },
+      {
+        "content": "\"merchant_id\": \"merchant_789\",",
+        "indent": 1
+      },
+      {
+        "content": "\"amount\": 127.5,",
+        "indent": 1
+      },
+      {
+        "content": "\"currency\": \"USD\",",
+        "indent": 1
+      },
+      {
+        "content": "\"payment\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"expiration\": \"12/27\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_last_four\": \"9010\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_brand\": \"visa\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_number_encrypted\": \"lpCo/ZX8nEv4v3QMZp7j7DXPHZHZgdSisDEbapgMAYu6QJU=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_number_nonce\": \"52860578201ae859fc217382\",",
+        "indent": 2
+      },
+      {
+        "content": "\"cardholder_name_encrypted\": \"FQY/TPv7A9USu5VN9OMdxTXSJ7a3w+Y1HV8lHj0=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"cardholder_name_nonce\": \"d4bd8726adf662873155fa49\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"customer\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"ssn_last_four\": \"6789\",",
+        "indent": 2
+      },
+      {
+        "content": "\"email_domain\": \"example.com\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_area_code\": \"141\",",
+        "indent": 2
+      },
+      {
+        "content": "\"birth_year\": 1985,",
+        "indent": 2
+      },
+      {
+        "content": "\"ssn_encrypted\": \"mHk4hhUSNKyrm+8uqc5zUKfgzSK0ldV3Nu9b\",",
+        "indent": 2
+      },
+      {
+        "content": "\"ssn_nonce\": \"de7c2ff8f51df67359fd7292\",",
+        "indent": 2
+      },
+      {
+        "content": "\"email_encrypted\": \"kYxzQn3uiaoSRP2T7e1OUoHoLAoAl4jhO12cTAFr1XhdZLlnl1bJu78=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"email_nonce\": \"b228b001aaf1433bfec2db4f\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_encrypted\": \"FHavKi6h3xhC/Y/i7McfcU5mkiSgToR8hi5vQ99QBg==\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_nonce\": \"ffa3a72cd946d9ec90ce902a\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth_encrypted\": \"AeSdHlZVlbvGjXvpTd3Y/pXiKdwgOZLQ1YE=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth_nonce\": \"1111c29e0d4307c1780e94f9\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"billing_address\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"city\": \"San Francisco\",",
+        "indent": 2
+      },
+      {
+        "content": "\"state\": \"CA\",",
+        "indent": 2
+      },
+      {
+        "content": "\"country\": \"US\",",
+        "indent": 2
+      },
+      {
+        "content": "\"street_encrypted\": \"kraUixfb9IRW1rTsdspmNM3hV2UCKNSWt1XC\",",
+        "indent": 2
+      },
+      {
+        "content": "\"street_nonce\": \"c3af7140b21eaae7d4be1b74\",",
+        "indent": 2
+      },
+      {
+        "content": "\"zip_encrypted\": \"9Y0HgXmp1hsFBdZZSNWvM+Vm9lbD\",",
+        "indent": 2
+      },
+      {
+        "content": "\"zip_nonce\": \"cec741b3ae70c6947a7bc394\"",
+        "indent": 2
+      },
+      {
+        "content": "}",
+        "indent": 1
+      },
+      {
+        "content": "}",
+        "indent": 0
+      }
     ],
-    outputLines: [
-      { content: '{', indent: 0 },
-      { content: '"payment": { ... },', indent: 1, key: 'payment' },
-      { content: '"customer": { ... },', indent: 1, key: 'customer' },
+    "outputLines": [
       {
-        content: '"billing_address": { ... },',
-        indent: 1,
-        key: 'billing_address',
+        "content": "{",
+        "indent": 0
       },
       {
-        content: '"encryption_metadata": {',
-        indent: 1,
-        key: 'encryption_metadata',
-        type: 'added',
+        "content": "\"transaction_id\": \"txn_20251020_001\",",
+        "indent": 1
       },
       {
-        content: '"encrypted": true,',
-        indent: 2,
-        key: 'encrypted',
-        valueType: 'boolean',
-        type: 'added',
+        "content": "\"timestamp\": \"2025-10-20T14:30:00Z\",",
+        "indent": 1
       },
       {
-        content: '"encryption_timestamp": "2025-10-20T14:30:01Z",',
-        indent: 2,
-        key: 'encryption_timestamp',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"merchant_id\": \"merchant_789\",",
+        "indent": 1
       },
       {
-        content: '"encryption_version": "1.0",',
-        indent: 2,
-        key: 'encryption_version',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"amount\": 127.5,",
+        "indent": 1
       },
       {
-        content: '"key_version": "v1",',
-        indent: 2,
-        key: 'key_version',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"currency\": \"USD\",",
+        "indent": 1
       },
       {
-        content: '"algorithm": "AES-256-GCM",',
-        indent: 2,
-        key: 'algorithm',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"payment\": {",
+        "indent": 1
       },
       {
-        content: '"node_id": "edge-001",',
-        indent: 2,
-        key: 'node_id',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"expiration\": \"12/27\",",
+        "indent": 2
       },
       {
-        content: '"pipeline": "payment-field-encryption"',
-        indent: 2,
-        key: 'pipeline',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"card_last_four\": \"9010\",",
+        "indent": 2
       },
-      { content: '}', indent: 1, type: 'added' },
-      { content: '}', indent: 0 },
-    ],
+      {
+        "content": "\"card_brand\": \"visa\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_number_encrypted\": \"lpCo/ZX8nEv4v3QMZp7j7DXPHZHZgdSisDEbapgMAYu6QJU=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_number_nonce\": \"52860578201ae859fc217382\",",
+        "indent": 2
+      },
+      {
+        "content": "\"cardholder_name_encrypted\": \"FQY/TPv7A9USu5VN9OMdxTXSJ7a3w+Y1HV8lHj0=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"cardholder_name_nonce\": \"d4bd8726adf662873155fa49\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"customer\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"ssn_last_four\": \"6789\",",
+        "indent": 2
+      },
+      {
+        "content": "\"email_domain\": \"example.com\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_area_code\": \"141\",",
+        "indent": 2
+      },
+      {
+        "content": "\"birth_year\": 1985,",
+        "indent": 2
+      },
+      {
+        "content": "\"ssn_encrypted\": \"mHk4hhUSNKyrm+8uqc5zUKfgzSK0ldV3Nu9b\",",
+        "indent": 2
+      },
+      {
+        "content": "\"ssn_nonce\": \"de7c2ff8f51df67359fd7292\",",
+        "indent": 2
+      },
+      {
+        "content": "\"email_encrypted\": \"kYxzQn3uiaoSRP2T7e1OUoHoLAoAl4jhO12cTAFr1XhdZLlnl1bJu78=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"email_nonce\": \"b228b001aaf1433bfec2db4f\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_encrypted\": \"FHavKi6h3xhC/Y/i7McfcU5mkiSgToR8hi5vQ99QBg==\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_nonce\": \"ffa3a72cd946d9ec90ce902a\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth_encrypted\": \"AeSdHlZVlbvGjXvpTd3Y/pXiKdwgOZLQ1YE=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth_nonce\": \"1111c29e0d4307c1780e94f9\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"billing_address\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"city\": \"San Francisco\",",
+        "indent": 2
+      },
+      {
+        "content": "\"state\": \"CA\",",
+        "indent": 2
+      },
+      {
+        "content": "\"country\": \"US\",",
+        "indent": 2
+      },
+      {
+        "content": "\"street_encrypted\": \"kraUixfb9IRW1rTsdspmNM3hV2UCKNSWt1XC\",",
+        "indent": 2
+      },
+      {
+        "content": "\"street_nonce\": \"c3af7140b21eaae7d4be1b74\",",
+        "indent": 2
+      },
+      {
+        "content": "\"zip_encrypted\": \"9Y0HgXmp1hsFBdZZSNWvM+Vm9lbD\",",
+        "indent": 2
+      },
+      {
+        "content": "\"zip_nonce\": \"cec741b3ae70c6947a7bc394\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"encryption_metadata\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"encrypted\": true,",
+        "indent": 2
+      },
+      {
+        "content": "\"encryption_timestamp\": \"2025-10-20T14:30:00Z\",",
+        "indent": 2
+      },
+      {
+        "content": "\"key_version\": \"fixture-v1\",",
+        "indent": 2
+      },
+      {
+        "content": "\"algorithm\": \"AES-256-GCM\",",
+        "indent": 2
+      },
+      {
+        "content": "\"node_id\": \"fixture-node\"",
+        "indent": 2
+      },
+      {
+        "content": "}",
+        "indent": 1
+      },
+      {
+        "content": "}",
+        "indent": 0
+      }
+    ]
   },
   {
-    id: 6,
-    slug: 'complete-encrypted-transaction',
-    title: 'Step 6: Complete Encrypted Transaction',
-    description:
-      'Show the authored final record shape; transmission, storage, and key handling are not exercised.',
-    inputLines: [
-      { content: '{', indent: 0 },
+    "id": 6,
+    "slug": "complete-encrypted-transaction",
+    "title": "Step 6: Complete Encrypted Transaction",
+    "description": "Reject errored records before forwarding the encrypted transaction to both authenticated destinations.",
+    "inputLines": [
       {
-        content: '// Original plaintext transaction',
-        indent: 1,
-        type: 'comment',
+        "content": "{",
+        "indent": 0
       },
       {
-        content: '"transaction_id": "txn_20251020_001",',
-        indent: 1,
-        key: 'transaction_id',
-        valueType: 'string',
+        "content": "\"transaction_id\": \"txn_20251020_001\",",
+        "indent": 1
       },
       {
-        content: '"payment": { card_number, cvv, ... },',
-        indent: 1,
-        key: 'payment',
-        type: 'highlighted',
+        "content": "\"timestamp\": \"2025-10-20T14:30:00Z\",",
+        "indent": 1
       },
       {
-        content: '"customer": { ssn, email, phone, ... },',
-        indent: 1,
-        key: 'customer',
-        type: 'highlighted',
+        "content": "\"merchant_id\": \"merchant_789\",",
+        "indent": 1
       },
       {
-        content: '"billing_address": { street, zip, ... }',
-        indent: 1,
-        key: 'billing_address',
-        type: 'highlighted',
+        "content": "\"amount\": 127.5,",
+        "indent": 1
       },
-      { content: '}', indent: 0 },
+      {
+        "content": "\"currency\": \"USD\",",
+        "indent": 1
+      },
+      {
+        "content": "\"payment\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"expiration\": \"12/27\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_last_four\": \"9010\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_brand\": \"visa\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_number_encrypted\": \"lpCo/ZX8nEv4v3QMZp7j7DXPHZHZgdSisDEbapgMAYu6QJU=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"card_number_nonce\": \"52860578201ae859fc217382\",",
+        "indent": 2
+      },
+      {
+        "content": "\"cardholder_name_encrypted\": \"FQY/TPv7A9USu5VN9OMdxTXSJ7a3w+Y1HV8lHj0=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"cardholder_name_nonce\": \"d4bd8726adf662873155fa49\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"customer\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"ssn_last_four\": \"6789\",",
+        "indent": 2
+      },
+      {
+        "content": "\"email_domain\": \"example.com\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_area_code\": \"141\",",
+        "indent": 2
+      },
+      {
+        "content": "\"birth_year\": 1985,",
+        "indent": 2
+      },
+      {
+        "content": "\"ssn_encrypted\": \"mHk4hhUSNKyrm+8uqc5zUKfgzSK0ldV3Nu9b\",",
+        "indent": 2
+      },
+      {
+        "content": "\"ssn_nonce\": \"de7c2ff8f51df67359fd7292\",",
+        "indent": 2
+      },
+      {
+        "content": "\"email_encrypted\": \"kYxzQn3uiaoSRP2T7e1OUoHoLAoAl4jhO12cTAFr1XhdZLlnl1bJu78=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"email_nonce\": \"b228b001aaf1433bfec2db4f\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_encrypted\": \"FHavKi6h3xhC/Y/i7McfcU5mkiSgToR8hi5vQ99QBg==\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_nonce\": \"ffa3a72cd946d9ec90ce902a\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth_encrypted\": \"AeSdHlZVlbvGjXvpTd3Y/pXiKdwgOZLQ1YE=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth_nonce\": \"1111c29e0d4307c1780e94f9\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"billing_address\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"city\": \"San Francisco\",",
+        "indent": 2
+      },
+      {
+        "content": "\"state\": \"CA\",",
+        "indent": 2
+      },
+      {
+        "content": "\"country\": \"US\",",
+        "indent": 2
+      },
+      {
+        "content": "\"street_encrypted\": \"kraUixfb9IRW1rTsdspmNM3hV2UCKNSWt1XC\",",
+        "indent": 2
+      },
+      {
+        "content": "\"street_nonce\": \"c3af7140b21eaae7d4be1b74\",",
+        "indent": 2
+      },
+      {
+        "content": "\"zip_encrypted\": \"9Y0HgXmp1hsFBdZZSNWvM+Vm9lbD\",",
+        "indent": 2
+      },
+      {
+        "content": "\"zip_nonce\": \"cec741b3ae70c6947a7bc394\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"encryption_metadata\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"encrypted\": true,",
+        "indent": 2
+      },
+      {
+        "content": "\"encryption_timestamp\": \"2025-10-20T14:30:00Z\",",
+        "indent": 2
+      },
+      {
+        "content": "\"key_version\": \"fixture-v1\",",
+        "indent": 2
+      },
+      {
+        "content": "\"algorithm\": \"AES-256-GCM\",",
+        "indent": 2
+      },
+      {
+        "content": "\"node_id\": \"fixture-node\"",
+        "indent": 2
+      },
+      {
+        "content": "}",
+        "indent": 1
+      },
+      {
+        "content": "}",
+        "indent": 0
+      }
     ],
-    outputLines: [
-      { content: '{', indent: 0 },
+    "outputLines": [
       {
-        content: '"transaction_id": "txn_20251020_001",',
-        indent: 1,
-        key: 'transaction_id',
-        valueType: 'string',
+        "content": "{",
+        "indent": 0
       },
       {
-        content: '"timestamp": "2025-10-20T14:30:00Z",',
-        indent: 1,
-        key: 'timestamp',
-        valueType: 'string',
+        "content": "\"transaction_id\": \"txn_20251020_001\",",
+        "indent": 1
       },
       {
-        content: '"merchant_id": "merchant_789",',
-        indent: 1,
-        key: 'merchant_id',
-        valueType: 'string',
+        "content": "\"timestamp\": \"2025-10-20T14:30:00Z\",",
+        "indent": 1
       },
       {
-        content: '"amount": 127.50,',
-        indent: 1,
-        key: 'amount',
-        valueType: 'number',
+        "content": "\"merchant_id\": \"merchant_789\",",
+        "indent": 1
       },
       {
-        content: '"currency": "USD",',
-        indent: 1,
-        key: 'currency',
-        valueType: 'string',
-      },
-      { content: '"payment": {', indent: 1, key: 'payment' },
-      {
-        content: '"card_number_encrypted": "AES256:YWJj...8f3e",',
-        indent: 2,
-        key: 'card_number_encrypted',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"amount\": 127.5,",
+        "indent": 1
       },
       {
-        content: '"cvv_encrypted": "AES256:cGFz...1a2b",',
-        indent: 2,
-        key: 'cvv_encrypted',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"currency\": \"USD\",",
+        "indent": 1
       },
       {
-        content: '"cardholder_name_encrypted": "AES256:bmFt...9f8e",',
-        indent: 2,
-        key: 'cardholder_name_encrypted',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"payment\": {",
+        "indent": 1
       },
       {
-        content: '"card_last_four": "9010",',
-        indent: 2,
-        key: 'card_last_four',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"expiration\": \"12/27\",",
+        "indent": 2
       },
       {
-        content: '"card_brand": "visa",',
-        indent: 2,
-        key: 'card_brand',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"card_last_four\": \"9010\",",
+        "indent": 2
       },
       {
-        content: '"expiration": "12/27"',
-        indent: 2,
-        key: 'expiration',
-        valueType: 'string',
-      },
-      { content: '},', indent: 1 },
-      { content: '"customer": {', indent: 1, key: 'customer' },
-      {
-        content: '"ssn_encrypted": "AES256:c3Nu...7e6d",',
-        indent: 2,
-        key: 'ssn_encrypted',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"card_brand\": \"visa\",",
+        "indent": 2
       },
       {
-        content: '"email_encrypted": "AES256:ZW1h...6d5c",',
-        indent: 2,
-        key: 'email_encrypted',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"card_number_encrypted\": \"lpCo/ZX8nEv4v3QMZp7j7DXPHZHZgdSisDEbapgMAYu6QJU=\",",
+        "indent": 2
       },
       {
-        content: '"phone_encrypted": "AES256:cGhv...5c4b",',
-        indent: 2,
-        key: 'phone_encrypted',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"card_number_nonce\": \"52860578201ae859fc217382\",",
+        "indent": 2
       },
       {
-        content: '"dob_encrypted": "AES256:ZG9i...4b3a",',
-        indent: 2,
-        key: 'dob_encrypted',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"cardholder_name_encrypted\": \"FQY/TPv7A9USu5VN9OMdxTXSJ7a3w+Y1HV8lHj0=\",",
+        "indent": 2
       },
       {
-        content: '"ssn_last_four": "6789",',
-        indent: 2,
-        key: 'ssn_last_four',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"cardholder_name_nonce\": \"d4bd8726adf662873155fa49\"",
+        "indent": 2
       },
       {
-        content: '"email_domain": "example.com",',
-        indent: 2,
-        key: 'email_domain',
-        valueType: 'string',
-        type: 'added',
+        "content": "},",
+        "indent": 1
       },
       {
-        content: '"phone_area_code": "415"',
-        indent: 2,
-        key: 'phone_area_code',
-        valueType: 'string',
-        type: 'added',
-      },
-      { content: '},', indent: 1 },
-      { content: '"billing_address": {', indent: 1, key: 'billing_address' },
-      {
-        content: '"street_encrypted": "AES256:c3Ry...3a2g",',
-        indent: 2,
-        key: 'street_encrypted',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"customer\": {",
+        "indent": 1
       },
       {
-        content: '"zip_encrypted": "AES256:emlw...2g1h",',
-        indent: 2,
-        key: 'zip_encrypted',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"ssn_last_four\": \"6789\",",
+        "indent": 2
       },
       {
-        content: '"city": "San Francisco",',
-        indent: 2,
-        key: 'city',
-        valueType: 'string',
+        "content": "\"email_domain\": \"example.com\",",
+        "indent": 2
       },
       {
-        content: '"state": "CA",',
-        indent: 2,
-        key: 'state',
-        valueType: 'string',
+        "content": "\"phone_area_code\": \"141\",",
+        "indent": 2
       },
       {
-        content: '"country": "US"',
-        indent: 2,
-        key: 'country',
-        valueType: 'string',
-      },
-      { content: '},', indent: 1 },
-      {
-        content: '"encryption_metadata": {',
-        indent: 1,
-        key: 'encryption_metadata',
-        type: 'added',
+        "content": "\"birth_year\": 1985,",
+        "indent": 2
       },
       {
-        content: '"encrypted": true,',
-        indent: 2,
-        key: 'encrypted',
-        valueType: 'boolean',
-        type: 'added',
+        "content": "\"ssn_encrypted\": \"mHk4hhUSNKyrm+8uqc5zUKfgzSK0ldV3Nu9b\",",
+        "indent": 2
       },
       {
-        content: '"algorithm": "AES-256-GCM",',
-        indent: 2,
-        key: 'algorithm',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"ssn_nonce\": \"de7c2ff8f51df67359fd7292\",",
+        "indent": 2
       },
       {
-        content: '"key_version": "v1"',
-        indent: 2,
-        key: 'key_version',
-        valueType: 'string',
-        type: 'added',
+        "content": "\"email_encrypted\": \"kYxzQn3uiaoSRP2T7e1OUoHoLAoAl4jhO12cTAFr1XhdZLlnl1bJu78=\",",
+        "indent": 2
       },
-      { content: '}', indent: 1, type: 'added' },
-      { content: '}', indent: 0 },
-    ],
-  },
+      {
+        "content": "\"email_nonce\": \"b228b001aaf1433bfec2db4f\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_encrypted\": \"FHavKi6h3xhC/Y/i7McfcU5mkiSgToR8hi5vQ99QBg==\",",
+        "indent": 2
+      },
+      {
+        "content": "\"phone_nonce\": \"ffa3a72cd946d9ec90ce902a\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth_encrypted\": \"AeSdHlZVlbvGjXvpTd3Y/pXiKdwgOZLQ1YE=\",",
+        "indent": 2
+      },
+      {
+        "content": "\"date_of_birth_nonce\": \"1111c29e0d4307c1780e94f9\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"billing_address\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"city\": \"San Francisco\",",
+        "indent": 2
+      },
+      {
+        "content": "\"state\": \"CA\",",
+        "indent": 2
+      },
+      {
+        "content": "\"country\": \"US\",",
+        "indent": 2
+      },
+      {
+        "content": "\"street_encrypted\": \"kraUixfb9IRW1rTsdspmNM3hV2UCKNSWt1XC\",",
+        "indent": 2
+      },
+      {
+        "content": "\"street_nonce\": \"c3af7140b21eaae7d4be1b74\",",
+        "indent": 2
+      },
+      {
+        "content": "\"zip_encrypted\": \"9Y0HgXmp1hsFBdZZSNWvM+Vm9lbD\",",
+        "indent": 2
+      },
+      {
+        "content": "\"zip_nonce\": \"cec741b3ae70c6947a7bc394\"",
+        "indent": 2
+      },
+      {
+        "content": "},",
+        "indent": 1
+      },
+      {
+        "content": "\"encryption_metadata\": {",
+        "indent": 1
+      },
+      {
+        "content": "\"encrypted\": true,",
+        "indent": 2
+      },
+      {
+        "content": "\"encryption_timestamp\": \"2025-10-20T14:30:00Z\",",
+        "indent": 2
+      },
+      {
+        "content": "\"key_version\": \"fixture-v1\",",
+        "indent": 2
+      },
+      {
+        "content": "\"algorithm\": \"AES-256-GCM\",",
+        "indent": 2
+      },
+      {
+        "content": "\"node_id\": \"fixture-node\"",
+        "indent": 2
+      },
+      {
+        "content": "}",
+        "indent": 1
+      },
+      {
+        "content": "}",
+        "indent": 0
+      }
+    ]
+  }
 ];

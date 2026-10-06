@@ -27,7 +27,7 @@ The canonical pipeline generates synthetic records and writes to S3. It does not
 
 ## Step 1: Configure workload identity
 
-Attach an IAM role to the edge workload. Limit it to `s3:PutObject` on the two configured prefixes and `kms:Encrypt` with the selected key. Do not mount long-lived access keys or an AWS profile.
+Attach an IAM role to the edge workload. Limit it to `s3:PutObject` on the two configured prefixes and `kms:Encrypt` and `kms:GenerateDataKey` with the selected key. Do not mount long-lived access keys or an AWS profile.
 
 ```bash
 aws sts get-caller-identity
@@ -39,7 +39,7 @@ test -n "$S3_KMS_KEY_ARN"
 
 ## Step 2: Verify pre-provisioned storage
 
-Enable bucket public-access blocking, require TLS, require the configured KMS key, and set lifecycle and retention policies before deployment.
+Enable bucket public-access blocking, require TLS, require the configured KMS key, and set lifecycle and retention policies before deployment. Run the readiness checks below with a provisioning identity authorized for `s3:ListBucket` and `kms:DescribeKey`.
 
 ```bash
 aws s3api head-bucket --bucket "$S3_BUCKET_NAME"

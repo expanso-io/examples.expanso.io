@@ -2,6 +2,23 @@ pipeline:
   processors:
     - mapping: |
         root = this
-        root.billing_address.street_encrypted = this.billing_address.street.encrypt_aes_gcm(env("ADDR_KEY"))
-        root.billing_address.zip_encrypted = this.billing_address.zip.encrypt_aes_gcm(env("ADDR_KEY"))
+        let key = env("ADDRESS_ENCRYPTION_KEY_HEX").decode("hex")
+        let street_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+        let zip_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+        root.billing_address.street_encrypted = if this.billing_address.street != null {
+          this.billing_address.street.encrypt_aes(
+            "gcm", $key, $street_nonce.decode("hex")
+          ).encode("base64")
+        }
+        root.billing_address.street_nonce = if this.billing_address.street != null {
+          $street_nonce
+        } else { deleted() }
+        root.billing_address.zip_encrypted = if this.billing_address.zip != null {
+          this.billing_address.zip.encrypt_aes(
+            "gcm", $key, $zip_nonce.decode("hex")
+          ).encode("base64")
+        }
+        root.billing_address.zip_nonce = if this.billing_address.zip != null {
+          $zip_nonce
+        } else { deleted() }
         root.billing_address = root.billing_address.without("street", "zip")

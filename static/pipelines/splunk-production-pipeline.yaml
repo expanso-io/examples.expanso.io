@@ -502,8 +502,10 @@ output:
       - processors:
           - mapping: |
               root = "expanso_splunk_log_events_total 1\n" +
-                "expanso_splunk_processing_duration_milliseconds " +
-                this.processing_duration_ms.string() + "\n"
+                if this.processing_duration_ms.type() == "number" {
+                  "expanso_splunk_processing_duration_milliseconds " +
+                    this.processing_duration_ms.string() + "\n"
+                } else { "" }
         http_client:
           url: '${PROMETHEUS_PUSHGATEWAY_HTTPS_URL}/metrics/job/expanso-edge'
           verb: POST
@@ -512,6 +514,8 @@ output:
             Content-Type: 'text/plain; version=0.0.4'
           timeout: 10s
           retries: 3
+          tls:
+            enabled: true
 
       # Real-time alert webhook for critical records.
       - switch:
@@ -538,5 +542,7 @@ output:
                     Authorization: 'Bearer ${ALERT_TOKEN}'
                   timeout: 5s
                   retries: 2
+                  tls:
+                    enabled: true
             - output:
                 drop: {}

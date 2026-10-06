@@ -1,5 +1,52 @@
-# Complete encrypted transaction
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        let sensitive_found = [
+          if this.payment.card_number != null { "payment.card_number" },
+          if this.payment.cvv != null { "payment.cvv" },
+          if this.customer.ssn != null { "customer.ssn" },
+          if this.customer.email != null { "customer.email" }
+        ].filter(v -> v != null)
+        root = if $sensitive_found.length() > 0 {
+          throw("Encryption validation failed: " + $sensitive_found.join(", "))
+        } else {
+          this
+        }
+    - catch:
+        - mapping: root = deleted()
 output:
-  kafka:
-    addresses: ["kafka:9092"]
-    topic: encrypted-payments
+  broker:
+    pattern: fan_out
+    outputs:
+      - label: payment_processor
+        http_client:
+          url: ${PAYMENT_PROCESSOR_HTTPS_URL}/transactions
+          verb: POST
+          headers:
+            Content-Type: application/json
+            X-Encryption-Version: ${KEY_VERSION}
+            Authorization: Bearer ${PAYMENT_PROCESSOR_TOKEN}
+          tls:
+            enabled: true
+            root_cas_file: ${PAYMENT_PROCESSOR_CA_FILE}
+            client_certs:
+              - cert_file: ${PAYMENT_PROCESSOR_CLIENT_CERT}
+                key_file: ${PAYMENT_PROCESSOR_CLIENT_KEY}
+          batching:
+            count: 50
+            period: 5s
+          retries: 3
+      - label: analytics
+        http_client:
+          url: ${ANALYTICS_HTTPS_URL}/payments
+          verb: POST
+          headers:
+            Content-Type: application/json
+            Authorization: Bearer ${ANALYTICS_API_TOKEN}
+          tls:
+            enabled: true
+            root_cas_file: ${ANALYTICS_CA_FILE}
+          batching:
+            count: 100
+            period: 10s

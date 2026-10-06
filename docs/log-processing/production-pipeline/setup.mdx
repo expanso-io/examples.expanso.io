@@ -53,13 +53,15 @@ curl --fail --silent --show-error \
 
 ### Test AWS S3 Access
 
+Run these readiness checks with a provisioning identity authorized for `s3:ListBucket` and `kms:DescribeKey`, rather than the write-only workload role.
+
 ```bash
 aws sts get-caller-identity
 aws s3api head-bucket --bucket "$S3_BUCKET"
 aws kms describe-key --key-id "$S3_KMS_KEY_ARN" >/dev/null
 ```
 
-The workload role needs only `s3:PutObject` on the log prefix and `kms:Encrypt` with the configured key. The Elasticsearch API key needs document-create access only to the target log index pattern. The alert token needs send-only access. Do not expose port 8080 without an authenticating proxy or ingress policy.
+The workload role needs only `s3:PutObject` on the log prefix and `kms:Encrypt` and `kms:GenerateDataKey` with the configured key. The Elasticsearch API key needs document-create access only to the target log index pattern. The alert token needs send-only access. Do not expose port 8080 without an authenticating proxy or ingress policy.
 
 ## Step 3: Download Sample Log Data
 
