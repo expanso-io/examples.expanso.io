@@ -39,8 +39,10 @@ export default function ExplorerGuide({ stages }: ExplorerGuideProps) {
       data-explorer-guide=""
     >
       <div className={styles.howTo}>
-        <h2 id={headingId}>How to use this explorer</h2>
-        <p>
+        <h2 id={headingId} className="margin--none">
+          How to use this explorer
+        </h2>
+        <p style={{ margin: '0.65rem 0 0' }}>
           Move between stages with the arrows or the numbered stage list. Each
           stage shows the input it receives on the left and the output it
           produces on the right, with the lines that changed marked. The
@@ -49,7 +51,7 @@ export default function ExplorerGuide({ stages }: ExplorerGuideProps) {
         </p>
       </div>
       <div className={styles.outline}>
-        <h3>
+        <h3 className="margin--none">
           {stages.length === 1
             ? 'The one stage'
             : `The ${stages.length} stages in order`}
@@ -58,7 +60,7 @@ export default function ExplorerGuide({ stages }: ExplorerGuideProps) {
           {stages.map((stage) => (
             <li key={stage.slug}>
               <Link to={stageHref(stage.slug)}>{stage.title}</Link>
-              <span>{stage.description}</span>
+              <div>{stage.description}</div>
             </li>
           ))}
         </ol>
