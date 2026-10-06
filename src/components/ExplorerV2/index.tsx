@@ -200,6 +200,7 @@ export default function ExplorerV2({
   const { feedback: copyFeedback, show: showCopyFeedback } = useCopyFeedback();
   // Menu items disappear when the menu closes, so success surfaces on the
   // trigger they came from.
+
   const menuCopyFeedback =
     copyFeedback?.kind === 'success' && copyFeedback.key.startsWith('menu-')
       ? copyFeedback
@@ -327,26 +328,38 @@ export default function ExplorerV2({
 
   useEffect(() => {
     if (explorerIssue) return;
+
     function handleDocumentKeyDown(event: KeyboardEvent) {
       if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+
       if (event.defaultPrevented) return;
+
       if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey)
         return;
       const target = event.target;
+
       if (target instanceof HTMLElement) {
         if (target.isContentEditable) return;
+
         if (target.closest('input, textarea, select, [contenteditable]'))
           return;
+
         if (target.closest('pre, [data-scroll-panel]')) return;
+
         if (target.scrollWidth > target.clientWidth) return;
+
         if (stageRailRef.current?.contains(target)) return;
       }
+
       const nextIndex = currentIndex + (event.key === 'ArrowRight' ? 1 : -1);
+
       if (nextIndex < 0 || nextIndex >= stages.length) return;
       event.preventDefault();
       selectStage(nextIndex, 'keyboard');
     }
+
     document.addEventListener('keydown', handleDocumentKeyDown);
+
     return () => document.removeEventListener('keydown', handleDocumentKeyDown);
   });
 
@@ -390,12 +403,14 @@ export default function ExplorerV2({
   ) {
     try {
       await writeClipboardText(value);
+
       if (feedbackKey) {
         showCopyFeedback(copyResultFeedback(feedbackKey, label, 'success'));
       } else {
         setStatusKind('success');
         setStatus(`${label} copied.`);
       }
+
       if (feedbackKey?.startsWith('menu-') && actionMenuRef.current) {
         actionMenuRef.current.open = false;
         actionMenuRef.current

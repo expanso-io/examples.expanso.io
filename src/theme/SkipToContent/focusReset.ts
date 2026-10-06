@@ -24,7 +24,10 @@ export function shouldResetFocusAfterNavigation({
   previousLocation,
 }: FocusResetInput): boolean {
   if (action !== 'PUSH') return false;
+
   if (location.hash) return false;
+
   if (previousLocation === null) return false;
+
   return location.pathname !== previousLocation.pathname;
 }

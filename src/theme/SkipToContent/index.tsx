@@ -38,6 +38,7 @@ export default function SkipToContent(): React.JSX.Element {
   const onClick = useCallback((event: React.MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
     const target = skipToContentTarget();
+
     if (target) programmaticFocus(target);
   }, []);
 

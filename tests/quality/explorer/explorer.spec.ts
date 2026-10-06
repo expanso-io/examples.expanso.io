@@ -98,15 +98,22 @@ test('arrow keys change the stage from anywhere on the page except text fields',
   page,
 }) => {
   const explorer = page.locator('[data-explorer-version="2"]');
+
   const target = await explorer.evaluate((element) => {
     const top = element.getBoundingClientRect().top + window.scrollY;
+
     return Math.max(0, Math.round(top - 24));
   });
+
   expect(target).toBeGreaterThan(0);
   await page.evaluate((y) => window.scrollTo(0, y), target);
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(target);
 
-  await page.evaluate(() => (document.activeElement as HTMLElement).blur());
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
   expect(await page.evaluate(() => document.activeElement?.tagName)).toBe(
     'BODY'
   );
@@ -338,10 +345,13 @@ test('copy, share, and download actions preserve exact bytes and announce succes
 test('changing stages keeps the page scroll position', async ({ page }) => {
   const explorer = page.locator('[data-explorer-version="2"]');
   const compact = await usesCompactStageSelector(explorer);
+
   const target = await explorer.evaluate((element) => {
     const top = element.getBoundingClientRect().top + window.scrollY;
+
     return Math.max(0, Math.round(top - 24));
   });
+
   expect(target).toBeGreaterThan(0);
   await page.evaluate((y) => window.scrollTo(0, y), target);
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(target);
@@ -352,6 +362,7 @@ test('changing stages keeps the page scroll position', async ({ page }) => {
     await explorer.locator('[aria-current="step"]').focus();
     await page.keyboard.press('ArrowRight');
   }
+
   await expect(page).toHaveURL(/stage=delete-payment-data/);
   await expectCurrentStage(explorer, 1);
   await page.waitForTimeout(250);
@@ -410,6 +421,7 @@ test('copy actions confirm where the reader clicked and close the menu', async (
   const inputCopy = explorer.getByRole('button', {
     name: /Copy input JSON for Original Input/,
   });
+
   await inputCopy.click();
   await expect(inputCopy).toHaveText('Copy JSON');
   await expect(explorer.locator('[data-explorer-status]')).toHaveText(

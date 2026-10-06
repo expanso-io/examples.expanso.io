@@ -77,6 +77,7 @@ export default function CopyActionButton({
 }: CopyActionButtonProps) {
   const active = feedbackFor(feedback, feedbackKey);
   const label = copyButtonLabel(children, feedback, feedbackKey);
+
   const showToast =
     active !== null && (toast === 'always' || active.kind === 'error');
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 /** Success confirmation lingers long enough to be read, then clears itself. */
 export const COPY_SUCCESS_VISIBLE_MS = 2000;
+
 /** Errors stay longer: the reader has to act on them. */
 export const COPY_ERROR_VISIBLE_MS = 6000;
 
@@ -45,7 +46,9 @@ export function copyButtonLabel<Idle>(
   key: string
 ): Idle | 'Copied' | 'Copy failed' {
   const active = feedbackFor(feedback, key);
+
   if (active === null) return idleLabel;
+
   return active.kind === 'success' ? 'Copied' : 'Copy failed';
 }
 
@@ -53,13 +56,11 @@ export async function writeClipboardText(value: string): Promise<void> {
   if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
     throw new Error('Clipboard permission is unavailable');
   }
+
   await navigator.clipboard.writeText(value);
 }
 
-export function useCopyFeedback(): {
-  feedback: CopyFeedback | null;
-  show: (next: CopyFeedback) => void;
-} {
+export function useCopyFeedback() {
   const [feedback, setFeedback] = useState<CopyFeedback | null>(null);
   const timerRef = useRef<number | null>(null);
 
