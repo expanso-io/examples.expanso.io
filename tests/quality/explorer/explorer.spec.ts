@@ -360,6 +360,15 @@ test('copy, share, and download actions preserve exact bytes and announce succes
   ]);
 
   expect(await readFile((await stageDownload.path())!, 'utf8')).toBe(stageYaml);
+  await expect
+    .poll(() => menu.evaluate((d: HTMLDetailsElement) => d.open))
+    .toBe(false);
+  const downloadFeedback = explorer.locator('[data-download-feedback]');
+  await expect(downloadFeedback).toBeVisible();
+  await expect(downloadFeedback).toHaveAttribute('role', 'status');
+  await expect(downloadFeedback).toContainText('download started.');
+
+  await explorer.getByText('Copy & download').click();
 
   const [fullDownload] = await Promise.all([
     page.waitForEvent('download'),
@@ -367,6 +376,11 @@ test('copy, share, and download actions preserve exact bytes and announce succes
   ]);
 
   expect(await readFile((await fullDownload.path())!, 'utf8')).toBe(fullYaml);
+  await expect(downloadFeedback).toBeVisible();
+  await expect(downloadFeedback).toHaveAttribute('role', 'status');
+  await expect(downloadFeedback).toHaveText(
+    'remove-pii-complete.yaml download started.'
+  );
   await expect(explorer.locator('[data-explorer-status]')).toContainText(
     'remove-pii-complete.yaml download started.'
   );
@@ -452,12 +466,15 @@ test('copy actions confirm where the reader clicked and close the menu', async (
     name: /Copy input JSON for Original Input/,
   });
 
+  const inputFeedback = inputCopy
+    .locator('xpath=..')
+    .locator('[data-copy-toast]');
+
   await inputCopy.click();
-  await expect(inputCopy).toHaveText('Copy JSON');
-  await expect(explorer.locator('[data-explorer-status]')).toHaveText(
-    'Input JSON copied.'
-  );
-  await expect(toast).toHaveCount(0);
+  await expect(inputCopy).toHaveText('Copied');
+  await expect(inputFeedback).toBeVisible();
+  await expect(inputFeedback).toHaveAttribute('role', 'status');
+  await expect(inputFeedback).toHaveText('Input JSON copied.');
   await expect(
     explorer.getByRole('button', {
       name: /Copy output JSON for Original Input/,
@@ -494,7 +511,9 @@ test('reopening the copy menu hides its trigger toast and permits copying', asyn
   await expect(summary).toBeFocused();
 });
 
-test('a failed copy is reported inline on the control', async ({ page }) => {
+test('a failed copy is reported at its control or menu trigger', async ({
+  page,
+}) => {
   const explorer = page.locator('[data-explorer-version="2"]');
   await page.evaluate(() => {
     Object.defineProperty(navigator, 'clipboard', {
@@ -507,18 +526,21 @@ test('a failed copy is reported inline on the control', async ({ page }) => {
   await yamlCopy.click();
   await expect(yamlCopy).toHaveText('Copy failed');
   await expect(yamlCopy).toHaveAttribute('data-copy-state', 'error');
-  await expect(yamlPanel.getByRole('alert')).toContainText(
-    'Could not copy stage yaml'
-  );
+  const yamlError = yamlPanel.getByRole('alert');
+  await expect(yamlError).toBeVisible();
+  await expect(yamlError).toContainText('Could not copy stage yaml');
 
   const menu = explorer.locator('details');
-  await explorer.getByText('Copy & download').click();
+  const summary = explorer.getByText('Copy & download');
+  await summary.click();
   await explorer.getByRole('button', { name: 'Copy stage YAML' }).click();
-  await expect(menu.getByRole('button', { name: 'Copy failed' })).toBeVisible();
-  expect(await menu.evaluate((d: HTMLDetailsElement) => d.open)).toBe(true);
-  await expect(menu.getByRole('alert')).toContainText(
-    'Could not copy stage yaml'
-  );
+  await expect
+    .poll(() => menu.evaluate((d: HTMLDetailsElement) => d.open))
+    .toBe(false);
+  await expect(summary).toBeFocused();
+  const menuError = explorer.getByRole('alert');
+  await expect(menuError).toBeVisible();
+  await expect(menuError).toContainText('Could not copy stage yaml');
 });
 
 test('Explorer analytics uses only the versioned privacy-safe schema', async ({
