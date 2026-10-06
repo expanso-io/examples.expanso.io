@@ -1461,3 +1461,74 @@ test('executor spawn errors propagate into dated and latest failure reports', as
     await unavailable.stop();
   }
 });
+
+for (const path of [
+  'examples/log-processing/production-pipeline.yaml',
+  'examples/log-processing/production-pipeline-complete.yaml',
+  'static/files/log-processing/production-pipeline.yaml',
+]) {
+  test(`production logs fail closed before every fan-out destination: ${path}`, async () => {
+    const complete = path.includes('-complete');
+    const common = { timestamp: '2026-10-05T12:00:00Z', service: 'payments' };
+    const valid = {
+      ...common,
+      id: 'safe',
+      level: 'ERROR',
+      message: complete
+        ? 'user ada@example.com SSN 123-45-6789 card 4111111111111111'
+        : 'request completed',
+      ...(complete
+        ? { source_ip: '192.0.2.1' }
+        : {
+            ip_address: '192.0.2.1',
+            password: 'password-to-remove',
+            token: 'token-to-remove',
+            api_key: 'key-to-remove',
+            secret: 'secret-to-remove',
+          }),
+    };
+    const invalid = ['INFO', 'ERROR'].map((level) => ({
+      ...common,
+      id: `unsafe-${level}`,
+      level,
+      message: 'user ada@example.com SSN 123-45-6789',
+      ...(complete
+        ? { source_ip: null }
+        : {
+            ip_address: null,
+            password: 'plaintext-password',
+            token: 'plaintext-token',
+            secret: 'plaintext-secret',
+            api_key: 'plaintext-key',
+          }),
+    }));
+    const fixture = join(work, 'production-redaction.jsonl');
+    writeFileSync(
+      fixture,
+      [valid, ...invalid].map((row) => JSON.stringify(row)).join('\n') + '\n'
+    );
+    const outputs = await capture(config(path), fixture, {}, 'failed');
+    assert.equal(outputs.length, 3);
+    for (const destination of outputs) {
+      const rows = destination
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].id, 'safe');
+      if (complete) {
+        assert.equal(rows[0].message, 'user [EMAIL] SSN [SSN] card [CARD]');
+        assert.notEqual(rows[0].source_ip, valid.source_ip);
+      } else {
+        for (const field of ['password', 'token', 'api_key', 'secret'])
+          assert.ok(!(field in rows[0]));
+        assert.notEqual(rows[0].ip_address, valid.ip_address);
+      }
+    }
+    const healthy = await capture(
+      config(path),
+      'tests/fixtures/pipeline-inputs/log-processing.jsonl'
+    );
+    verifyOutputs(contracts[path], [], healthy, manifest.environment);
+  });
+}

@@ -55,7 +55,7 @@ config:
       # Step 4: Filter noise (health checks, debug in prod)
       - mapping: |
           let msg = this.message.lowercase()
-          root = if msg.contains("health check") || msg.contains("heartbeat") {
+          root = if $msg.contains("health check") || $msg.contains("heartbeat") {
             deleted()
           } else if this.level == "DEBUG" && env("DEBUG_ENABLED").or("false") != "true" {
             deleted()
@@ -76,6 +76,9 @@ config:
           root.source_ip = if this.exists("source_ip") {
             this.source_ip.hash("sha256").slice(0, 12)
           } else { deleted() }
+
+      - catch:
+          - mapping: root = deleted()
 
   output:
     broker:
