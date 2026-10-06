@@ -30,13 +30,8 @@ graph TD
     C --> C2[ServiceMonitor → user-workload monitoring]
     B --> D[parquet_encode → PersistentVolumeClaim]
     B --> E[kafka → AMQ Streams, TLS 9093]
-    C -. fallback .-> F[/data/dead-letter/otel-date.jsonl]
-    E -. fallback .-> G[/data/dead-letter/kafka-date.jsonl]
-
-    style B fill:#e1f5fe
-    style C fill:#f3e5f5
-    style D fill:#e8f5e8
-    style E fill:#fff3e0
+    C -. fallback .-> F["/data/dead-letter/otel-date.jsonl"]
+    E -. fallback .-> G["/data/dead-letter/kafka-date.jsonl"]
 ```
 
 Each output keeps its own retry and batching policy. The collector and Kafka outputs fall back to dead-letter files after delivery fails. Parquet has no fallback, and a full or unavailable claim can block progress across the fan-out.
