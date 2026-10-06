@@ -19,9 +19,7 @@ config:
 
   pipeline:
     processors:
-      - json_documents:
-          parts: []
-
+      - mapping: root = content().parse_json()
       - mapping: |
           root = this
 
@@ -30,22 +28,22 @@ config:
           let event_type = this.event_type.or("").string().lowercase()
 
           let is_important = match {
-            category == "important" => true,
-            severity == "critical" => true,
-            event_type.has_prefix("payment.failed") => true,
+            $category == "important" => true,
+            $severity == "critical" => true,
+            $event_type.has_prefix("payment.failed") => true,
             _ => false
           }
 
           let is_archive = match {
-            category == "archive" => true,
-            severity == "debug" => true,
-            event_type.has_prefix("analytics.") => true,
+            $category == "archive" => true,
+            $severity == "debug" => true,
+            $event_type.has_prefix("analytics.") => true,
             _ => false
           }
 
           root.priority_tier = match {
-            is_important => 1,
-            is_archive => 3,
+            $is_important => 1,
+            $is_archive => 3,
             _ => 2
           }
 
@@ -63,26 +61,26 @@ config:
           }
 
           # Calculate message age for starvation prevention
-          let message_ts = this.timestamp.or(now().format_timestamp()).parse_timestamp()
-          let age_seconds = (now().unix() - message_ts.unix()).round()
-          root.age_seconds = age_seconds
+          let message_ts = this.timestamp.or(now().ts_format("2006-01-02T15:04:05Z07:00")).ts_parse("2006-01-02T15:04:05Z07:00")
+          let age_seconds = (now().ts_unix() - $message_ts.ts_unix()).round()
+          root.age_seconds = $age_seconds
 
           # Age-based priority boost prevents starvation
           # After 5 minutes, archive messages start getting boosted
           # After 30 minutes, they're treated as regular
           # After 2 hours, they're treated as important
           let age_boost = match {
-            age_seconds > 7200 => 900,   # > 2 hours: near-important priority
-            age_seconds > 1800 => 400,   # > 30 min: regular priority
-            age_seconds > 300 => 100,    # > 5 min: small boost
+            $age_seconds > 7200 => 900,   # > 2 hours: near-important priority
+            $age_seconds > 1800 => 400,   # > 30 min: regular priority
+            $age_seconds > 300 => 100,    # > 5 min: small boost
             _ => 0
           }
 
-          root.age_boost = age_boost
-          root.priority_score = base_score + age_boost
+          root.age_boost = $age_boost
+          root.priority_score = $base_score + $age_boost
 
           # Flag if message was escalated due to age
-          root.age_escalated = age_boost > 0
+          root.age_escalated = $age_boost > 0
           root.buffered_at = now()
 
   output:
@@ -91,22 +89,23 @@ config:
       outputs:
         - label: priority_sorted_output
           processors:
-            - sort:
-                value: root.priority_score
-                order: descending
+            # Sort each batch by priority_score before sending
+            - archive:
+                format: json_array
+            - mapping: root = this.sort_by(item -> -item.priority_score)
+            - unarchive:
+                format: json_array
             - mapping: |
                 root = this
-                root.sent_at = now()
-                root.queue_time_ms = (root.sent_at.unix() - root.buffered_at.unix()) * 1000
-
-          output:
-            http_client:
-              url: ${DESTINATION_URL}
-              verb: POST
-              headers:
-                Content-Type: application/json
-              timeout: 30s
-              max_retries: 5
-              backoff:
-                initial_interval: 100ms
-                max_interval: 10s
+                let sent_at = now()
+                root.sent_at = $sent_at
+                root.queue_time_ms = ($sent_at.ts_unix() - this.buffered_at.ts_unix()) * 1000
+          http_client:
+            url: ${DESTINATION_URL}
+            verb: POST
+            headers:
+              Content-Type: application/json
+            timeout: 30s
+            retries: 5
+            retry_period: 100ms
+            max_retry_backoff: 10s

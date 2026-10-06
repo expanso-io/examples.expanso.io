@@ -36,65 +36,22 @@ This layout gives downstream engines partition metadata they may use when filter
 
 ## S3 Output
 
-```yaml
-output:
-  aws_s3:
-    bucket: '${S3_BUCKET}'
-    path: >-
-      transactions/region=${! json("store_region") }/date=${! now().ts_format("2006-01-02") }/batch_${! timestamp_unix() }_${! count("s3_files") }.parquet
-    content_type: application/octet-stream
-    max_in_flight: 4
-    batching:
-      count: 1
-      processors: []
-```
+Use the output configuration in the [canonical reference](../complete-pipeline). It reads the region from message metadata because the encoded payload is Parquet, not JSON.
 
-## Local Fallback for Development
+## Local adaptation
 
-For local development or testing without S3, write to the filesystem:
-
-```yaml
-output:
-  file:
-    path: >-
-      ./retail_data/region=${! json("store_region") }/date=${! now().ts_format("2006-01-02") }/batch_${! timestamp_unix() }_${! count("files") }.parquet
-    codec: all-bytes
-```
-
-## Dual Output: S3 + Local Buffer
-
-In production, write to both S3 and a local buffer. If S3 connectivity drops, the local buffer retains data for retry:
-
-```yaml
-output:
-  broker:
-    pattern: fan_out
-    outputs:
-      # Primary: S3
-      - aws_s3:
-          bucket: '${S3_BUCKET}'
-          path: >-
-            transactions/region=${! json("store_region") }/date=${! now().ts_format("2006-01-02") }/batch_${! timestamp_unix() }_${! count("s3_files") }.parquet
-          content_type: application/octet-stream
-          max_in_flight: 4
-
-      # Backup: local filesystem (7-day retention)
-      - file:
-          path: >-
-            /var/expanso/retail-buffer/batch_${! timestamp_unix() }.parquet
-          codec: all-bytes
-```
+For filesystem inspection, retain the reference batching and encoding processors and use an all-bytes file output. Preserve the region metadata when constructing local partition paths. A separate local copy requires its own retention and replay design; fan-out alone does not configure either.
 
 ## What Lands in S3
 
-After running for a few minutes with 50 stores:
+Illustrative partition layout (not an execution result):
 
 ```
 s3://my-retail-data/transactions/
 ├── region=MW/
 │   └── date=2026-02-11/
-│       ├── batch_1707616800_001.parquet  (85 KB, ~1000 txns)
-│       ├── batch_1707616810_002.parquet  (82 KB, ~1000 txns)
+│       ├── batch_1707616800_001.parquet
+│       ├── batch_1707616810_002.parquet
 │       └── ...
 ├── region=NE/
 │   └── date=2026-02-11/
@@ -110,10 +67,10 @@ s3://my-retail-data/transactions/
         └── ...
 ```
 
-Each file: ~85KB, ~1000 transactions, Zstandard-compressed Parquet. DuckLake picks them up automatically.
+Object row counts depend on region grouping within each flush. Measure file sizes and configure downstream table registration before querying.
 
 ## Next Step
 
-Data is landing in S3. Now we connect MotherDuck's DuckLake to auto-index it and run SQL queries across all stores.
+Review the external analytics integration before querying stored objects.
 
 → [Step 6: Connect DuckLake and Query](/integrations/motherduck-retail-analytics/step-6-ducklake-query)

@@ -32,7 +32,6 @@ on:
       - 'scripts/test-pipelines.ts'
       - 'scripts/validate-yaml.ts'
       - 'examples/**/*.yaml'
-      - 'docker-compose.yml'
       - '.github/workflows/validate-stages.yml'
       - 'package.json'
       - 'package-lock.json'
@@ -68,9 +67,6 @@ jobs:
       - name: Run strict YAML validator negative tests
         run: npm run test-yaml-validator
 
-      - name: Docker login (for pulling images, optional but recommended)
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin || true
-
       - name: Setup Expanso Binaries
         run: npm run setup-binaries
 
@@ -80,7 +76,7 @@ jobs:
       - name: Run YAML validation (Expanso CLI)
         run: npm run validate-yaml
 
-      - name: Run Pipeline Integration Tests (Docker Compose)
+      - name: Run Pipeline Integration Tests (Expanso Edge)
         run: npm run test-pipelines
 
       - name: Comment on PR (if validation fails)

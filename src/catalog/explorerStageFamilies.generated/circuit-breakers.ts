@@ -93,9 +93,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "02-http-circuit-breakers.yaml",
     yamlCode:
-      "output:\n  http_client:\n    url: https://api.external.com/process\n    timeout: 5s           # Fast timeout\n    retry_period: 1s      # Wait between retries\n    max_retries: 3        # Stop after 3 failures\n    backoff:\n      initial_interval: 1s\n      max_interval: 300s\n      max_elapsed_time: 0s  # Exponential backoff\n",
+      "output:\n  http_client:\n    url: https://api.external.com/process\n    timeout: 5s           # Fast timeout\n    retry_period: 1s      # Wait between retries\n    retries: 3            # Stop after 3 failures\n    max_retry_backoff: 300s\n",
     configSha256:
-      "sha256:bba04af2b5d80fe7a845c21d3362a9496294c5f24b02c37b0446a3bd5ed405da",
+      "sha256:618f5ef05ba2384528c84ffdbe4204f502dfc19f4969b0afbc7bf6a05ff1f2a6",
   },
   {
     id: 3,
@@ -190,9 +190,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "04-multi-level-fallback.yaml",
     yamlCode:
-      "output:\n  fallback:\n    # Level 1: Primary API\n    - http_client:\n        url: https://primary-api.com/process\n        timeout: 5s\n        max_retries: 2\n\n    # Level 2: Secondary API\n    - http_client:\n        url: https://secondary-api.com/process\n        timeout: 5s\n        max_retries: 1\n\n    # Level 3: Local buffer\n    - file:\n        path: /var/buffer/failed-requests.jsonl\n\n    # Level 4: Dead letter queue\n    - kafka:\n        addresses: [localhost:9092]\n        topic: dlq-circuit-breaker-failures\n",
+      "output:\n  fallback:\n    # Level 1: Primary API\n    - http_client:\n        url: https://primary-api.com/process\n        timeout: 5s\n        retries: 2\n\n    # Level 2: Secondary API\n    - http_client:\n        url: https://secondary-api.com/process\n        timeout: 5s\n        retries: 1\n\n    # Level 3: Local buffer\n    - file:\n        path: /var/buffer/failed-requests.jsonl\n\n    # Level 4: Dead letter queue\n    - kafka:\n        addresses: [localhost:9092]\n        topic: dlq-circuit-breaker-failures\n",
     configSha256:
-      "sha256:9d6e44e4a092b0e15f067fd99064abc615fe22341f370a9a09f2d16f78ef66fc",
+      "sha256:d7bbd36bab5793c5d9c4a78488948b772b2ed7ac2d54faeea5f9c07c3c28163a",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 

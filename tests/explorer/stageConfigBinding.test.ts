@@ -44,11 +44,11 @@ function bind(
 }
 
 describe('canonical Explorer stage binding', () => {
-  it('binds all 21 Explorers to exact full-pipeline and stage YAML bytes', () => {
+  it('binds all 26 Explorers to exact full-pipeline and stage YAML bytes', () => {
     const explorerRecords = EXAMPLE_RECORDS.filter(
       ({ routes }) => routes.explore !== undefined
     );
-    assert.equal(explorerRecords.length, 21);
+    assert.equal(explorerRecords.length, 26);
 
     for (const record of explorerRecords) {
       const generatedFamily = GENERATED_EXPLORER_STAGE_CONFIGS[record.id];

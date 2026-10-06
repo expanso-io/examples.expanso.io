@@ -35,42 +35,11 @@ You will enhance your existing processor to also:
     cp encrypt-card.yaml encrypt-pii.yaml
     ```
 
-2.  **Enhance the Encryption Processor:** Open `encrypt-pii.yaml`. Add the new field transformations to the existing `mapping` processor so this example keeps related encryption logic together.
+2.  **Inspect the maintained mapping:** Review the selected fields, key lookup, and plaintext removal in the linked reference before adapting the processor.
 
-    ```yaml title="Replace the 'mapping' processor in encrypt-pii.yaml"
-    - mapping: |
-        # --- Logic from Step 1 (Card Encryption) ---
-        let clean_card = this.payment.card_number.re_replace_all("[^0-9]", "")
-        root.payment.card_number_encrypted = clean_card.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
-        root.payment.card_last_four = clean_card.slice(-4)
-        root.payment.card_brand = if clean_card.has_prefix("4") { "visa" } else { "unknown" }
-        root.payment = this.payment.without("card_number")
+    See the [complete configuration](/data-security/encrypt-data/complete-pipeline) for the maintained encryption mapping and its ciphertext fields.
 
-        # --- START: New additions for Customer PII ---
-
-        # 2. Encrypt SSN (if it exists)
-        if this.customer.ssn.exists() {
-          let clean_ssn = this.customer.ssn.re_replace_all("[^0-9]", "")
-          root.customer.ssn_encrypted = clean_ssn.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
-          root.customer.ssn_last_four = clean_ssn.slice(-4)
-        }
-
-        # 3. Encrypt Email (if it exists)
-        if this.customer.email.exists() {
-          let email_parts = this.customer.email.split("@")
-          root.customer.email_encrypted = this.customer.email.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
-          if email_parts.length() == 2 {
-            root.customer.email_domain = email_parts[1]
-          }
-        }
-
-        # 4. Remove the original plaintext PII fields
-        root.customer = this.customer.without("ssn", "email")
-
-        # --- END: New additions ---
-    ```
-
-    _Note: This step uses a separate `PII_ENCRYPTION_KEY`. Ensure you have generated it and set it as an environment variable as described in the `setup.mdx` guide._
+    _Note: Use the key variable names from the configuration you are adapting._
 
 3.  **Deploy and Test:**
 

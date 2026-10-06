@@ -380,9 +380,11 @@ const authoredRecords = [
     interaction: 'transform',
     routes: {
       overview: '/data-security/cross-border-gdpr/',
+      explore: '/data-security/cross-border-gdpr/explorer/',
       reference: '/data-security/cross-border-gdpr/troubleshooting/',
     },
     legacyRoutes: [],
+    fixturePath: 'examples/data-security/cross-border-gdpr/sample-input.json',
     completePipelinePath:
       'examples/data-security/cross-border-gdpr/cross-border-gdpr.yaml',
     lastTechnicalVerification: REVIEW_DATE,
@@ -788,6 +790,7 @@ const authoredRecords = [
     interaction: 'architecture',
     routes: {
       overview: '/enterprise-migration/db2-to-bigquery/',
+      explore: '/enterprise-migration/db2-to-bigquery/explorer/',
       reference: '/enterprise-migration/db2-to-bigquery/troubleshooting/',
     },
     legacyRoutes: [],
@@ -844,9 +847,12 @@ const authoredRecords = [
     interaction: 'architecture',
     routes: {
       overview: '/enterprise-migration/nightly-backup/',
+      explore: '/enterprise-migration/nightly-backup/explorer/',
       reference: '/enterprise-migration/nightly-backup/troubleshooting/',
     },
     legacyRoutes: [],
+    fixturePath:
+      'examples/enterprise-migration/nightly-backup/sample-input.json',
     completePipelinePath:
       'examples/enterprise-migration/nightly-backup/nightly-backup.yaml',
     lastTechnicalVerification: REVIEW_DATE,
@@ -901,7 +907,10 @@ const authoredRecords = [
     executionStatus: 'architecture-only',
     operationalEvidence: 'not-assessed',
     interaction: 'architecture',
-    routes: { overview: '/integrations/medical-device-intelligence/' },
+    routes: {
+      overview: '/integrations/medical-device-intelligence/',
+      explore: '/integrations/medical-device-intelligence/explorer/',
+    },
     legacyRoutes: [],
     fixturePath:
       'examples/integrations/medical-device-intelligence/error-events.json',
@@ -964,8 +973,11 @@ const authoredRecords = [
     interaction: 'architecture',
     routes: {
       overview: '/integrations/motherduck-retail-analytics/',
+      explore: '/integrations/motherduck-retail-analytics/explorer/',
     },
     legacyRoutes: [],
+    fixturePath:
+      'examples/integrations/motherduck-retail-analytics/sample-pos-events.jsonl',
     completePipelinePath: 'static/pipelines/motherduck-retail-pipeline.yaml',
     lastTechnicalVerification: REVIEW_DATE,
     lastEditorialVerification: REVIEW_DATE,

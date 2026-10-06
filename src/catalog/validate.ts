@@ -918,6 +918,10 @@ export function validatePublicCatalog(input: unknown): CatalogValidationResult {
         errors.push(
           `${base}.routes.explore: required when Explorer evidence is bound`
         );
+      } else if (record.status === 'published') {
+        errors.push(
+          `${base}.routes.explore: required for every published example`
+        );
       }
     }
 

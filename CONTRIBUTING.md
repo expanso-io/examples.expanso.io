@@ -47,7 +47,10 @@ Every topology node is labeled `expanso-native`, `protocol-adapter`, `custom`, o
 
 ## Explorer V2
 
-Every published family must expose Explorer V2 on its overview and explorer route. It requires:
+Every published family must expose Explorer V2 on its overview and explorer route,
+with canonical stage bindings and a generated stage family. See
+[canonical Explorer stage ownership](scripts/README.md#canonical-explorer-stage-ownership)
+for regeneration commands. Each Explorer must teach a distinct task and requires:
 
 - a canonical pipeline and deterministic fixture;
 - stable stage ids and semantic diffs;
@@ -68,6 +71,10 @@ Every published family must expose Explorer V2 on its overview and explorer rout
 ## Required local gates
 
 Run the gates relevant to the change, then the full foundation set:
+
+Pipeline changes also require the
+[example validation workflow](scripts/README.md#example-pipeline-validation)
+and its generated reports.
 
 ```bash
 npm run typecheck -- --noEmit

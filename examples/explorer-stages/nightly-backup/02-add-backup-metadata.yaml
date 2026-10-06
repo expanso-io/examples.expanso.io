@@ -1,0 +1,13 @@
+pipeline:
+  processors:
+    # Step 1: Add backup metadata
+    - mapping: |
+        root = this
+        root._backup_metadata = {
+          "backup_date": now().ts_format("2006-01-02"),
+          "backup_timestamp": now(),
+          "source_host": env("DB_HOST").or("unknown"),
+          "source_database": env("DB_NAME").or("unknown"),
+          "pipeline_version": "1.0.0",
+          "node_id": env("NODE_ID").or("unknown")
+        }

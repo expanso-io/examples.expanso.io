@@ -9,17 +9,15 @@ labels:
 config:
   input:
     http_server:
-      address: "0.0.0.0:8080"
+      address: '0.0.0.0:8080'
       path: /logs/ingest
-      allowed_verbs: ["POST"]
-      rate_limit: "1000/1s"
+      allowed_verbs: ['POST']
+      rate_limit: 'http_ingest'
 
   pipeline:
     processors:
       # Step 1: Parse and validate JSON
-      - json_documents:
-          parts: []
-
+      - mapping: root = content().parse_json()
       - mapping: |
           root = this
           root.timestamp = this.timestamp.or(now())
@@ -48,8 +46,8 @@ config:
             _ => 1
           }
 
-          root.priority = if this.severity_score >= 4 { "high" }
-                         else if this.severity_score >= 3 { "medium" }
+          root.priority = if root.severity_score >= 4 { "high" }
+                         else if root.severity_score >= 3 { "medium" }
                          else { "low" }
 
           meta priority = root.priority
@@ -57,7 +55,7 @@ config:
       # Step 4: Filter noise (health checks, debug in prod)
       - mapping: |
           let msg = this.message.lowercase()
-          root = if msg.contains("health check") || msg.contains("heartbeat") {
+          root = if $msg.contains("health check") || $msg.contains("heartbeat") {
             deleted()
           } else if this.level == "DEBUG" && env("DEBUG_ENABLED").or("false") != "true" {
             deleted()
@@ -75,46 +73,53 @@ config:
             re_replace_all("4\\d{3}[\\s-]?\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}", "[CARD]")
 
           # Hash IPs if present
-          root.source_ip = if this.source_ip.exists() {
+          root.source_ip = if this.exists("source_ip") {
             this.source_ip.hash("sha256").slice(0, 12)
           } else { deleted() }
+
+      - catch:
+          - mapping: root = deleted()
 
   output:
     broker:
       pattern: fan_out
       outputs:
         # Elasticsearch for search
-        - switch:
-            - check: 'this.severity_score >= 2'
-              output:
-                http_client:
-                  url: "${ELASTICSEARCH:http://es:9200}/logs-${!timestamp_unix_date('2006.01.02')}/_doc"
-                  verb: POST
-                  headers:
-                    Content-Type: application/json
-                  batching:
-                    count: 100
-                    period: 5s
+        - processors:
+            - mapping: |
+                root = if this.severity_score >= 2 { this } else { deleted() }
+          http_client:
+            url: "${ELASTICSEARCH:http://es:9200}/logs-${!timestamp_unix_date('2006.01.02')}/_doc"
+            verb: POST
+            headers:
+              Content-Type: application/json
+            batching:
+              count: 100
+              period: 5s
 
         # S3 for archival
         - aws_s3:
-            bucket: "${S3_BUCKET:logs-archive}"
+            bucket: '${S3_BUCKET:logs-archive}'
             path: "logs/${!timestamp_unix_date('2006/01/02')}/${!uuid_v4()}.jsonl"
             batching:
               count: 500
               period: 60s
-            compression: gzip
 
         # Alerts for critical logs
-        - switch:
-            - check: 'meta("priority") == "high"'
-              output:
-                http_client:
-                  url: "${ALERT_WEBHOOK:http://alerts:8080/webhook}"
-                  verb: POST
-                  batching:
-                    count: 1
-                    period: 1s
+        - processors:
+            - mapping: |
+                root = if meta("priority") == "high" { this } else { deleted() }
+          http_client:
+            url: '${ALERT_WEBHOOK:http://alerts:8080/webhook}'
+            verb: POST
+            batching:
+              count: 1
+              period: 1s
+  rate_limit_resources:
+    - label: http_ingest
+      local:
+        count: 1000
+        interval: 1s
 
 logger:
   level: INFO

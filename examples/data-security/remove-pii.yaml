@@ -6,7 +6,7 @@ labels:
   environment: production
   purpose: pii-compliance
   data-classification: high-sensitivity
-priority: 150  # Higher priority for compliance workloads
+priority: 150 # Higher priority for compliance workloads
 
 # Deploy to edge nodes that handle user data
 selector:
@@ -29,26 +29,24 @@ config:
   # Accept user activity events
   input:
     http_server:
-      address: "0.0.0.0:8080"
+      address: '0.0.0.0:8080'
       path: /events/ingest
       allowed_verbs:
         - POST
       timeout: 10s
-      rate_limit: "500/1s"
+      rate_limit: 'http_ingest'
 
   # Processing pipeline
   pipeline:
     processors:
       # Step 1: Parse JSON input
-      - json_documents:
-          parts: []
-
+      - mapping: root = content().parse_json()
       # Step 2: Validate input structure
       - mapping: |
           # Ensure required fields exist
-          root = if this.event_id.exists() &&
-                    this.timestamp.exists() &&
-                    this.event_type.exists() {
+          root = if this.exists("event_id") &&
+                    this.exists("timestamp") &&
+                    this.exists("event_type") {
             this
           } else {
             throw("Missing required fields: event_id, timestamp, or event_type")
@@ -64,17 +62,23 @@ config:
             "timestamp": now(),
             "action": "pii_received",
             "pii_fields_present": [
-              if this.user_name.exists() { "user_name" },
-              if this.email.exists() { "email" },
-              if this.ip_address.exists() { "ip_address" },
-              if this.payment_method.full_number.exists() { "credit_card" },
-              if this.location.latitude.exists() { "precise_location" }
+              if this.exists("user_name") { "user_name" },
+              if this.exists("email") { "email" },
+              if this.exists("ip_address") { "ip_address" },
+              if this.exists("payment_method.full_number") { "credit_card" },
+              if this.exists("location.latitude") { "precise_location" }
             ].filter(v -> v != null)
           }
 
       # Step 4: DELETE high-risk PII with no analytics value
       - mapping: |
-          root = this
+          # Remove any other high-risk fields
+          root = this.without(
+            "ssn",
+            "tax_id",
+            "passport_number",
+            "driver_license"
+          )
 
           # Remove credit card numbers (PCI-DSS compliance)
           root.payment_method = this.payment_method.without(
@@ -90,62 +94,54 @@ config:
             "postal_code"
           )
 
-          # Remove any other high-risk fields
-          root = this.without(
-            "ssn",
-            "tax_id",
-            "passport_number",
-            "driver_license"
-          )
-
       # Step 5: HASH IP addresses (preserve uniqueness, prevent identification)
       - mapping: |
           root = this
 
           # Hash IP address with SHA-256
           # Add salt from environment for additional security
-          root.ip_address_hash = if this.ip_address.exists() {
+          root.ip_address_hash = if this.exists("ip_address") {
             (this.ip_address + env("IP_SALT").or("default_salt")).hash("sha256").slice(0, 16)
           }
 
           # Remove original IP
-          root = this.without("ip_address")
+          root = root.without("ip_address")
 
       # Step 6: HASH email addresses (preserve uniqueness for user counting)
       - mapping: |
           root = this
 
           # Extract email domain for analytics (allowed under GDPR)
-          root.email_domain = if this.email.exists() {
+          root.email_domain = if this.exists("email") {
             this.email.split("@").index(1).lowercase()
           }
 
           # Hash email address
-          root.email_hash = if this.email.exists() {
+          root.email_hash = if this.exists("email") {
             (this.email.lowercase() + env("EMAIL_SALT").or("default_salt")).hash("sha256").slice(0, 16)
           }
 
           # Remove original email
-          root = this.without("email")
+          root = root.without("email")
 
       # Step 7: PSEUDONYMIZE user names (replace with consistent IDs)
       - mapping: |
           root = this
 
           # Create consistent user ID from name (same name = same ID)
-          root.user_id = if this.user_name.exists() {
+          root.user_id = if this.exists("user_name") {
             "user_" + (this.user_name.lowercase() + env("USER_SALT").or("default_salt")).hash("sha256").slice(0, 12)
           }
 
           # Remove original name
-          root = this.without("user_name")
+          root = root.without("user_name")
 
       # Step 8: GENERALIZE location (keep city/country, remove specifics)
       - mapping: |
           root = this
 
           # Keep general location for regional analytics
-          root.location = if this.location.exists() {
+          root.location = if this.exists("location") {
             {
               "city": this.location.city,
               "country": this.location.country,
@@ -186,17 +182,17 @@ config:
 
           # Fail if any PII fields still exist
           let pii_found = [
-            if this.user_name.exists() { "user_name" },
-            if this.email.exists() && !this.email_hash.exists() { "email" },
-            if this.ip_address.exists() && !this.ip_address_hash.exists() { "ip_address" },
-            if this.payment_method.full_number.exists() { "credit_card" },
-            if this.location.latitude.exists() { "latitude" },
-            if this.location.longitude.exists() { "longitude" },
-            if this.ssn.exists() { "ssn" }
+            if this.exists("user_name") { "user_name" },
+            if this.exists("email") && !this.exists("email_hash") { "email" },
+            if this.exists("ip_address") && !this.exists("ip_address_hash") { "ip_address" },
+            if this.exists("payment_method.full_number") { "credit_card" },
+            if this.exists("location.latitude") { "latitude" },
+            if this.exists("location.longitude") { "longitude" },
+            if this.exists("ssn") { "ssn" }
           ].filter(v -> v != null)
 
-          root = if pii_found.length() > 0 {
-            throw("PII validation failed: found " + pii_found.join(", "))
+          root = if $pii_found.length() > 0 {
+            throw("PII validation failed: found " + $pii_found.join(", "))
           } else {
             this
           }
@@ -216,51 +212,43 @@ config:
 
   # Output to multiple destinations
   output:
-    broker:
-      pattern: fan_out
-      outputs:
-        # Destination 1: Analytics system (anonymized data)
-        - label: analytics
-          http_client:
-            url: "${ANALYTICS_ENDPOINT:http://analytics-api:8080}/events"
-            verb: POST
-            headers:
-              Content-Type: application/json
-            batching:
-              count: 100
-              period: 5s
-            retry_as_batch: false
-            max_retries: 3
-            backoff:
-              initial_interval: 1s
-              max_interval: 30s
-
-        # Destination 2: Audit log (for compliance)
-        - label: audit_trail
-          processors:
-            # Extract audit metadata
-            - mapping: |
-                root = meta("audit_log_success")
-
-          file:
-            path: "/var/log/expanso/pii-audit-${!timestamp_unix()}.jsonl"
-            codec: lines
-            batching:
-              count: 50
-              period: 10s
-
-        # Destination 3: Dead letter queue (validation failures)
-        - label: dlq
-          switch:
-            # Only send failed validations to DLQ
-            - check: errored()
-              output:
-                file:
-                  path: "/var/log/expanso/pii-dlq-${!timestamp_unix()}.jsonl"
-                  codec: lines
-            # Otherwise, drop (success case)
-            - output:
-                drop: {}
+    switch:
+      cases:
+        - check: '!errored()'
+          output:
+            broker:
+              pattern: fan_out
+              outputs:
+                - label: analytics
+                  http_client:
+                    url: ${ANALYTICS_ENDPOINT:http://analytics-api:8080}/events
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                    batching:
+                      count: 100
+                      period: 5s
+                    retries: 3
+                    retry_period: 1s
+                    max_retry_backoff: 30s
+                - label: audit_trail
+                  processors:
+                    - mapping: |
+                        root = meta("audit_log_success")
+                  file:
+                    path: /var/log/expanso/pii-audit-${!timestamp_unix()}.jsonl
+                    codec: lines
+        - check: errored()
+          output:
+            label: dlq
+            file:
+              path: /var/log/expanso/pii-dlq-${!timestamp_unix()}.jsonl
+              codec: lines
+  rate_limit_resources:
+    - label: http_ingest
+      local:
+        count: 500
+        interval: 1s
 
 # Logging configuration
 logger:

@@ -1,5 +1,5 @@
 name: payment-field-encryption
-description: Encrypt sensitive payment and PII data with AES-256-GCM
+description: Encrypt sensitive payment and PII data with AES-256-GCM; requires PAYMENTS_INGEST_TOKEN bearer authentication over TLS.
 type: pipeline
 namespace: production
 labels:
@@ -12,7 +12,7 @@ priority: 200
 selector:
   match_labels:
     role: payment-processor
-    pci-compliant: "true"
+    pci-compliant: 'true'
 
 deployment:
   strategy: rolling
@@ -26,41 +26,62 @@ deployment:
 config:
   input:
     http_server:
-      address: "0.0.0.0:8443"
+      address: '0.0.0.0:8443'
       path: /payments/transactions
       allowed_verbs: [POST]
       timeout: 10s
-      rate_limit: "500/1s"
-      tls:
-        enabled: true
-        cert_file: /etc/expanso/certs/server.crt
-        key_file: /etc/expanso/certs/server.key
-        client_auth_type: require
+      rate_limit: payments_ingest
+      cert_file: /etc/expanso/certs/server.crt
+      key_file: /etc/expanso/certs/server.key
+      sync_response:
+        status: ${! meta("auth_status").or("200") }
+        headers:
+          Content-Type: application/json
+    processors:
+      - switch:
+          - check: env("PAYMENTS_INGEST_TOKEN").or("") == "" || meta("Authorization").or("") != "Bearer " + env("PAYMENTS_INGEST_TOKEN").or("")
+            processors:
+              - mapping: |-
+                  root = {"error":"unauthorized"}
+                  meta auth_status = "401"
+              - sync_response: {}
+              - mapping: root = deleted()
+
+  rate_limit_resources:
+    - label: payments_ingest
+      local:
+        count: 500
+        interval: 1s
 
   pipeline:
     processors:
-      - json_documents: {}
-
+      - mapping: root = content().parse_json()
       # Validate input
       - mapping: |
-          root = if this.transaction_id.exists() &&
-                    this.timestamp.exists() &&
-                    this.payment.exists() {
+          root = if this.exists("transaction_id") &&
+                    this.exists("timestamp") &&
+                    this.exists("payment") {
             this
           } else {
             throw("Missing required fields")
           }
 
       # Encrypt credit card fields (see pattern guide)
+      # Keys come from the environment; a per-message nonce travels with the ciphertext.
       - mapping: |
           root = this
-          root.payment.card_number_encrypted = if this.payment.card_number.exists() {
-            this.payment.card_number.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
+          let key = env("CARD_ENCRYPTION_KEY").or(throw("CARD_ENCRYPTION_KEY is not set"))
+          let card_number_iv = uuid_v4().hash("sha256").slice(0, 12)
+          let cvv_iv = uuid_v4().hash("sha256").slice(0, 12)
+          let cardholder_name_iv = uuid_v4().hash("sha256").slice(0, 12)
+          root.payment.card_number_nonce = if this.exists("payment.card_number") { $card_number_iv.encode("base64") }
+          root.payment.card_number_encrypted = if this.exists("payment.card_number") {
+            this.payment.card_number.string().encrypt_aes("gcm", $key, $card_number_iv).encode("base64")
           }
-          root.payment.card_last_four = if this.payment.card_number.exists() {
+          root.payment.card_last_four = if this.exists("payment.card_number") {
             this.payment.card_number.re_replace_all("[^0-9]", "").slice(-4)
           }
-          root.payment.card_brand = if this.payment.card_number.exists() {
+          root.payment.card_brand = if this.exists("payment.card_number") {
             match {
               this.payment.card_number.re_match("^4") => "visa"
               this.payment.card_number.re_match("^5[1-5]") => "mastercard"
@@ -69,53 +90,69 @@ config:
               _ => "unknown"
             }
           }
-          root.payment.cvv_encrypted = if this.payment.cvv.exists() {
-            this.payment.cvv.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
+          root.payment.cvv_nonce = if this.exists("payment.cvv") { $cvv_iv.encode("base64") }
+          root.payment.cvv_encrypted = if this.exists("payment.cvv") {
+            this.payment.cvv.string().encrypt_aes("gcm", $key, $cvv_iv).encode("base64")
           }
-          root.payment.cardholder_name_encrypted = if this.payment.cardholder_name.exists() {
-            this.payment.cardholder_name.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
+          root.payment.cardholder_name_nonce = if this.exists("payment.cardholder_name") { $cardholder_name_iv.encode("base64") }
+          root.payment.cardholder_name_encrypted = if this.exists("payment.cardholder_name") {
+            this.payment.cardholder_name.string().encrypt_aes("gcm", $key, $cardholder_name_iv).encode("base64")
           }
-          root.payment = this.payment.without("card_number", "cvv", "cardholder_name")
+          root.payment = root.payment.without("card_number", "cvv", "cardholder_name")
 
       # Encrypt PII fields (see pattern guide)
       - mapping: |
           root = this
-          root.customer.ssn_encrypted = if this.customer.ssn.exists() {
-            this.customer.ssn.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
+          let key = env("PII_ENCRYPTION_KEY").or(throw("PII_ENCRYPTION_KEY is not set"))
+          let ssn_iv = uuid_v4().hash("sha256").slice(0, 12)
+          let email_iv = uuid_v4().hash("sha256").slice(0, 12)
+          let phone_iv = uuid_v4().hash("sha256").slice(0, 12)
+          let date_of_birth_iv = uuid_v4().hash("sha256").slice(0, 12)
+          root.customer.ssn_nonce = if this.exists("customer.ssn") { $ssn_iv.encode("base64") }
+          root.customer.ssn_encrypted = if this.exists("customer.ssn") {
+            this.customer.ssn.string().encrypt_aes("gcm", $key, $ssn_iv).encode("base64")
           }
-          root.customer.ssn_last_four = if this.customer.ssn.exists() {
+          root.customer.ssn_last_four = if this.exists("customer.ssn") {
             this.customer.ssn.re_replace_all("[^0-9]", "").slice(-4)
           }
-          root.customer.email_encrypted = if this.customer.email.exists() {
-            this.customer.email.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
+          root.customer.email_nonce = if this.exists("customer.email") { $email_iv.encode("base64") }
+          root.customer.email_encrypted = if this.exists("customer.email") {
+            this.customer.email.string().encrypt_aes("gcm", $key, $email_iv).encode("base64")
           }
-          root.customer.email_domain = if this.customer.email.exists() {
+          root.customer.email_domain = if this.exists("customer.email") {
             this.customer.email.split("@").index(1).lowercase()
           }
-          root.customer.phone_encrypted = if this.customer.phone.exists() {
-            this.customer.phone.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
+          root.customer.phone_nonce = if this.exists("customer.phone") { $phone_iv.encode("base64") }
+          root.customer.phone_encrypted = if this.exists("customer.phone") {
+            this.customer.phone.string().encrypt_aes("gcm", $key, $phone_iv).encode("base64")
           }
-          root.customer.phone_area_code = if this.customer.phone.exists() {
+          root.customer.phone_area_code = if this.exists("customer.phone") {
             this.customer.phone.re_replace_all("[^0-9]", "").slice(0, 3)
           }
-          root.customer.date_of_birth_encrypted = if this.customer.date_of_birth.exists() {
-            this.customer.date_of_birth.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
+          root.customer.date_of_birth_nonce = if this.exists("customer.date_of_birth") { $date_of_birth_iv.encode("base64") }
+          root.customer.date_of_birth_encrypted = if this.exists("customer.date_of_birth") {
+            this.customer.date_of_birth.string().encrypt_aes("gcm", $key, $date_of_birth_iv).encode("base64")
           }
-          root.customer.birth_year = if this.customer.date_of_birth.exists() {
+          root.customer.birth_year = if this.exists("customer.date_of_birth") {
             this.customer.date_of_birth.split("-").index(0).number()
           }
-          root.customer = this.customer.without("ssn", "email", "phone", "date_of_birth")
+          root.customer = root.customer.without("ssn", "email", "phone", "date_of_birth")
 
       # Encrypt address fields (see pattern guide)
       - mapping: |
           root = this
-          root.billing_address.street_encrypted = if this.billing_address.street.exists() {
-            this.billing_address.street.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
+          let key = env("ADDRESS_ENCRYPTION_KEY").or(throw("ADDRESS_ENCRYPTION_KEY is not set"))
+          let street_iv = uuid_v4().hash("sha256").slice(0, 12)
+          let zip_iv = uuid_v4().hash("sha256").slice(0, 12)
+          root.billing_address.street_nonce = if this.exists("billing_address.street") { $street_iv.encode("base64") }
+          root.billing_address.street_encrypted = if this.exists("billing_address.street") {
+            this.billing_address.street.string().encrypt_aes("gcm", $key, $street_iv).encode("base64")
           }
-          root.billing_address.zip_encrypted = if this.billing_address.zip.exists() {
-            this.billing_address.zip.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
+          root.billing_address.zip_nonce = if this.exists("billing_address.zip") { $zip_iv.encode("base64") }
+          root.billing_address.zip_encrypted = if this.exists("billing_address.zip") {
+            this.billing_address.zip.string().encrypt_aes("gcm", $key, $zip_iv).encode("base64")
           }
-          root.billing_address = this.billing_address.without("street", "zip")
+          root.billing_address = root.billing_address.without("street", "zip")
 
       # Add encryption metadata
       - mapping: |
@@ -132,16 +169,18 @@ config:
       - mapping: |
           root = this
           let sensitive_found = [
-            if this.payment.card_number.exists() { "payment.card_number" },
-            if this.payment.cvv.exists() { "payment.cvv" },
-            if this.customer.ssn.exists() { "customer.ssn" },
-            if this.customer.email.exists() { "customer.email" }
+            if this.exists("payment.card_number") { "payment.card_number" },
+            if this.exists("payment.cvv") { "payment.cvv" },
+            if this.exists("customer.ssn") { "customer.ssn" },
+            if this.exists("customer.email") { "customer.email" }
           ].filter(v -> v != null)
-          root = if sensitive_found.length() > 0 {
-            throw("Encryption validation failed: " + sensitive_found.join(", "))
+          root = if $sensitive_found.length() > 0 {
+            throw("Encryption validation failed: " + $sensitive_found.join(", "))
           } else {
             this
           }
+      - catch:
+          - mapping: root = deleted()
 
   output:
     broker:
@@ -149,19 +188,19 @@ config:
       outputs:
         - label: payment_processor
           http_client:
-            url: "${PAYMENT_PROCESSOR_ENDPOINT:https://payment-api:8443}/transactions"
+            url: '${PAYMENT_PROCESSOR_ENDPOINT:https://payment-api:8443}/transactions'
             verb: POST
             headers:
               Content-Type: application/json
-              X-Encryption-Version: "${KEY_VERSION}"
+              X-Encryption-Version: '${KEY_VERSION}'
             batching:
               count: 50
               period: 5s
-            max_retries: 3
+            retries: 3
 
         - label: analytics
           http_client:
-            url: "${ANALYTICS_ENDPOINT:https://analytics-api:8080}/payments"
+            url: '${ANALYTICS_ENDPOINT:https://analytics-api:8080}/payments'
             verb: POST
             batching:
               count: 100

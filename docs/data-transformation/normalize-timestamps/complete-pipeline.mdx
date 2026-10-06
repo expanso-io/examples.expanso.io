@@ -26,9 +26,9 @@ import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
 This pipeline combines all timestamp normalization techniques from this tutorial:
 
 - **Format detection** - Auto-detect timestamp format (ISO8601, Unix, custom)
-- **Timezone conversion** - Convert all timestamps to UTC
+- **Timezone conversion** - Convert timestamps to UTC while preserving fractional seconds
 - **Derived fields** - Add hour, day_of_week, is_business_hours
-- **Validation** - Reject invalid or future timestamps
+- **Quality scoring** - Record parsing, timestamp-presence, and UTC-format checks
 
 ## Full Configuration
 
@@ -36,24 +36,12 @@ This pipeline combines all timestamp normalization techniques from this tutorial
   {pipelineYaml}
 </CodeBlock>
 
-## Quick Test
+## Input boundary
 
-```bash
-# Send events with different timestamp formats
-curl -X POST http://localhost:8080/events \
-  -H "Content-Type: application/json" \
-  -d '{"event": "test1", "timestamp": "2024-01-15T10:30:00-08:00"}'
-
-curl -X POST http://localhost:8080/events \
-  -H "Content-Type: application/json" \
-  -d '{"event": "test2", "timestamp": 1705340400}'
-
-curl -X POST http://localhost:8080/events \
-  -H "Content-Type: application/json" \
-  -d '{"event": "test3", "timestamp": "01/15/2024 10:30 AM PST"}'
-
-# All outputs have normalized UTC timestamps + derived fields
-```
+The displayed configuration consumes a Kafka topic selected by `INPUT_TOPIC`
+(default `raw-events`). The separate downloadable configuration enforces an age policy and routes
+invalid records to a dead-letter destination. Review its limits before choosing
+fixture dates or adapting its input.
 
 ## Deploy
 

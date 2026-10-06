@@ -35,28 +35,7 @@ You will add this final piece of logic to your existing `mapping` processor.
 
 2.  **Add the Date Encryption Logic:** Add the logic for the `date_of_birth` field to the _bottom_ of the existing `mapping` processor.
 
-    ```yaml title="Add this to your 'mapping' processor"
-    # --- Logic from previous steps ---
-    # (The existing logic for card numbers, ssn, and email remains here)
-
-    # --- START: New additions for Date Data ---
-
-    if this.customer.date_of_birth.exists() {
-      # 1. ENCRYPT the full date of birth
-      root.customer.date_of_birth_encrypted = this.customer.date_of_birth.encrypt_aes("gcm", env("TEMPORAL_ENCRYPTION_KEY"))
-
-      # 2. PRESERVE an analytics-safe age range
-      let birth_year = this.customer.date_of_birth.parse_timestamp("2006-01-02").ts_year()
-      let age = now().ts_year() - birth_year
-      root.customer.age_range = if age < 18 { "under_18" }
-                                else if age < 35 { "18-34" }
-                                else if age < 55 { "35-54" }
-                                else { "55+" }
-
-      # 3. DELETE the original field
-      root.customer = this.customer.without("date_of_birth")
-    }
-    ```
+    See the [complete configuration](/data-security/encryption-patterns/complete-encryption-pipeline) for the maintained encryption mapping and its ciphertext fields.
 
     _Note: This step uses a separate `TEMPORAL_ENCRYPTION_KEY`. Ensure you have set it as an environment variable._
 

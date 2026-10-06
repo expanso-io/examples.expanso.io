@@ -147,11 +147,8 @@ output:
     'examples/integrations/splunk-input.yaml',
     String.raw`input:
   file:
-    paths: [ "/var/log/app/*.log" ]
-    multiline:
-      pattern: '^\\d{4}-\\d{2}-\\d{2}'
-      negate: true
-      match: after
+    paths:
+      - /var/log/app/*.log
 `,
   ],
 ]);

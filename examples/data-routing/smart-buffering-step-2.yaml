@@ -12,9 +12,7 @@ config:
 
   pipeline:
     processors:
-      - json_documents:
-          parts: []
-
+      - mapping: root = content().parse_json()
       - mapping: |
           root = this
 
@@ -23,22 +21,22 @@ config:
           let event_type = this.event_type.or("").string().lowercase()
 
           let is_important = match {
-            category == "important" => true,
-            severity == "critical" => true,
-            event_type.has_prefix("payment.failed") => true,
+            $category == "important" => true,
+            $severity == "critical" => true,
+            $event_type.has_prefix("payment.failed") => true,
             _ => false
           }
 
           let is_archive = match {
-            category == "archive" => true,
-            severity == "debug" => true,
-            event_type.has_prefix("analytics.") => true,
+            $category == "archive" => true,
+            $severity == "debug" => true,
+            $event_type.has_prefix("analytics.") => true,
             _ => false
           }
 
           root.priority_tier = match {
-            is_important => 1,
-            is_archive => 3,
+            $is_important => 1,
+            $is_archive => 3,
             _ => 2
           }
 
@@ -57,14 +55,14 @@ config:
           }
 
           # Add sub-priority within tiers for fine-grained ordering
-          let severity_bonus = match severity {
+          let severity_bonus = match $severity {
             "critical" => 50,
             "error" => 30,
             "warn" => 10,
             _ => 0
           }
 
-          root.priority_score = root.priority_score + severity_bonus
+          root.priority_score = root.priority_score + $severity_bonus
           root.classified_at = now()
 
   output:
