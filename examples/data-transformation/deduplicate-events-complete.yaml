@@ -15,41 +15,75 @@ config:
             allowed_verbs:
               - POST
   pipeline:
-    processors:
-      - command:
-          name: uv
-          args_mapping: root = ["run", "--no-project", env("RECORD_TRANSFORMS_SCRIPT"), "deduplicate"]
-      - catch:
-          - mapping: root = deleted()
     threads: 1
+    processors:
+      - mapping: |-
+          root = this
+          let strategy = this.dedup_strategy.or(if this.event_id != null { "event_id" } else { "hash" })
+          let hash = this.format_json().hash("sha256").encode("hex")
+          let event = this
+          let identity = match $strategy {
+            "event_id" => $event.event_id.string()
+            "composite" => $event.event_type.or("unknown") + ":" + $event.source.or("unknown") + ":" + ($event.timestamp.ts_parse("2006-01-02T15:04:05Z").ts_unix() / 60).floor().string()
+            "hash" => $hash
+            _ => throw("Unknown deduplication strategy")
+          }
+          root.dedup_hash = $hash
+          root.dedup_key = ($strategy + ":" + $identity).hash("sha256").encode("hex")
+          root.is_duplicate = false
+          root.dedup_timestamp = now()
+      - branch:
+          request_map: root = this.dedup_key
+          processors:
+            - cache:
+                resource: delivered
+                operator: get
+                key: ${! content() }
+          result_map: root.is_duplicate = true
+      - catch:
+          - mapping: |-
+              root = this
+              root.is_duplicate = false
+      - mapping: |-
+          root = this
+          root.dedup_result = {"is_duplicate": this.is_duplicate, "dedup_key": this.dedup_key, "checked_at": now()}
+          root.duplicate_metadata = if this.is_duplicate { {"detected_at": now(), "original_hash": this.dedup_hash, "strategy": this.dedup_strategy.or("event_id")} } else { deleted() }
   output:
     switch:
       cases:
         - check: this.is_duplicate == false
           output:
             broker:
-              pattern: fan_out
+              pattern: fan_out_sequential
               outputs:
-                - http_client:
-                    url: ${ANALYTICS_HTTPS_URL}/events
-                    verb: POST
-                    headers:
-                      Authorization: Bearer ${ANALYTICS_API_TOKEN}
-                      Content-Type: application/json
-                    tls:
-                      enabled: true
-                    retries: 3
-                - kafka:
-                    addresses:
-                      - ${KAFKA_TLS_BROKERS}
-                    topic: unique-events
-                    tls:
-                      enabled: true
-                      root_cas_file: ${KAFKA_CA_FILE}
-                    sasl:
-                      mechanism: SCRAM-SHA-512
-                      user: ${KAFKA_USERNAME}
-                      password: ${KAFKA_PASSWORD}
+                - broker:
+                    pattern: fan_out
+                    outputs:
+                      - http_client:
+                          url: ${ANALYTICS_HTTPS_URL}/events
+                          verb: POST
+                          headers:
+                            Authorization: Bearer ${ANALYTICS_API_TOKEN}
+                            Content-Type: application/json
+                          tls:
+                            enabled: true
+                          retries: 3
+                      - kafka:
+                          addresses:
+                            - ${KAFKA_TLS_BROKERS}
+                          topic: unique-events
+                          tls:
+                            enabled: true
+                            root_cas_file: ${KAFKA_CA_FILE}
+                          sasl:
+                            mechanism: SCRAM-SHA-512
+                            user: ${KAFKA_USERNAME}
+                            password: ${KAFKA_PASSWORD}
+                - cache:
+                    target: delivered
+                    key: ${! this.dedup_key }
+                    ttl: 1h
+                    max_in_flight: 1
         - output:
             file:
               path: ${DUPLICATE_ARCHIVE_PATH}/dupes.jsonl
@@ -59,3 +93,11 @@ config:
     address: 127.0.0.1:8080
     root_path: /runtime
     debug_endpoints: false
+  cache_resources:
+    - label: delivered
+      redis:
+        url: ${DEDUP_REDIS_URL}
+        default_ttl: 1h
+        tls:
+          enabled: true
+          root_cas_file: ${REDIS_CA_FILE}

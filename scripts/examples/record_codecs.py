@@ -4,7 +4,6 @@ import io
 import json
 import os
 import re
-import sqlite3
 import sys
 import struct
 import base64
@@ -26,82 +25,6 @@ def timestamp(value):
 
 def utc(value):
     return datetime.fromtimestamp(value, timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def database():
-    connection = sqlite3.connect(os.environ["EXAMPLE_STATE_PATH"], timeout=30)
-    connection.execute("PRAGMA journal_mode=WAL")
-    return connection
-
-
-def deduplicate(event):
-    strategy = event.get("dedup_strategy", "event_id" if "event_id" in event else "hash")
-    digest = hashlib.sha256(json.dumps(event, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    key = digest
-    if strategy == "event_id":
-        key = str(event["event_id"])
-    elif strategy == "composite":
-        key = f'{event.get("event_type", "unknown")}:{event.get("source", "unknown")}:{int(timestamp(event["timestamp"]) // 60)}'
-    with database() as db:
-        db.execute("CREATE TABLE IF NOT EXISTS seen (key TEXT PRIMARY KEY, expires REAL)")
-        db.execute("BEGIN IMMEDIATE")
-        db.execute("DELETE FROM seen WHERE expires <= ?", (time.time(),))
-        inserted = db.execute("INSERT OR IGNORE INTO seen VALUES (?, ?)", (key, time.time() + 3600)).rowcount
-    event.update(dedup_hash=digest, dedup_key=key, is_duplicate=not bool(inserted), dedup_timestamp=now())
-    event["dedup_result"] = {"is_duplicate": event["is_duplicate"], "dedup_key": key, "checked_at": now()}
-    if event["is_duplicate"]:
-        event["duplicate_metadata"] = {"detected_at": now(), "original_hash": digest, "strategy": strategy}
-    return event
-
-
-def aggregate(event):
-    sensor = str(event["sensor_id"])
-    seconds = timestamp(event["timestamp"])
-    temperature = float(event["temperature"])
-    location = event.get("location", "unknown_location")
-    facility = event.get("facility", "unknown_facility")
-    with database() as db:
-        db.execute("CREATE TABLE IF NOT EXISTS readings (ts REAL, sensor TEXT, location TEXT, facility TEXT, temperature REAL)")
-        db.execute("CREATE TABLE IF NOT EXISTS watermark (ts REAL)")
-        db.execute("BEGIN IMMEDIATE")
-        previous = db.execute("SELECT ts FROM watermark").fetchone()
-        if previous and seconds < int(previous[0] // 60) * 60:
-            raise ValueError("Reading belongs to a closed minute window")
-        watermark = max(seconds, previous[0]) if previous else seconds
-        db.execute("INSERT INTO readings VALUES (?, ?, ?, ?, ?)", (seconds, sensor, location, facility, temperature))
-        rows = db.execute("SELECT ts, sensor, location, facility, temperature FROM readings ORDER BY ts, rowid").fetchall()
-        minute = int(watermark // 60) * 60
-        closed = {}
-        for row in rows:
-            bucket = int(row[0] // 60) * 60
-            if bucket < minute:
-                for kind, level, dimension in [("tumbling", "sensor", row[1]), ("multi_level", "sensor", row[1]), ("multi_level", "location", row[2])]:
-                    closed.setdefault((kind, level, dimension, bucket), []).append(row)
-        results = []
-
-        def summary(kind, level, dimension, start, readings, duration, complete):
-            values = [row[4] for row in readings]
-            first = readings[0]
-            result = {"aggregation_type": kind, "aggregation_level": level, "group_key": f"{dimension}|{kind}|{level}|{utc(start)}", "window_start": utc(start), "window_end": utc(start + duration), "time_bucket": utc(start), "window_duration_minutes": duration // 60, "window_complete": complete, "aggregation_timestamp": now(), "event_count": len(values), "temperature_avg": round(sum(values) / len(values), 2), "temperature_min": min(values), "temperature_max": max(values), "location": first[2], "facility": first[3], "data_quality_score": 0.95 if len(values) >= 50 else 0.85 if len(values) >= 30 else 0.70 if len(values) >= 10 else 0.50}
-            if level == "sensor":
-                result["sensor_id"] = dimension
-            else:
-                result["sensor_count"] = len({row[1] for row in readings})
-            if kind == "sliding" and len(values) >= 3:
-                change = round(values[-1] - values[0], 2)
-                result.update(temperature_change=change, temperature_trend="increasing" if change > 1 else "decreasing" if change < -1 else "stable")
-            return result
-
-        for (kind, level, dimension, start), readings in closed.items():
-            results.append(summary(kind, level, dimension, start, readings, 60, True))
-        rolling = [row for row in rows if watermark - 300 < row[0] <= watermark and row[1] == sensor]
-        results.append(summary("sliding", "sensor", sensor, watermark - 300, rolling, 300, False))
-        db.execute("DELETE FROM readings WHERE ts <= ?", (watermark - 300,))
-        db.execute("DELETE FROM watermark")
-        db.execute("INSERT INTO watermark VALUES (?)", (watermark,))
-        if previous:
-            results = [result for result in results if not result["window_complete"] or timestamp(result["window_end"]) > int(previous[0] // 60) * 60]
-    return results
 
 
 def parse_log(raw):
@@ -233,7 +156,7 @@ def main():
             value = json.loads(raw)
         except json.JSONDecodeError:
             value = raw
-    result = {"aggregate": aggregate, "deduplicate": deduplicate, "parse-log": parse_log, "decode": decode_format, "avro": encode_avro}.get(mode)
+    result = {"parse-log": parse_log, "decode": decode_format, "avro": encode_avro}.get(mode)
     output = result(value) if result else encode_format(value, sys.argv[2])
     print(json.dumps(output, allow_nan=False))
 

@@ -24,7 +24,7 @@ config:
     processors:
       - command:
           name: uv
-          args_mapping: root = ["run", "--no-project", env("RECORD_TRANSFORMS_SCRIPT"), "decode"]
+          args_mapping: root = ["run", "--no-project", env("RECORD_CODECS_SCRIPT"), "decode"]
       - catch:
           - mapping: root = deleted()
   output:
@@ -34,7 +34,7 @@ config:
         - processors:
             - command:
                 name: uv
-                args_mapping: root = ["run", "--no-project", env("RECORD_TRANSFORMS_SCRIPT"), "encode", meta("Accept").or("application/json")]
+                args_mapping: root = ["run", "--no-project", env("RECORD_CODECS_SCRIPT"), "encode", meta("Accept").or("application/json")]
             - mapping: |-
                 meta response_type = match this.transformation.target_format { "xml" => "application/xml", "csv" => "text/csv", _ => "application/json" }
                 root = this.data
@@ -70,7 +70,7 @@ config:
                         root.firmware_version = this.metadata.firmware_version
                     - command:
                         name: uv
-                        args_mapping: root = ["run", "--no-project", env("RECORD_TRANSFORMS_SCRIPT"), "avro"]
+                        args_mapping: root = ["run", "--no-project", env("RECORD_CODECS_SCRIPT"), "avro"]
                     - mapping: root = this.avro_base64.decode("base64")
               - output:
                   drop: {}

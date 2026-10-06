@@ -25,11 +25,41 @@ config:
   pipeline:
     threads: 1
     processors:
-      - command:
-          name: uv
-          args_mapping: root = ["run", "--no-project", env("RECORD_TRANSFORMS_SCRIPT"), "aggregate"]
-      - catch:
-          - mapping: root = deleted()
+      - mapping: |-
+          map summary {
+            root = {
+              "aggregation_type": this.kind,
+              "aggregation_level": this.level,
+              "window_start": this.start,
+              "window_end": this.end,
+              "window_complete": true,
+              "aggregation_timestamp": now(),
+              "event_count": this.rows.sort_by(r -> r.timestamp).map_each(r -> r.temperature.number()).length(),
+              "temperature_avg": this.rows.sort_by(r -> r.timestamp).map_each(r -> r.temperature.number()).sum() / this.rows.sort_by(r -> r.timestamp).map_each(r -> r.temperature.number()).length(),
+              "temperature_min": this.rows.sort_by(r -> r.timestamp).map_each(r -> r.temperature.number()).min(),
+              "temperature_max": this.rows.sort_by(r -> r.timestamp).map_each(r -> r.temperature.number()).max(),
+              "location": this.rows.sort_by(r -> r.timestamp).index(0).location.or("unknown_location"),
+              "facility": this.rows.sort_by(r -> r.timestamp).index(0).facility.or("unknown_facility"),
+              "window_duration_minutes": if this.kind == "sliding" { 5 } else { 1 },
+              "data_quality_score": if this.rows.sort_by(r -> r.timestamp).map_each(r -> r.temperature.number()).length() >= 50 { 0.95 } else if this.rows.sort_by(r -> r.timestamp).map_each(r -> r.temperature.number()).length() >= 30 { 0.85 } else if this.rows.sort_by(r -> r.timestamp).map_each(r -> r.temperature.number()).length() >= 10 { 0.70 } else { 0.50 }
+            }
+            root.sensor_id = if this.level == "sensor" { this.key } else { deleted() }
+            root.sensor_count = if this.level == "location" { this.rows.sort_by(r -> r.timestamp).map_each(r -> r.sensor_id).unique().length() } else { deleted() }
+            root.group_key = this.key + "|" + this.kind + "|" + this.start
+            root.time_bucket = this.start
+            root.temperature_change = if this.kind == "sliding" { this.rows.sort_by(r -> r.timestamp).map_each(r -> r.temperature.number()).index(-1) - this.rows.sort_by(r -> r.timestamp).map_each(r -> r.temperature.number()).index(0) } else { deleted() }
+            root.temperature_trend = if this.kind == "sliding" { if this.rows.sort_by(r -> r.timestamp).map_each(r -> r.temperature.number()).index(-1) - this.rows.sort_by(r -> r.timestamp).map_each(r -> r.temperature.number()).index(0) > 1 { "increasing" } else if this.rows.sort_by(r -> r.timestamp).map_each(r -> r.temperature.number()).index(-1) - this.rows.sort_by(r -> r.timestamp).map_each(r -> r.temperature.number()).index(0) < -1 { "decreasing" } else { "stable" } } else { deleted() }
+          }
+          let rows = json().from_all()
+          let end = meta("window_end_timestamp")
+          let end_seconds = $end.ts_parse("2006-01-02T15:04:05Z07:00").ts_unix()
+          let minute_start = ($end_seconds - 60).ts_format("2006-01-02T15:04:05Z07:00")
+          let sliding_start = ($end_seconds - 300).ts_format("2006-01-02T15:04:05Z07:00")
+          let recent = $rows.filter(r -> r.timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_unix() >= $end_seconds - 60)
+          let sliding = $rows.map_each(r -> r.sensor_id).unique().map_each(key -> {"kind":"sliding", "level":"sensor", "key":key, "start":$sliding_start, "end":$end, "rows":$rows.filter(r -> r.sensor_id == key)}.apply("summary"))
+          let tumbling = $recent.map_each(r -> r.sensor_id).unique().map_each(key -> {"kind":"tumbling", "level":"sensor", "key":key, "start":$minute_start, "end":$end, "rows":$recent.filter(r -> r.sensor_id == key)}.apply("summary"))
+          let locations = $recent.map_each(r -> r.location.or("unknown_location")).unique().map_each(key -> {"kind":"multi_level", "level":"location", "key":key, "start":$minute_start, "end":$end, "rows":$recent.filter(r -> r.location.or("unknown_location") == key)}.apply("summary"))
+          root = if batch_index() == 0 { $sliding.concat($tumbling).concat($locations) } else { deleted() }
       - unarchive:
           format: json_array
   output:
@@ -51,3 +81,9 @@ config:
         - file:
             path: ${AGGREGATION_ARCHIVE_PATH}/aggregations.jsonl
             codec: lines
+  buffer:
+    system_window:
+      timestamp_mapping: root = this.timestamp
+      size: 5m
+      slide: 1m
+      allowed_lateness: 1m

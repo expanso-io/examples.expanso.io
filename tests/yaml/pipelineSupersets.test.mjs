@@ -20,7 +20,7 @@ function run(cfg, input, dir, env = {}) {
   const result = spawnSync('benthos', ['run', file], {
     input: input.map(v => typeof v === 'string' ? v : JSON.stringify(v)).join('\n') + '\n',
     encoding: 'utf8', timeout: 15000,
-    env: { ...process.env, RECORD_TRANSFORMS_SCRIPT: path.join(root, 'scripts/examples/record_transforms.py'), EXAMPLE_STATE_PATH: path.join(dir, 'state.sqlite'), ...env },
+    env: { ...process.env, RECORD_CODECS_SCRIPT: path.join(root, 'scripts/examples/record_codecs.py'), ...env },
   });
   assert.equal(result.status, 0, result.stderr || String(result.error));
   return result.stdout.trim() ? result.stdout.trim().split('\n').map(JSON.parse) : [];
@@ -29,40 +29,45 @@ const stdout = { stdout: { codec: 'lines' } };
 function select(cases, event, dir) {
   return cases.find(c => !c.check || run({ pipeline: { processors: [{ mapping: 'root = ' + c.check }] }, output: stdout }, [event], dir)[0]);
 }
-test('all aggregation copies produce tumbling, sliding and sensor/location summaries across restarts', () => {
+test('all window copies group interleaved sensors and retain late records within the native window', () => {
   for (const source of sources('aggregate-time-windows')) {
     const dir = scratch();
     try {
-      const cfg = config(source); cfg.output = stdout;
+      const cfg = config(source);
       const events = [
         { sensor_id: 'one', location: 'north', timestamp: '2026-10-05T00:00:00Z', temperature: 10 },
-        { sensor_id: 'two', location: 'north', timestamp: '2026-10-05T00:00:10Z', temperature: 20 },
-        { sensor_id: 'one', location: 'north', timestamp: '2026-10-05T00:00:20Z', temperature: 30 },
-        { sensor_id: 'one', location: 'north', timestamp: '2026-10-05T00:00:15Z', temperature: 35 },
+        { sensor_id: 'one', location: 'north', timestamp: '2026-10-05T00:01:00Z', temperature: 40 },
+        { sensor_id: 'two', location: 'north', timestamp: '2026-10-05T00:00:59Z', temperature: 20 },
+        { sensor_id: 'one', location: 'north', timestamp: '2026-10-05T00:00:15Z', temperature: 30 },
       ];
-      run(cfg, events, dir);
-      const results = run(cfg, [{ sensor_id: 'one', location: 'north', timestamp: '2026-10-05T00:01:00Z', temperature: 40 }], dir);
+      cfg.buffer = { none: {} }; cfg.output = stdout;
+      cfg.pipeline.processors.unshift({ mapping: 'root = ' + JSON.stringify(events) }, { unarchive: { format: 'json_array' } }, { mapping: 'root = this\nmeta window_end_timestamp = "2026-10-05T00:02:00Z"' });
+      const results = run(cfg, [{}], dir);
       const tumbling = results.find(r => r.aggregation_type === 'tumbling' && r.sensor_id === 'one');
-      assert.equal(tumbling.event_count, 3); assert.equal(tumbling.temperature_avg, 25);
-      assert.equal(tumbling.window_complete, true);
-      const location = results.find(r => r.aggregation_type === 'multi_level' && r.aggregation_level === 'location');
-      assert.equal(location.sensor_count, 2); assert.equal(location.event_count, 4);
-      const sliding = results.find(r => r.aggregation_type === 'sliding');
-      assert.equal(sliding.event_count, 4); assert.equal(sliding.temperature_change, 30); assert.equal(sliding.temperature_trend, 'increasing');
-      assert.equal(run(cfg, [{ sensor_id: 'one', timestamp: '2026-10-04T23:59:00Z', temperature: 50 }], dir).length, 0);
+      assert.equal(tumbling.event_count, 1); assert.equal(tumbling.temperature_avg, 40);
+      const late = results.find(r => r.aggregation_type === 'sliding' && r.sensor_id === 'two');
+      assert.equal(late.event_count, 1);
+      const location = results.find(r => r.aggregation_level === 'location');
+      assert.equal(location.sensor_count, 1); assert.equal(location.event_count, 1);
+      const sliding = results.find(r => r.aggregation_type === 'sliding' && r.sensor_id === 'one');
+      assert.equal(sliding.event_count, 3); assert.equal(sliding.temperature_change, 30);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
 });
-test('all deduplication copies persist identity, composite and content strategies and route duplicates to archives', () => {
+test('all deduplication copies commit native cache entries after delivery and namespace strategies', () => {
   for (const source of sources('deduplicate-events')) {
     const dir = scratch();
     try {
-      const cfg = config(source); const output = cfg.output; cfg.output = stdout;
+      const cfg = config(source);
+      fs.mkdirSync(dir + '/cache');
+      cfg.cache_resources = [{ label: 'delivered', file: { directory: dir + '/cache' } }];
+      cfg.output.switch.cases[0].output.broker.outputs[0] = stdout;
+      cfg.output.switch.cases[1].output = stdout;
       const event = { event_id: 'one', event_type: 'signup', source: 'fixture', timestamp: '2026-10-05T00:00:00Z' };
       assert.equal(run(cfg, [event], dir)[0].is_duplicate, false);
-      const duplicate = run(cfg, [{ ...event, message: 'retry' }], dir)[0];
-      assert.equal(duplicate.is_duplicate, true);
-      assert.ok(select(output.switch.cases, duplicate, dir).output.file.path);
+      assert.equal(run(cfg, [{ ...event, message: 'retry' }], dir)[0].is_duplicate, true);
+      const collision = { ...event, event_id: 'signup:fixture:' + Math.floor(Date.parse(event.timestamp) / 60000) };
+      assert.equal(run(cfg, [collision], dir)[0].is_duplicate, false);
       for (const fixture of [{ message: 'content-only' }, { ...event, event_id: 'two', dedup_strategy: 'composite' }]) {
         assert.equal(run(cfg, [fixture], dir)[0].is_duplicate, false);
         assert.equal(run(cfg, [fixture], dir)[0].is_duplicate, true);
@@ -158,7 +163,7 @@ test('format copies honor HTTP Accept headers on both public input paths', async
     cfg.http = { enabled: true, address: `127.0.0.1:${port}`, root_path: '/runtime' }; cfg.logger = { level: 'ERROR' };
     const file = path.join(dir, 'http.yaml');
     fs.writeFileSync(file, YAML.stringify(cfg));
-    const child = spawn('benthos', ['run', file], { env: { ...process.env, RECORD_TRANSFORMS_SCRIPT: path.join(root, 'scripts/examples/record_transforms.py') } });
+    const child = spawn('benthos', ['run', file], { env: { ...process.env, RECORD_CODECS_SCRIPT: path.join(root, 'scripts/examples/record_codecs.py') } });
     let errors = '';
     child.stdout.on('data', data => errors += data);
     child.stderr.on('data', data => errors += data);
@@ -254,4 +259,125 @@ test('Splunk alert processors retain diagnostic metadata and warning severity', 
       assert.deepEqual(actual.metadata, { log_level: 'ERROR', event_category: 'application', risk_score: 42 });
     }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('canonical metadata preserves ERROR/WARN messages and enrichment user identity', () => {
+  for (const file of sources('filter-severity')) {
+    const dir = scratch();
+    try {
+      const cfg = config(file); cfg.output = stdout;
+      for (const level of ['ERROR', 'WARN', 'WARNING']) {
+        const [out] = run(cfg, [JSON.stringify({ level, message: 'retained', trace_id: 'one' })], dir);
+        assert.equal(out.level, level === 'WARNING' ? 'WARN' : level);
+        assert.equal(out.message, 'retained'); assert.equal(out.trace_id, 'one');
+        assert.ok(out.processing_metadata.processed_at);
+      }
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+  for (const file of sources('enrich-export')) {
+    const dir = scratch();
+    try {
+      const cfg = config(file); cfg.output = stdout;
+      assert.equal(run(cfg, [{user_id:'retained', level:'ERROR', message:'fixture'}], dir)[0].event.user_id, 'retained');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+});
+test('fan-out copies retain a local diagnostic archive', () => {
+  for (const file of sources('fan-out-pattern')) {
+    const dir = scratch();
+    try {
+      const cfg = config(file);
+      cfg.output = cfg.output.broker.outputs.find(o => o.file);
+      assert.ok(cfg.output, 'diagnostic archive output');
+      run(cfg, [{sensor_id:'fixture', message:'diagnostic'}], dir, {FAN_OUT_DIAGNOSTIC_PATH:dir});
+      assert.equal(JSON.parse(fs.readFileSync(dir+'/events.jsonl','utf8')).message, 'diagnostic');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+});
+
+async function withRuntime(cfg, dir, env, operation) {
+  const file = path.join(dir, 'live.yaml');
+  fs.writeFileSync(file, YAML.stringify({ ...cfg, logger: { level: 'ERROR' } }));
+  const child = spawn('benthos', ['run', file], { env: { ...process.env, ...env } });
+  let output = '', errors = '';
+  child.stdout.on('data', data => output += data); child.stderr.on('data', data => errors += data);
+  const stopped = new Promise(resolve => child.on('close', resolve));
+  try { await operation(child, () => output, () => errors); }
+  finally { if (child.exitCode === null) child.kill('SIGTERM'); const timeout = setTimeout(() => child.kill('SIGKILL'), 3000); await stopped; clearTimeout(timeout); }
+}
+async function until(predicate, message) {
+  for (let attempt = 0; attempt < 150; attempt++) {
+    if (predicate()) return;
+    await new Promise(resolve => setTimeout(resolve, 40));
+  }
+  assert.fail(message);
+}
+test('native dedup cache remains empty during failed delivery and replay is delivered', async () => {
+  const dir = scratch(); let accept = false, attempts = 0;
+  const server = http.createServer((request, response) => { request.resume(); attempts++; response.writeHead(accept ? 200 : 503); response.end(); });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const cfg = config(sources('deduplicate-events')[0]);
+    fs.mkdirSync(dir + '/cache');
+    cfg.http = {enabled:false}; cfg.input = {stdin:{codec:'lines'}};
+    cfg.cache_resources = [{label:'delivered',file:{directory:dir+'/cache'}}];
+    cfg.output.switch.cases[0].output.broker.outputs[0] = {http_client:{url:'http://127.0.0.1:'+server.address().port,verb:'POST',retries:0}};
+    cfg.output.switch.cases[1].output = stdout;
+    const event = {event_id:'unacknowledged', message:'must deliver'};
+    await withRuntime(cfg, dir, {}, async child => {
+      child.stdin.write(JSON.stringify(event)+'\n');
+      await until(() => attempts > 0, 'delivery attempted');
+      assert.equal(fs.existsSync(dir+'/cache') ? fs.readdirSync(dir+'/cache').length : 0, 0);
+    });
+    accept = true;
+    await withRuntime(cfg, dir, {}, async child => {
+      child.stdin.write(JSON.stringify(event)+'\n');
+      await until(() => fs.existsSync(dir+'/cache') && fs.readdirSync(dir+'/cache').length === 1, 'replay delivered and cached');
+    });
+    assert.ok(attempts >= 2);
+    assert.equal(run(cfg, [event], dir)[0].is_duplicate, true);
+  } finally { await new Promise(resolve => server.close(resolve)); fs.rmSync(dir,{recursive:true,force:true}); }
+});
+test('native system windows accept interleaved timestamps and wait for delivery acknowledgment', async () => {
+  const dir = scratch(); let delivered = false, pending;
+  const server = http.createServer((request,response) => { let body=''; request.on('data',v=>body+=v); request.on('end',()=>{pending={response,body};}); });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try {
+    const cfg = config(sources('aggregate-time-windows')[0]);
+    cfg.http={enabled:false}; cfg.input={stdin:{codec:'lines'}};
+    cfg.buffer.system_window = {...cfg.buffer.system_window,size:'2s',slide:'',allowed_lateness:'1s'};
+    cfg.output={http_client:{url:'http://127.0.0.1:'+server.address().port,verb:'POST',batching:{count:100,period:'100ms',processors:[{archive:{format:'json_array'}}]}}};
+    await withRuntime(cfg,dir,{},async child=>{
+      const start=Math.floor(Date.now()/2000)*2000;
+      child.stdin.write(JSON.stringify({sensor_id:'A',location:'north',temperature:10,timestamp:new Date(start+800).toISOString()})+'\n');
+      child.stdin.write(JSON.stringify({sensor_id:'B',location:'north',temperature:20,timestamp:new Date(start+400).toISOString()})+'\n');
+      await until(()=>pending, 'window closed after allowed lateness');
+      const records=JSON.parse(pending.body);
+      assert.ok(records.some(r=>r.sensor_id==='A')); assert.ok(records.some(r=>r.sensor_id==='B'));
+      assert.equal(child.exitCode,null);
+      delivered=true; pending.response.end();
+    });
+    assert.equal(delivered,true);
+  } finally { pending?.response.end(); await new Promise(resolve=>server.close(resolve)); fs.rmSync(dir,{recursive:true,force:true}); }
+});
+test('schema copies expose both public sensor input paths', async () => {
+  for (const file of sources('enforce-schema')) {
+    const dir=scratch(); const reserved=http.createServer();
+    await new Promise(resolve=>reserved.listen(0,'127.0.0.1',resolve));const port=reserved.address().port;
+    await new Promise(resolve=>reserved.close(resolve));
+    try {
+      const cfg=config(file);cfg.output=stdout;cfg.http={enabled:true,address:'127.0.0.1:'+port,root_path:'/runtime'};
+      const schema=dir+'/schema.json';fs.writeFileSync(schema,JSON.stringify({type:'object',required:['sensor_id']}));
+      cfg.pipeline.processors.find(p=>p.try).try.find(p=>p.json_schema).json_schema.schema_path='file://'+schema;
+      await withRuntime(cfg,dir,{},async (child,output,errors)=>{
+        for(let i=0;i<100;i++){try{await fetch('http://127.0.0.1:'+port+'/runtime/ping');break;}catch{await new Promise(resolve=>setTimeout(resolve,30));}}
+        for(const endpoint of ['/sensors','/sensor/readings']){
+          const response=await fetch('http://127.0.0.1:'+port+endpoint,{method:'POST',body:JSON.stringify({sensor_id:endpoint})});
+          assert.equal(response.status,200,errors());
+        }
+        await until(()=>output().trim().split('\n').length>=2,'sensor inputs delivered');
+        assert.deepEqual(output().trim().split('\n').map(JSON.parse).map(r=>r.sensor_id).sort(),['/sensor/readings','/sensors']);
+      });
+    }finally{fs.rmSync(dir,{recursive:true,force:true});}
+  }
 });

@@ -25,7 +25,7 @@ The canonical pipeline preserves the HTTP interface and the complete examples pr
 
 ## Deployment contract
 
-Mount `scripts/examples/record_transforms.py` read-only and set `RECORD_TRANSFORMS_SCRIPT` to its absolute mounted path. Include `uv` in the workload image; the helper uses only the Python standard library. Set `EXAMPLE_STATE_PATH` to a SQLite file on an encrypted persistent volume exclusive to this workload. Keep its database and WAL files across restarts. Aggregation uses a monotonically advancing event-time watermark: later events close minute windows and update trailing five-minute windows; events within an open minute window are sorted by event time, and events for already closed minute windows fail closed. Deduplication retains identity, composite, and content-hash keys for one hour. Configure the output paths on workload-owned persistent volumes, Kafka TLS brokers and SASL credentials where used, and authenticated HTTPS service URLs and tokens.
+The native `system_window` buffer closes five-minute sliding windows every minute, with one minute of allowed lateness. Records are grouped independently by sensor and location; one-minute tumbling summaries use the last minute of each window. Event timestamps must be close to the node clock. Unacknowledged inputs are replayed after restart; sliding windows use the documented best-attempt semantics for subsequent deliveries. Expired windows can be dropped under prolonged back pressure.
 
 
 ## Step 1: Configure Example-Specific Variables

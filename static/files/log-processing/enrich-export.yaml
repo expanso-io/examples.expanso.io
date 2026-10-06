@@ -5,12 +5,11 @@ namespace: production
 labels:
   category: log-processing
   pattern: enrichment-export
-
 config:
   input:
     generate:
       interval: ${GENERATE_INTERVAL:-1s}
-      count: ${GENERATE_COUNT:-0}
+      count: 0
       mapping: |
         root.id = uuid_v4()
         root.timestamp = now()
@@ -53,10 +52,8 @@ config:
           this.service == "payment-service" => if this.level == "ERROR" { "Payment processing failed" } else { "Payment processed" }
           _ => "Service operation completed with status " + this.status_code
         }
-
   pipeline:
     processors:
-      # Step 1: Add lineage metadata
       - mapping: |
           root = this
           let processing_start = now()
@@ -69,13 +66,12 @@ config:
             "processed_at": $processing_start,
             "environment": env("ENVIRONMENT").or("production")
           }
-
-      # Step 2: Restructure into event/metadata format
       - mapping: |
           root.event = {
             "id": this.id.or(uuid_v4()),
             "timestamp": this.timestamp.or(now()),
             "type": "application_log",
+            "user_id": this.user_id,
             "application": {
               "service": this.service.or("unknown"),
               "level": this.level.or("INFO"),
@@ -101,19 +97,17 @@ config:
               "is_error": this.level == "ERROR"
             }
           }
-
   output:
     broker:
       pattern: fan_out
       outputs:
-        # Primary S3 export
         - aws_s3:
             bucket: ${S3_BUCKET_NAME}
             path: logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/logs_${!timestamp_unix()}.jsonl.gz
             batching:
-              count: ${BATCH_COUNT:-200}
+              count: 200
               period: ${BATCH_PERIOD:-2m}
-              byte_size: ${BATCH_SIZE:-5242880}
+              byte_size: 5242880
               processors:
                 - compress:
                     algorithm: gzip
@@ -124,18 +118,9 @@ config:
             region: ${AWS_REGION}
             server_side_encryption: aws:kms
             kms_key_id: ${S3_KMS_KEY_ARN}
-
-        # Error stream
         - aws_s3:
             bucket: ${S3_ERROR_BUCKET_NAME:-${S3_BUCKET_NAME}}
             path: errors/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/error_${!timestamp_unix()}.jsonl
-            processors:
-              - mapping: |
-                  root = if this.event.application.level == "ERROR" {
-                    this
-                  } else {
-                    deleted()
-                  }
             batching:
               count: 50
               period: 1m
@@ -144,11 +129,16 @@ config:
             region: ${AWS_REGION}
             server_side_encryption: aws:kms
             kms_key_id: ${S3_KMS_KEY_ARN}
-
+          processors:
+            - mapping: |
+                root = if this.event.application.level == "ERROR" {
+                  this
+                } else {
+                  deleted()
+                }
 logger:
   level: ${LOG_LEVEL:-info}
   format: json
-
 metrics:
   prometheus:
     prefix: log_enrichment_prod

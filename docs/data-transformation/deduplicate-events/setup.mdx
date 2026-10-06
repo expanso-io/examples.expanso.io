@@ -25,7 +25,7 @@ The canonical pipeline preserves the HTTP interface and the complete examples pr
 
 ## Deployment contract
 
-Mount `scripts/examples/record_transforms.py` read-only and set `RECORD_TRANSFORMS_SCRIPT` to its absolute mounted path. Include `uv` in the workload image; the helper uses only the Python standard library. Set `EXAMPLE_STATE_PATH` to a SQLite file on an encrypted persistent volume exclusive to this workload. Keep its database and WAL files across restarts. Aggregation uses a monotonically advancing event-time watermark: later events close minute windows and update trailing five-minute windows; out-of-order events fail closed. Deduplication retains identity, composite, and content-hash keys for one hour. Configure the output paths on workload-owned persistent volumes, Kafka TLS brokers and SASL credentials where used, and authenticated HTTPS service URLs and tokens.
+Set `DEDUP_REDIS_URL` to an authenticated Redis URL and `REDIS_CA_FILE` to its trusted CA file. Enable persistent Redis storage and restrict its ACL to this workload. The native cache expires delivered identities after one hour. Identity, composite, and hash strategies have separate key namespaces. Sequential outputs write the cache only after analytics and Kafka acknowledge delivery; retries can redeliver an event, but cannot mark an undelivered event as delivered.
 
 
 ## Step 1: Configure Example-Specific Variables
