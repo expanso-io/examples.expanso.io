@@ -13,6 +13,19 @@ This repository contains curated examples of Expanso Edge pipelines with:
 - 🔗 **Component references** - Links to full documentation
 - ▶️ **Quick start commands** - Test examples locally
 
+## Using the stage explorer
+
+Press Left or Right to move between stages while keeping your page scroll
+position. These shortcuts also work outside the stage selector. Text fields,
+editable content, and focused scrollable panels retain their own arrow-key
+behavior. Page-wide shortcuts require no modifier keys.
+
+In **Copy & download**, a successful copy closes the menu, returns keyboard
+focus to its trigger, and briefly confirms what was copied beside it. A failed
+copy keeps the menu open and shows **Copy failed** with manual-copy guidance.
+The YAML panel's **Copy YAML** button also shows temporary success or failure
+feedback beside the button.
+
 ## Structure
 
 ```
