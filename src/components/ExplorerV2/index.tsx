@@ -337,6 +337,8 @@ export default function ExplorerV2({
         if (target.isContentEditable) return;
         if (target.closest('input, textarea, select, [contenteditable]'))
           return;
+        if (target.closest('pre, [data-scroll-panel]')) return;
+        if (target.scrollWidth > target.clientWidth) return;
         if (stageRailRef.current?.contains(target)) return;
       }
       const nextIndex = currentIndex + (event.key === 'ArrowRight' ? 1 : -1);
@@ -723,6 +725,7 @@ export default function ExplorerV2({
                 <div
                   className={styles.dataScroll}
                   tabIndex={0}
+                  data-scroll-panel=""
                   aria-label={`${label} ${payloadLabel} for ${currentStage.title}`}
                 >
                   <DataLines
@@ -767,7 +770,7 @@ export default function ExplorerV2({
                 Copy YAML
               </CopyActionButton>
             </div>
-            <pre tabIndex={0}>
+            <pre tabIndex={0} data-scroll-panel="">
               <code>{visibleYaml}</code>
             </pre>
           </div>

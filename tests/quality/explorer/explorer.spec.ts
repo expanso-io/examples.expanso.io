@@ -138,6 +138,32 @@ test('arrow keys change the stage from anywhere on the page except text fields',
   );
 });
 
+test('arrow keys scroll a focused YAML panel instead of changing the stage', async ({
+  page,
+}) => {
+  const explorer = page.locator('[data-explorer-version="2"]');
+  const pre = explorer.locator('[id$="-yaml-panel"] pre[data-scroll-panel]');
+  await pre.evaluate((element: HTMLElement) => {
+    element.style.width = '160px';
+    element.style.overflowX = 'auto';
+    element.style.whiteSpace = 'pre';
+    element.focus({ preventScroll: true });
+  });
+  expect(
+    await pre.evaluate((element) => element.scrollWidth > element.clientWidth)
+  ).toBe(true);
+  expect(await pre.evaluate((element) => element.scrollLeft)).toBe(0);
+  expect(await pre.evaluate((el) => document.activeElement === el)).toBe(true);
+
+  await page.keyboard.press('ArrowRight');
+  await expect
+    .poll(() => pre.evaluate((element) => element.scrollLeft))
+    .toBeGreaterThan(0);
+  await page.waitForTimeout(250);
+  await expect(page).not.toHaveURL(/stage=/);
+  await expectCurrentStage(explorer, 0);
+});
+
 test('stage history and the change view are shareable and restorable', async ({
   page,
 }) => {
