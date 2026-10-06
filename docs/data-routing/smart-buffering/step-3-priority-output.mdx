@@ -43,6 +43,8 @@ Important messages bypass the buffer entirely and ship immediately.
 ```yaml title="smart-buffer-priority-output.yaml"
 name: smart-buffer-priority-output
 description: Priority-based output routing with tier-specific batching
+type: pipeline
+namespace: examples
 config:
   input:
     http_server:
@@ -167,13 +169,17 @@ After coming back online with a backlog:
 
 Important messages ship first because their output has no batching delay.
 
-## Test
+## Validate, Deploy, and Test
+
+Set `DESTINATION_URL` to an authenticated HTTPS fixture endpoint and
+`TUTORIAL_HTTP_TOKEN` to its scoped token. Validation does not start the HTTP
+input; deploy the checked job to an already-running Expanso Edge first:
 
 ```bash
-# Terminal 1: Start pipeline
-expanso-edge run --config smart-buffer-priority-output.yaml
+expanso-edge validate smart-buffer-priority-output.yaml
+expanso-cli --endpoint http://127.0.0.1:19031 \
+  job deploy smart-buffer-priority-output.yaml
 
-# Terminal 2: Send messages in "wrong" order
 # First, flood with regular messages
 for i in {1..20}; do
   curl -X POST http://localhost:8080/events \
@@ -185,7 +191,8 @@ curl -X POST http://localhost:8080/events \
   -d '{"severity": "critical", "message": "IMPORTANT - should ship first"}'
 ```
 
-Check your destination—the important message arrives before the regular batch completes.
+Check the fixture destination for delivery order, then stop or delete the
+deployed job. Do not infer production ordering from validation alone.
 
 ## Next Step
 

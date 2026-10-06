@@ -24,4 +24,7 @@ pipeline:
         root.billing_address.zip_nonce = if this.billing_address.zip != null {
           $zip_nonce
         } else { deleted() }
+        root.billing_address.zip_prefix = if this.billing_address.zip != null {
+          this.billing_address.zip.re_replace_all("[^0-9]", "").slice(0, 3)
+        }
         root.billing_address = root.billing_address.without("street", "zip")

@@ -321,9 +321,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "remove-pii-complete.yaml#processor-2",
     yamlCode:
-      '- mapping: |\n    root = this.without("ip_address")\n\n    # Hash the source value with a caller-provided salt\n    root.ip_hash = this.ip_address.hash(\n      "hmac_sha256",\n      env("IP_SALT")\n    ).encode("hex")\n',
+      '- mapping: |\n    root = this.without("ip_address")\n\n    # Hash the source value with a caller-provided salt\n    let ip_salt = env("IP_SALT").or("")\n    let ip_salt = if $ip_salt == "" {\n      throw("IP_SALT is required")\n    } else { $ip_salt }\n    root.ip_hash = this.ip_address.hash(\n      "hmac_sha256",\n      $ip_salt\n    ).encode("hex")\n',
     configSha256:
-      "sha256:4f139e40cb8b18c3a9f50860a51d959850c1aee62db2b7d3f376eda228c74b88",
+      "sha256:a1db41721da2fe1d842f2899d81237db123a131692cdac1d7119226936370fc5",
   },
   {
     id: 4,
@@ -428,9 +428,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "remove-pii-complete.yaml#processor-3",
     yamlCode:
-      '- mapping: |\n    root = this.without("email")\n\n    root.email_hash = this.email.hash(\n      "hmac_sha256",\n      env("EMAIL_SALT")\n    ).encode("hex")\n\n    # Preserve only the domain as a separate field\n    root.email_domain = this.email.split("@").index(1)\n',
+      '- mapping: |\n    root = this.without("email")\n\n    let email_salt = env("EMAIL_SALT").or("")\n    let email_salt = if $email_salt == "" {\n      throw("EMAIL_SALT is required")\n    } else { $email_salt }\n    root.email_hash = this.email.hash(\n      "hmac_sha256",\n      $email_salt\n    ).encode("hex")\n\n    # Preserve only the domain as a separate field\n    root.email_domain = this.email.split("@").index(1)\n',
     configSha256:
-      "sha256:14bd9edfa079d4aa1eced6def3aed25614055c11333941126e3b6abc49c78c9d",
+      "sha256:6bfc6bd75aada343caca0f34f065608525ffa7ea8b2da13794c0d10d46b3b2c8",
   },
   {
     id: 5,
@@ -548,9 +548,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "remove-pii-complete.yaml#processor-4",
     yamlCode:
-      '- mapping: |\n    root = this.without("user_name")\n\n    root.user_id = "user_" + this.user_name.hash(\n      "hmac_sha256",\n      env("USER_SALT")\n    ).encode("hex").slice(0, 12)\n',
+      '- mapping: |\n    root = this.without("user_name")\n\n    let user_salt = env("USER_SALT").or("")\n    let user_salt = if $user_salt == "" {\n      throw("USER_SALT is required")\n    } else { $user_salt }\n    root.user_id = "user_" + this.user_name.hash(\n      "hmac_sha256",\n      $user_salt\n    ).encode("hex").slice(0, 12)\n',
     configSha256:
-      "sha256:30af917e002cd276b675f093e6e900f3429de08839ef10d4c8bf9e6a1296bc61",
+      "sha256:6145ce65d0a0dbc9112cc76ace06b067b9441198d98ec4cbd253d61bdf40cf6a",
   },
   {
     id: 6,
@@ -690,10 +690,10 @@ export const GENERATED_EXPLORER_STAGE_FAMILY = {
     },
     canonicalPipelinePath: "examples/data-security/remove-pii-complete.yaml",
     pipelineSha256:
-      "sha256:d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96",
+      "sha256:e7873abea9ea2133900fabc2b75a3810ad07f93ff0a7a9e38e41fcba09df3307",
     fullYamlFilename: "remove-pii-complete.yaml",
     fullYaml:
-      'name: pii-complete-removal\ndescription: Five-step example for deleting or transforming selected fields\ntype: pipeline\nnamespace: default\npriority: 100\n\nlabels:\n  pattern: data-minimization\n  category: data-security\n  example: remove-pii\n\nconfig:\n  # Accept events via HTTP POST\n  input:\n    http_server:\n      address: \'0.0.0.0:8080\'\n      path: /events/ingest\n      allowed_verbs: [POST]\n      timeout: 30s\n\n  # Five field transformations. Review these choices for your own data model.\n  pipeline:\n    processors:\n      # Step 1: Delete payment card data\n      - mapping: |\n          root = this\n\n          # Remove credit card number and expiry date\n          # Keep payment type and last four digits\n          root.payment_method = this.payment_method.without(\n            "full_number",\n            "expiry"\n          )\n\n      # Step 2: Hash IP address\n      - mapping: |\n          root = this.without("ip_address")\n\n          # Hash the source value with a caller-provided salt\n          root.ip_hash = this.ip_address.hash(\n            "hmac_sha256",\n            env("IP_SALT")\n          ).encode("hex")\n\n      # Step 3: Hash email and extract its domain\n      - mapping: |\n          root = this.without("email")\n\n          root.email_hash = this.email.hash(\n            "hmac_sha256",\n            env("EMAIL_SALT")\n          ).encode("hex")\n\n          # Preserve only the domain as a separate field\n          root.email_domain = this.email.split("@").index(1)\n\n      # Step 4: Replace the user name with a pseudonymous identifier\n      - mapping: |\n          root = this.without("user_name")\n\n          root.user_id = "user_" + this.user_name.hash(\n            "hmac_sha256",\n            env("USER_SALT")\n          ).encode("hex").slice(0, 12)\n\n      # Step 5: Remove precise coordinates\n      - mapping: |\n          root = this\n          root.location = this.location.without("latitude", "longitude")\n\n  # Write transformed events to a local file for inspection\n  output:\n    file:\n      path: /var/log/expanso/pii-removed.jsonl\n      codec: lines\n\nlogger:\n  level: INFO\n  format: json\n\nmetrics:\n  type: prometheus\n  path: /metrics\n  address: 0.0.0.0:9090\n# This example requires IP_SALT, EMAIL_SALT, and USER_SALT. Choose and manage\n# those values according to the requirements of the environment using it.\n',
+      'name: pii-complete-removal\ndescription: Five-step example for deleting or transforming selected fields\ntype: pipeline\nnamespace: default\npriority: 100\n\nlabels:\n  pattern: data-minimization\n  category: data-security\n  example: remove-pii\n\nconfig:\n  # Accept events via HTTP POST\n  input:\n    http_server:\n      address: \'0.0.0.0:8080\'\n      path: /events/ingest\n      allowed_verbs: [POST]\n      timeout: 30s\n\n  # Five field transformations. Review these choices for your own data model.\n  pipeline:\n    processors:\n      # Step 1: Delete payment card data\n      - mapping: |\n          root = this\n\n          # Remove credit card number and expiry date\n          # Keep payment type and last four digits\n          root.payment_method = this.payment_method.without(\n            "full_number",\n            "expiry"\n          )\n\n      # Step 2: Hash IP address\n      - mapping: |\n          root = this.without("ip_address")\n\n          # Hash the source value with a caller-provided salt\n          let ip_salt = env("IP_SALT").or("")\n          let ip_salt = if $ip_salt == "" {\n            throw("IP_SALT is required")\n          } else { $ip_salt }\n          root.ip_hash = this.ip_address.hash(\n            "hmac_sha256",\n            $ip_salt\n          ).encode("hex")\n\n      # Step 3: Hash email and extract its domain\n      - mapping: |\n          root = this.without("email")\n\n          let email_salt = env("EMAIL_SALT").or("")\n          let email_salt = if $email_salt == "" {\n            throw("EMAIL_SALT is required")\n          } else { $email_salt }\n          root.email_hash = this.email.hash(\n            "hmac_sha256",\n            $email_salt\n          ).encode("hex")\n\n          # Preserve only the domain as a separate field\n          root.email_domain = this.email.split("@").index(1)\n\n      # Step 4: Replace the user name with a pseudonymous identifier\n      - mapping: |\n          root = this.without("user_name")\n\n          let user_salt = env("USER_SALT").or("")\n          let user_salt = if $user_salt == "" {\n            throw("USER_SALT is required")\n          } else { $user_salt }\n          root.user_id = "user_" + this.user_name.hash(\n            "hmac_sha256",\n            $user_salt\n          ).encode("hex").slice(0, 12)\n\n      # Step 5: Remove precise coordinates\n      - mapping: |\n          root = this\n          root.location = this.location.without("latitude", "longitude")\n\n  # Write transformed events to a local file for inspection\n  output:\n    file:\n      path: /var/log/expanso/pii-removed.jsonl\n      codec: lines\n\nlogger:\n  level: INFO\n  format: json\n\nmetrics:\n  type: prometheus\n  path: /metrics\n  address: 0.0.0.0:9090\n# This example requires IP_SALT, EMAIL_SALT, and USER_SALT. Choose and manage\n# those values according to the requirements of the environment using it.\n',
   },
   stages: GENERATED_EXPLORER_STAGES,
 } satisfies GeneratedExplorerStageFamily;

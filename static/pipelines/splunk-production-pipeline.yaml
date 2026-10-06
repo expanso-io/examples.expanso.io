@@ -2,599 +2,602 @@
 # Complete Expanso Edge example pipeline for Splunk integration
 # Includes: filtering, parsing, multi-destination routing, compliance, monitoring
 
-apiVersion: v1
-kind: Pipeline
-metadata:
-  name: 'splunk-production-integration'
-  description: 'Production Splunk integration with edge processing - reduces indexing costs by 70%'
-  version: '1.0.0'
-  labels:
-    environment: '${ENVIRONMENT}'
-    team: 'data-platform'
-    cost-optimization: 'enabled'
+name: splunk-production-integration
+description: Production Splunk integration with edge parsing, retention, regional archives, alerts, and metrics
+type: pipeline
+namespace: examples
+labels:
+  category: integrations
+  platform: splunk
+  cost-optimization: enabled
 
 # Input: Monitor log files like Splunk inputs.conf but better
-input:
-  file_watcher:
-    # Monitor all log files in standard locations
-    paths:
-      - '/var/log/applications/*.log'
-      - '/var/log/security/*.log'
-      - '/var/log/system/*.log'
-      - '/opt/app/logs/*.log'
+config:
+  input:
+    file:
+      paths:
+        - '/var/log/applications/*.log'
+        - '/var/log/security/*.log'
+        - '/var/log/system/*.log'
+        - '/opt/app/logs/*.log'
+      codec: lines
 
-    # Performance settings
-    poll_interval: '1s'
-    start_from_beginning: false # Only new data in production
-    include_file_name: true
+  pipeline:
+    processors:
+      - mapping: |
+          meta processing_started_ns = timestamp_unix_nano()
+          meta metrics_event_id = uuid_v4()
+          root = this
+      - mapping: |
+          # Basic metadata (like Splunk source/host fields)
+          let source_path = metadata("path").or(env("SPLUNK_SOURCE_PATH").or("unknown"))
+          let raw_message = content().string()
+          root.raw_message = $raw_message
+          root.source_path = $source_path
+          root.source_file = $source_path.split("/").index($source_path.split("/").length() - 1)
+          root.collection_timestamp = now()
+          root.host = env("NODE_ID").or("unknown")
+          root.expanso_version = env("EXPANSO_VERSION").or("unknown")
 
-    # Handle log rotation properly
-    ignore_older: '24h'
-    close_inactive: '10m'
-    clean_inactive: '24h'
-    scan_frequency: '10s'
+          # Determine sourcetype based on file path and content
+          root.sourcetype = match {
+            $source_path.contains("/security/") => "security_logs"
+            $source_path.contains("/applications/") && $raw_message.trim().has_prefix("{") => "app_json"
+            $source_path.contains("/applications/") => "app_text"
+            $source_path.contains("/system/") => "syslog"
+            $raw_message.contains("CEF:") => "cef"
+            $raw_message.trim().has_prefix("{") => "json_structured"
+            _ => "unknown"
+          }
 
-    # Multiline log support (stack traces, etc.)
-    multiline:
-      pattern: '^(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}|\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}|\{.*"timestamp")'
-      negate: false
-      match: after
-      timeout: '10s'
-      max_lines: 100
+          # Initial event classification for filtering decisions
+          root.event_category = "unknown"
+          root.event_priority = "normal"
+          root.data_classification = "general"
 
-processors:
-  - mapping: |
-      meta processing_started_ns = timestamp_unix_nano()
-      meta metrics_event_id = uuid_v4()
-      root = this
-  - mapping: |
-      # Basic metadata (like Splunk source/host fields)
-      root.source_file = file.name
-      root.source_path = file.path
-      root.collection_timestamp = timestamp()
-      root.host = hostname()
-      root.expanso_version = env("EXPANSO_VERSION").string().catch("unknown")
+          # Track original message size for cost calculations
+          root.original_size_bytes = $raw_message.length()
+      - mapping: |
+          # Parse JSON with error handling
+          let parsed = this.raw_message.parse_json().catch(null)
+          root = if $parsed.type() == "object" {
+            $parsed.merge(this).merge({
+              "parse_success": true
+            })
+          } else {
+            this.merge({
+              "parse_success": false,
+              "parse_error": "invalid_json"
+            })
+          }
 
-      # Determine sourcetype based on file path and content
-      root.sourcetype = match {
-        file.path.contains("/security/") => "security_logs"
-        file.path.contains("/applications/") && this.string().contains('{"') => "app_json"
-        file.path.contains("/applications/") => "app_text"
-        file.path.contains("/system/") => "syslog"
-        this.string().contains("CEF:") => "cef"
-        this.string().contains('{"timestamp"') || this.string().contains('"@timestamp"') => "json_structured"
-        _ => "unknown"
-      }
+          # Normalize timestamp formats
+          root.normalized_timestamp = match {
+            this.timestamp.type() == "string" => this.timestamp
+            this."@timestamp".type() == "string" => this."@timestamp"
+            this.time.type() == "string" => this.time
+            _ => now()
+          }
 
-      # Initial event classification for filtering decisions
-      root.event_category = "unknown"
-      root.event_priority = "normal"
-      root.data_classification = "general"
+          # Log level normalization and severity scoring
+          root.log_level = this.level.string().catch(this.severity.string().catch("INFO")).uppercase()
+          root.log_severity = match {
+            this.log_level == "FATAL" || this.log_level == "CRITICAL" => 5
+            this.log_level == "ERROR" => 4
+            this.log_level == "WARN" || this.log_level == "WARNING" => 3
+            this.log_level == "INFO" => 2
+            this.log_level == "DEBUG" || this.log_level == "TRACE" => 1
+            _ => 2
+          }
 
-      # Track original message size for cost calculations
-      root.original_size_bytes = this.string().length()
-  - conditional:
-      condition: this.sourcetype.contains("json") || this.sourcetype == "app_json"
-    mapping: |
-      # Parse JSON with error handling
-      root = if this.string().parse_json().type() == "object" {
-        this.string().parse_json().merge({
-          "raw_message": this.string(),
-          "parse_success": true
-        })
-      } else {
-        {
-          "raw_message": this.string(),
-          "parse_success": false,
-          "parse_error": "invalid_json"
-        }.merge(this.without(""))
-      }
+          # Event categorization for filtering and routing
+          root.event_category = match {
+            this.log_level == "ERROR" || this.log_level == "FATAL" => "error"
+            this.log_level == "DEBUG" || this.log_level == "TRACE" => "debug"
+            this.message.string().catch("").contains("health") && this.message.string().catch("").contains("check") => "health_check"
+            this.message.string().catch("").contains("login") || this.message.string().catch("").contains("auth") => "authentication"
+            this.message.string().catch("").contains("payment") || this.message.string().catch("").contains("transaction") => "financial"
+            this.endpoint.string().catch("").contains("/api/") => "api_call"
+            _ => "application"
+          }
 
-      # Normalize timestamp formats
-      root.normalized_timestamp = match {
-        this.timestamp.type() == "string" => this.timestamp
-        this."@timestamp".type() == "string" => this."@timestamp"
-        this.time.type() == "string" => this.time
-        _ => timestamp()
-      }
-
-      # Log level normalization and severity scoring
-      root.log_level = this.level.string().catch(this.severity.string().catch("INFO")).uppercase()
-      root.log_severity = match this.log_level {
-        "FATAL", "CRITICAL" => 5
-        "ERROR" => 4
-        "WARN", "WARNING" => 3
-        "INFO" => 2
-        "DEBUG", "TRACE" => 1
-        _ => 2
-      }
-
-      # Event categorization for filtering and routing
-      root.event_category = match {
-        this.log_level == "ERROR" || this.log_level == "FATAL" => "error"
-        this.log_level == "DEBUG" || this.log_level == "TRACE" => "debug"
-        this.message.contains("health") && this.message.contains("check") => "health_check"
-        this.message.contains("login") || this.message.contains("auth") => "authentication"
-        this.message.contains("payment") || this.message.contains("transaction") => "financial"
-        this.endpoint.string().catch("").contains("/api/") => "api_call"
-        _ => "application"
-      }
-
-      # Response time analysis
-      if this.response_time_ms.type() == "number" {
-        root.response_category = match {
-          this.response_time_ms < 100 => "fast"
-          this.response_time_ms < 500 => "normal"
-          this.response_time_ms < 2000 => "slow"
-          _ => "very_slow"
-        }
-      }
-
-      # User domain extraction for analytics
-      if this.user.string().catch("").contains("@") {
-        root.user_domain = this.user.split("@")[1]
-        root.user_local = this.user.split("@")[0]
-      } else if this.user.string().catch("").contains(".") {
-        root.user_domain = "internal"
-        root.user_local = this.user
-      }
-  - conditional:
-      condition: this.sourcetype == "cef" || this.string().contains("CEF:")
-    mapping: |
-      # Parse CEF format: CEF:Version|Device Vendor|Device Product|Device Version|Signature ID|Name|Severity|Extension
-      root.cef_parsed = this.string().parse_regex("^CEF:(?P<version>\\d+)\\|(?P<vendor>[^|]*)\\|(?P<product>[^|]*)\\|(?P<device_version>[^|]*)\\|(?P<signature_id>[^|]*)\\|(?P<name>[^|]*)\\|(?P<severity>[^|]*)\\|(?P<extensions>.*)")
-
-      # Extract main CEF fields
-      root.vendor = this.cef_parsed.vendor
-      root.product = this.cef_parsed.product  
-      root.signature_id = this.cef_parsed.signature_id
-      root.event_name = this.cef_parsed.name
-      root.severity = this.cef_parsed.severity
-
-      # Parse extensions into structured fields
-      root.cef_extensions = {}
-      for_each this.cef_parsed.extensions.split(" ") -> extension {
-        let parts = extension.split("=")
-        if parts.length() == 2 && parts[0] != "" {
-          root.cef_extensions = root.cef_extensions.merge({parts[0]: parts[1]})
-        }
-      }
-
-      # Extract key security fields
-      root.source_ip = this.cef_extensions.src.string().catch("")
-      root.destination_ip = this.cef_extensions.dst.string().catch("")
-      root.source_port = this.cef_extensions.spt.number().catch(0)
-      root.destination_port = this.cef_extensions.dpt.number().catch(0)
-      root.username = this.cef_extensions.suser.string().catch("")
-
-      # Security event classification
-      root.event_category = "security"
-      root.risk_score = match this.severity {
-        "Critical" => 10
-        "High" => 8
-        "Medium" => 5
-        "Low" => 2
-        _ => 1
-      }
-
-      # Set data classification based on security context
-      root.data_classification = match {
-        this.risk_score >= 8 => "sensitive"
-        this.event_name.contains("login") || this.event_name.contains("auth") => "pii"
-        _ => "security"
-      }
-  - conditional:
-      condition: this.sourcetype == "syslog"
-    mapping: |
-      # Parse traditional syslog format
-      root.syslog_parsed = this.string().parse_regex("^(?P<month>\\w{3})\\s+(?P<day>\\d{1,2})\\s+(?P<time>\\d{2}:\\d{2}:\\d{2})\\s+(?P<hostname>\\S+)\\s+(?P<process>[^\\[:]+)(?:\\[(?P<pid>\\d+)\\])?:\\s*(?P<message>.*)")
-
-      # Extract structured fields
-      root.log_month = this.syslog_parsed.month
-      root.log_day = this.syslog_parsed.day.number().catch(0)
-      root.log_time = this.syslog_parsed.time
-      root.syslog_hostname = this.syslog_parsed.hostname
-      root.process_name = this.syslog_parsed.process
-      root.process_id = this.syslog_parsed.pid.number().catch(0)
-      root.message = this.syslog_parsed.message
-
-      # Create ISO timestamp (current year assumed)
-      root.normalized_timestamp = timestamp().format("2006") + "-" + 
-        match this.log_month {
-          "Jan" => "01"
-          "Feb" => "02"
-          "Mar" => "03"
-          "Apr" => "04" 
-          "May" => "05"
-          "Jun" => "06"
-          "Jul" => "07"
-          "Aug" => "08"
-          "Sep" => "09"
-          "Oct" => "10"
-          "Nov" => "11"
-          "Dec" => "12"
-          _ => "01"
-        } + "-" + 
-        this.log_day.string().format_int(2, "0") + "T" + 
-        this.log_time + ".000Z"
-
-      # System event classification
-      root.event_category = match this.process_name {
-        "sshd" => "authentication"
-        "sudo" => "privilege_escalation"
-        "systemd" => "system"
-        "kernel" => "kernel"
-        "nginx", "httpd" => "web_server"
-        _ => "system"
-      }
-  - mapping: |
-      # Detect PII patterns and classify data
-      let message_text = this.message.string().catch(this.raw_message.string().catch(""))
-
-      # PII Detection patterns
-      root.contains_email = message_text.test("\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b")
-      root.contains_ssn = message_text.test("\\b\\d{3}-\\d{2}-\\d{4}\\b")
-      root.contains_credit_card = message_text.test("\\b\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b")
-      root.contains_phone = message_text.test("\\b\\d{3}[-.]?\\d{3}[-.]?\\d{4}\\b")
-
-      # Update data classification based on content
-      root.data_classification = match {
-        this.contains_ssn || this.contains_credit_card => "sensitive_pii"
-        this.contains_email || this.contains_phone => "pii"
-        this.event_category == "financial" => "financial"
-        this.event_category == "security" && this.risk_score >= 7 => "sensitive"
-        this.event_category == "authentication" => "pii"
-        _ => this.data_classification.string().catch("general")
-      }
-
-      # Determine data residency requirements
-      root.data_residency = match this.source_ip.string().catch("") {
-        this.test("^10\\.1\\.") => "us_west"
-        this.test("^10\\.2\\.") => "us_east"
-        this.test("^10\\.3\\.") => "eu_west"
-        this.test("^10\\.4\\.") => "asia_pacific"
-        _ => env("DEFAULT_DATA_RESIDENCY").string().catch("us_east")
-      }
-  - mapping: |
-      # Create masked version of message for general use
-      let original_message = this.message.string().catch(this.raw_message.string().catch(""))
-
-      # Mask email addresses
-      root.message_masked = original_message.replace_all_regex("\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b", "***@***.***")
-
-      # Mask credit card numbers
-      root.message_masked = root.message_masked.replace_all_regex("\\b\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b", "****-****-****-****")
-
-      # Mask SSNs
-      root.message_masked = root.message_masked.replace_all_regex("\\b\\d{3}-\\d{2}-\\d{4}\\b", "***-**-****")
-
-      # Mask phone numbers
-      root.message_masked = root.message_masked.replace_all_regex("\\b\\d{3}[-.]?\\d{3}[-.]?\\d{4}\\b", "***-***-****")
-
-      # Track masking for audit purposes
-      root.pii_masked = original_message != root.message_masked
-      root.original_message = if this.data_classification.contains("sensitive") { 
-        "[REDACTED - " + this.data_classification + "]" 
-      } else { 
-        original_message 
-      }
-  - conditional:
-      condition: this.log_level == "DEBUG" || this.log_level == "TRACE"
-    mapping: root = deleted()
-  - conditional:
-      condition: this.event_category == "health_check"
-    mapping: |
-      # Keep health checks based on:
-      # - One per minute per service (time-based sampling)
-      # - All failures (error conditions)
-      # - Statistical sampling for normal checks
-
-      let time_key = timestamp().format("2006-01-02-15-04")  # Year-Month-Day-Hour-Minute
-      let service_key = this.host + ":" + (this.service.string().catch("unknown"))
-      let sample_key = "health_" + service_key + "_" + time_key
-
-      # Track samples per service per minute
-      let current_samples = meta(sample_key).number().catch(0)
-
-      # Always keep first health check per minute per service
-      if current_samples == 0 {
-        meta(sample_key) = 1
-        root.health_check_sampled = true
-        root.sample_reason = "first_per_minute"
-      # Always keep health check failures  
-      } else if this.log_level == "ERROR" || this.log_level == "WARN" {
-        root.health_check_sampled = true
-        root.sample_reason = "error_condition"
-      # Sample 10% of remaining normal health checks
-      } else {
-        let hash = (this.host + this.message).hash("xxhash64") % 10
-        if hash == 0 {
-          root.health_check_sampled = true
-          root.sample_reason = "statistical_sample"
-        } else {
-          root = deleted()
-        }
-      }
-  - dedup:
-      cache_size: 10000
-      drop_on: this.log_level + "|" + this.event_category + "|" + this.host + "|" + this.message_masked
-      dedupe_after: 5m
-  - throttle:
-      key: this.host + ":" + this.process_name.string().catch("unknown") + ":" + this.event_category
-      limit: 1000
-      interval: 1m
-  - conditional:
-      condition: |
-        this.user.string().catch("").contains("test") || 
-        this.user.string().catch("").contains("synthetic") ||
-        this.source_ip.string().catch("").contains("127.0.0.1") ||
-        this.source_ip.string().catch("").contains("::1") ||
-        this.message.string().catch("").contains("test-") ||
-        this.host.string().catch("").contains("test-")
-    mapping: root = deleted()
-  - mapping: |
-      # Calculate final priority for routing decisions
-      root.final_priority = match {
-        this.data_classification.contains("sensitive") => "critical"
-        this.event_category == "security" && this.risk_score >= 7 => "critical"
-        this.log_severity >= 4 => "high"
-        this.log_severity == 3 => "medium"
-        this.event_category == "authentication" => "medium"
-        this.event_category == "financial" => "medium"
-        _ => "normal"
-      }
-
-      # Determine target Splunk index
-      root.target_index = match {
-        this.data_classification.contains("sensitive") => "compliance"
-        this.event_category == "security" || this.sourcetype == "cef" => "security"
-        this.log_severity >= 4 => "main"
-        this.event_category == "system" => "infrastructure"
-        _ => "main"
-      }
-
-      # Create Splunk-compatible sourcetype
-      root.target_sourcetype = "expanso:" + this.sourcetype
-
-      # Add processing metadata
-      root.processed_timestamp = timestamp()
-      root.processing_host = hostname()
-      root.pipeline_version = "1.0.0"
-      root.volume_reduction_estimate = 0.7  # 70% typical reduction
-
-      # Cost tracking
-      root.estimated_original_size = this.original_size_bytes / 0.3  # Assume 70% reduction
-      root.cost_savings_usd_per_event = (root.estimated_original_size - this.string().length()) * 0.0002  # $0.20 per MB
-  - mapping: |
-      # Splunk HEC format
-      root.splunk_event = {
-        "time": timestamp().format_timestamp_unix(),
-        "host": this.host,
-        "source": "expanso:" + this.source_file,
-        "sourcetype": this.target_sourcetype,
-        "index": this.target_index,
-        "event": this.without("splunk_event", "s3_event", "metrics_data")
-      }
-
-      # S3 archival format with metadata for analytics
-      root.s3_event = {
-        "timestamp": timestamp().format_timestamp_unix(),
-        "date_partition": timestamp().format("year=2006/month=01/day=02"),
-        "hour_partition": timestamp().format("hour=15"),
-        "data_classification": this.data_classification,
-        "data_residency": this.data_residency,
-        "event_priority": this.final_priority,
-        "pipeline_version": "1.0.0",
-        "retention_years": match this.data_classification {
-          this.contains("pii") => 7
-          "financial" => 10
-          "security" => 5
-          _ => 3
-        },
-        "event": this.without("splunk_event", "s3_event", "metrics_data")
-      }
-
-      # Metrics extraction for monitoring systems
-      if this.response_time_ms.type() == "number" || this.log_severity.type() == "number" {
-        root.metrics_data = [
+          # Response time analysis
           if this.response_time_ms.type() == "number" {
-            {
-              "metric": "http_request_duration_seconds",
-              "value": this.response_time_ms / 1000,
-              "timestamp": timestamp().format_timestamp_unix(),
-              "labels": {
-                "host": this.host,
-                "endpoint": this.endpoint.string().catch("unknown"),
-                "method": this.method.string().catch("unknown"),
-                "status_code": this.status_code.string().catch("unknown")
-              }
-            }
-          },
-          {
-            "metric": "log_events_total",
-            "value": 1,
-            "timestamp": timestamp().format_timestamp_unix(),
-            "labels": {
-              "host": this.host,
-              "level": this.log_level,
-              "category": this.event_category,
-              "sourcetype": this.sourcetype,
-              "priority": this.final_priority
+            root.response_category = match {
+              this.response_time_ms < 100 => "fast"
+              this.response_time_ms < 500 => "normal"
+              this.response_time_ms < 2000 => "slow"
+              _ => "very_slow"
             }
           }
-        ]
-      }
-  - mapping: |
-      root = this
-      root.processing_duration_ms = (timestamp_unix_nano() - metadata("processing_started_ns").number()) / 1000000
-      root.metric_event_id = metadata("metrics_event_id")
 
-# Multi-destination output. Every remote connection is authenticated and
-# encrypted; the local fallback path must be a mounted persistent volume.
-output:
-  broker:
-    pattern: fan_out
-    outputs:
-      - fallback:
-          - switch:
-              cases:
-                - check: this.final_priority == "critical"
-                  output:
-                    processors:
-                      - mapping: root = this.splunk_event
-                    http_client:
-                      url: https://${SPLUNK_HOST}:${SPLUNK_PORT}/services/collector/event
-                      verb: POST
-                      headers:
-                        Authorization: Splunk ${HEC_TOKEN}
-                        Content-Type: application/json
-                        X-Splunk-Request-Channel: expanso-critical
-                      tls:
-                        enabled: true
-                        root_cas_file: ${SPLUNK_CA_FILE}
-                      timeout: 30s
-                      retries: 5
-                      retry_period: 1s
-                      max_retry_backoff: 30s
-                      batching:
-                        count: 20
-                        period: 2s
-                        byte_size: 524288
-                - output:
-                    processors:
-                      - mapping: root = this.splunk_event
-                    http_client:
-                      url: https://${SPLUNK_HOST}:${SPLUNK_PORT}/services/collector/event
-                      verb: POST
-                      headers:
-                        Authorization: Splunk ${HEC_TOKEN}
-                        Content-Type: application/json
-                        X-Splunk-Request-Channel: expanso-normal
-                      tls:
-                        enabled: true
-                        root_cas_file: ${SPLUNK_CA_FILE}
-                      timeout: 30s
-                      retries: 5
-                      retry_period: 1s
-                      max_retry_backoff: 30s
-                      batching:
-                        count: 100
-                        period: 10s
-                        byte_size: 2097152
-          - file:
-              path: ${SPLUNK_FALLBACK_PATH}/hec-${! now().ts_format("2006-01-02") }.jsonl
-              codec: lines
-      - switch:
-          cases:
-            - check: this.data_classification != "general"
-              output:
-                switch:
-                  cases:
-                    - check: this.data_residency == "us_west"
-                      output:
-                        processors:
-                          - mapping: |
-                              root = this.s3_event
-                              meta = {}
-                              meta "data-classification" = this.s3_event.data_classification
-                              meta "retention-years" = this.s3_event.retention_years.string()
-                              meta "pipeline-version" = this.s3_event.pipeline_version
-                        aws_s3:
-                          bucket: ${S3_BUCKET_PREFIX}-us-west
-                          path: us_west/${! this.date_partition }/${! this.hour_partition }/expanso-${! uuid_v4() }.jsonl
-                          region: ${AWS_REGION_US_WEST}
-                          storage_class: INTELLIGENT_TIERING
-                          server_side_encryption: aws:kms
-                          kms_key_id: ${S3_KMS_KEY_ARN_US_WEST}
-                    - check: this.data_residency == "us_east"
-                      output:
-                        processors:
-                          - mapping: |
-                              root = this.s3_event
-                              meta = {}
-                              meta "data-classification" = this.s3_event.data_classification
-                              meta "retention-years" = this.s3_event.retention_years.string()
-                              meta "pipeline-version" = this.s3_event.pipeline_version
-                        aws_s3:
-                          bucket: ${S3_BUCKET_PREFIX}-us-east
-                          path: us_east/${! this.date_partition }/${! this.hour_partition }/expanso-${! uuid_v4() }.jsonl
-                          region: ${AWS_REGION_US_EAST}
-                          storage_class: INTELLIGENT_TIERING
-                          server_side_encryption: aws:kms
-                          kms_key_id: ${S3_KMS_KEY_ARN_US_EAST}
-                    - check: this.data_residency == "eu_west"
-                      output:
-                        processors:
-                          - mapping: |
-                              root = this.s3_event
-                              meta = {}
-                              meta "data-classification" = this.s3_event.data_classification
-                              meta "retention-years" = this.s3_event.retention_years.string()
-                              meta "pipeline-version" = this.s3_event.pipeline_version
-                        aws_s3:
-                          bucket: ${S3_BUCKET_PREFIX}-eu-west
-                          path: eu_west/${! this.date_partition }/${! this.hour_partition }/expanso-${! uuid_v4() }.jsonl
-                          region: ${AWS_REGION_EU_WEST}
-                          storage_class: INTELLIGENT_TIERING
-                          server_side_encryption: aws:kms
-                          kms_key_id: ${S3_KMS_KEY_ARN_EU_WEST}
-                    - check: this.data_residency == "asia_pacific"
-                      output:
-                        processors:
-                          - mapping: |
-                              root = this.s3_event
-                              meta = {}
-                              meta "data-classification" = this.s3_event.data_classification
-                              meta "retention-years" = this.s3_event.retention_years.string()
-                              meta "pipeline-version" = this.s3_event.pipeline_version
-                        aws_s3:
-                          bucket: ${S3_BUCKET_PREFIX}-asia-pacific
-                          path: asia_pacific/${! this.date_partition }/${! this.hour_partition }/expanso-${! uuid_v4() }.jsonl
-                          region: ${AWS_REGION_ASIA_PACIFIC}
-                          storage_class: INTELLIGENT_TIERING
-                          server_side_encryption: aws:kms
-                          kms_key_id: ${S3_KMS_KEY_ARN_ASIA_PACIFIC}
-                    - output:
-                        drop: {}
-            - output:
-                drop: {}
-      - switch:
-          cases:
-            - check: this.final_priority == "critical" || this.log_severity >= 4
-              output:
-                processors:
-                  - mapping: |
-                      root = {
-                        "alert_type": "log_event",
-                        "severity": if this.final_priority == "critical" { "critical" } else { "warning" },
-                        "title": this.event_category + " event on " + this.host,
-                        "description": this.message_masked,
-                        "timestamp": now(),
-                        "source": this.host + ":" + this.source_file,
-                        "classification": this.data_classification,
-                        "index": this.target_index,
-                        "metadata": {
-                          "log_level": this.log_level,
-                          "event_category": this.event_category,
-                          "risk_score": this.risk_score.number().catch(0)
+          # User domain extraction for analytics
+          if this.user.string().catch("").contains("@") {
+            root.user_domain = this.user.split("@").index(1)
+            root.user_local = this.user.split("@").index(0)
+          } else if this.user.string().catch("").contains(".") {
+            root.user_domain = "internal"
+            root.user_local = this.user
+          }
+      - mapping: |
+          # Parse CEF format: CEF:Version|Device Vendor|Device Product|Device Version|Signature ID|Name|Severity|Extension
+          let is_cef = this.sourcetype == "cef" || this.raw_message.contains("CEF:")
+          let cef_parsed = this.raw_message.re_find_object("^CEF:(?P<version>\\d+)\\|(?P<vendor>[^|]*)\\|(?P<product>[^|]*)\\|(?P<device_version>[^|]*)\\|(?P<signature_id>[^|]*)\\|(?P<name>[^|]*)\\|(?P<severity>[^|]*)\\|(?P<extensions>.*)")
+          let cef_extensions = if $is_cef {
+            $cef_parsed.extensions.split(" ").fold({}, item -> if item.value.contains("=") {
+              item.tally.merge({
+                item.value.split("=").index(0): item.value.split("=").slice(1).join("=")
+              })
+            } else { item.tally })
+          } else { {} }
+          root = this
+          if $is_cef {
+          root.cef_parsed = $cef_parsed
+
+          # Extract main CEF fields
+          root.vendor = this.cef_parsed.vendor
+          root.product = this.cef_parsed.product
+          root.signature_id = this.cef_parsed.signature_id
+          root.event_name = this.cef_parsed.name
+          root.severity = this.cef_parsed.severity
+
+          # Parse extensions into structured fields
+          root.cef_extensions = $cef_extensions
+
+          # Extract key security fields
+          root.source_ip = this.cef_extensions.src.string().catch("")
+          root.destination_ip = this.cef_extensions.dst.string().catch("")
+          root.source_port = this.cef_extensions.spt.number().catch(0)
+          root.destination_port = this.cef_extensions.dpt.number().catch(0)
+          root.username = this.cef_extensions.suser.string().catch("")
+
+          # Security event classification
+          root.event_category = "security"
+          root.risk_score = match this.severity {
+            "Critical" => 10
+            "High" => 8
+            "Medium" => 5
+            "Low" => 2
+            _ => 1
+          }
+
+          # Set data classification based on security context
+          root.data_classification = match {
+            this.risk_score >= 8 => "sensitive"
+            this.event_name.contains("login") || this.event_name.contains("auth") => "pii"
+            _ => "security"
+          }
+          }
+      - mapping: |
+          # Parse traditional syslog format
+          let is_syslog = this.sourcetype == "syslog"
+          let syslog_parsed = this.raw_message.re_find_object("^(?P<month>\\w{3})\\s+(?P<day>\\d{1,2})\\s+(?P<time>\\d{2}:\\d{2}:\\d{2})\\s+(?P<hostname>\\S+)\\s+(?P<process>[^\\[:]+)(?:\\[(?P<pid>\\d+)\\])?:\\s*(?P<message>.*)")
+          root = this
+          if $is_syslog {
+          root.syslog_parsed = $syslog_parsed
+
+          # Extract structured fields
+          root.log_month = this.syslog_parsed.month
+          root.log_day = this.syslog_parsed.day.number().catch(0)
+          root.log_time = this.syslog_parsed.time
+          root.syslog_hostname = this.syslog_parsed.hostname
+          root.process_name = this.syslog_parsed.process
+          root.process_id = this.syslog_parsed.pid.number().catch(0)
+          root.message = this.syslog_parsed.message
+
+          # Create ISO timestamp (current year assumed)
+          root.normalized_timestamp = now().ts_format("2006") + "-" +
+            match this.log_month {
+              "Jan" => "01"
+              "Feb" => "02"
+              "Mar" => "03"
+              "Apr" => "04"
+              "May" => "05"
+              "Jun" => "06"
+              "Jul" => "07"
+              "Aug" => "08"
+              "Sep" => "09"
+              "Oct" => "10"
+              "Nov" => "11"
+              "Dec" => "12"
+              _ => "01"
+            } + "-" +
+            if this.log_day < 10 { "0" + this.log_day.string() } else { this.log_day.string() } + "T" +
+            this.log_time + ".000Z"
+
+          # System event classification
+          root.event_category = match {
+            this.process_name == "sshd" => "authentication"
+            this.process_name == "sudo" => "privilege_escalation"
+            this.process_name == "systemd" => "system"
+            this.process_name == "kernel" => "kernel"
+            this.process_name == "nginx" || this.process_name == "httpd" => "web_server"
+            _ => "system"
+          }
+          }
+      - mapping: |
+          # Detect PII patterns and classify data
+          let message_text = this.message.string().catch(this.raw_message.string().catch(""))
+
+          # PII Detection patterns
+          root.contains_email = $message_text.re_match("\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b")
+          root.contains_ssn = $message_text.re_match("\\b\\d{3}-\\d{2}-\\d{4}\\b")
+          root.contains_credit_card = $message_text.re_match("\\b\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b")
+          root.contains_phone = $message_text.re_match("\\b\\d{3}[-.]?\\d{3}[-.]?\\d{4}\\b")
+
+          # Update data classification based on content
+          root.data_classification = match {
+            this.contains_ssn || this.contains_credit_card => "sensitive_pii"
+            this.contains_email || this.contains_phone => "pii"
+            this.event_category == "financial" => "financial"
+            this.event_category == "security" && this.risk_score >= 7 => "sensitive"
+            this.event_category == "authentication" => "pii"
+            _ => this.data_classification.string().catch("general")
+          }
+
+          # Determine data residency requirements
+          root.data_residency = match this.source_ip.string().catch("") {
+            this.re_match("^10\\.1\\.") => "us_west"
+            this.re_match("^10\\.2\\.") => "us_east"
+            this.re_match("^10\\.3\\.") => "eu_west"
+            this.re_match("^10\\.4\\.") => "asia_pacific"
+            _ => env("DEFAULT_DATA_RESIDENCY").or("us_east")
+          }
+      - mapping: |
+          # Create masked version of message for general use
+          let original_message = this.message.string().catch(this.raw_message.string().catch(""))
+
+          # Mask email addresses
+          root.message_masked = $original_message.re_replace_all("\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b", "***@***.***")
+
+          # Mask credit card numbers
+          root.message_masked = root.message_masked.re_replace_all("\\b\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b", "****-****-****-****")
+
+          # Mask SSNs
+          root.message_masked = root.message_masked.re_replace_all("\\b\\d{3}-\\d{2}-\\d{4}\\b", "***-**-****")
+
+          # Mask phone numbers
+          root.message_masked = root.message_masked.re_replace_all("\\b\\d{3}[-.]?\\d{3}[-.]?\\d{4}\\b", "***-***-****")
+
+          # Track masking for audit purposes
+          root.pii_masked = $original_message != root.message_masked
+          root.original_message = if this.data_classification.contains("sensitive") {
+            "[REDACTED - " + this.data_classification + "]"
+          } else {
+            $original_message
+          }
+      - mapping: 'root = if this.log_level == "DEBUG" || this.log_level == "TRACE" { deleted() } else { this }'
+      - mapping: |
+          # Keep all failures and a stable ten-percent sample per service/minute.
+          let time_key = now().ts_format("2006-01-02-15-04")
+          let service_key = this.host + ":" + (this.service.string().catch("unknown"))
+          let sample_hash = ($service_key + ":" + $time_key + ":" + this.message).hash("xxhash64") % 10
+          root = if this.event_category != "health_check" {
+            this
+          } else if this.log_level == "ERROR" || this.log_level == "WARN" {
+            this.assign({"health_check_sampled": true, "sample_reason": "error_condition"})
+          } else if $sample_hash == 0 {
+            this.assign({"health_check_sampled": true, "sample_reason": "statistical_sample"})
+          } else { deleted() }
+      - mapping: |
+          root = this
+          root.dedup_key = (this.log_level + "|" + this.event_category + "|" + this.host + "|" + this.message_masked).hash("sha256").encode("hex")
+      - cache:
+          resource: splunk_dedup
+          operator: add
+          key: ${! this.dedup_key }
+          value: ${! now() }
+          ttl: 5m
+      - catch:
+          - mapping: root = deleted()
+      - mapping: |
+          root = if this.user.string().catch("").contains("test") ||
+            this.user.string().catch("").contains("synthetic") ||
+            this.source_ip.string().catch("").contains("127.0.0.1") ||
+            this.source_ip.string().catch("").contains("::1") ||
+            this.message.string().catch("").contains("test-") ||
+            this.host.string().catch("").contains("test-") {
+            deleted()
+          } else { this }
+      - mapping: |
+          # Calculate final priority for routing decisions
+          root.final_priority = match {
+            this.data_classification.contains("sensitive") => "critical"
+            this.event_category == "security" && this.risk_score >= 7 => "critical"
+            this.log_severity >= 4 => "high"
+            this.log_severity == 3 => "medium"
+            this.event_category == "authentication" => "medium"
+            this.event_category == "financial" => "medium"
+            _ => "normal"
+          }
+
+          # Determine target Splunk index
+          root.target_index = match {
+            this.data_classification.contains("sensitive") => "compliance"
+            this.event_category == "security" || this.sourcetype == "cef" => "security"
+            this.log_severity >= 4 => "main"
+            this.event_category == "system" => "infrastructure"
+            _ => "main"
+          }
+
+          # Create Splunk-compatible sourcetype
+          root.target_sourcetype = "expanso:" + this.sourcetype
+
+          # Add processing metadata
+          root.processed_timestamp = now()
+          root.processing_host = env("NODE_ID").or("unknown")
+          root.pipeline_version = "1.0.0"
+          root.volume_reduction_estimate = 0.7  # 70% typical reduction
+
+          # Cost tracking
+          root.estimated_original_size = this.original_size_bytes / 0.3  # Assume 70% reduction
+          root.cost_savings_usd_per_event = (root.estimated_original_size - this.string().length()) * 0.0002  # $0.20 per MB
+      - mapping: |
+          # Splunk HEC format
+          root.splunk_event = {
+            "time": now().ts_unix(),
+            "host": this.host,
+            "source": "expanso:" + this.source_file,
+            "sourcetype": this.target_sourcetype,
+            "index": this.target_index,
+            "event": this.without("splunk_event", "s3_event", "metrics_data")
+          }
+
+          # S3 archival format with metadata for analytics
+          root.s3_event = {
+            "timestamp": now().ts_unix(),
+            "date_partition": now().ts_format("year=2006/month=01/day=02"),
+            "hour_partition": now().ts_format("hour=15"),
+            "data_classification": this.data_classification,
+            "data_residency": this.data_residency,
+            "event_priority": this.final_priority,
+            "pipeline_version": "1.0.0",
+            "retention_years": match this.data_classification {
+              this.contains("pii") => 7
+              "financial" => 10
+              "security" => 5
+              _ => 3
+            },
+            "event": this.without("splunk_event", "s3_event", "metrics_data")
+          }
+
+          # Metrics extraction for monitoring systems
+          if this.response_time_ms.type() == "number" || this.log_severity.type() == "number" {
+            root.metrics_data = [
+              if this.response_time_ms.type() == "number" {
+                {
+                  "metric": "http_request_duration_seconds",
+                  "value": this.response_time_ms / 1000,
+                  "timestamp": now().ts_unix(),
+                  "labels": {
+                    "host": this.host,
+                    "endpoint": this.endpoint.string().catch("unknown"),
+                    "method": this.method.string().catch("unknown"),
+                    "status_code": this.status_code.string().catch("unknown")
+                  }
+                }
+              },
+              {
+                "metric": "log_events_total",
+                "value": 1,
+                "timestamp": now().ts_unix(),
+                "labels": {
+                  "host": this.host,
+                  "level": this.log_level,
+                  "category": this.event_category,
+                  "sourcetype": this.sourcetype,
+                  "priority": this.final_priority
+                }
+              }
+            ]
+          }
+      - mapping: |
+          root = this
+          root.processing_duration_ms = (timestamp_unix_nano() - metadata("processing_started_ns").number()) / 1000000
+          root.metric_event_id = metadata("metrics_event_id")
+
+  # Multi-destination output. Every remote connection is authenticated and
+  # encrypted; the local fallback path must be a mounted persistent volume.
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        - fallback:
+            - switch:
+                cases:
+                  - check: this.final_priority == "critical"
+                    output:
+                      processors:
+                        - mapping: root = this.splunk_event
+                      http_client:
+                        url: https://${SPLUNK_HOST}:${SPLUNK_PORT}/services/collector/event
+                        verb: POST
+                        rate_limit: splunk_hec
+                        headers:
+                          Authorization: Splunk ${HEC_TOKEN}
+                          Content-Type: application/json
+                          X-Splunk-Request-Channel: expanso-critical
+                        tls:
+                          enabled: true
+                          root_cas_file: ${SPLUNK_CA_FILE}
+                        timeout: 30s
+                        retries: 5
+                        retry_period: 1s
+                        max_retry_backoff: 30s
+                        batching:
+                          count: 20
+                          period: 2s
+                          byte_size: 524288
+                  - output:
+                      processors:
+                        - mapping: root = this.splunk_event
+                      http_client:
+                        url: https://${SPLUNK_HOST}:${SPLUNK_PORT}/services/collector/event
+                        verb: POST
+                        rate_limit: splunk_hec
+                        headers:
+                          Authorization: Splunk ${HEC_TOKEN}
+                          Content-Type: application/json
+                          X-Splunk-Request-Channel: expanso-normal
+                        tls:
+                          enabled: true
+                          root_cas_file: ${SPLUNK_CA_FILE}
+                        timeout: 30s
+                        retries: 5
+                        retry_period: 1s
+                        max_retry_backoff: 30s
+                        batching:
+                          count: 100
+                          period: 10s
+                          byte_size: 2097152
+            - file:
+                path: ${SPLUNK_FALLBACK_PATH}/hec-${! now().ts_format("2006-01-02") }.jsonl
+                codec: lines
+        - switch:
+            cases:
+              - check: this.data_classification != "general"
+                output:
+                  switch:
+                    cases:
+                      - check: this.data_residency == "us_west"
+                        output:
+                          processors:
+                            - mapping: |
+                                root = this.s3_event
+                                meta = {}
+                                meta "data-classification" = this.s3_event.data_classification
+                                meta "retention-years" = this.s3_event.retention_years.string()
+                                meta "pipeline-version" = this.s3_event.pipeline_version
+                          aws_s3:
+                            bucket: ${S3_BUCKET_PREFIX}-us-west
+                            path: us_west/${! this.date_partition }/${! this.hour_partition }/expanso-${! uuid_v4() }.jsonl
+                            region: ${AWS_REGION_US_WEST}
+                            storage_class: INTELLIGENT_TIERING
+                            server_side_encryption: aws:kms
+                            kms_key_id: ${S3_KMS_KEY_ARN_US_WEST}
+                      - check: this.data_residency == "us_east"
+                        output:
+                          processors:
+                            - mapping: |
+                                root = this.s3_event
+                                meta = {}
+                                meta "data-classification" = this.s3_event.data_classification
+                                meta "retention-years" = this.s3_event.retention_years.string()
+                                meta "pipeline-version" = this.s3_event.pipeline_version
+                          aws_s3:
+                            bucket: ${S3_BUCKET_PREFIX}-us-east
+                            path: us_east/${! this.date_partition }/${! this.hour_partition }/expanso-${! uuid_v4() }.jsonl
+                            region: ${AWS_REGION_US_EAST}
+                            storage_class: INTELLIGENT_TIERING
+                            server_side_encryption: aws:kms
+                            kms_key_id: ${S3_KMS_KEY_ARN_US_EAST}
+                      - check: this.data_residency == "eu_west"
+                        output:
+                          processors:
+                            - mapping: |
+                                root = this.s3_event
+                                meta = {}
+                                meta "data-classification" = this.s3_event.data_classification
+                                meta "retention-years" = this.s3_event.retention_years.string()
+                                meta "pipeline-version" = this.s3_event.pipeline_version
+                          aws_s3:
+                            bucket: ${S3_BUCKET_PREFIX}-eu-west
+                            path: eu_west/${! this.date_partition }/${! this.hour_partition }/expanso-${! uuid_v4() }.jsonl
+                            region: ${AWS_REGION_EU_WEST}
+                            storage_class: INTELLIGENT_TIERING
+                            server_side_encryption: aws:kms
+                            kms_key_id: ${S3_KMS_KEY_ARN_EU_WEST}
+                      - check: this.data_residency == "asia_pacific"
+                        output:
+                          processors:
+                            - mapping: |
+                                root = this.s3_event
+                                meta = {}
+                                meta "data-classification" = this.s3_event.data_classification
+                                meta "retention-years" = this.s3_event.retention_years.string()
+                                meta "pipeline-version" = this.s3_event.pipeline_version
+                          aws_s3:
+                            bucket: ${S3_BUCKET_PREFIX}-asia-pacific
+                            path: asia_pacific/${! this.date_partition }/${! this.hour_partition }/expanso-${! uuid_v4() }.jsonl
+                            region: ${AWS_REGION_ASIA_PACIFIC}
+                            storage_class: INTELLIGENT_TIERING
+                            server_side_encryption: aws:kms
+                            kms_key_id: ${S3_KMS_KEY_ARN_ASIA_PACIFIC}
+                      - output:
+                          drop: {}
+              - output:
+                  drop: {}
+        - switch:
+            cases:
+              - check: env("SPLUNK_KAFKA_ENABLED").or("false") == "true"
+                output:
+                  processors:
+                    - mapping: root = this.splunk_event
+                  kafka:
+                    addresses: ['${SPLUNK_KAFKA_TLS_BROKERS}']
+                    topic: '${SPLUNK_KAFKA_TOPIC}'
+                    key: '${! this.host }'
+                    tls:
+                      enabled: true
+                      root_cas_file: ${SPLUNK_KAFKA_CA_FILE}
+                    sasl:
+                      mechanism: SCRAM-SHA-512
+                      user: '${SPLUNK_KAFKA_USERNAME}'
+                      password: '${SPLUNK_KAFKA_PASSWORD}'
+              - output:
+                  drop: {}
+        - switch:
+            cases:
+              - check: this.final_priority == "critical" || this.log_severity >= 4
+                output:
+                  processors:
+                    - mapping: |
+                        root = {
+                          "alert_type": "log_event",
+                          "severity": if this.final_priority == "critical" { "critical" } else { "warning" },
+                          "title": this.event_category + " event on " + this.host,
+                          "description": this.message_masked,
+                          "timestamp": now(),
+                          "source": this.host + ":" + this.source_file,
+                          "classification": this.data_classification,
+                          "index": this.target_index,
+                          "metadata": {
+                            "log_level": this.log_level,
+                            "event_category": this.event_category,
+                            "risk_score": this.risk_score.number().catch(0)
+                          }
                         }
-                      }
-                http_client:
-                  url: ${ALERTING_HTTPS_WEBHOOK_URL}
-                  verb: POST
-                  headers:
-                    Content-Type: application/json
-                    Authorization: Bearer ${ALERT_TOKEN}
-                  timeout: 5s
-                  retries: 2
-                  tls:
-                    enabled: true
-            - output:
-                drop: {}
-      - processors:
-          - command:
-              name: uv
-              args_mapping: root = ["run", "--no-project", env("SPLUNK_METRICS_SCRIPT")]
-          - catch:
-              - mapping: root = deleted()
-        drop: {}
+                  http_client:
+                    url: ${ALERTING_HTTPS_WEBHOOK_URL}
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                      Authorization: Bearer ${ALERT_TOKEN}
+                    timeout: 5s
+                    retries: 2
+                    tls:
+                      enabled: true
+              - output:
+                  drop: {}
+        - processors:
+            - command:
+                name: uv
+                args_mapping: root = ["run", "--no-project", env("SPLUNK_METRICS_SCRIPT")]
+            - catch:
+                - mapping: root = deleted()
+          drop: {}
+
+  cache_resources:
+    - label: splunk_dedup
+      redis:
+        url: 'rediss://${SPLUNK_DEDUP_USERNAME}:${SPLUNK_DEDUP_PASSWORD}@${SPLUNK_DEDUP_HOST}:${SPLUNK_DEDUP_PORT}'
+        default_ttl: 5m
+        tls:
+          enabled: true
+          root_cas_file: ${SPLUNK_DEDUP_CA_FILE}
+
+  rate_limit_resources:
+    - label: splunk_hec
+      local:
+        count: 1000
+        interval: 1m

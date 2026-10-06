@@ -40,6 +40,8 @@ Categorize every message into one of three tiers:
    ```yaml title="smart-buffer-classify.yaml"
    name: smart-buffer-classify
    description: Classify messages into priority tiers
+   type: pipeline
+   namespace: examples
    config:
      input:
        http_server:
@@ -91,13 +93,15 @@ Categorize every message into one of three tiers:
          codec: lines
    ```
 
-## Test
+## Validate, Deploy, and Test
+
+Validation checks the job file but does not start its HTTP input. Deploy it to
+an already-running Expanso Edge before sending fixture events:
 
 ```bash
-# Run the pipeline
-expanso-edge run --config smart-buffer-classify.yaml
-
-# In another terminal, send test messages:
+expanso-edge validate smart-buffer-classify.yaml
+expanso-cli --endpoint http://127.0.0.1:19031 \
+  job deploy smart-buffer-classify.yaml
 
 # Important (tier 1)
 curl -X POST http://localhost:8080/events \
@@ -117,7 +121,9 @@ curl -X POST http://localhost:8080/events \
 
 ## Verify
 
-Check the output shows each message with its assigned `priority_tier` and `priority_label`.
+Read the deployed job logs and confirm that each message has the expected
+`priority_tier` and `priority_label`. Stop or delete the job when the fixture
+check is complete.
 
 ## Next Step
 

@@ -36,10 +36,20 @@ pipeline:
           "fixture_status": "illustrative"
         }
 
+        root.processing_metadata = {
+          "pipeline_version": env("PIPELINE_VERSION").or("2.1.0"),
+          "node_id": env("NODE_ID").or("unknown"),
+          "processing_start": metadata("processing_start").or(now()),
+          "processing_complete": now(),
+          "encryption_status": "success"
+        }
+
         # Comprehensive audit trail
         meta audit_trail = {
           "audit_id": "enc_" + uuid_v4(),
           "timestamp": now(),
+          "event_type": "field_level_encryption_complete",
+          "node_id": env("NODE_ID").or("unknown"),
           "encryption_operations": [
             {"field": "payment.card_number", "algorithm": "AES-256-GCM", "field_group": "payment"},
             {"field": "customer.email", "algorithm": "AES-256-GCM", "field_group": "identity"},

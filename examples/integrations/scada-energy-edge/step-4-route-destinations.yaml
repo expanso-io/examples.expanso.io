@@ -1,7 +1,7 @@
 input:
   socket:
     network: tcp
-    address: 0.0.0.0:4195
+    address: 127.0.0.1:4195
     codec: lines
 
 pipeline:
@@ -43,8 +43,15 @@ output:
   broker:
     outputs:
       - kafka:
-          addresses: ['${KAFKA_BROKERS:localhost:9092}']
+          addresses: ['${KAFKA_TLS_BROKERS}']
           topic: '${KAFKA_TOPIC:scada-review-events}'
+          tls:
+            enabled: true
+            root_cas_file: '${KAFKA_CA_FILE}'
+          sasl:
+            mechanism: SCRAM-SHA-512
+            user: '${KAFKA_USERNAME}'
+            password: '${KAFKA_PASSWORD}'
       - file:
-          path: '${LOCAL_ARCHIVE_PATH:/tmp/scada-review-events.jsonl}'
+          path: '${LOCAL_ARCHIVE_PATH:/var/lib/expanso/scada-review-events.jsonl}'
           codec: lines

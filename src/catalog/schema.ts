@@ -165,10 +165,10 @@ export const REMOVE_PII_EXPLORER_EVIDENCE = {
   schemaDigest: EXPLORER_EVIDENCE_SCHEMA_DIGEST,
   canonicalPipelinePath: 'examples/data-security/remove-pii-complete.yaml',
   pipelineSha256:
-    'sha256:d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96',
+    'sha256:e7873abea9ea2133900fabc2b75a3810ad07f93ff0a7a9e38e41fcba09df3307',
   bindingManifestPath: 'content/explorer-stage-bindings-v1.json',
   bindingManifestSha256:
-    'sha256:b1c230f8ca11cf81a3b62454853de35dd0cbe1c186c43691d8282265ffef3091',
+    'sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322',
   authoredStageModulePath: 'docs/data-security/remove-pii-full.stages.ts',
   authoredStageModuleSha256:
     'sha256:403e909acfed726fbae5ca5b63e38c8cd85c3ade30efea6fdc647ec0368d832e',
@@ -188,7 +188,7 @@ export const REMOVE_PII_EXPLORER_EVIDENCE = {
   fidelityContractId: 'remove-pii-explorer-fidelity-v1',
   fidelityOraclePath: 'scripts/quality/remove-pii-fidelity.ts',
   fidelityOracleSha256:
-    'sha256:b795cfc4e9d6efb141382b4ba4d5959b6937962c5738ea2f7234808c9e474808',
+    'sha256:5b5d8feaf9a66c846e72a274a446f7c04c40550c361fca56dfdfdcee89c6fea1',
   semanticsVerifierPath: 'scripts/quality/verify-explorer-provenance.ts',
   semanticsVerifierSha256:
     'sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555',
@@ -198,7 +198,7 @@ export const REMOVE_PII_EXPLORER_EVIDENCE = {
   fixtureEnvironmentPath:
     'examples/data-security/remove-pii/fixture-environment.json',
   fixtureEnvironmentSha256:
-    'sha256:4d2bec15465fdc8731c1d4e205e2aae834faf6ecdaa399f65c6f2c512ddb4c99',
+    'sha256:3ab78dc3ef4ea9dcb0725269408f698e389f654c57cf95ed82f3b1f708754ed8',
   expectedOutputPath: 'examples/data-security/remove-pii/expected-output.jsonl',
   expectedOutputSha256:
     'sha256:189eeefe48eb725e12d480d67e87278db2f588b1b38d18a666e69499fbcf10e3',

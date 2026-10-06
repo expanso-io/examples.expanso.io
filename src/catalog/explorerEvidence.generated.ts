@@ -18,7 +18,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:5dd4ae56184dd5bfd70d5470cdaa8780760fe9a4bff047c8947874b820c83c6c",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath:
       "docs/data-routing/circuit-breakers-full.stages.ts",
     authoredStageModuleSha256:
@@ -33,7 +33,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:e93b93c9cfd39c37cd82cb8b2280fc2869141f2eccf1a4e771bb9eb16811d4de",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -57,7 +57,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:c595c3b16b9cd8b89f9f435edbba672b7ee6efa18185fcdd76eeed761740504d",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath: "docs/data-routing/content-routing-full.stages.ts",
     authoredStageModuleSha256:
       "sha256:1a5675a5af6a4409fe981eca02ef3c19f1133bcf42b7578cbf827dcdf319a107",
@@ -71,7 +71,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:fbca7dac219f536a5a56dd7a402e328f3ba826bd075daa535416b48268cd192d",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -95,7 +95,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:6de04ba60b03612b3da765b104c5fcf5abc72c6aea2d442bd353110dff48bfb5",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath:
       "docs/data-routing/content-splitting-full.stages.ts",
     authoredStageModuleSha256:
@@ -110,7 +110,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:c9790194e0ae3799eacfaf2f70a916810356f520d7f51e58689c291b64bda153",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -134,7 +134,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:41dc3f06790b26c604923974da5548261313ac8224aa74538702c9b1dd0c208b",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath: "docs/data-routing/fan-out-pattern-full.stages.ts",
     authoredStageModuleSha256:
       "sha256:55c0f26d7556d31ca1c4501d2baa6325d840a5d53f9ddf11a41edff28309be7e",
@@ -148,7 +148,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:2d4e4d12c18e20babe59f304eac17527456f7a956ce24c75feee34b810de3dda",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -172,7 +172,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:d19a7f07daeeff82c39d24110dbc6a35320ac6c52a7af0e4298e62ce3eec8daa",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath: "docs/data-routing/priority-queues-full.stages.ts",
     authoredStageModuleSha256:
       "sha256:1039005ea5ce6b4dc6c78c930dcd2be75e5fd8e5b3afaed76d6bfb131b66e28e",
@@ -186,7 +186,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:8722f0a0a35a2c5e8d042a0237a49ab082d23e9c5936508ae2e0319c785c490c",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -210,7 +210,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:63c2d06947c77264be9d50c800b7d492c4e0cd385a3ba13db8621dde4b3cd4eb",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath: "docs/data-routing/smart-buffering-full.stages.ts",
     authoredStageModuleSha256:
       "sha256:db5162e88c98180b4c34c86c0cba5516ec9afe981eab9f2c05387ad161d48616",
@@ -224,7 +224,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:7989600c812a859e9d05b30fa5f9de8f8970d046c376f0610c9968ee3c26e511",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -245,13 +245,13 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:7a502149249c39ad27263e9d22eaec485c2287755563b626df423dd47b762a01",
     canonicalPipelinePath: "static/files/data-security/encrypt-data.yaml",
     pipelineSha256:
-      "sha256:071495619b7afaee8c7b2a919bbae258ffe99cdc03e031cff2656b855724b321",
+      "sha256:4556dc5ffde6ded27902f48e02ebfe4c27e6b14c57d086ac61b0641103022617",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath: "docs/data-security/encrypt-data-full.stages.ts",
     authoredStageModuleSha256:
-      "sha256:9ec34d1b46ed0ccc3bcb27dc4914ed3292b823b85d00c138ad193130d2377f5d",
+      "sha256:a9aeb19d02a592a9ff01febad9ab8845a8b0dbb83a210344854308ad7c220b86",
     inputCheckpointPath:
       "examples/explorer-stages/encrypt-data/01-original-payment-data.yaml",
     inputCheckpointSha256:
@@ -262,7 +262,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:931b1c14e7de83831f7f2c8a1e31e7b6266b7ed5d3f5126ab4bc28adabe78ffe",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -284,14 +284,14 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
     canonicalPipelinePath:
       "static/files/data-security/encryption-patterns.yaml",
     pipelineSha256:
-      "sha256:6168df047594dcf7124294dd4ce43f1f11ff398806a81db01aca955a79f40357",
+      "sha256:8ba7a327a363043b166d3d32d107f57261ac7e92a77a80e594e3300aa77c67f8",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath:
       "docs/data-security/encryption-patterns-full.stages.ts",
     authoredStageModuleSha256:
-      "sha256:6674ea19368255905674b34a86bbf2bff23ded983d8352135ed3db83eb296aa3",
+      "sha256:3e63ee249740b13225d4ca023b7c4f70229379ac23bfcd70c5f0de24d9e88164",
     inputCheckpointPath:
       "examples/explorer-stages/encryption-patterns/01-original-sensitive-data.yaml",
     inputCheckpointSha256:
@@ -299,10 +299,10 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
     outputCheckpointPath:
       "examples/explorer-stages/encryption-patterns/06-illustrative-key-version-metadata.yaml",
     outputCheckpointSha256:
-      "sha256:ae63e6792ec785ff61bcab4dff7e4e1dcc84ba73e751fdebbb48be6da19e59d9",
+      "sha256:89d03b63c309e851a3b3f7ebf1c46429b041fcc7ad215582ab885789dbfb9ff2",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -326,7 +326,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:d4c390201c57abae0e2781780e73be886dbe044b0eab361e76e2313d8b2887f3",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath: "docs/data-security/enforce-schema-full.stages.ts",
     authoredStageModuleSha256:
       "sha256:7820e5ce3703f4b4e2273260df972a7c0e3ce1436078fa88e342ff25c09eb0f9",
@@ -340,7 +340,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:b43e7bc06d37408c757498a2714057f3dcef259431fee5d1e4512d788a47ca15",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -362,10 +362,10 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
     canonicalPipelinePath:
       "static/files/data-transformation/aggregate-time-windows.yaml",
     pipelineSha256:
-      "sha256:442e71f41096c3b1799355c089e51ef9d814b14105946d1e4e37d41ebf490fbb",
+      "sha256:ef998f6c218ef6504afe594af07e39549bc586888a408fd65ca84e227c504211",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath:
       "docs/data-transformation/aggregate-time-windows-full.stages.ts",
     authoredStageModuleSha256:
@@ -380,7 +380,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:98f3b4760cbaa01b56e6de78315655a809ed8962493eca676539cc754d97d6af",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -402,10 +402,10 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
     canonicalPipelinePath:
       "static/files/data-transformation/deduplicate-events.yaml",
     pipelineSha256:
-      "sha256:d5645afc6ed466b43ab05decb3c548cde9384a143e1d26f63c5b415956b47ebe",
+      "sha256:0d5682d6f0163909ea45c6e5d23053ebe85d73c57326838af45405b9ec7d9a7c",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath:
       "docs/data-transformation/deduplicate-events-full.stages.ts",
     authoredStageModuleSha256:
@@ -420,7 +420,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:a9cf67e6229244d95a5ab1ea2b01679073e401e66fa5f103a96c7be58a35b902",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -442,10 +442,10 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
     canonicalPipelinePath:
       "static/files/data-transformation/normalize-timestamps.yaml",
     pipelineSha256:
-      "sha256:7e324ff69281e22bca0e9633c3b17397fcb3e249382b35d642b4eb7de73bc975",
+      "sha256:5f58157915cced51cb5110f0a9bb4098d1624634c1969082db313325667f549e",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath:
       "docs/data-transformation/normalize-timestamps-full.stages.ts",
     authoredStageModuleSha256:
@@ -460,7 +460,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:3f8427929470a759bb1f5bda31df5fe31f18f3b67fe4a44e85f44543b238ed2b",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -481,10 +481,10 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:7a502149249c39ad27263e9d22eaec485c2287755563b626df423dd47b762a01",
     canonicalPipelinePath: "static/files/data-transformation/parse-logs.yaml",
     pipelineSha256:
-      "sha256:e0966bd95092018400d85e1abcc972afcf406088b73617628528f96788263a79",
+      "sha256:13676aa13c09ac1a073231b1005a365224a261608f12ff05cb12770005236bba",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath:
       "docs/data-transformation/parse-logs-full.stages.ts",
     authoredStageModuleSha256:
@@ -499,7 +499,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:ddec41600e2a2f5a76d3f2d7f0370ae42bb5541052583ae2caddb68b02ad889d",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -521,10 +521,10 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
     canonicalPipelinePath:
       "static/files/data-transformation/transform-formats.yaml",
     pipelineSha256:
-      "sha256:32a9a3a2b7db46454d84fcbad0d6258bef737ae5ab7c01db250c9ae2b9489f54",
+      "sha256:f32592bcae33511324434da574bbe952c03fe1fa3aad1e62d9b9248e34669cb9",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath:
       "docs/data-transformation/transform-formats-full.stages.ts",
     authoredStageModuleSha256:
@@ -539,7 +539,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:a82fdfc35a5a7f2456c9765018e7a5e25664da235822f2ba7c710bc76be68bea",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -563,7 +563,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:86a929ce688db395b9f2125c106a407054c9d9c1e5f8100fd277e04cf2261e0c",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath:
       "docs/integrations/oran-telco-pipeline-full.stages.ts",
     authoredStageModuleSha256:
@@ -578,7 +578,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:f6b22ce00a1652bad9fe68eb4a63bc08005ae511917c6755c5f115756f58921d",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -600,10 +600,10 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
     canonicalPipelinePath:
       "examples/integrations/scada-energy-edge/scada-edge-complete.yaml",
     pipelineSha256:
-      "sha256:99f04b0a58f6be9534114a4589239eade0b124564669ca883e2893902869fc8d",
+      "sha256:46430445829ebd496deebdbdfd461f7cc78bfc85e884c899d311f93b893f6c96",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath: "docs/integrations/scada-energy-edge/stages.ts",
     authoredStageModuleSha256:
       "sha256:446bc7bd03a136db8329f0f82c1122363c85e8bda3962a7e539f1284299c814c",
@@ -617,7 +617,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:60d2e9f3cd55fa42253a7ccd5cd5216a8ebf9a57a6d3506c5df932b39822bb80",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -638,10 +638,10 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:7a502149249c39ad27263e9d22eaec485c2287755563b626df423dd47b762a01",
     canonicalPipelinePath: "static/pipelines/splunk-production-pipeline.yaml",
     pipelineSha256:
-      "sha256:552f3151ccd533a78640631d64be14d9834a757faeed49ba4678244777917dec",
+      "sha256:40ca22fbe4e62420cb63d2e119896557c9b0c55d16015a5f90e9b5960ebd217a",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath:
       "docs/integrations/splunk-edge-processing-full.stages.ts",
     authoredStageModuleSha256:
@@ -656,7 +656,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:ed5233456338033dd251802fe305ac08e398c0bb7eb7227caa0434d2e1cd77ad",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -678,10 +678,10 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
     canonicalPipelinePath:
       "examples/log-processing/enrich-export-complete.yaml",
     pipelineSha256:
-      "sha256:66db919d9d41eb2a34996f73fb240aebe645a069ed04b11f4336637c539814c8",
+      "sha256:96ab8ec2216a9d8fc6151c3813aefae801f02d789b7c2724866d1af3d2768ebe",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath: "docs/log-processing/enrich-export-full.stages.ts",
     authoredStageModuleSha256:
       "sha256:397f4e39cf4ebf3a49f36b11932e3f3b031a4407c11f2b3ae9169c06d983d968",
@@ -692,10 +692,10 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
     outputCheckpointPath:
       "examples/explorer-stages/enrich-export/05-configured-s3-object.yaml",
     outputCheckpointSha256:
-      "sha256:86038968fa45f05ab5f6e66cf724388282a76feb8d2cd660d74c2193abb4242c",
+      "sha256:5b3a3a9bd3c1cd714a937bd1c2f7a8aa92278e8cef229f7e8f55a1c802b3e4cd",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -717,10 +717,10 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
     canonicalPipelinePath:
       "examples/log-processing/filter-severity-complete.yaml",
     pipelineSha256:
-      "sha256:8418ab291903c1398a008e421c8dde6ae27e9ff12eca630516950a329c879b34",
+      "sha256:3a01ba3cd0e8bbe7bc25046472bcbab34a133d8e98e01952df4327da4b7e8a19",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath:
       "docs/log-processing/filter-severity-full.stages.ts",
     authoredStageModuleSha256:
@@ -735,7 +735,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:73ba586f4f992a3c7497e329db28e377182ce7704d4f0cca4c2c0b6e43ea7097",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",
@@ -760,7 +760,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:cd4a8cadba7db97835d945c6a02f78fad79596e13af7c2fb6c6a3414403cb70e",
     bindingManifestPath: "content/explorer-stage-bindings-v1.json",
     bindingManifestSha256:
-      "sha256:a53242471203e8678c8b6f05ba4120e3f8c420ec9004fe4a7fe6534d814f1e8f",
+      "sha256:3fc5dfab190448507d4b9946f881b1306f9e287bd9f8141d6b1f9c19e478c322",
     authoredStageModulePath:
       "docs/log-processing/production-pipeline-full.stages.ts",
     authoredStageModuleSha256:
@@ -775,7 +775,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
       "sha256:a80da07c050db7af714a8cbb69e2ea64be9180551238b1aafa181776847664ba",
     fidelityOraclePath: "scripts/generate-explorer-stage-configs.ts",
     fidelityOracleSha256:
-      "sha256:aafec92275cabc9d88e35915b567df98b4b9f906c6bbf5dc2d7343660a0e546d",
+      "sha256:9c6da0de27f9023d93b4ada71b9543363d7e7a695dfe0c500c46d425b29b4d17",
     semanticsVerifierPath: "scripts/quality/verify-explorer-provenance.ts",
     semanticsVerifierSha256:
       "sha256:5458ba33de76335c743a700ad91aa6d0b4489776bfbe3a91587468122bc87555",

@@ -6,6 +6,12 @@
 #   AWS_REGION   - AWS region (default: us-east-1)
 
 name: motherduck-retail-pos
+description: Generate retail point-of-sale records and write KMS-encrypted Parquet objects for MotherDuck ingestion
+type: pipeline
+namespace: examples
+labels:
+  category: integrations
+  platform: motherduck
 
 config:
   input:
@@ -24,8 +30,7 @@ config:
           _ => "exchange"
         }
 
-        root.payment_method = ["card", "card", "card", "cash", "mobile", "gift_card"]
-          .index(random_int(min: 0, max: 5))
+        root.payment_method = ["card", "card", "card", "cash", "mobile", "gift_card"].index(random_int(min: 0, max: 5))
         root.employee_id = "EMP-" + random_int(min: 1000, max: 9999).string()
 
         let categories = ["grocery", "produce", "dairy", "bakery", "meat",
@@ -41,10 +46,10 @@ config:
           }
         )
 
-        root.subtotal = root.items.map_each(this.qty * this.unit_price).sum().round(2)
+        root.subtotal = (root.items.map_each(this.qty * this.unit_price).sum() * 100).round() / 100
         root.tax_rate = 0.0875
-        root.tax_amount = (root.subtotal * root.tax_rate).round(2)
-        root.total_amount = (root.subtotal + root.tax_amount).round(2)
+        root.tax_amount = (root.subtotal * root.tax_rate * 100).round() / 100
+        root.total_amount = ((root.subtotal + root.tax_amount) * 100).round() / 100
 
         root = if root.type == "return" {
           root.assign({
@@ -52,7 +57,7 @@ config:
             "tax_amount": -root.tax_amount,
             "total_amount": -root.total_amount
           })
-        }
+        } else { root }
 
   pipeline:
     processors:
@@ -93,20 +98,20 @@ config:
           root.is_weekend = root.day_of_week == "Saturday" || root.day_of_week == "Sunday"
           root.basket_size = this.items.length()
           root.avg_item_price = if root.basket_size > 0 {
-            (this.subtotal.abs() / root.basket_size).round(2)
-          }
+            (this.subtotal.abs() / root.basket_size * 100).round() / 100
+          } else { 0.0 }
 
       # 2. Validate and flag anomalies
       - mapping: |
           root = this
           let flags = []
-          let flags = if this.items.length() == 0 { $flags.append("EMPTY_BASKET") }
+          let flags = if this.items.length() == 0 { $flags.append("EMPTY_BASKET") } else { $flags }
           let has_electronics = this.items.map_each(this.category).flatten().any(c -> c == "electronics")
-          let flags = if this.total_amount.abs() > 500 && !$has_electronics { $flags.append("HIGH_VALUE_NON_ELECTRONICS") }
-          let flags = if this.type == "sale" && this.total_amount < 0 { $flags.append("NEGATIVE_SALE") }
-          let flags = if this.type == "return" && this.total_amount > 0 { $flags.append("POSITIVE_RETURN") }
-          let flags = if this.items.filter(i -> i.qty > 10).length() > 0 { $flags.append("BULK_QUANTITY") }
-          let flags = if this.employee_id == "" || this.employee_id == null { $flags.append("MISSING_EMPLOYEE") }
+          let flags = if this.total_amount.abs() > 500 && !$has_electronics { $flags.append("HIGH_VALUE_NON_ELECTRONICS") } else { $flags }
+          let flags = if this.type == "sale" && this.total_amount < 0 { $flags.append("NEGATIVE_SALE") } else { $flags }
+          let flags = if this.type == "return" && this.total_amount > 0 { $flags.append("POSITIVE_RETURN") } else { $flags }
+          let flags = if this.items.filter(i -> i.qty > 10).length() > 0 { $flags.append("BULK_QUANTITY") } else { $flags }
+          let flags = if this.employee_id == "" || this.employee_id == null { $flags.append("MISSING_EMPLOYEE") } else { $flags }
           root.anomaly_flags = $flags
           root.is_anomaly = $flags.length() > 0
           root.quality_score = match {
@@ -118,82 +123,80 @@ config:
       # 3. Flatten items for Parquet
       - mapping: |
           root = this
+          meta s3_region = this.store_region
+          meta s3_date = this.timestamp.ts_format("2006-01-02")
           root.item_count = this.items.length()
           root.items_json = this.items.format_json()
           root.anomaly_flags = this.anomaly_flags.format_json()
           root = root.without("items")
 
-      # 4. Batch for optimal Parquet file size
-      - batch:
-          count: 1000
-          period: 10s
-
-      # 5. Encode to Parquet
-      - parquet_encode:
-          schema:
-            - name: txn_id
-              type: UTF8
-            - name: store_id
-              type: INT32
-            - name: terminal_id
-              type: INT32
-            - name: timestamp
-              type: UTF8
-            - name: type
-              type: UTF8
-            - name: payment_method
-              type: UTF8
-            - name: employee_id
-              type: UTF8
-            - name: items_json
-              type: UTF8
-            - name: item_count
-              type: INT32
-            - name: subtotal
-              type: DOUBLE
-            - name: tax_rate
-              type: DOUBLE
-            - name: tax_amount
-              type: DOUBLE
-            - name: total_amount
-              type: DOUBLE
-            - name: store_region
-              type: UTF8
-            - name: store_format
-              type: UTF8
-            - name: store_city
-              type: UTF8
-            - name: store_state
-              type: UTF8
-            - name: store_sqft
-              type: INT32
-            - name: hour_of_day
-              type: INT32
-            - name: day_of_week
-              type: UTF8
-            - name: is_weekend
-              type: BOOLEAN
-            - name: basket_size
-              type: INT32
-            - name: avg_item_price
-              type: DOUBLE
-            - name: anomaly_flags
-              type: UTF8
-            - name: is_anomaly
-              type: BOOLEAN
-            - name: quality_score
-              type: UTF8
-          default_compression: zstd
-
   output:
     aws_s3:
       bucket: '${S3_BUCKET}'
       path: >-
-        transactions/region=${! json("store_region") }/date=${! now().ts_format("2006-01-02") }/batch_${! timestamp_unix() }_${! count("s3_files") }.parquet
+        transactions/region=${! metadata("s3_region") }/date=${! metadata("s3_date") }/batch_${! timestamp_unix() }_${! count("s3_files") }.parquet
       content_type: application/octet-stream
       server_side_encryption: aws:kms
       kms_key_id: '${S3_KMS_KEY_ARN}'
       max_in_flight: 4
       batching:
-        count: 1
-        processors: []
+        count: 1000
+        period: 10s
+        processors:
+          - group_by_value:
+              value: ${! metadata("s3_region") }
+          - parquet_encode:
+              schema:
+                - name: txn_id
+                  type: UTF8
+                - name: store_id
+                  type: INT32
+                - name: terminal_id
+                  type: INT32
+                - name: timestamp
+                  type: UTF8
+                - name: type
+                  type: UTF8
+                - name: payment_method
+                  type: UTF8
+                - name: employee_id
+                  type: UTF8
+                - name: items_json
+                  type: UTF8
+                - name: item_count
+                  type: INT32
+                - name: subtotal
+                  type: DOUBLE
+                - name: tax_rate
+                  type: DOUBLE
+                - name: tax_amount
+                  type: DOUBLE
+                - name: total_amount
+                  type: DOUBLE
+                - name: store_region
+                  type: UTF8
+                - name: store_format
+                  type: UTF8
+                - name: store_city
+                  type: UTF8
+                - name: store_state
+                  type: UTF8
+                - name: store_sqft
+                  type: INT32
+                - name: hour_of_day
+                  type: INT32
+                - name: day_of_week
+                  type: UTF8
+                - name: is_weekend
+                  type: BOOLEAN
+                - name: basket_size
+                  type: INT32
+                - name: avg_item_price
+                  type: DOUBLE
+                - name: anomaly_flags
+                  type: UTF8
+                - name: is_anomaly
+                  type: BOOLEAN
+                - name: quality_score
+                  type: UTF8
+              default_compression: zstd

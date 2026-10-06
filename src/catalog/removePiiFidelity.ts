@@ -25,24 +25,36 @@ const PROCESSOR_SIGNATURES = [
   `,
   `
     root = this.without("ip_address")
+    let ip_salt = env("IP_SALT").or("")
+    let ip_salt = if $ip_salt == "" {
+      throw("IP_SALT is required")
+    } else { $ip_salt }
     root.ip_hash = this.ip_address.hash(
       "hmac_sha256",
-      env("IP_SALT")
+      $ip_salt
     ).encode("hex")
   `,
   `
     root = this.without("email")
+    let email_salt = env("EMAIL_SALT").or("")
+    let email_salt = if $email_salt == "" {
+      throw("EMAIL_SALT is required")
+    } else { $email_salt }
     root.email_hash = this.email.hash(
       "hmac_sha256",
-      env("EMAIL_SALT")
+      $email_salt
     ).encode("hex")
     root.email_domain = this.email.split("@").index(1)
   `,
   `
     root = this.without("user_name")
+    let user_salt = env("USER_SALT").or("")
+    let user_salt = if $user_salt == "" {
+      throw("USER_SALT is required")
+    } else { $user_salt }
     root.user_id = "user_" + this.user_name.hash(
       "hmac_sha256",
-      env("USER_SALT")
+      $user_salt
     ).encode("hex").slice(0, 12)
   `,
   `

@@ -20,9 +20,13 @@ Read the source value before deleting it, then add the derived field to the new 
 ```yaml title="IP mapping"
 - mapping: |
     root = this.without("ip_address")
+    let ip_salt = env("IP_SALT").or("")
+    let ip_salt = if $ip_salt == "" {
+      throw("IP_SALT is required")
+    } else { $ip_salt }
     root.ip_hash = this.ip_address.hash(
       "hmac_sha256",
-      env("IP_SALT")
+      $ip_salt
     ).encode("hex")
 ```
 

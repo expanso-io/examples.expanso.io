@@ -6,20 +6,35 @@ pipeline:
         root = this
 
         # Extract email domain for B2B analytics
-        root.customer.email_domain = this.customer.email.split("@").index(1)
-        root.customer.email_domain_type = match {
-          root.customer.email_domain.re_match("(gmail|yahoo|hotmail).*") => "consumer"
-          _ => "business"
+        root.customer.email_domain = if this.customer.email != null {
+          this.customer.email.split("@").index(1)
+        }
+        root.customer.email_domain_type = if root.customer.email_domain != null {
+          if root.customer.email_domain.re_match("(gmail|yahoo|hotmail).*") {
+            "consumer"
+          } else {
+            "business"
+          }
         }
 
         # Phone encryption with area code preservation
-        let phone_clean = this.customer.phone.re_replace_all("[^0-9+]", "")
-        root.customer.phone_country_code = if $phone_clean.has_prefix("+1") { "+1" } else { "international" }
-        root.customer.phone_area_code = if $phone_clean.length() == 12 { $phone_clean.slice(2, 5) }
+        let phone_clean = if this.customer.phone != null {
+          this.customer.phone.re_replace_all("[^0-9+]", "")
+        } else { "" }
+        root.customer.phone_country_code = if this.customer.phone != null {
+          if $phone_clean.has_prefix("+1") { "+1" } else { "international" }
+        }
+        root.customer.phone_area_code = if this.customer.phone != null && $phone_clean.length() == 12 {
+          $phone_clean.slice(2, 5)
+        }
 
         # SSN encryption with last 4 preservation
-        let ssn_clean = this.customer.ssn.re_replace_all("[^0-9]", "")
-        root.customer.ssn_last_four = $ssn_clean.slice(-4)
+        let ssn_clean = if this.customer.ssn != null {
+          this.customer.ssn.re_replace_all("[^0-9]", "")
+        } else { "" }
+        root.customer.ssn_last_four = if this.customer.ssn != null && $ssn_clean.length() >= 4 {
+          $ssn_clean.slice(-4)
+        }
 
         # Encrypt all PII fields
         let customer_email_nonce = uuid_v4().replace_all("-", "").slice(0, 24)

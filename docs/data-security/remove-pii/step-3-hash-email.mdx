@@ -21,9 +21,13 @@ Extract the domain while the source value is available, remove the address, then
 - mapping: |
     root = this.without("email")
 
+    let email_salt = env("EMAIL_SALT").or("")
+    let email_salt = if $email_salt == "" {
+      throw("EMAIL_SALT is required")
+    } else { $email_salt }
     root.email_hash = this.email.hash(
       "hmac_sha256",
-      env("EMAIL_SALT")
+      $email_salt
     ).encode("hex")
     root.email_domain = this.email.split("@").index(1)
 ```

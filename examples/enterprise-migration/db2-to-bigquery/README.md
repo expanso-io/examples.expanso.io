@@ -5,6 +5,7 @@ Replace DataStage ETL with edge-native processing for migrating financial transa
 ## Use Case
 
 Your organization has:
+
 - On-premise DB2 database with transaction data
 - DataStage ETL jobs running nightly transformations
 - Target: Google BigQuery for analytics
@@ -22,12 +23,12 @@ This pipeline runs **on or near your DB2 server**, transforming data before it l
 
 ## Key Transformations
 
-| Step | DataStage Equivalent | Expanso |
-|------|---------------------|---------|
-| Currency lookup | Lookup Stage | `branch` + `mapping` |
-| Field masking | Transformer | `mapping` with slice/hash |
-| Categorization | Switch/Case | `match` expression |
-| Schema mapping | Transformer | `mapping` field assignment |
+| Step            | DataStage Equivalent | Expanso                    |
+| --------------- | -------------------- | -------------------------- |
+| Currency lookup | Lookup Stage         | `branch` + `mapping`       |
+| Field masking   | Transformer          | `mapping` with slice/hash  |
+| Categorization  | Switch/Case          | `match` expression         |
+| Schema mapping  | Transformer          | `mapping` field assignment |
 
 ## Environment Variables
 
@@ -44,8 +45,8 @@ NODE_ID=edge-node-datacenter-1
 ## Running
 
 ```bash
-# Test locally
-expanso-edge run --config db2-to-bigquery.yaml
+# Validate locally
+expanso-edge validate db2-to-bigquery.yaml
 
 # Deploy to fleet
 expanso-cli job deploy db2-to-bigquery.yaml --selector region=datacenter

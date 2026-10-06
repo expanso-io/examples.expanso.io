@@ -25,13 +25,25 @@ Individual JSON transactions become compressed, columnar Parquet. Compression ra
 Choose Parquet object sizes from measured write, discovery, and query behavior. The reference uses an authored micro-batch:
 
 ```yaml
-# Batch: collect 1000 transactions or flush every 10 seconds
-- batch:
-    count: 1000
-    period: 10s
+# Batch at the S3 output and encode each region as Parquet
+output:
+  aws_s3:
+    bucket: ${S3_BUCKET}
+    path: transactions/region=${! metadata("s3_region") }/date=${! metadata("s3_date") }/batch_${! timestamp_unix() }_${! count("s3_files") }.parquet
+    server_side_encryption: aws:kms
+    kms_key_id: ${S3_KMS_KEY_ARN}
+    batching:
+      count: 1000
+      period: 10s
+      processors:
+        - group_by_value:
+            value: ${! metadata("s3_region") }
 ```
 
-At 10 TPS per store, that's roughly one Parquet file every 100 seconds (1000 rows), or a flush every 10 seconds during slow periods. Both produce well-sized files for DuckLake.
+The count and period are starting values, not a sizing promise. Measure object
+size, query planning, and discovery overhead with representative traffic before
+changing them. The workload identity needs only `s3:PutObject`, `kms:Encrypt`,
+and `kms:GenerateDataKey` for this bucket prefix and KMS key.
 
 ## Flatten for Parquet
 
@@ -41,6 +53,8 @@ The example maps selected fields into flat columns and serializes nested items a
 # Prepare for Parquet encoding
 - mapping: |
     root = this
+    meta s3_region = this.store_region
+    meta s3_date = this.timestamp.ts_format("2006-01-02")
     # Serialize nested items array as JSON string for Parquet
     root.items_json = this.items.format_json()
     # Drop the original nested array
@@ -50,7 +64,7 @@ The example maps selected fields into flat columns and serializes nested items a
 ## Encode to Parquet
 
 ```yaml
-# Encode batch to Parquet with Zstandard compression
+# Use this processor under output.aws_s3.batching.processors, after group_by_value
 - parquet_encode:
     schema:
       - name: txn_id

@@ -1,5 +1,10 @@
 name: field-encryption-patterns
+description: Encrypt payment, identity, location, and temporal fields with AES-256-GCM.
 type: pipeline
+namespace: examples
+labels:
+  category: data-security
+  pattern: field-encryption
 config:
   input:
     http_server:
@@ -9,6 +14,12 @@ config:
     processors:
       - mapping: |
           root = this
+          root = if this.payment.card_number != null && this.customer.email != null {
+            this
+          } else {
+            throw("Missing required fields: payment.card_number or customer.email")
+          }
+          meta processing_start = now()
           let key = env("CARD_ENCRYPTION_KEY_HEX").decode("hex")
           let key = if $key.length() != 32 { throw("Expected a 32-byte AES key") } else { $key }
 
@@ -73,20 +84,35 @@ config:
           root = this
 
           # Extract email domain for B2B analytics
-          root.customer.email_domain = this.customer.email.split("@").index(1)
-          root.customer.email_domain_type = match {
-            root.customer.email_domain.re_match("(gmail|yahoo|hotmail).*") => "consumer"
-            _ => "business"
+          root.customer.email_domain = if this.customer.email != null {
+            this.customer.email.split("@").index(1)
+          }
+          root.customer.email_domain_type = if root.customer.email_domain != null {
+            if root.customer.email_domain.re_match("(gmail|yahoo|hotmail).*") {
+              "consumer"
+            } else {
+              "business"
+            }
           }
 
           # Phone encryption with area code preservation
-          let phone_clean = this.customer.phone.re_replace_all("[^0-9+]", "")
-          root.customer.phone_country_code = if $phone_clean.has_prefix("+1") { "+1" } else { "international" }
-          root.customer.phone_area_code = if $phone_clean.length() == 12 { $phone_clean.slice(2, 5) }
+          let phone_clean = if this.customer.phone != null {
+            this.customer.phone.re_replace_all("[^0-9+]", "")
+          } else { "" }
+          root.customer.phone_country_code = if this.customer.phone != null {
+            if $phone_clean.has_prefix("+1") { "+1" } else { "international" }
+          }
+          root.customer.phone_area_code = if this.customer.phone != null && $phone_clean.length() == 12 {
+            $phone_clean.slice(2, 5)
+          }
 
           # SSN encryption with last 4 preservation
-          let ssn_clean = this.customer.ssn.re_replace_all("[^0-9]", "")
-          root.customer.ssn_last_four = $ssn_clean.slice(-4)
+          let ssn_clean = if this.customer.ssn != null {
+            this.customer.ssn.re_replace_all("[^0-9]", "")
+          } else { "" }
+          root.customer.ssn_last_four = if this.customer.ssn != null && $ssn_clean.length() >= 4 {
+            $ssn_clean.slice(-4)
+          }
 
           # Encrypt all PII fields
           let customer_email_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
@@ -123,15 +149,21 @@ config:
           root = this
 
           # Extract ZIP prefixes for demographic clustering
-          root.billing_address.zip_prefix = this.billing_address.zip.re_replace_all("[^0-9]", "").slice(0, 3)
-          root.shipping_address.zip_prefix = this.shipping_address.zip.re_replace_all("[^0-9]", "").slice(0, 3)
+          root.billing_address.zip_prefix = if this.billing_address.zip != null {
+            this.billing_address.zip.re_replace_all("[^0-9]", "").slice(0, 3)
+          }
+          root.shipping_address.zip_prefix = if this.shipping_address.zip != null {
+            this.shipping_address.zip.re_replace_all("[^0-9]", "").slice(0, 3)
+          }
 
           # Determine metro areas for regional analytics
-          let billing_metro = match {
-            this.billing_address.city.lowercase().re_match(".*(san francisco|sf).*") => "sf_bay_area"
-            this.billing_address.city.lowercase().re_match(".*(los angeles|la).*") => "la_metro"
-            _ => "other_urban"
-          }
+          let billing_metro = if this.billing_address.city != null {
+            match {
+              this.billing_address.city.lowercase().re_match(".*(san francisco|sf).*") => "sf_bay_area"
+              this.billing_address.city.lowercase().re_match(".*(los angeles|la).*") => "la_metro"
+              _ => "other_urban"
+            }
+          } else { null }
 
           # Encrypt precise location data
           let billing_address_street_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
@@ -156,11 +188,13 @@ config:
           root.shipping_address.zip_nonce = if this.shipping_address.zip != null { $shipping_address_zip_nonce } else { deleted() }
 
           # Address relationship analysis
-          let shipping_metro = match {
-            this.shipping_address.city.lowercase().re_match(".*(san francisco|sf).*") => "sf_bay_area"
-            this.shipping_address.city.lowercase().re_match(".*(los angeles|la).*") => "la_metro"
-            _ => "other_urban"
-          }
+          let shipping_metro = if this.shipping_address.city != null {
+            match {
+              this.shipping_address.city.lowercase().re_match(".*(san francisco|sf).*") => "sf_bay_area"
+              this.shipping_address.city.lowercase().re_match(".*(los angeles|la).*") => "la_metro"
+              _ => "other_urban"
+            }
+          } else { null }
           root.billing_address.metro_area = $billing_metro
           root.shipping_address.metro_area = $shipping_metro
           root.address_analysis = {
@@ -171,45 +205,57 @@ config:
 
           # Remove plaintext addresses
           root.billing_address = root.billing_address.without("street", "zip")
-          root.shipping_address = root.shipping_address.without("street", "zip")
+          root.shipping_address = if this.shipping_address != null {
+            root.shipping_address.without("street", "zip")
+          } else { deleted() }
       - mapping: |
           let key = env("TEMPORAL_ENCRYPTION_KEY_HEX").decode("hex")
           let key = if $key.length() != 32 { throw("Expected a 32-byte AES key") } else { $key }
           root = this
 
           # Parse birth date for analytics extraction
-          let birth_date = this.customer.date_of_birth.ts_parse("2006-01-02")
+          let birth_date = if this.customer.date_of_birth != null {
+            this.customer.date_of_birth.ts_parse("2006-01-02")
+          } else { null }
 
           # Extract temporal analytics before encryption
-          root.customer.birth_year = $birth_date.ts_format("2006").number()
-          root.customer.current_age = now().ts_format("2006").number() - root.customer.birth_year
-
-          # Generate age range for demographic analytics
-          root.customer.age_range = match {
-            root.customer.current_age < 18 => "under_18"
-            root.customer.current_age < 25 => "18_to_24"
-            root.customer.current_age < 35 => "25_to_34"
-            root.customer.current_age < 45 => "35_to_44"
-            root.customer.current_age < 55 => "45_to_54"
-            root.customer.current_age < 65 => "55_to_64"
-            _ => "65_plus"
+          root.customer.birth_year = if $birth_date != null {
+            $birth_date.ts_format("2006").number()
+          }
+          root.customer.current_age = if root.customer.birth_year != null {
+            now().ts_format("2006").number() - root.customer.birth_year
           }
 
+          # Generate age range for demographic analytics
+          root.customer.age_range = if root.customer.current_age != null {
+            match {
+              root.customer.current_age < 18 => "under_18"
+              root.customer.current_age < 35 => "18_to_34"
+              root.customer.current_age < 55 => "35_to_54"
+              root.customer.current_age < 65 => "55_to_64"
+              _ => "65_plus"
+            }
+          } else { deleted() }
+
           # Generate generational cohort
-          root.customer.birth_decade = match {
-            root.customer.birth_year >= 1980 && root.customer.birth_year < 1990 => "1980s"
-            root.customer.birth_year >= 1990 && root.customer.birth_year < 2000 => "1990s"
-            root.customer.birth_year >= 2000 => "2000s"
-            _ => "pre_1980"
+          root.customer.birth_decade = if root.customer.birth_year != null {
+            match {
+              root.customer.birth_year >= 1980 && root.customer.birth_year < 1990 => "1980s"
+              root.customer.birth_year >= 1990 && root.customer.birth_year < 2000 => "1990s"
+              root.customer.birth_year >= 2000 => "2000s"
+              _ => "pre_1980"
+            }
           }
 
           # Extract birth season
-          let month = $birth_date.ts_format("01").number()
-          root.customer.birth_season = match {
-            $month >= 3 && $month <= 5 => "spring"
-            $month >= 6 && $month <= 8 => "summer"
-            $month >= 9 && $month <= 11 => "autumn"
-            _ => "winter"
+          let month = if $birth_date != null { $birth_date.ts_format("01").number() } else { null }
+          root.customer.birth_season = if $month != null {
+            match {
+              $month >= 3 && $month <= 5 => "spring"
+              $month >= 6 && $month <= 8 => "summer"
+              $month >= 9 && $month <= 11 => "autumn"
+              _ => "winter"
+            }
           }
 
           # Encrypt exact birth date (HIPAA requirement)
@@ -257,10 +303,20 @@ config:
             "fixture_status": "illustrative"
           }
 
+          root.processing_metadata = {
+            "pipeline_version": env("PIPELINE_VERSION").or("2.1.0"),
+            "node_id": env("NODE_ID").or("unknown"),
+            "processing_start": metadata("processing_start").or(now()),
+            "processing_complete": now(),
+            "encryption_status": "success"
+          }
+
           # Comprehensive audit trail
           meta audit_trail = {
             "audit_id": "enc_" + uuid_v4(),
             "timestamp": now(),
+            "event_type": "field_level_encryption_complete",
+            "node_id": env("NODE_ID").or("unknown"),
             "encryption_operations": [
               {"field": "payment.card_number", "algorithm": "AES-256-GCM", "field_group": "payment"},
               {"field": "customer.email", "algorithm": "AES-256-GCM", "field_group": "identity"},

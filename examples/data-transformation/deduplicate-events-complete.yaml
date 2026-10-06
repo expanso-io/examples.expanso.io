@@ -1,5 +1,10 @@
 name: deduplicate-events
+description: Claim deduplication keys atomically and archive repeated events.
 type: pipeline
+namespace: examples
+labels:
+  category: data-transformation
+  pattern: deduplication
 config:
   input:
     http_server:
@@ -23,60 +28,68 @@ config:
           }
           root.dedup_hash = $hash
           root.dedup_key = ($strategy + ":" + $identity).hash("sha256").encode("hex")
+          root.dedup_strategy = $strategy
+          meta dedup_strategy = $strategy
+          meta dedup_key = root.dedup_key
           root.is_duplicate = false
           root.dedup_timestamp = now()
-      - branch:
-          request_map: root = this.dedup_key
-          processors:
-            - cache:
-                resource: delivered
-                operator: get
-                key: ${! content() }
-          result_map: root.is_duplicate = true
+      # `add` is an atomic claim: only the first concurrent message can own a
+      # deduplication key. Existing keys return a processor error, which the
+      # following catch converts into a duplicate result.
+      - cache:
+          resource: delivered
+          operator: add
+          key: ${! this.dedup_key }
+          value: ${! this.dedup_timestamp }
+          ttl: 1h
+      - mapping: root.is_duplicate = false
       - catch:
           - mapping: |-
               root = this
-              root.is_duplicate = false
+              let strategy = metadata("dedup_strategy").or(this.dedup_strategy).or(if this.event_id != null { "event_id" } else { "hash" })
+              root.dedup_strategy = $strategy
+              root.is_duplicate = true
       - mapping: |-
           root = this
-          root.dedup_result = {"is_duplicate": this.is_duplicate, "dedup_key": this.dedup_key, "checked_at": now()}
-          root.duplicate_metadata = if this.is_duplicate { {"detected_at": now(), "original_hash": this.dedup_hash, "strategy": this.dedup_strategy.or("event_id")} } else { deleted() }
+          root.dedup_result = {"is_duplicate": this.is_duplicate, "dedup_key": this.dedup_key, "strategy": this.dedup_strategy, "checked_at": now()}
+          root.duplicate_metadata = if this.is_duplicate { {"detected_at": now(), "original_hash": this.dedup_hash, "strategy": this.dedup_strategy} } else { deleted() }
   output:
     switch:
       cases:
         - check: this.is_duplicate == false
           output:
-            broker:
-              pattern: fan_out_sequential
-              outputs:
-                - broker:
-                    pattern: fan_out
-                    outputs:
-                      - http_client:
-                          url: ${ANALYTICS_HTTPS_URL}/events
-                          verb: POST
-                          headers:
-                            Authorization: Bearer ${ANALYTICS_API_TOKEN}
-                            Content-Type: application/json
-                          tls:
-                            enabled: true
-                          retries: 3
-                      - kafka:
-                          addresses:
-                            - ${KAFKA_TLS_BROKERS}
-                          topic: unique-events
-                          tls:
-                            enabled: true
-                            root_cas_file: ${KAFKA_CA_FILE}
-                          sasl:
-                            mechanism: SCRAM-SHA-512
-                            user: ${KAFKA_USERNAME}
-                            password: ${KAFKA_PASSWORD}
-                - cache:
-                    target: delivered
-                    key: ${! this.dedup_key }
-                    ttl: 1h
-                    max_in_flight: 1
+            fallback:
+              - broker:
+                  pattern: fan_out
+                  outputs:
+                    - http_client:
+                        url: ${ANALYTICS_HTTPS_URL}/events
+                        verb: POST
+                        headers:
+                          Authorization: Bearer ${ANALYTICS_API_TOKEN}
+                          Content-Type: application/json
+                        tls:
+                          enabled: true
+                        retries: 3
+                    - kafka:
+                        addresses:
+                          - ${KAFKA_TLS_BROKERS}
+                        topic: unique-events
+                        tls:
+                          enabled: true
+                          root_cas_file: ${KAFKA_CA_FILE}
+                        sasl:
+                          mechanism: SCRAM-SHA-512
+                          user: ${KAFKA_USERNAME}
+                          password: ${KAFKA_PASSWORD}
+              # Failed delivery must release the claim before rejecting the
+              # message so the input can retry it rather than suppress it.
+              - processors:
+                  - cache:
+                      resource: delivered
+                      operator: delete
+                      key: ${! metadata("dedup_key") }
+                reject: downstream delivery failed; deduplication claim released
         - output:
             file:
               path: ${DUPLICATE_ARCHIVE_PATH}/dupes.jsonl

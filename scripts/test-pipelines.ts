@@ -25,7 +25,7 @@ const dockerRepoDigest =
   'jeffail/benthos@sha256:ec9b635d10bf267eb5b5c4c348b36752af1a5444ba768aefc6ca2c92ae2e22dd';
 const canonicalPipelinePath = 'examples/data-security/remove-pii-complete.yaml';
 const canonicalPipelineSha256 =
-  'sha256:d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96';
+  'sha256:e7873abea9ea2133900fabc2b75a3810ad07f93ff0a7a9e38e41fcba09df3307';
 const fixturePath = 'examples/data-security/remove-pii/sample-data.json';
 const fixtureSha256 =
   'sha256:f27d41e0954e0501730fd1c718b4b4c885fb839ba73af7971ea0351732d5dab2';
@@ -36,7 +36,7 @@ const expectedOutputSha256 =
 const fixtureEnvironmentPath =
   'examples/data-security/remove-pii/fixture-environment.json';
 const fixtureEnvironmentSha256 =
-  'sha256:4d2bec15465fdc8731c1d4e205e2aae834faf6ecdaa399f65c6f2c512ddb4c99';
+  'sha256:3ab78dc3ef4ea9dcb0725269408f698e389f654c57cf95ed82f3b1f708754ed8';
 
 interface PipelineExecutionRecord {
   exampleId: string;

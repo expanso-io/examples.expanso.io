@@ -48,9 +48,13 @@ pipeline:
         root = this
 
         # Customer ID -> pseudonymous cohort ID
+        let customer_hmac_key = env("GDPR_CUSTOMER_HMAC_KEY").or("")
+        let customer_hmac_key = if $customer_hmac_key == "" {
+          throw("GDPR_CUSTOMER_HMAC_KEY is required")
+        } else { $customer_hmac_key }
         root.pseudonymous_customer_id = this.customer_id.string().hash(
           "hmac_sha256",
-          env("GDPR_CUSTOMER_HMAC_KEY")
+          $customer_hmac_key
         ).encode("hex").slice(0, 24)
         root = root.without("customer_id")
 

@@ -5,89 +5,98 @@
 # fixture files and produces candidate review JSON. Expanso then writes
 # a local copy and forwards the same output to a fleet endpoint.
 
-input:
-  broker:
-    inputs:
-      # Source 1: Structured maintenance logs (CSV)
-      - csv:
-          paths: ['${MEDICAL_FIXTURE_DIR}/maintenance-logs.csv']
-          parse_header_row: true
-          batch_count: 0 # read all rows
-        processors:
-          - mapping: |
-              root.source = "maintenance_log"
-              root.device_id = this.device_id
-              root.timestamp = this.timestamp
-              root.data = this
+name: medical-device-field-report-intelligence
+description: Analyze synthetic medical-device field reports and deliver bounded review candidates
+type: pipeline
+namespace: examples
+labels:
+  category: integrations
+  industry: healthcare
 
-      # Source 2: Device error events (JSON)
-      - file:
-          paths: ['${MEDICAL_FIXTURE_DIR}/error-events.json']
-          codec: all-bytes
-        processors:
-          - mapping: |
-              root.source = "error_events"
-              root.data = content().string().parse_json()
+config:
+  input:
+    broker:
+      inputs:
+        # Source 1: Structured maintenance logs (CSV)
+        - csv:
+            paths: ['${MEDICAL_FIXTURE_DIR}/maintenance-logs.csv']
+            parse_header_row: true
+            batch_count: 0 # read all rows
+          processors:
+            - mapping: |
+                root.source = "maintenance_log"
+                root.device_id = this.device_id
+                root.timestamp = this.timestamp
+                root.data = this
 
-      # Source 3: Freeform technician notes (text)
-      - file:
-          paths: ['${MEDICAL_FIXTURE_DIR}/technician-notes.txt']
-          codec: all-bytes
-        processors:
-          - mapping: |
-              root.source = "technician_notes"
-              root.data = content()
+        # Source 2: Device error events (JSON)
+        - file:
+            paths: ['${MEDICAL_FIXTURE_DIR}/error-events.json']
+            codec: all-bytes
+          processors:
+            - mapping: |
+                root.source = "error_events"
+                root.data = content().string().parse_json()
 
-pipeline:
-  processors:
-    # --- Stage 1: Tag each input message ---
-    # This mapping does not create a multi-source batch. The custom analyzer
-    # below independently reloads all three checked-in fixture files.
-    - mapping: |
-        root = this
-        meta batch_id = "BATCH-" + now().ts_format("20060102-1504")
-        meta site = "Synthetic lab"
+        # Source 3: Freeform technician notes (text)
+        - file:
+            paths: ['${MEDICAL_FIXTURE_DIR}/technician-notes.txt']
+            codec: all-bytes
+          processors:
+            - mapping: |
+                root.source = "technician_notes"
+                root.data = content()
 
-    # --- Stage 2: Invoke custom analysis code ---
-    # analyze_reports.py owns fixture loading, optional Claude access, and
-    # the authored mock response used when credentials are absent.
-    - command:
-        name: uv
-        args_mapping: 'root = ["run", "--no-project", "./scripts/analyze_reports.py"]'
+  pipeline:
+    processors:
+      # --- Stage 1: Tag each input message ---
+      # This mapping does not create a multi-source batch. The custom analyzer
+      # below independently reloads all three checked-in fixture files.
+      - mapping: |
+          root = this
+          meta batch_id = "BATCH-" + now().ts_format("20060102-1504")
+          meta site = "Synthetic lab"
 
-    # --- Stage 3: Shape the output ---
-    # Ensure consistent structure for downstream consumers
-    - mapping: |
-        root = content().parse_json()
-        root.pipeline_version = "1.0.0"
-        root.processed_at = now()
+      # --- Stage 2: Invoke custom analysis code ---
+      # analyze_reports.py owns fixture loading, optional Claude access, and
+      # the authored mock response used when credentials are absent.
+      - command:
+          name: uv
+          args_mapping: 'root = ["run", "--no-project", "./scripts/analyze_reports.py"]'
 
-    - catch:
-        - mapping: root = deleted()
+      # --- Stage 3: Shape the output ---
+      # Ensure consistent structure for downstream consumers
+      - mapping: |
+          root = content().parse_json()
+          root.pipeline_version = "1.0.0"
+          root.processed_at = now()
 
-output:
-  broker:
-    pattern: fan_out
-    outputs:
-      # Output 1: Write a local review copy
-      - file:
-          path: '${MEDICAL_REVIEW_PATH}/review-candidates.json'
-          codec: lines
+      - catch:
+          - mapping: root = deleted()
 
-      # Output 2: Forward the same candidate JSON to a fleet endpoint
-      - http_client:
-          url: '${FLEET_HTTPS_URL}/api/v1/review-candidates'
-          verb: POST
-          headers:
-            Content-Type: application/json
-            Authorization: 'Bearer ${FLEET_API_TOKEN}'
-          tls:
-            enabled: true
-            root_cas_file: '${FLEET_CA_FILE}'
-            client_certs:
-              - cert_file: '${FLEET_CLIENT_CERT}'
-                key_file: '${FLEET_CLIENT_KEY}'
-          max_in_flight: 1
-          retries: 3
-          retry_period: 1s
-          max_retry_backoff: 10s
+  output:
+    broker:
+      pattern: fan_out
+      outputs:
+        # Output 1: Write a local review copy
+        - file:
+            path: '${MEDICAL_REVIEW_PATH}/review-candidates.json'
+            codec: lines
+
+        # Output 2: Forward the same candidate JSON to a fleet endpoint
+        - http_client:
+            url: '${FLEET_HTTPS_URL}/api/v1/review-candidates'
+            verb: POST
+            headers:
+              Content-Type: application/json
+              Authorization: 'Bearer ${FLEET_API_TOKEN}'
+            tls:
+              enabled: true
+              root_cas_file: '${FLEET_CA_FILE}'
+              client_certs:
+                - cert_file: '${FLEET_CLIENT_CERT}'
+                  key_file: '${FLEET_CLIENT_KEY}'
+            max_in_flight: 1
+            retries: 3
+            retry_period: 1s
+            max_retry_backoff: 10s

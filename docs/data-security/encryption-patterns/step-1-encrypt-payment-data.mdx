@@ -33,13 +33,20 @@ You can apply this pattern with a single `mapping` processor.
 
 1.  **Start with a Foundation:** Begin with a pipeline that simply passes through payment data, like the `encryption-foundation.yaml` from the previous tutorial.
 
-2.  **Add the Encryption Processor:** Add this processor to your pipeline. It implements the complete pattern in one step.
+2.  **Add the Encryption Processor:** Add this processor to your pipeline. It
+    implements the complete pattern in one step.
 
-    ```yaml
+```yaml
 pipeline:
   processors:
     - mapping: |
         root = this
+        root = if this.payment.card_number != null && this.customer.email != null {
+          this
+        } else {
+          throw("Missing required fields: payment.card_number or customer.email")
+        }
+        meta processing_start = now()
         let key = env("CARD_ENCRYPTION_KEY_HEX").decode("hex")
         let key = if $key.length() != 32 { throw("Expected a 32-byte AES key") } else { $key }
 

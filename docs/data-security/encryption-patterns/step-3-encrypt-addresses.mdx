@@ -40,15 +40,21 @@ pipeline:
         root = this
 
         # Extract ZIP prefixes for demographic clustering
-        root.billing_address.zip_prefix = this.billing_address.zip.re_replace_all("[^0-9]", "").slice(0, 3)
-        root.shipping_address.zip_prefix = this.shipping_address.zip.re_replace_all("[^0-9]", "").slice(0, 3)
+        root.billing_address.zip_prefix = if this.billing_address.zip != null {
+          this.billing_address.zip.re_replace_all("[^0-9]", "").slice(0, 3)
+        }
+        root.shipping_address.zip_prefix = if this.shipping_address.zip != null {
+          this.shipping_address.zip.re_replace_all("[^0-9]", "").slice(0, 3)
+        }
 
         # Determine metro areas for regional analytics
-        let billing_metro = match {
-          this.billing_address.city.lowercase().re_match(".*(san francisco|sf).*") => "sf_bay_area"
-          this.billing_address.city.lowercase().re_match(".*(los angeles|la).*") => "la_metro"
-          _ => "other_urban"
-        }
+        let billing_metro = if this.billing_address.city != null {
+          match {
+            this.billing_address.city.lowercase().re_match(".*(san francisco|sf).*") => "sf_bay_area"
+            this.billing_address.city.lowercase().re_match(".*(los angeles|la).*") => "la_metro"
+            _ => "other_urban"
+          }
+        } else { null }
 
         # Encrypt precise location data
         let billing_address_street_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
@@ -73,11 +79,13 @@ pipeline:
         root.shipping_address.zip_nonce = if this.shipping_address.zip != null { $shipping_address_zip_nonce } else { deleted() }
 
         # Address relationship analysis
-        let shipping_metro = match {
-          this.shipping_address.city.lowercase().re_match(".*(san francisco|sf).*") => "sf_bay_area"
-          this.shipping_address.city.lowercase().re_match(".*(los angeles|la).*") => "la_metro"
-          _ => "other_urban"
-        }
+        let shipping_metro = if this.shipping_address.city != null {
+          match {
+            this.shipping_address.city.lowercase().re_match(".*(san francisco|sf).*") => "sf_bay_area"
+            this.shipping_address.city.lowercase().re_match(".*(los angeles|la).*") => "la_metro"
+            _ => "other_urban"
+          }
+        } else { null }
         root.billing_address.metro_area = $billing_metro
         root.shipping_address.metro_area = $shipping_metro
         root.address_analysis = {
@@ -88,7 +96,9 @@ pipeline:
 
         # Remove plaintext addresses
         root.billing_address = root.billing_address.without("street", "zip")
-        root.shipping_address = root.shipping_address.without("street", "zip")
+        root.shipping_address = if this.shipping_address != null {
+          root.shipping_address.without("street", "zip")
+        } else { deleted() }
 ```
 
 ## Verification

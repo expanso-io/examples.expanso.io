@@ -79,6 +79,8 @@ config:
               "gcm", $key, $name_nonce.decode("hex")
             ).encode("base64")
           }
+          # Keep the legacy public field name as an alias for existing consumers.
+          root.payment.cardholder_encrypted = root.payment.cardholder_name_encrypted
           root.payment.cardholder_name_nonce = if this.payment.cardholder_name != null {
             $name_nonce
           } else { deleted() }
@@ -140,6 +142,8 @@ config:
               "gcm", $key, $birth_nonce.decode("hex")
             ).encode("base64")
           }
+          # Keep the legacy field name as an encrypted compatibility alias.
+          root.customer.dob_encrypted = root.customer.date_of_birth_encrypted
           root.customer.date_of_birth_nonce = if this.customer.date_of_birth != null {
             $birth_nonce
           } else { deleted() }
@@ -173,7 +177,38 @@ config:
           root.billing_address.zip_nonce = if this.billing_address.zip != null {
             $zip_nonce
           } else { deleted() }
+          root.billing_address.zip_prefix = if this.billing_address.zip != null {
+            this.billing_address.zip.re_replace_all("[^0-9]", "").slice(0, 3)
+          }
           root.billing_address = root.billing_address.without("street", "zip")
+
+          # The original example exposed `address` rather than
+          # `billing_address`. Encrypt both shapes so legacy senders cannot
+          # leak plaintext while migrating to the newer contract.
+          let legacy_street_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+          let legacy_zip_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+          root.address.street_encrypted = if this.address.street != null {
+            this.address.street.encrypt_aes(
+              "gcm", $key, $legacy_street_nonce.decode("hex")
+            ).encode("base64")
+          }
+          root.address.street_nonce = if this.address.street != null {
+            $legacy_street_nonce
+          } else { deleted() }
+          root.address.zip_encrypted = if this.address.zip != null {
+            this.address.zip.encrypt_aes(
+              "gcm", $key, $legacy_zip_nonce.decode("hex")
+            ).encode("base64")
+          }
+          root.address.zip_nonce = if this.address.zip != null {
+            $legacy_zip_nonce
+          } else { deleted() }
+          root.address.zip_prefix = if this.address.zip != null {
+            this.address.zip.re_replace_all("[^0-9]", "").slice(0, 3)
+          }
+          root.address = if this.address != null {
+            root.address.without("street", "zip")
+          } else { deleted() }
 
       # Add encryption metadata
       - mapping: |
@@ -181,9 +216,11 @@ config:
           root.encryption_metadata = {
             "encrypted": true,
             "encryption_timestamp": now(),
+            "timestamp": now(),
             "key_version": env("KEY_VERSION").or("unknown"),
             "algorithm": "AES-256-GCM",
-            "node_id": env("NODE_ID").or("unknown")
+            "node_id": env("NODE_ID").or("unknown"),
+            "pipeline": "field-encryption"
           }
 
       # Validate no plaintext sensitive data remains
@@ -192,8 +229,13 @@ config:
           let sensitive_found = [
             if this.payment.card_number != null { "payment.card_number" },
             if this.payment.cvv != null { "payment.cvv" },
+            if this.payment.cardholder_name != null { "payment.cardholder_name" },
             if this.customer.ssn != null { "customer.ssn" },
-            if this.customer.email != null { "customer.email" }
+            if this.customer.email != null { "customer.email" },
+            if this.billing_address.street != null { "billing_address.street" },
+            if this.billing_address.zip != null { "billing_address.zip" },
+            if this.address.street != null { "address.street" },
+            if this.address.zip != null { "address.zip" }
           ].filter(v -> v != null)
           root = if $sensitive_found.length() > 0 {
             throw("Encryption validation failed: " + $sensitive_found.join(", "))
@@ -240,6 +282,28 @@ config:
             batching:
               count: 100
               period: 10s
+
+        - label: encrypted_kafka_archive
+          switch:
+            cases:
+              - check: env("ENCRYPTED_EVENTS_KAFKA_ENABLED").or("false") == "true"
+                output:
+                  kafka:
+                    addresses: ['${ENCRYPTED_EVENTS_KAFKA_TLS_BROKERS}']
+                    topic: '${ENCRYPTED_EVENTS_KAFKA_TOPIC}'
+                    key: '${! this.transaction_id }'
+                    tls:
+                      enabled: true
+                      root_cas_file: ${ENCRYPTED_EVENTS_KAFKA_CA_FILE}
+                    sasl:
+                      mechanism: SCRAM-SHA-512
+                      user: '${ENCRYPTED_EVENTS_KAFKA_USERNAME}'
+                      password: '${ENCRYPTED_EVENTS_KAFKA_PASSWORD}'
+              - output:
+                  drop: {}
+
+        - label: diagnostic_stdout
+          stdout: {}
 
 logger:
   level: INFO

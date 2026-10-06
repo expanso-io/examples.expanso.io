@@ -46,10 +46,17 @@ def parse_log(raw):
                 record = {"priority": int(priority), "timestamp": date, "hostname": host, "program": program, "pid": pid, "message": message, "facility": int(priority) // 8, "severity": severity, "level": "ERROR" if severity <= 3 else "WARN" if severity <= 4 else "INFO"}
                 kind = "syslog"
         elif "HTTP/" in text:
-            match = re.fullmatch(r'(\S+) \S+ \S+ \[([^]]+)\] "(\w+) (\S+) HTTP/([^"]+)" (\d+) (\d+|-)', text)
+            match = re.fullmatch(
+                r'(\S+) \S+ \S+ \[([^]]+)\] "(\w+) (\S+) HTTP/([^"]+)" '
+                r'(\d+) (\d+|-)(?: "([^"]*)" "([^"]*)")?',
+                text,
+            )
             if match:
-                ip, date, method, route, version, status, size = match.groups()
+                ip, date, method, route, version, status, size, referrer, user_agent = match.groups()
                 record = {"client_ip_hash": hashlib.sha256(ip.encode()).hexdigest()[:12], "timestamp": date, "method": method, "path": route, "http_version": version, "status": int(status), "bytes": 0 if size == "-" else int(size), "level": "ERROR" if int(status) >= 500 else "WARN" if int(status) >= 400 else "INFO"}
+                if referrer is not None:
+                    record["referrer"] = referrer
+                    record["user_agent"] = user_agent
                 kind = "access_log"
         elif "," in text:
             values = next(csv.reader([text]))

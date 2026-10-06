@@ -553,6 +553,38 @@ function readManifest(): StageManifest {
   return manifest as StageManifest;
 }
 
+async function refreshManifestDigests(
+  manifest: StageManifest
+): Promise<StageManifest> {
+  const explorers = await Promise.all(
+    manifest.explorers.map(async (binding) => {
+      const sourceStages = validateStageIdentity(
+        await loadExplorerStages(binding.exampleId, binding),
+        binding.exampleId,
+        true
+      );
+      if (sourceStages.length !== binding.stages.length) {
+        throw new Error(
+          `${binding.exampleId} stage count does not match its manifest`
+        );
+      }
+      const stages = binding.stages.map((stage, index) => {
+        const bytes =
+          binding.sourceKind === 'canonical-fragment-files'
+            ? readFileSync(stage.configPath, 'utf8')
+            : exactBytes(sourceStages[index].yamlCode ?? '');
+        return { ...stage, configSha256: sha256(bytes) };
+      });
+      return {
+        ...binding,
+        pipelineSha256: sha256(readFileSync(binding.canonicalPipelinePath)),
+        stages,
+      };
+    })
+  );
+  return { ...manifest, explorers };
+}
+
 async function bootstrap(): Promise<void> {
   if (existsSync(MANIFEST_PATH)) {
     throw new Error(
@@ -904,7 +936,11 @@ async function main(): Promise<void> {
     await bootstrap();
   }
 
-  const manifest = readManifest();
+  let manifest = readManifest();
+  if (writeMode) {
+    manifest = await refreshManifestDigests(manifest);
+    writeFileSync(MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`);
+  }
   const result = await validateAndRender(manifest);
   const publicCopies = JSON.parse(
     readFileSync('content/public-pipeline-copies.json', 'utf8')
@@ -915,11 +951,16 @@ async function main(): Promise<void> {
     if (!record?.completePipelinePath) {
       throw new Error(`No canonical pipeline for ${copy.exampleId}`);
     }
-    const canonical = readFileSync(record.completePipelinePath, 'utf8').replace(/[\t ]+$/gm, '');
+    const canonical = readFileSync(record.completePipelinePath, 'utf8').replace(
+      /[\t ]+$/gm,
+      ''
+    );
     if (writeMode) {
       writeFileSync(copy.copyPath, canonical);
     } else if (readFileSync(copy.copyPath, 'utf8') !== canonical) {
-      throw new Error(`${copy.copyPath} is stale; run npm run stages:canonical:write`);
+      throw new Error(
+        `${copy.copyPath} is stale; run npm run stages:canonical:write`
+      );
     }
   }
   if (result.stageCount !== 100) {

@@ -21,9 +21,13 @@ Derive an identifier from the source name, remove the name, then attach the iden
 - mapping: |
     root = this.without("user_name")
 
+    let user_salt = env("USER_SALT").or("")
+    let user_salt = if $user_salt == "" {
+      throw("USER_SALT is required")
+    } else { $user_salt }
     root.user_id = "user_" + this.user_name.hash(
       "hmac_sha256",
-      env("USER_SALT")
+      $user_salt
     ).encode("hex").slice(0, 12)
 ```
 

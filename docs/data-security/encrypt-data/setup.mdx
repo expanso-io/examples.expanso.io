@@ -50,9 +50,10 @@ Then inspect the [Complete reference configuration](/data-security/encrypt-data/
 
 ## Deployment contract
 
-- Terminate authenticated mTLS at a node-local proxy that is the only process allowed to reach `127.0.0.1:8080`.
+- Terminate authenticated mTLS at a node-local proxy; deny every other process access to `127.0.0.1:8080`.
 - Load the three 32-byte hexadecimal AES keys and `KEY_VERSION` from the deployment secret manager; grant the workload identity no access to unrelated keys.
 - Mount the payment-processor CA, client certificate, and client key read-only, and load both destination bearer tokens as secrets.
 - Restrict egress to the payment and analytics HTTPS origins. The payment destination must require the configured client certificate.
+- If the optional encrypted-event Kafka archive is enabled, mount the cluster CA read-only and use SCRAM-SHA-512 credentials whose ACL grants write access only to `ENCRYPTED_EVENTS_KAFKA_TOPIC`. Do not grant topic creation, cluster administration, or read access.
 
 This route is a configuration review, not a verified execution guide.

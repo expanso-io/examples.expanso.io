@@ -21,6 +21,7 @@ export interface PlatformRealismFinding {
 
 export interface PlatformRealismResult {
   examplesChecked: number;
+  edgeJobsChecked: number;
   manifestsChecked: number;
   stagesChecked: number;
   copiesChecked: number;
@@ -70,11 +71,27 @@ const requiredComponents = {
   'motherduck-retail-analytics': ['generate', 'parquet_encode', 'aws_s3'],
   'oran-telco-pipeline': ['http_client', 'kafka', 'file'],
   'scada-energy-edge': ['socket', 'kafka', 'file'],
-  'splunk-edge-processing': ['file_watcher', 'http_client', 'aws_s3'],
+  'splunk-edge-processing': ['file', 'http_client', 'aws_s3', 'kafka'],
   'enrich-export': ['generate', 'aws_s3'],
   'filter-severity': ['file', 'stdout'],
   'production-pipeline': ['http_server', 'http_client', 'aws_s3'],
 } as const satisfies Record<string, readonly string[]>;
+
+type EdgeValidationError = {
+  kind?: string;
+  path?: string;
+  message?: string;
+  line?: number;
+  column?: number;
+};
+
+type EdgeValidationEntry = {
+  source?: string;
+  valid?: boolean;
+  kind?: string;
+  note?: string;
+  errors?: EdgeValidationError[];
+};
 
 function isObject(value: OptionalYamlValue): value is YamlObject {
   return (
@@ -162,6 +179,99 @@ function finding(
   return { exampleId, file, path, rule, message };
 }
 
+export function validateCanonicalWithExpansoEdge(
+  root: string,
+  exampleId: string,
+  file: string
+): PlatformRealismFinding[] {
+  const binary = resolve(root, '.bin/expanso-edge');
+  const result = spawnSync(
+    binary,
+    ['validate', resolve(root, file), '--output', 'json'],
+    {
+      cwd: root,
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+    }
+  );
+
+  if (result.error) {
+    return [
+      finding(
+        exampleId,
+        file,
+        '$',
+        'expanso-edge-validation',
+        `pinned Expanso Edge validator could not run: ${result.error.message}`
+      ),
+    ];
+  }
+
+  let entries: EdgeValidationEntry[];
+  try {
+    entries = JSON.parse(result.stdout) as EdgeValidationEntry[];
+  } catch {
+    const detail = result.stderr.trim() || result.stdout.trim() || 'no output';
+    return [
+      finding(
+        exampleId,
+        file,
+        '$',
+        'expanso-edge-validation',
+        `pinned Expanso Edge validator returned unreadable output: ${detail}`
+      ),
+    ];
+  }
+
+  const entry = entries[0];
+  if (result.status !== 0 || entry?.valid !== true) {
+    const errors = entry?.errors ?? [];
+    if (errors.length === 0) {
+      return [
+        finding(
+          exampleId,
+          file,
+          '$',
+          'expanso-edge-validation',
+          entry?.note ??
+            result.stderr.trim() ??
+            'Expanso Edge rejected the pipeline'
+        ),
+      ];
+    }
+    return errors.map((error) =>
+      finding(
+        exampleId,
+        file,
+        error.path ?? '$',
+        'expanso-edge-validation',
+        [
+          error.line === undefined ? '' : `line ${error.line}`,
+          error.column === undefined ? '' : `column ${error.column}`,
+          error.kind ?? '',
+          error.message ?? 'Expanso Edge rejected the pipeline',
+        ]
+          .filter(Boolean)
+          .join(': ')
+      )
+    );
+  }
+
+  if (entry.kind !== 'pipeline-job') {
+    return [
+      finding(
+        exampleId,
+        file,
+        '$',
+        'typed-expanso-edge-job',
+        `canonical pipeline must validate as a typed pipeline job, got ${entry.kind ?? 'unknown'}${entry.note ? ` (${entry.note})` : ''}`
+      ),
+    ];
+  }
+
+  return [];
+}
+
 function inspectUrl(
   exampleId: string,
   file: string,
@@ -185,7 +295,8 @@ function inspectUrl(
 
   if (
     (/^http:\/\//i.test(url) && !isLoopbackOrClusterHttp(url)) ||
-    (isExternalHttpUrl(url) && /^\$\{/.test(url) &&
+    (isExternalHttpUrl(url) &&
+      /^\$\{/.test(url) &&
       (!isObject(component.tls) || component.tls.enabled !== true))
   ) {
     findings.push(
@@ -323,17 +434,33 @@ function inspectKafka(
   const sasl = isObject(component.sasl) ? component.sasl : {};
 
   const hasSasl =
-    isString(sasl.mechanism) && sasl.mechanism.length > 0 &&
-    isString(sasl.user) && sasl.user.length > 0 &&
-    isString(sasl.password) && sasl.password.length > 0;
-  const hasClientCertificate = Array.isArray(tls.client_certs) &&
-    tls.client_certs.some((cert) => isObject(cert) &&
-      isString(cert.cert_file) && cert.cert_file.length > 0 &&
-      isString(cert.key_file) && cert.key_file.length > 0);
+    isString(sasl.mechanism) &&
+    sasl.mechanism.length > 0 &&
+    isString(sasl.user) &&
+    sasl.user.length > 0 &&
+    isString(sasl.password) &&
+    sasl.password.length > 0;
+  const hasClientCertificate =
+    Array.isArray(tls.client_certs) &&
+    tls.client_certs.some(
+      (cert) =>
+        isObject(cert) &&
+        isString(cert.cert_file) &&
+        cert.cert_file.length > 0 &&
+        isString(cert.key_file) &&
+        cert.key_file.length > 0
+    );
 
   if (!hasSasl && !hasClientCertificate) {
-    findings.push(finding(exampleId, file, path, 'kafka-auth',
-      'Kafka output must configure SASL credentials or a client certificate and key'));
+    findings.push(
+      finding(
+        exampleId,
+        file,
+        path,
+        'kafka-auth',
+        'Kafka output must configure SASL credentials or a client certificate and key'
+      )
+    );
   }
 
   return findings;
@@ -463,20 +590,7 @@ function inspectGcpCloudStorage(
   component: YamlObject
 ): PlatformRealismFinding[] {
   const findings: PlatformRealismFinding[] = [];
-  const bucket = isString(component.bucket) ? component.bucket : '';
   const objectPath = isString(component.path) ? component.path : '';
-
-  if (!/^\$\{[A-Z0-9_]+\}$/.test(bucket)) {
-    findings.push(
-      finding(
-        exampleId,
-        file,
-        path,
-        'gcs-deployment-bucket',
-        'GCS bucket must be supplied by the deployment without a literal fallback'
-      )
-    );
-  }
 
   if (/\.gz$/.test(objectPath) && component.content_encoding !== 'gzip') {
     findings.push(
@@ -573,7 +687,7 @@ function inspectTree(
       );
     }
 
-    if (key === 'path' && isString(child) && child.startsWith('/tmp/')) {
+    if (key === 'path' && isString(child) && child.includes('/tmp/')) {
       findings.push(
         finding(
           exampleId,
@@ -821,10 +935,23 @@ export function validatePlatformYamlSource(
 
 export function tutorialYamlConfigurations(markdown: string): string[] {
   const results: string[] = [];
-  const fence = /^([ \t]*)\x60{3}(?:yaml|yml)(?:[ \t][^\n]*)?\n([\s\S]*?)^\1\x60{3}[ \t]*$/gm;
+  const fence =
+    /^([ \t]*)\x60{3}(?:yaml|yml)(?:[ \t][^\n]*)?\n([\s\S]*?)^\1\x60{3}[ \t]*$/gm;
   for (const match of markdown.matchAll(fence)) {
-    const indent = Math.min(...match[2].split('\n').filter(line => line.trim()).map(line => line.match(/^[ \t]*/)[0].length));
-    results.push(match[2].split('\n').map(line => line.slice(0, indent).trim() === '' ? line.slice(indent) : line).join('\n'));
+    const indent = Math.min(
+      ...match[2]
+        .split('\n')
+        .filter((line) => line.trim())
+        .map((line) => line.match(/^[ \t]*/)[0].length)
+    );
+    results.push(
+      match[2]
+        .split('\n')
+        .map((line) =>
+          line.slice(0, indent).trim() === '' ? line.slice(indent) : line
+        )
+        .join('\n')
+    );
   }
   return results;
 }
@@ -838,12 +965,21 @@ export async function validatePublishedPlatformExamples(
 
   const findings: PlatformRealismFinding[] = [];
 
+  let edgeJobsChecked = 0;
   let stagesChecked = 0;
   let copiesChecked = 0;
   let tutorialsChecked = 0;
   const stageManifest = JSON.parse(
-    await readFile(resolve(root, 'content/explorer-stage-bindings-v1.json'), 'utf8')
-  ) as { explorers: { exampleId: string; stages: { id: number; configPath: string }[] }[] };
+    await readFile(
+      resolve(root, 'content/explorer-stage-bindings-v1.json'),
+      'utf8'
+    )
+  ) as {
+    explorers: {
+      exampleId: string;
+      stages: { id: number; configPath: string }[];
+    }[];
+  };
   const publicCopies = JSON.parse(
     await readFile(resolve(root, 'content/public-pipeline-copies.json'), 'utf8')
   ) as { exampleId: string; copyPath?: string }[];
@@ -866,9 +1002,21 @@ export async function validatePublishedPlatformExamples(
 
     try {
       const source = await readFile(absolutePath, 'utf8');
-      findings.push(...await validatePlatformPayloadContracts(source, {
-        exampleId: record.id, file: record.completePipelinePath, root,
-      }));
+      edgeJobsChecked += 1;
+      findings.push(
+        ...validateCanonicalWithExpansoEdge(
+          root,
+          record.id,
+          record.completePipelinePath
+        )
+      );
+      findings.push(
+        ...(await validatePlatformPayloadContracts(source, {
+          exampleId: record.id,
+          file: record.completePipelinePath,
+          root,
+        }))
+      );
       findings.push(
         ...validatePlatformYamlSource(source, {
           exampleId: record.id,
@@ -876,48 +1024,127 @@ export async function validatePublishedPlatformExamples(
           requiredComponents: requiredComponents[record.id],
         })
       );
-      for (const copy of publicCopies.filter((item) => item.exampleId === record.id && item.copyPath)) {
-        const copySource = await readFile(resolve(root, copy.copyPath!), 'utf8');
+      for (const copy of publicCopies.filter(
+        (item) => item.exampleId === record.id && item.copyPath
+      )) {
+        const copySource = await readFile(
+          resolve(root, copy.copyPath!),
+          'utf8'
+        );
         copiesChecked += 1;
-        findings.push(...validatePlatformYamlSource(copySource, {
-          exampleId: record.id,
-          file: copy.copyPath!,
-          requiredComponents: requiredComponents[record.id],
-        }));
-        findings.push(...await validatePlatformPayloadContracts(copySource, {
-          exampleId: record.id, file: copy.copyPath!, root,
-        }));
-        const normalized = (yaml: string) => parseAllDocuments(yaml.replace(/[\t ]+$/gm, '')).map((document) => document.toJS());
+        findings.push(
+          ...validatePlatformYamlSource(copySource, {
+            exampleId: record.id,
+            file: copy.copyPath!,
+            requiredComponents: requiredComponents[record.id],
+          })
+        );
+        findings.push(
+          ...(await validatePlatformPayloadContracts(copySource, {
+            exampleId: record.id,
+            file: copy.copyPath!,
+            root,
+          }))
+        );
+        const normalized = (yaml: string) =>
+          parseAllDocuments(yaml.replace(/[\t ]+$/gm, '')).map((document) =>
+            document.toJS()
+          );
         if (!isDeepStrictEqual(normalized(copySource), normalized(source))) {
-          findings.push(finding(record.id, copy.copyPath!, '$', 'canonical-copy',
-            'public pipeline copy differs from its canonical configuration'));
+          findings.push(
+            finding(
+              record.id,
+              copy.copyPath!,
+              '$',
+              'canonical-copy',
+              'public pipeline copy differs from its canonical configuration'
+            )
+          );
         }
       }
-      const tutorialPaths = await glob('docs' + record.routes.overview + '**/*.mdx', { cwd: root, nodir: true });
+      const tutorialPaths = await glob(
+        'docs' + record.routes.overview + '**/*.mdx',
+        { cwd: root, nodir: true }
+      );
       for (const tutorialPath of tutorialPaths.sort()) {
         const markdown = await readFile(resolve(root, tutorialPath), 'utf8');
+        for (const match of markdown.matchAll(
+          /\bexpanso-edge\s+run\s+--config\b/g
+        )) {
+          const line = markdown.slice(0, match.index).split('\n').length;
+          findings.push(
+            finding(
+              record.id,
+              tutorialPath,
+              `line ${line}`,
+              'unsupported-edge-run-config',
+              'expanso-edge run --config is not a supported deployment command; validate the typed job and deploy it with expanso-cli'
+            )
+          );
+        }
+        const firstDeploy = markdown.search(
+          /^[ \t]*expanso-cli(?:[ \t]+--[^\n]+)?[ \t]+job[ \t]+deploy\b/m
+        );
+        const firstValidation = markdown.search(
+          /^[ \t]*expanso-edge[ \t]+validate\b/m
+        );
+        if (
+          firstDeploy >= 0 &&
+          (firstValidation < 0 || firstDeploy < firstValidation)
+        ) {
+          const line = markdown.slice(0, firstDeploy).split('\n').length;
+          findings.push(
+            finding(
+              record.id,
+              tutorialPath,
+              `line ${line}`,
+              'validate-before-deploy',
+              'deployment instructions must validate the typed job with expanso-edge before expanso-cli deploys it'
+            )
+          );
+        }
         if (!/^contentArchetype: step$/m.test(markdown)) continue;
-        for (const [index, configuration] of tutorialYamlConfigurations(markdown).entries()) {
+        for (const [index, configuration] of tutorialYamlConfigurations(
+          markdown
+        ).entries()) {
           tutorialsChecked += 1;
-          const options = { exampleId: record.id, file: tutorialPath + '#yaml-' + (index + 1), root };
+          const options = {
+            exampleId: record.id,
+            file: tutorialPath + '#yaml-' + (index + 1),
+            root,
+          };
           findings.push(...validatePlatformYamlSource(configuration, options));
-          findings.push(...await validatePlatformPayloadContracts(configuration, options));
-          findings.push(...validateDeploymentManifestSource(configuration, options));
+          findings.push(
+            ...(await validatePlatformPayloadContracts(configuration, options))
+          );
+          findings.push(
+            ...validateDeploymentManifestSource(configuration, options)
+          );
         }
       }
-      const family = stageManifest.explorers.find((item) => item.exampleId === record.id);
+      const family = stageManifest.explorers.find(
+        (item) => item.exampleId === record.id
+      );
       for (const stage of family?.stages ?? []) {
         const stageSource = stage.configPath.includes('#')
-          ? GENERATED_EXPLORER_STAGE_CONFIGS[record.id].stages.find((item) => item.id === stage.id)!.yamlCode
+          ? GENERATED_EXPLORER_STAGE_CONFIGS[record.id].stages.find(
+              (item) => item.id === stage.id
+            )!.yamlCode
           : await readFile(resolve(root, stage.configPath), 'utf8');
         stagesChecked += 1;
-        findings.push(...validatePlatformYamlSource(stageSource, {
-          exampleId: record.id,
-          file: stage.configPath,
-        }));
-        findings.push(...await validatePlatformPayloadContracts(stageSource, {
-          exampleId: record.id, file: stage.configPath, root,
-        }));
+        findings.push(
+          ...validatePlatformYamlSource(stageSource, {
+            exampleId: record.id,
+            file: stage.configPath,
+          })
+        );
+        findings.push(
+          ...(await validatePlatformPayloadContracts(stageSource, {
+            exampleId: record.id,
+            file: stage.configPath,
+            root,
+          }))
+        );
       }
     } catch (error) {
       findings.push(
@@ -930,8 +1157,6 @@ export async function validatePublishedPlatformExamples(
         )
       );
     }
-
-
   }
 
   const manifestPaths = await glob('**/*.{yaml,yml}', {
@@ -965,6 +1190,7 @@ export async function validatePublishedPlatformExamples(
 
   return {
     examplesChecked: published.length,
+    edgeJobsChecked,
     manifestsChecked,
     stagesChecked,
     copiesChecked,
@@ -982,8 +1208,12 @@ export async function validatePlatformPayloadContracts(
   function collect(value: unknown): void {
     if (!value || typeof value !== 'object') return;
     const object = value as YamlObject;
-    if (isObject(object.http_client) && isString(object.http_client.url) &&
-        /SLACK|hooks\.slack\.com/i.test(object.http_client.url)) outputs.push(object);
+    if (
+      isObject(object.http_client) &&
+      isString(object.http_client.url) &&
+      /SLACK|hooks\.slack\.com/i.test(object.http_client.url)
+    )
+      outputs.push(object);
     for (const child of Object.values(object)) collect(child);
   }
   for (const document of parseAllDocuments(source)) {
@@ -991,24 +1221,54 @@ export async function validatePlatformPayloadContracts(
   }
   const findings: PlatformRealismFinding[] = [];
   for (const output of outputs) {
-    const scratch = await mkdtemp(resolve(options.root ?? repositoryRoot, '.nm-payload-'));
+    const scratch = await mkdtemp(
+      resolve(options.root ?? repositoryRoot, '.nm-payload-')
+    );
     try {
       const file = resolve(scratch, 'payload.yaml');
-      await writeFile(file, stringify({
-        http: { enabled: false }, input: { stdin: { codec: 'lines' } },
-        pipeline: { processors: output.processors ?? [] },
-        output: { stdout: { codec: 'lines' } }, logger: { level: 'ERROR' },
-      }));
-      const result = spawnSync(process.execPath, [resolve(repositoryRoot, 'scripts/edge-contract-runtime.mjs'), file], {
-        input: JSON.stringify({ severity: 'WARN', source: 'fixture', message: 'Synthetic warning', timestamp: '2026-10-05T00:00:00Z' }) + '\n',
-        encoding: 'utf8', timeout: 10000,
-      });
-      const payload = result.status === 0 && result.stdout.trim()
-        ? JSON.parse(result.stdout.trim()) : null;
-      if (!payload || !(typeof payload.text === 'string' && payload.text.trim()) &&
-          !(Array.isArray(payload.blocks) && payload.blocks.length > 0)) {
-        findings.push(finding(options.exampleId, options.file, '$', 'slack-payload',
-          'Slack output must produce nonempty text or blocks for its warning input'));
+      await writeFile(
+        file,
+        stringify({
+          http: { enabled: false },
+          input: { stdin: { codec: 'lines' } },
+          pipeline: { processors: output.processors ?? [] },
+          output: { stdout: { codec: 'lines' } },
+          logger: { level: 'ERROR' },
+        })
+      );
+      const result = spawnSync(
+        process.execPath,
+        [resolve(repositoryRoot, 'scripts/edge-contract-runtime.mjs'), file],
+        {
+          input:
+            JSON.stringify({
+              severity: 'WARN',
+              source: 'fixture',
+              message: 'Synthetic warning',
+              timestamp: '2026-10-05T00:00:00Z',
+            }) + '\n',
+          encoding: 'utf8',
+          timeout: 10000,
+        }
+      );
+      const payload =
+        result.status === 0 && result.stdout.trim()
+          ? JSON.parse(result.stdout.trim())
+          : null;
+      if (
+        !payload ||
+        (!(typeof payload.text === 'string' && payload.text.trim()) &&
+          !(Array.isArray(payload.blocks) && payload.blocks.length > 0))
+      ) {
+        findings.push(
+          finding(
+            options.exampleId,
+            options.file,
+            '$',
+            'slack-payload',
+            'Slack output must produce nonempty text or blocks for its warning input'
+          )
+        );
       }
     } finally {
       await rm(scratch, { recursive: true, force: true });
@@ -1027,7 +1287,7 @@ async function main() {
   }
 
   console.log(
-    `Platform realism ${result.status}: ${result.examplesChecked} published examples / ${result.manifestsChecked} deployment manifests / ${result.stagesChecked} stages / ${result.copiesChecked} copies / ${result.tutorialsChecked} tutorial configurations / ${result.findings.length} findings.`
+    `Platform realism ${result.status}: ${result.examplesChecked} published examples / ${result.edgeJobsChecked} typed Edge jobs / ${result.manifestsChecked} deployment manifests / ${result.stagesChecked} stages / ${result.copiesChecked} copies / ${result.tutorialsChecked} tutorial configurations / ${result.findings.length} findings.`
   );
 
   if (result.status === 'FAIL') process.exitCode = 1;

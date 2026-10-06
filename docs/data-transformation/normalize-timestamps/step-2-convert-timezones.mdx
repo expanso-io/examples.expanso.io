@@ -31,22 +31,23 @@ You will modify your pipeline to take the `normalized_timestamp` from the previo
     cp normalize-timestamps.yaml convert-timezones.yaml
     ```
 
-2.  **Add the Timezone Conversion Logic:** Open `convert-timezones.yaml` and add the conversion logic to the bottom of the existing `mapping` processor.
+2.  **Add the Timezone Conversion Logic:** Open `convert-timezones.yaml` and add a conversion processor after the parsing processor.
 
-    ```bloblang title="Add this to the 'mapping' processor in convert-timezones.yaml"
-    # --- Logic from Step 1 (Parsing) ---
-    # (The existing timestamp parsing logic remains here)
-
-    # --- START: New additions for Timezone Conversion ---
-
-    # Convert the parsed timestamp to a standard UTC string
-    root.timestamp_utc = this.normalized_timestamp.ts_format_iso8601("UTC")
-
-    # For auditing, it's good practice to also extract the original timezone offset
-    root.original_timezone = this.normalized_timestamp.ts_format("Z")
-
-    # --- END: New additions ---
-        ```
+    ```yaml title="Add UTC conversion to convert-timezones.yaml"
+    pipeline:
+      processors:
+        - mapping: |
+            root = this
+            let parsed = this.normalized_timestamp.ts_parse(
+              "2006-01-02T15:04:05Z07:00"
+            )
+            root.timestamp_utc = $parsed.ts_format(
+              "2006-01-02T15:04:05Z", "UTC"
+            )
+            root.original_timezone = this.original_timestamp.string().re_find_all(
+              "(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+            ).index(0).or("unknown")
+    ```
 
 3.  **Deploy and Test:**
 

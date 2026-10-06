@@ -63,37 +63,52 @@ You will transform the `payment` object by:
 
     ```yaml title="Add this to the 'processors' array in encrypt-card.yaml"
     - mapping: |
-        # Clean the card number of any spaces or dashes
+        root = this
+        let key = env("CARD_ENCRYPTION_KEY_HEX").decode("hex")
+        let key = if $key.length() != 32 {
+          throw("Expected a 32-byte AES key")
+        } else { $key }
         let clean_card = this.payment.card_number.re_replace_all("[^0-9]", "")
+        let number_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+        let name_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
 
-        # Encrypt the full, clean card number
-        root.payment.card_number_encrypted = clean_card.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
-
-        # Extract the last 4 digits for analytics and customer service
-        root.payment.card_last_four = clean_card.slice(-4)
-
-        # Detect the card brand from the first digit (BIN range)
-        root.payment.card_brand = if clean_card.has_prefix("4") {
-          "visa"
-        } else if clean_card.re_match("^5[1-5].*") {
-          "mastercard"
-        } else if clean_card.re_match("^3[47].*") {
-          "american_express"
-        } else {
-          "unknown"
+        root.payment.card_number_encrypted = if this.payment.card_number != null {
+          this.payment.card_number.encrypt_aes(
+            "gcm", $key, $number_nonce.decode("hex")
+          ).encode("base64")
         }
-
-        # CRITICAL: Remove the original plaintext card number field
-        root.payment = this.payment.without("card_number")
+        root.payment.card_number_nonce = if this.payment.card_number != null {
+          $number_nonce
+        } else { deleted() }
+        root.payment.card_last_four = clean_card.slice(-4)
+        root.payment.card_brand = match {
+          clean_card.has_prefix("4") => "visa"
+          clean_card.re_match("^5[1-5]") => "mastercard"
+          clean_card.re_match("^3[47]") => "amex"
+          clean_card.re_match("^6(?:011|5)") => "discover"
+          _ => "unknown"
+        }
+        root.payment.cardholder_name_encrypted = if this.payment.cardholder_name != null {
+          this.payment.cardholder_name.encrypt_aes(
+            "gcm", $key, $name_nonce.decode("hex")
+          ).encode("base64")
+        }
+        root.payment.cardholder_encrypted = root.payment.cardholder_name_encrypted
+        root.payment.cardholder_name_nonce = if this.payment.cardholder_name != null {
+          $name_nonce
+        } else { deleted() }
+        root.payment = root.payment.without(
+          "card_number", "cvv", "cardholder_name"
+        )
     ```
 
-    _Note: Remember to set the `CARD_ENCRYPTION_KEY` environment variable as described in the `setup.mdx` guide._
+    _Note: Set `CARD_ENCRYPTION_KEY_HEX` to a deployment-managed, 32-byte key encoded as hexadecimal._
 
 3.  **Deploy and Test:**
 
     ```bash
     # Send the sample payment data from the setup step
-    curl -X POST http://localhost:8080/events/payment \
+    curl -X POST http://localhost:8080/payments/transactions \
       -H "Content-Type: application/json" \
       -d @/tmp/encryption-test/sample-payment.json
     ```

@@ -1,5 +1,10 @@
 name: multi-format-log-parser
+description: Parse structured JSON, Apache, syslog, and CSV records at the edge.
 type: pipeline
+namespace: examples
+labels:
+  category: data-transformation
+  pattern: multi-format-parsing
 config:
   input:
     broker:
@@ -20,6 +25,9 @@ config:
           args_mapping: root = ["run", "--no-project", env("RECORD_CODECS_SCRIPT"), "parse-log"]
       - catch:
           - mapping: 'root = {"format": "parse_failed", "parse_error": error(), "raw_content": content().string()}'
+      - mapping: |
+          root = this
+          root.node_id = env("NODE_ID").or("unknown")
   output:
     switch:
       cases:

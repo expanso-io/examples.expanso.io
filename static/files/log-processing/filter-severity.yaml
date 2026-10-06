@@ -60,6 +60,18 @@ config:
                   file:
                     path: ${LOG_OUTPUT_PATH}/unrouted-logs.json
                     codec: lines
+        - http_client:
+            url: '${ELASTICSEARCH_HTTPS_URL}/filtered-logs-${! now().ts_format("2006-01-02") }/_doc/${! uuid_v4() }'
+            verb: PUT
+            headers:
+              Authorization: 'ApiKey ${ELASTICSEARCH_API_KEY}'
+              Content-Type: application/json
+            tls:
+              enabled: true
+              root_cas_file: ${ELASTICSEARCH_CA_FILE}
+            retries: 3
+            retry_period: 1s
+            max_retry_backoff: 30s
 logger:
   level: INFO
   format: json

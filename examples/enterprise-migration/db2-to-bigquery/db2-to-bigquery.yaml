@@ -57,10 +57,14 @@ config:
       # Keep last 4 digits for reconciliation, hash full number for joins
       - mapping: |
           root = this
+          let account_hash_key = env("ACCOUNT_HASH_KEY").or("")
+          let account_hash_key = if $account_hash_key == "" {
+            throw("ACCOUNT_HASH_KEY is required")
+          } else { $account_hash_key }
           root.account_number_masked = "****-****-" + this.ACCOUNT_NUMBER.slice(-4)
           root.account_number_hash = this.ACCOUNT_NUMBER.hash(
             "hmac_sha256",
-            env("ACCOUNT_HASH_KEY")
+            $account_hash_key
           ).encode("hex")
           root = root.without("ACCOUNT_NUMBER")
 

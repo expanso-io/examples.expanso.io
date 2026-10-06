@@ -44,8 +44,7 @@ input:
       }
 
       # Payment method
-      root.payment_method = ["card", "card", "card", "cash", "mobile", "gift_card"]
-        .index(random_int(min: 0, max: 5))
+      root.payment_method = ["card", "card", "card", "cash", "mobile", "gift_card"].index(random_int(min: 0, max: 5))
 
       # Employee/cashier
       root.employee_id = "EMP-" + random_int(min: 1000, max: 9999).string()
@@ -65,10 +64,10 @@ input:
       )
 
       # Calculate totals
-      root.subtotal = root.items.map_each(this.qty * this.unit_price).sum().round(2)
+      root.subtotal = (root.items.map_each(this.qty * this.unit_price).sum() * 100).round() / 100
       root.tax_rate = 0.0875
-      root.tax_amount = (root.subtotal * root.tax_rate).round(2)
-      root.total_amount = (root.subtotal + root.tax_amount).round(2)
+      root.tax_amount = (root.subtotal * root.tax_rate * 100).round() / 100
+      root.total_amount = ((root.subtotal + root.tax_amount) * 100).round() / 100
 
       # Returns are negative
       root = if root.type == "return" {
@@ -77,7 +76,7 @@ input:
           "tax_amount": -root.tax_amount,
           "total_amount": -root.total_amount
         })
-      }
+      } else { root }
 ```
 
 ## Test It
@@ -91,7 +90,7 @@ output:
 ```
 
 ```bash
-expanso-edge run --config pos-generator.yaml
+expanso-edge validate pos-generator.yaml
 ```
 
 You should see transactions flowing:
