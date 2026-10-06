@@ -55,19 +55,13 @@ This is implemented in a single `mapping` processor:
 
     config:
       input:
-        generate:
-          count: 1
-          interval: 1s
-          mapping: |
-            root = [
-              {"event_id": "A", "timestamp": "2025-10-20T18:23:45Z"},
-              {"event_id": "B", "timestamp": 1729450425}
-            ]
+        http_server:
+          address: 127.0.0.1:8080
+          path: /ingest
+          allowed_verbs: [POST]
 
       pipeline:
         processors:
-          - unarchive:
-              format: json_array
           - mapping: |
               root = this
               root.original_timestamp = this.timestamp
@@ -85,8 +79,16 @@ This is implemented in a single `mapping` processor:
           codec: lines
     ```
 
-2.  **Deploy and Test:** Run the bounded job. It emits one ISO 8601 sample and
-    one Unix-timestamp sample, then completes.
+2.  **Deploy and Test:** Deploy the pipeline, then send each event to the HTTP input.
+
+    ```bash
+    curl -X POST http://localhost:8080/ingest \
+      -H "Content-Type: application/json" \
+      -d '{"event_id":"A","timestamp":"2025-10-20T18:23:45Z"}'
+    curl -X POST http://localhost:8080/ingest \
+      -H "Content-Type: application/json" \
+      -d '{"event_id":"B","timestamp":1729450425}'
+    ```
 
 3.  **Verify:**
     Check your logs. You will see two output messages. Both will have a `normalized_timestamp` field. Although the original formats were different, the normalized versions will both represent the same point in time.

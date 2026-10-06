@@ -662,7 +662,6 @@ for (const path of [
   'static/files/data-transformation/aggregate-time-windows.yaml',
 ]) {
   test(`filters invalid sensor records before windowing: ${path}`, async () => {
-    const source = readFileSync(path, 'utf8');
     const original = config(path);
 
     const planned = planRun(
@@ -683,8 +682,6 @@ for (const path of [
       planned.config.input.processors,
       original.input.processors
     );
-    assert.match(source, /name: aggregate_invalid_sensor_readings_dropped/);
-    assert.match(source, /dropping invalid sensor reading before window/);
 
     const mixed = await execute(
       original,

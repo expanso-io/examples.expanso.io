@@ -1886,3 +1886,150 @@ test('selected O-RAN polling inputs resolve their original cadences', () => {
     assert.equal(result.status, 'PASS', JSON.stringify(result.errors));
   }
 });
+
+test('selected SCADA register parser emits scaled measurements', async () => {
+  const source = readFileSync(
+    'examples/integrations/scada-step-1-parse.yaml',
+    'utf8'
+  );
+  const registers = [40001, 40003, 40005, 40007, 40009];
+  const rows = [];
+  for (const reg of registers) {
+    const bytes = Buffer.from(
+      `REG=${reg};VAL=14823;TS=1708290845;DEVICE=RTU-07A;STATUS=0`
+    );
+    rows.push(JSON.parse((await execute(source, [], false, bytes)).toString()));
+  }
+  assert.equal(rows.length, registers.length);
+  for (const [index, row] of rows.entries()) {
+    assert.equal(row.register, registers[index]);
+    assert.equal(row.raw_value, 14823);
+    assert.equal(row.device_id, 'RTU-07A');
+    assert.equal(row.status, 0);
+    assert.equal(row['@timestamp'], 1708290845);
+    const measurement = [
+      'voltage_kv',
+      'current_a',
+      'frequency_hz',
+      'temp_c',
+      'power_mw',
+    ][index];
+    assert.equal(
+      row[measurement],
+      index === 0 || index === 2 ? 148.23 : 1482.3
+    );
+    assert.equal(
+      ['voltage_kv', 'current_a', 'frequency_hz', 'temp_c', 'power_mw'].filter(
+        (field) => Object.hasOwn(row, field)
+      ).length,
+      1
+    );
+  }
+});
+
+for (const stage of [1, 2, 3]) {
+  test(`selected timestamp tutorial stage ${stage} accepts published HTTP requests`, async () => {
+    const config = parse(
+      pageBlocks(
+        'docs/data-transformation/normalize-timestamps/step-1-parse-formats.mdx'
+      )[0].source
+    ).config;
+    for (const path of [
+      'docs/data-transformation/normalize-timestamps/step-2-convert-timezones.mdx',
+      'docs/data-transformation/normalize-timestamps/step-3-enrich-metadata.mdx',
+    ].slice(0, stage - 1)) {
+      config.pipeline.processors.push(
+        ...parse(pageBlocks(path)[0].source).pipeline.processors
+      );
+    }
+    const validation = validateSource(edge, root, stringify(config));
+    assert.equal(validation.status, 'PASS', JSON.stringify(validation.errors));
+    const scratch = join(work, `timestamp-http-${stage}`);
+    mkdirSync(scratch);
+    const httpAgent = new LocalEdgeAgent(edge, scratch);
+    const records = readFileSync(
+      'tests/fixtures/pipeline-inputs/timestamp-tutorial.jsonl',
+      'utf8'
+    )
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    let output = '';
+    try {
+      await httpAgent.start();
+      const deployed = await httpAgent.deploy({
+        name: `timestamp-http-${stage}`,
+        type: 'pipeline',
+        config,
+      });
+      assert.ok(deployed.ok, JSON.stringify(deployed));
+      if (!deployed.ok) throw new Error(deployed.error);
+      for (const record of records) {
+        const deadline = Date.now() + 10000;
+        let response: Response | undefined;
+        while (!response && Date.now() < deadline) {
+          try {
+            response = await fetch('http://localhost:8080/ingest', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(record),
+              signal: AbortSignal.timeout(2000),
+            });
+          } catch {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
+        }
+        assert.ok(response, 'published HTTP input did not start');
+        assert.equal(response.status, 200, await response.text());
+      }
+      const deadline = Date.now() + 10000;
+      let state = '';
+      while (Date.now() < deadline) {
+        state = (await httpAgent.executionStatus(deployed.jobId))?.state ?? '';
+        if (state === 'running' || state === 'failed') break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      assert.equal(state, 'running');
+    } finally {
+      await httpAgent.stop();
+      output = readFileSync(httpAgent.logPath, 'utf8');
+    }
+    const rows = output.split('\n').flatMap((line) => {
+      try {
+        const row = JSON.parse(line);
+        return row.event_id ? [row] : [];
+      } catch {
+        return [];
+      }
+    });
+    assert.equal(rows.length, records.length, output);
+    for (const record of records) {
+      const row = rows.find((row) => row.event_id === record.event_id);
+      assert.ok(row);
+      assert.equal(row.original_timestamp, record.timestamp);
+      const utc =
+        typeof record.timestamp === 'number'
+          ? new Date(record.timestamp * 1000)
+              .toISOString()
+              .replace('.000Z', 'Z')
+          : '2025-10-20T18:23:45Z';
+      assert.equal(row.normalized_timestamp, utc);
+      if (stage >= 2) {
+        assert.equal(row.timestamp_utc, utc);
+        assert.equal(
+          row.original_timezone,
+          record.event_id === 'C' ? '-04:00' : '+00:00'
+        );
+      }
+      if (stage === 3 && record.event_id !== 'B') {
+        assert.deepEqual(row.time_metadata, {
+          year: 2025,
+          month: 10,
+          day: 20,
+          hour: 18,
+          day_of_week: 1,
+        });
+      }
+    }
+  });
+}

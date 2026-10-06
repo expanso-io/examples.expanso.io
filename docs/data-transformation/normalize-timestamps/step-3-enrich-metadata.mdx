@@ -31,15 +31,15 @@ You will add a `time_metadata` object to your events that contains useful, pre-c
     cp convert-timezones.yaml enrich-timestamps.yaml
     ```
 
-2.  **Add the Enrichment Logic:** Open `enrich-timestamps.yaml` and add the enrichment logic to the bottom of the existing `mapping` processor.
+2.  **Add the Enrichment Logic:** Open `enrich-timestamps.yaml` and add the following `mapping` processor after the timezone conversion processor.
 
-    The surrounding pipeline context keeps this partial snippet executable. Copy the mapping body into your existing processor.
+    The surrounding pipeline context keeps this partial snippet executable. Keep the HTTP input from Step 1 and append this processor to `pipeline.processors`.
 
     ```yaml title="Partial snippet: timestamp metadata mapping"
     pipeline:
       processors:
         - mapping: |
-            # The existing parsing and timezone conversion logic remains here.
+            root = this
             let ts = this.timestamp_utc.ts_parse("2006-01-02T15:04:05Z07:00")
             root.time_metadata = {
               "year": $ts.ts_format("2006", "UTC").number(),
