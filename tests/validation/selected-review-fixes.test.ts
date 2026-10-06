@@ -6,6 +6,7 @@ import {
   readFileSync,
   writeFileSync,
   rmSync,
+  symlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
@@ -23,6 +24,7 @@ import {
   validateSource,
 } from '../../scripts/validation/edge';
 import { wrapFragment } from '../../scripts/validation/harness';
+import { verifyOutputs } from '../../scripts/validation/expectations';
 
 const root = process.cwd();
 
@@ -622,20 +624,22 @@ test('published ORAN timestamps use seconds and preserve fractional precision', 
   assert.equal(output.validation.timestamp, fractional.timestamp_iso);
 });
 
-test('published database circuit breaker enriches a healthy PostgreSQL result', async () => {
+async function withPostgres(check: (dsn: string) => Promise<void>) {
   const location = spawnSync('pg_config', ['--bindir'], { encoding: 'utf8' });
   assert.equal(location.status, 0, location.error?.message ?? location.stderr);
   const binaries = location.stdout.trim();
-  const database = join(work, 'postgres');
+  const database = mkdtempSync(join(work, 'postgres-'));
   const run = (command: string, args: string[]) => {
     const result = spawnSync(join(binaries, command), args, {
       encoding: 'utf8',
-      timeout: 20_000,
+      timeout: 45_000,
     });
     assert.equal(
       result.status,
       0,
-      result.error?.message ?? result.stderr + result.stdout
+      [result.error?.message, result.stderr, result.stdout]
+        .filter(Boolean)
+        .join('\n')
     );
   };
   run('initdb', [
@@ -646,6 +650,7 @@ test('published database circuit breaker enriches a healthy PostgreSQL result', 
     '-U',
     'fixture',
     '--no-locale',
+    '--no-sync',
   ]);
   const reservation = createServer();
   await new Promise<void>((resolve, reject) => {
@@ -683,6 +688,14 @@ test('published database circuit breaker enriches a healthy PostgreSQL result', 
       'CREATE TABLE users (user_id text PRIMARY KEY, user_name text, user_tier text); ' +
         "INSERT INTO users VALUES ('user_001', 'Ada', 'premium');",
     ]);
+    await check(dsn);
+  } finally {
+    run('pg_ctl', ['stop', '-D', database, '-m', 'fast', '-w', '-t', '10']);
+  }
+}
+
+test('published database circuit breaker enriches a healthy PostgreSQL result', async () => {
+  await withPostgres(async (dsn) => {
     const wrapped = wrapFragment(
       parse(
         pageBlocks(
@@ -702,9 +715,7 @@ test('published database circuit breaker enriches a healthy PostgreSQL result', 
     assert.equal(output.db_status, 'success');
     assert.deepEqual(output.user_profile, { name: 'Ada', tier: 'premium' });
     assert.equal(output.fallback_reason, undefined);
-  } finally {
-    run('pg_ctl', ['stop', '-D', database, '-m', 'fast', '-w', '-t', '10']);
-  }
+  });
 });
 
 test('published multi-array splitter emits tagged items and discounts with order context', async () => {
@@ -839,3 +850,188 @@ for (const [path, dedicated] of [
     }
   });
 }
+
+test('foundation installer steps resolve freshly installed binaries in the same shell', () => {
+  const workflow = parse(
+    readFileSync('.github/workflows/phase1-foundation.yml', 'utf8')
+  );
+  const jobs: Record<
+    string,
+    { steps?: Array<{ name: string; run?: string }> }
+  > = workflow.jobs;
+  const steps = Object.values(jobs)
+    .flatMap((job) => job.steps ?? [])
+    .filter(
+      (step) => step.name === 'Install latest Expanso validation binaries'
+    );
+  assert.equal(steps.length, 2);
+  const commands = spawnSync(
+    '/bin/sh',
+    ['-c', 'command -v mkdir; command -v bash; command -v chmod'],
+    { encoding: 'utf8' }
+  );
+  assert.equal(commands.status, 0);
+  const [mkdir, bash, chmod] = commands.stdout.trim().split('\n');
+
+  for (const step of steps) {
+    assert.ok(step.run);
+    const runner = mkdtempSync(join(work, 'foundation-runner-'));
+    const tools = join(runner, 'tools');
+    mkdirSync(tools);
+    for (const [name, target] of [
+      ['mkdir', mkdir],
+      ['bash', bash],
+      ['chmod', chmod],
+    ])
+      symlinkSync(target, join(tools, name));
+    const installer = [
+      '#!/bin/bash',
+      `printf '%s\\n' '#!/bin/sh' 'echo v9.8.7' > "$EXPANSO_INSTALL_DIR/expanso-COMPONENT"`,
+      'chmod 755 "$EXPANSO_INSTALL_DIR/expanso-COMPONENT"',
+    ].join('\n');
+    writeFileSync(
+      join(tools, 'curl'),
+      `#!${process.execPath}
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const url = args.find((arg) => arg.startsWith('https://'));
+const component = url.split('/')[3];
+if (!['edge', 'cli'].includes(component)) throw new Error('Unexpected installer URL');
+const destination = args[args.indexOf('--output') + 1];
+fs.writeFileSync(destination, ${JSON.stringify(installer)}.replaceAll('COMPONENT', component));
+`,
+      { mode: 0o755 }
+    );
+    writeFileSync(
+      join(tools, 'npm'),
+      `#!${process.execPath}
+const {spawnSync} = require('node:child_process');
+if (process.argv.slice(2).join(' ') !== 'run setup-binaries') throw new Error('Unexpected npm invocation');
+const result = spawnSync(process.execPath, ${JSON.stringify([
+        join(root, 'node_modules/tsx/dist/cli.mjs'),
+        join(root, 'scripts/setup-binaries.ts'),
+      ])}, { encoding: 'utf8', env: process.env });
+process.stdout.write(result.stdout ?? '');
+process.stderr.write(result.stderr ?? '');
+process.exit(result.status ?? 1);
+`,
+      { mode: 0o755 }
+    );
+    const result = spawnSync(bash, ['-c', step.run], {
+      cwd: root,
+      encoding: 'utf8',
+      timeout: 20_000,
+      env: {
+        ...process.env,
+        PATH: tools,
+        RUNNER_TEMP: runner,
+        EXPANSO_INSTALL_DIR: join(runner, 'installed'),
+        GITHUB_PATH: join(runner, 'github-path'),
+      },
+    });
+    assert.equal(result.status, 0, result.error?.message ?? result.stderr);
+    assert.match(result.stdout, /using expanso-edge v9.8.7/);
+    assert.match(result.stdout, /using expanso-cli v9.8.7/);
+  }
+});
+
+test('registered multi-format fixture satisfies its published execution contract', async () => {
+  const path =
+    'docs/data-transformation/parse-logs/step-4-multi-format-detection.mdx';
+  const entry = discoverPipelineFiles(root).find(
+    (file) => file.sourcePath === path && file.kind === 'complete-job'
+  );
+  assert.ok(entry);
+  const manifest = JSON.parse(
+    readFileSync('tests/fixtures/pipeline-inputs/manifest.json', 'utf8')
+  );
+  const expectations = JSON.parse(
+    readFileSync('tests/fixtures/pipeline-inputs/expectations.json', 'utf8')
+  );
+  const fixture = manifest.pipelines[entry.path].fixture;
+  const records = readFileSync(fixture, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.ok(entry.source);
+  const output = (await execute(entry.source, records)).toString();
+  verifyOutputs(expectations[entry.path], records, [output], environment);
+});
+
+test('published cached database circuit breaker preserves events on misses and hits', async () => {
+  await withPostgres(async (dsn) => {
+    const wrapped = wrapFragment(
+      parse(
+        pageBlocks(
+          'docs/data-routing/circuit-breakers/step-4-advanced-patterns.mdx'
+        )[0].source
+      )
+    );
+    assert.ok(wrapped);
+    const config = parse(wrapped.source);
+    config.pipeline.threads = 1;
+    config.pipeline.processors[1].switch[1].processors[0].try[0].branch.processors[0].sql_select.dsn =
+      dsn;
+    const outputs = (
+      await execute(stringify(config), [
+        { event_id: 'first', user_id: 'user_001' },
+        { event_id: 'second', user_id: 'user_001' },
+      ])
+    )
+      .toString()
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    assert.equal(outputs.length, 2);
+    for (const [event_id, source] of [
+      ['first', 'database'],
+      ['second', 'cache'],
+    ]) {
+      const output = outputs.find((row) => row.event_id === event_id);
+      assert.ok(output);
+      assert.equal(output.user_id, 'user_001');
+      assert.equal(output.data_source, source);
+      assert.deepEqual(output.user_profile, { name: 'Ada', tier: 'premium' });
+      assert.equal(output.db_error, undefined);
+    }
+  });
+});
+
+test('published JSON parser guards malformed data and classifies parsed objects', async () => {
+  const fixtures = [
+    {
+      raw_log: '  {"level":"info","message":"whitespace JSON"}',
+      expected: { level: 'info', message: 'whitespace JSON', was_json: true },
+    },
+    ...[
+      '{not JSON',
+      'web server started',
+      '[1,2]',
+      '42',
+      'true',
+      'null',
+      '"a string"',
+    ].map((raw_log) => ({
+      raw_log,
+      expected: { message: raw_log, level: 'unknown', was_json: false },
+    })),
+  ];
+  const output = (
+    await execute(
+      pageBlocks(
+        'docs/log-processing/filter-severity/step-1-parse-json-add-metadata.mdx'
+      )[0].source,
+      [fixtures.map(({ raw_log }) => ({ raw_log }))]
+    )
+  ).toString();
+  const rows = output
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.equal(rows.length, fixtures.length);
+  for (const fixture of fixtures)
+    assert.deepEqual(
+      rows.find((row) => row.message === fixture.expected.message),
+      fixture.expected
+    );
+});

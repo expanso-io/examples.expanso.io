@@ -63,9 +63,9 @@ The key to this pattern is the `.catch()` method. When `.parse_json()` fails on 
           - unarchive:
               format: json_array
           - mapping: |
-              # Parse JSON-shaped records and preserve plain-text records.
-              if this.raw_log.has_prefix("{") {
-                root = this.raw_log.parse_json().merge({"was_json": true})
+              let parsed = this.raw_log.parse_json().catch(null)
+              if $parsed.type() == "object" {
+                root = $parsed.merge({"was_json": true})
               } else {
                 root = {
                   "message": this.raw_log,

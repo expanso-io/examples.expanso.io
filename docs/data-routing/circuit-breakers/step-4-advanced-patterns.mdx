@@ -40,31 +40,45 @@ config:
   pipeline:
     processors:
       # 1. Check the cache first
-      - cache:
-          resource: user_profile_cache
-          operator: get
-          key: user_${!this.user_id}
+      - branch:
+          processors:
+            - cache:
+                resource: user_profile_cache
+                operator: exists
+                key: user_${!this.user_id}
+          result_map: root.profile_cached = content().string().bool()
 
       # 2. Act based on cache hit or miss
       - switch:
           # CACHE HIT: Use the cached data
-          - check: this.cached_data != null
+          - check: this.profile_cached
             processors:
+              - branch:
+                  processors:
+                    - cache:
+                        resource: user_profile_cache
+                        operator: get
+                        key: user_${!this.user_id}
+                  result_map: root.user_profile = this
               - mapping: |
                   root = this
-                  root.user_profile = this.cached_data.parse_json()
                   root.data_source = "cache"
 
           # CACHE MISS: Query the database
           - processors:
               - try:
-                  - sql_select:
-                      driver: postgres
-                      dsn: ${DB_CONNECTION_STRING}
-                      table: users
-                      columns: [user_name, user_tier]
-                      where: user_id = $1
-                      args_mapping: root = [ this.user_id ]
+                  - branch:
+                      processors:
+                        - sql_select:
+                            driver: postgres
+                            dsn: ${DB_CONNECTION_STRING}
+                            table: users
+                            columns: [user_name, user_tier]
+                            where: user_id = $1
+                            args_mapping: root = [ this.user_id ]
+                      result_map: |
+                        root.user_name = this.index(0).user_name
+                        root.user_tier = this.index(0).user_tier
 
                   - mapping: |
                       root = this
