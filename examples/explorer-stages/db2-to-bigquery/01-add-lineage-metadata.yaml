@@ -1,0 +1,12 @@
+pipeline:
+  processors:
+    # Step 1: Add lineage metadata (critical for audit)
+    - mapping: |
+        root = this
+        root._lineage = {
+          "source_system": "DB2_PROD",
+          "source_table": "TRANSACTIONS",
+          "pipeline": "db2-to-bigquery-transactions",
+          "extracted_at": now(),
+          "node_id": env("NODE_ID").or("unknown")
+        }

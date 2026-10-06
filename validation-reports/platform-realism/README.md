@@ -12,7 +12,7 @@ Result: **pass=1 fixed=25**. The O-RAN SNO example is the reference pass from
 https://github.com/expanso-io/examples.expanso.io/pull/47; the remaining 25
 examples required at least one platform-realism fix.
 
-The dated local gate inspected 26 canonical jobs, 20 public copies, 100 explorer
+The dated local gate inspected 26 canonical jobs, 20 public copies, 126 explorer
 stages, 193 tutorial YAML blocks, and 19 deployment manifests. All 26 canonical
 files passed the repository-pinned `.bin/expanso-edge` validator as typed
 `pipeline-job` documents. The gate returned zero findings. An untyped job or

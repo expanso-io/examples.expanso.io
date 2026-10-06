@@ -168,7 +168,7 @@ export const REMOVE_PII_EXPLORER_EVIDENCE = {
     'sha256:e7873abea9ea2133900fabc2b75a3810ad07f93ff0a7a9e38e41fcba09df3307',
   bindingManifestPath: 'content/explorer-stage-bindings-v1.json',
   bindingManifestSha256:
-    'sha256:b8819636e0de59bc540f073a0f5bac8cb4458fba31fc8a2acca0ab7808126206',
+    'sha256:caebfd5458e41d76752e047a49c2b1fd31fd777bf5a1f3ded8adf843ae66f880',
   authoredStageModulePath: 'docs/data-security/remove-pii-full.stages.ts',
   authoredStageModuleSha256:
     'sha256:403e909acfed726fbae5ca5b63e38c8cd85c3ade30efea6fdc647ec0368d832e',

@@ -1,0 +1,13 @@
+pipeline:
+  processors:
+    # Step 1: Tag with source region (critical for compliance routing)
+    - mapping: |
+        meta archival_original = content()
+        root = this
+        root._data_origin = {
+          "region": "EU",
+          "country": env("SOURCE_COUNTRY").or("DE"),
+          "database": "transactions_eu",
+          "extracted_at": now(),
+          "pipeline": "eu-cross-border-compliance"
+        }

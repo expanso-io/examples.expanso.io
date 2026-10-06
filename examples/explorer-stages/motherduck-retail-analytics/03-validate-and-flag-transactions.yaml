@@ -1,0 +1,20 @@
+pipeline:
+  processors:
+    # 2. Validate and flag anomalies
+    - mapping: |
+        root = this
+        let flags = []
+        let flags = if this.items.length() == 0 { $flags.append("EMPTY_BASKET") }
+        let has_electronics = this.items.map_each(this.category).flatten().any(c -> c == "electronics")
+        let flags = if this.total_amount.abs() > 500 && !$has_electronics { $flags.append("HIGH_VALUE_NON_ELECTRONICS") }
+        let flags = if this.type == "sale" && this.total_amount < 0 { $flags.append("NEGATIVE_SALE") }
+        let flags = if this.type == "return" && this.total_amount > 0 { $flags.append("POSITIVE_RETURN") }
+        let flags = if this.items.filter(i -> i.qty > 10).length() > 0 { $flags.append("BULK_QUANTITY") }
+        let flags = if this.employee_id == "" || this.employee_id == null { $flags.append("MISSING_EMPLOYEE") }
+        root.anomaly_flags = $flags
+        root.is_anomaly = $flags.length() > 0
+        root.quality_score = match {
+          $flags.length() == 0 => "clean",
+          $flags.length() == 1 => "warning",
+          _ => "review"
+        }

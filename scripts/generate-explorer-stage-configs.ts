@@ -963,8 +963,8 @@ async function main(): Promise<void> {
       );
     }
   }
-  if (result.stageCount !== 100) {
-    throw new Error(`Expected 100 bound stages, received ${result.stageCount}`);
+  if (result.stageCount !== 126) {
+    throw new Error(`Expected 126 bound stages, received ${result.stageCount}`);
   }
   if (writeMode || bootstrapMode) {
     writeGeneratedModules(result.generated);

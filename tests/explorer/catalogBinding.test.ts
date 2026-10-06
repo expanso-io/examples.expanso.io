@@ -11,7 +11,7 @@ describe('catalog Explorer binding', () => {
       (record) => record.routes.explore !== undefined
     );
 
-    assert.equal(explorerRecords.length, 21);
+    assert.equal(explorerRecords.length, 26);
     assert.deepEqual(
       Object.keys(GENERATED_EXPLORER_STAGE_CONFIGS),
       explorerRecords.map(({ id }) => id)
@@ -56,14 +56,14 @@ describe('catalog Explorer binding', () => {
     );
   });
 
-  it('rejects catalog families that do not publish an Explorer', () => {
-    const record = EXAMPLE_RECORDS.find(
-      (candidate) => candidate.routes.explore === undefined
+  it('publishes an Explorer for every published catalog family', () => {
+    const published = EXAMPLE_RECORDS.filter(
+      (record) => record.status === 'published'
     );
-    assert.ok(record);
-    assert.throws(
-      () => resolveCatalogExplorerBinding(record.id),
-      /does not publish an Explorer/
+    assert.equal(published.length, EXAMPLE_RECORDS.length);
+    assert.ok(
+      published.every((record) => record.routes.explore !== undefined),
+      'every published family must publish an Explorer'
     );
   });
 });

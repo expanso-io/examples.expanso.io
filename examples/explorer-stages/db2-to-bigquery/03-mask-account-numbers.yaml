@@ -1,0 +1,9 @@
+pipeline:
+  processors:
+    # Step 3: Mask account numbers for compliance
+    # Keep last 4 digits for reconciliation, hash full number for joins
+    - mapping: |
+        root = this
+        root.account_number_masked = "****-****-" + this.ACCOUNT_NUMBER.slice(-4)
+        root.account_number_hash = this.ACCOUNT_NUMBER.hash("sha256").encode("hex").slice(0, 16)
+        root = root.without("ACCOUNT_NUMBER")

@@ -1,0 +1,24 @@
+pipeline:
+  processors:
+    # Step 5: Standardize field names for BigQuery schema
+    - mapping: |
+        root.transaction_id = this.TRANSACTION_ID
+        root.customer_id = this.CUSTOMER_ID
+        root.transaction_date = this.TRANSACTION_DATE
+        root.transaction_type = this.TRANSACTION_TYPE
+        root.merchant_name = this.MERCHANT_NAME
+        root.merchant_category_code = this.MERCHANT_CATEGORY_CODE
+        root.source_system = this.SOURCE_SYSTEM
+        root.created_at = this.CREATED_AT
+
+        # Carry forward transformed fields
+        root.amount_usd = this.amount_usd
+        root.original_amount = this.original_amount
+        root.original_currency = this.original_currency
+        root.account_number_masked = this.account_number_masked
+        root.account_number_hash = this.account_number_hash
+        root.transaction_category = this.transaction_category
+        root._lineage = this._lineage
+
+        # Add BigQuery partition field
+        root._partition_date = this.TRANSACTION_DATE.ts_parse("2006-01-02").ts_format("2006-01-02")

@@ -121,6 +121,23 @@ export const FEATURE_EXCEPTIONS: readonly FeatureException[] = [
     reason:
       'Expanso Edge v2.1.22 rejects environment substitution in the numeric S3 batching.byte_size field; period remains configurable.',
   },
+  ...[
+    ['ADDRESS_ENCRYPTION_KEY', 'ADDRESS_ENCRYPTION_KEY_HEX'],
+    ['CARD_ENCRYPTION_KEY', 'CARD_ENCRYPTION_KEY_HEX'],
+    ['PII_ENCRYPTION_KEY', 'PII_ENCRYPTION_KEY_HEX'],
+  ].map(([value, replacement]) => ({
+    path: 'examples/data-security/encrypt-data.yaml',
+    kind: 'environment' as const,
+    value,
+    reason: `Expanso Edge AES-GCM decodes the explicit hexadecimal ${replacement} control before encryption.`,
+  })),
+  {
+    path: 'examples/integrations/scada-energy-edge/step-4-route-destinations.yaml',
+    kind: 'environment',
+    value: 'KAFKA_BROKERS',
+    reason:
+      'KAFKA_TLS_BROKERS replaces the plaintext broker control alongside certificate verification and SCRAM-SHA-512 authentication.',
+  },
   {
     path: 'examples/data-transformation/transform-formats-complete.yaml',
     kind: 'connector',
@@ -164,7 +181,28 @@ function baselineSource(repositoryRoot: string, path: string): string | null {
   }
 }
 
+function familyManagedPaths(repositoryRoot: string): Set<string> {
+  const manifestPath = join(
+    repositoryRoot,
+    'content/platform-feature-baseline-v1.json'
+  );
+  if (!existsSync(manifestPath)) return new Set();
+
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+    families?: { files?: unknown }[];
+  };
+  const paths = new Set<string>();
+  for (const family of manifest.families ?? []) {
+    if (!Array.isArray(family.files)) continue;
+    for (const path of family.files) {
+      if (typeof path === 'string') paths.add(path);
+    }
+  }
+  return paths;
+}
+
 function changedYamlPaths(repositoryRoot: string): string[] {
+  const managedPaths = familyManagedPaths(repositoryRoot);
   const output = git(repositoryRoot, [
     'diff',
     '--name-only',
@@ -176,7 +214,7 @@ function changedYamlPaths(repositoryRoot: string): string[] {
 
   return output
     .split('\n')
-    .filter((path) => /\.(yaml|yml)$/.test(path))
+    .filter((path) => /\.(yaml|yml)$/.test(path) && !managedPaths.has(path))
     .sort();
 }
 

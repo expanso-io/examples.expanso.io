@@ -1,0 +1,41 @@
+input:
+  broker:
+    inputs:
+      # Source 1: Structured maintenance logs (CSV)
+      - csv:
+          paths:
+            [
+              '../../../examples/integrations/medical-device-intelligence/maintenance-logs.csv',
+            ]
+          parse_header_row: true
+          batch_count: 1 # one row per message
+        processors:
+          - mapping: |
+              root.source = "maintenance_log"
+              root.device_id = this.device_id
+              root.timestamp = this.timestamp
+              root.data = this
+
+      # Source 2: Device error events (JSON)
+      - file:
+          paths:
+            [
+              '../../../examples/integrations/medical-device-intelligence/error-events.json',
+            ]
+          codec: all-bytes
+        processors:
+          - mapping: |
+              root.source = "error_events"
+              root.data = this
+
+      # Source 3: Freeform technician notes (text)
+      - file:
+          paths:
+            [
+              '../../../examples/integrations/medical-device-intelligence/technician-notes.txt',
+            ]
+          codec: all-bytes
+        processors:
+          - mapping: |
+              root.source = "technician_notes"
+              root.data = content().string()

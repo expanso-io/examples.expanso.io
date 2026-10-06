@@ -253,7 +253,7 @@ spec:
     const result = await validatePublishedPlatformExamples();
     assert.equal(result.examplesChecked, 26);
     assert.equal(result.edgeJobsChecked, 26);
-    assert.equal(result.stagesChecked, 100);
+    assert.equal(result.stagesChecked, 126);
     assert.ok(result.copiesChecked >= 20);
     assert.ok(result.tutorialsChecked > 0);
     assert.equal(

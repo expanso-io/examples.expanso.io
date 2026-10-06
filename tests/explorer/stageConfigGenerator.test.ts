@@ -133,10 +133,10 @@ after(() => {
 });
 
 describe('canonical Explorer stage generator', () => {
-  it('passes the canonical 21-family / 100-stage snapshot', () => {
+  it('passes the canonical 26-family / 126-stage snapshot', () => {
     const result = runGenerator();
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /21 explorers \/ 100 stages/);
+    assert.match(result.stdout, /26 explorers \/ 126 stages/);
     assert.match(result.stdout, /0 unbound/);
   });
 
