@@ -10,6 +10,7 @@ config:
       path: /webhooks/signup
 
   pipeline:
+    threads: 1
     processors:
       # Parse JSON
       - mapping: root = content().parse_json()
@@ -21,22 +22,63 @@ config:
           root.dedup_hash = $event_json.hash("sha256")
           root.dedup_timestamp = now()
 
-      # Mark the result before duplicates are filtered.
+      - group_by_value:
+          value: '${! this.dedup_hash }'
       - mapping: |
           root = this
-          root.dedup_result = {
-            "is_duplicate": false,
-            "dedup_hash": this.dedup_hash,
-            "checked_at": now(),
-            "strategy": "hash-based"
-          }
+          meta batch_duplicate = batch_index() > 0
 
-      # Store hashes in the local cache and drop messages seen before.
-      - dedupe:
-          cache: dedup_cache
-          key: '${!json("dedup_hash")}'
+      - for_each:
+          - branch:
+              request_map: root = this.dedup_hash
+              processors:
+                - cache:
+                    resource: dedup_cache
+                    operator: exists
+                    key: '${! content() }'
+              result_map: |
+                root.is_duplicate = meta("batch_duplicate").bool() || content().string().bool()
+                meta cache = content().string()
+                meta is_duplicate = root.is_duplicate
+          - catch:
+              - mapping: |
+                  root = this
+                  root.is_duplicate = false
+                  meta cache = ""
+                  meta is_duplicate = false
+          - mapping: |
+              root = this
+              root.dedup_result = {
+                "is_duplicate": this.is_duplicate,
+                "dedup_hash": this.dedup_hash,
+                "checked_at": now(),
+                "strategy": "hash-based"
+              }
+              root.duplicate_metadata = if this.is_duplicate {
+                {
+                  "detected_at": now(),
+                  "original_hash": this.dedup_hash,
+                  "strategy": "hash-based"
+                }
+              } else { deleted() }
+          - switch:
+              - check: '!this.is_duplicate'
+                processors:
+                  - cache:
+                      resource: dedup_cache
+                      operator: set
+                      key: '${! json("dedup_hash") }'
+                      value: '${! json("dedup_timestamp") }'
 
   output:
-    http_client:
-      url: '${ANALYTICS_ENDPOINT}/events'
-      verb: POST
+    switch:
+      cases:
+        - check: '!this.is_duplicate'
+          output:
+            http_client:
+              url: '${ANALYTICS_ENDPOINT}/events'
+              verb: POST
+        - output:
+            file:
+              path: "/var/expanso/duplicates/${!timestamp_unix_date('2006-01-02')}/dupes.jsonl"
+              codec: lines

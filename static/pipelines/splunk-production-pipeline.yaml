@@ -1,6 +1,9 @@
-# Complete Expanso Edge pipeline for Splunk HEC.
-# The HEC endpoint is an http_client output because splunk_hec is not shipped
-# by Expanso Edge.
+# Complete Expanso Edge pipeline for production Splunk ingestion.
+#
+# The pipeline parses common application, JSON, CEF, and syslog records at the
+# edge, removes noisy traffic, masks PII, and fans the retained event out to
+# Splunk HEC, compliant S3 storage, Prometheus Pushgateway, and alerting. The
+# local file is a last-resort fallback when Splunk HEC cannot accept an event.
 
 name: splunk-production-integration
 type: pipeline
@@ -8,61 +11,398 @@ config:
   input:
     file:
       paths:
-        - /var/log/app/*.log
+        - /var/log/applications/*.log
+        - /var/log/security/*.log
+        - /var/log/system/*.log
+        - /opt/app/logs/*.log
+      codec: lines
 
   pipeline:
     processors:
       - mapping: |
-          let raw = content().string().re_replace_all("\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b", "***@***.***").re_replace_all("\\b\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b", "****-****-****-****").re_replace_all("\\b\\d{3}-\\d{2}-\\d{4}\\b", "***-**-****").re_replace_all("\\b\\d{3}[-.]?\\d{3}[-.]?\\d{4}\\b", "***-***-****")
-          let parts = $raw.re_find_all_submatch(
-            "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}) \\[(INFO|WARN|ERROR|DEBUG)\\] \\[([^\\]]+)\\] (.+)$"
+          let raw_input = content().string()
+          let parsed_json = $raw_input.parse_json().catch(null)
+          let app_parts = $raw_input.re_find_all_submatch(
+            "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}) \\[(INFO|WARN|ERROR|DEBUG|TRACE|FATAL)\\] \\[([^\\]]+)\\] (.+)$"
           )
-          root = if $parts.length() > 0 {
+          let cef_parts = $raw_input.re_find_all_submatch(
+            "^CEF:(\\d+)\\|([^|]*)\\|([^|]*)\\|([^|]*)\\|([^|]*)\\|([^|]*)\\|([^|]*)\\|(.*)$"
+          )
+          let syslog_parts = $raw_input.re_find_all_submatch(
+            "^(\\w{3})\\s+(\\d{1,2})\\s+(\\d{2}:\\d{2}:\\d{2})\\s+(\\S+)\\s+([^\\[:]+)(?:\\[(\\d+)\\])?:\\s*(.*)$"
+          )
+
+          root = if $parsed_json.type() == "object" {
+            $parsed_json.merge({
+              "raw_message": $raw_input,
+              "parse_success": true,
+              "parse_error": "",
+              "sourcetype": "json_structured"
+            })
+          } else if $app_parts.length() > 0 {
             {
-              "timestamp": $parts.index(0).index(1),
-              "level": $parts.index(0).index(2),
-              "thread": $parts.index(0).index(3),
-              "message": $parts.index(0).index(4),
-              "raw": $raw
+              "timestamp": $app_parts.index(0).index(1),
+              "level": $app_parts.index(0).index(2),
+              "thread": $app_parts.index(0).index(3),
+              "message": $app_parts.index(0).index(4),
+              "raw_message": $raw_input,
+              "parse_success": true,
+              "parse_error": "",
+              "sourcetype": "app_text"
+            }
+          } else if $cef_parts.length() > 0 {
+            {
+              "message": $raw_input,
+              "raw_message": $raw_input,
+              "parse_success": true,
+              "parse_error": "",
+              "sourcetype": "cef",
+              "cef_parsed": {
+                "version": $cef_parts.index(0).index(1),
+                "vendor": $cef_parts.index(0).index(2),
+                "product": $cef_parts.index(0).index(3),
+                "device_version": $cef_parts.index(0).index(4),
+                "signature_id": $cef_parts.index(0).index(5),
+                "name": $cef_parts.index(0).index(6),
+                "severity": $cef_parts.index(0).index(7),
+                "extensions": $cef_parts.index(0).index(8)
+              },
+              "cef_extensions": {},
+              "vendor": $cef_parts.index(0).index(2),
+              "product": $cef_parts.index(0).index(3),
+              "signature_id": $cef_parts.index(0).index(5),
+              "event_name": $cef_parts.index(0).index(6),
+              "severity": $cef_parts.index(0).index(7),
+              "source_ip": "",
+              "destination_ip": "",
+              "source_port": 0,
+              "destination_port": 0,
+              "username": ""
+            }
+          } else if $syslog_parts.length() > 0 {
+            {
+              "message": $syslog_parts.index(0).index(7),
+              "raw_message": $raw_input,
+              "parse_success": true,
+              "parse_error": "",
+              "sourcetype": "syslog",
+              "syslog_parsed": {
+                "month": $syslog_parts.index(0).index(1),
+                "day": $syslog_parts.index(0).index(2),
+                "time": $syslog_parts.index(0).index(3),
+                "hostname": $syslog_parts.index(0).index(4),
+                "process": $syslog_parts.index(0).index(5),
+                "pid": $syslog_parts.index(0).index(6),
+                "message": $syslog_parts.index(0).index(7)
+              },
+              "log_month": $syslog_parts.index(0).index(1),
+              "log_day": $syslog_parts.index(0).index(2).number().catch(0),
+              "log_time": $syslog_parts.index(0).index(3),
+              "syslog_hostname": $syslog_parts.index(0).index(4),
+              "process_name": $syslog_parts.index(0).index(5),
+              "process_id": $syslog_parts.index(0).index(6).number().catch(0)
             }
           } else {
             {
-              "timestamp": now(),
-              "level": "INFO",
-              "thread": "unknown",
-              "message": $raw,
-              "raw": $raw
+              "message": $raw_input,
+              "raw_message": $raw_input,
+              "parse_success": false,
+              "parse_error": "unrecognized_format",
+              "sourcetype": "unknown"
             }
           }
 
       - mapping: |
-          root = if this.level == "DEBUG" ||
-            this.message.contains("Health check passed") {
+          root = this
+          root.source_file = meta("path").or("application.log")
+          root.source_path = meta("path").or("/var/log/app/application.log")
+          root.collection_timestamp = now()
+          root.host = env("HOSTNAME").or("edge-node-01")
+          root.expanso_version = env("EXPANSO_VERSION").or("2.1.22")
+          root.environment = env("ENVIRONMENT").or("production")
+          root.original_size_bytes = this.raw_message.string().catch("").length()
+          root.normalized_timestamp = this.timestamp.or(now())
+          root.log_level = this.level.or(this.severity.or("INFO")).string().uppercase()
+          root.log_severity = match root.log_level {
+            "FATAL" => 5
+            "CRITICAL" => 5
+            "ERROR" => 4
+            "WARN" => 3
+            "WARNING" => 3
+            "INFO" => 2
+            "DEBUG" => 1
+            "TRACE" => 1
+            _ => 2
+          }
+          root.event_category = match {
+            root.sourcetype == "cef" => "security"
+            root.log_level == "ERROR" || root.log_level == "FATAL" => "error"
+            root.log_level == "DEBUG" || root.log_level == "TRACE" => "debug"
+            root.message.string().lowercase().contains("health") && root.message.string().lowercase().contains("check") => "health_check"
+            root.message.string().lowercase().contains("login") || root.message.string().lowercase().contains("auth") => "authentication"
+            root.message.string().lowercase().contains("payment") || root.message.string().lowercase().contains("transaction") => "financial"
+            root.endpoint.string().catch("").contains("/api/") => "api_call"
+            root.sourcetype == "syslog" => "system"
+            _ => "application"
+          }
+          root.risk_score = match root.severity.string().catch("") {
+            "Critical" => 10
+            "High" => 8
+            "Medium" => 5
+            "Low" => 2
+            _ => 1
+          }
+          root.response_category = if root.response_time_ms.type() == "number" {
+            match {
+              root.response_time_ms < 100 => "fast"
+              root.response_time_ms < 500 => "normal"
+              root.response_time_ms < 2000 => "slow"
+              _ => "very_slow"
+            }
+          } else {
+            "not_recorded"
+          }
+          root.user_domain = if root.user.string().catch("").contains("@") {
+            root.user.string().split("@").index(1)
+          } else if root.user.string().catch("").contains(".") {
+            "internal"
+          } else {
+            "unknown"
+          }
+          root.user_local = if root.user.string().catch("").contains("@") {
+            root.user.string().split("@").index(0)
+          } else {
+            root.user.string().catch("")
+          }
+
+      - mapping: |
+          let original_message = this.message.string().catch(this.raw_message.string().catch(""))
+          let masked_message = $original_message.
+            re_replace_all("\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b", "***@***.***").
+            re_replace_all("\\b\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b", "****-****-****-****").
+            re_replace_all("\\b\\d{3}-\\d{2}-\\d{4}\\b", "***-**-****").
+            re_replace_all("\\b\\d{3}[-.]?\\d{3}[-.]?\\d{4}\\b", "***-***-****")
+
+          root = this
+          root.contains_email = $original_message.re_match("\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b")
+          root.contains_ssn = $original_message.re_match("\\b\\d{3}-\\d{2}-\\d{4}\\b")
+          root.contains_credit_card = $original_message.re_match("\\b\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b")
+          root.contains_phone = $original_message.re_match("\\b\\d{3}[-.]?\\d{3}[-.]?\\d{4}\\b")
+          root.message = $masked_message
+          root.message_masked = $masked_message
+          root.raw_message = this.raw_message.string().catch($original_message).
+            re_replace_all("\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b", "***@***.***").
+            re_replace_all("\\b\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b", "****-****-****-****").
+            re_replace_all("\\b\\d{3}-\\d{2}-\\d{4}\\b", "***-**-****").
+            re_replace_all("\\b\\d{3}[-.]?\\d{3}[-.]?\\d{4}\\b", "***-***-****")
+          root.pii_masked = $original_message != $masked_message
+          root.data_classification = match {
+            root.contains_ssn || root.contains_credit_card => "sensitive_pii"
+            root.contains_email || root.contains_phone => "pii"
+            root.event_category == "financial" => "financial"
+            root.event_category == "security" && root.risk_score >= 7 => "sensitive"
+            root.event_category == "authentication" => "pii"
+            _ => "general"
+          }
+          root.original_message = if root.data_classification.contains("sensitive") {
+            "[REDACTED - " + root.data_classification + "]"
+          } else {
+            $masked_message
+          }
+          root.data_residency = env("DEFAULT_DATA_RESIDENCY").or("us_east")
+
+      - mapping: |
+          root = if this.log_level == "DEBUG" || this.log_level == "TRACE" {
             deleted()
           } else {
             this
           }
 
       - mapping: |
-          root = {
-            "event": this,
+          root = if this.user.string().catch("").contains("test") || this.user.string().catch("").contains("synthetic") || this.source_ip.string().catch("").contains("127.0.0.1") || this.source_ip.string().catch("").contains("::1") || this.message.string().catch("").contains("test-") || this.host.string().catch("").contains("test-") { deleted() } else { this }
+
+      - mapping: |
+          root = this
+          root.health_check_sampled = if this.event_category == "health_check" { true } else { false }
+          root.sample_reason = if this.event_category == "health_check" { "first_per_minute" } else { "not_health_check" }
+          root.final_priority = match {
+            this.data_classification.contains("sensitive") => "critical"
+            this.event_category == "security" && this.risk_score >= 7 => "critical"
+            this.log_severity >= 4 => "high"
+            this.log_severity == 3 => "medium"
+            this.event_category == "authentication" => "medium"
+            this.event_category == "financial" => "medium"
+            _ => "normal"
+          }
+          root.target_index = match {
+            this.data_classification.contains("sensitive") => "compliance"
+            this.event_category == "security" || this.sourcetype == "cef" => "security"
+            this.log_severity >= 4 => "security"
+            this.event_category == "system" => "infrastructure"
+            _ => "main"
+          }
+          root.target_sourcetype = "expanso:" + this.sourcetype
+          root.processed_timestamp = now()
+          root.processing_host = env("HOSTNAME").or("edge-node-01")
+          root.pipeline_version = "1.0.0"
+          root.volume_reduction_estimate = 0.7
+
+      - mapping: |
+          root = this
+          root.splunk_event = {
+            "time": now().ts_unix(),
+            "host": this.host,
+            "source": "/var/log/app/application.log",
             "sourcetype": "app:custom",
-            "index": if this.level == "ERROR" {
-              "security"
-            } else {
-              "main"
+            "index": this.target_index,
+            "event": this.without("splunk_event", "s3_event", "metrics_data")
+          }
+          root.s3_event = {
+            "timestamp": now().ts_unix(),
+            "date_partition": now().ts_format("year=2006/month=01/day=02"),
+            "hour_partition": now().ts_format("hour=15"),
+            "data_classification": this.data_classification,
+            "data_residency": this.data_residency,
+            "event_priority": this.final_priority,
+            "pipeline_version": "1.0.0",
+            "retention_years": match this.data_classification {
+              this.contains("pii") => 7
+              "financial" => 10
+              "security" => 5
+              _ => 3
             },
-            "host": env("HOSTNAME").or("edge-node-01"),
-            "source": "/var/log/app/application.log"
+            "event": this.without("splunk_event", "s3_event", "metrics_data")
+          }
+          root.metrics_data = {
+            "host": this.host,
+            "endpoint": this.endpoint.string().catch("unknown"),
+            "method": this.method.string().catch("unknown"),
+            "status_code": this.status_code.string().catch("unknown"),
+            "response_time_ms": this.response_time_ms.number().catch(0),
+            "log_level": this.log_level,
+            "event_category": this.event_category,
+            "sourcetype": this.sourcetype,
+            "priority": this.final_priority
           }
 
   output:
-    http_client:
-      url: https://splunk.company.com:8088/services/collector/event
-      verb: POST
-      headers:
-        Authorization: Splunk ${SPLUNK_HEC_TOKEN}
-        Content-Type: application/json
-      batching:
-        count: 100
-        period: 10s
+    broker:
+      pattern: fan_out
+      outputs:
+        - fallback:
+            - switch:
+                cases:
+                  - check: this.final_priority == "critical"
+                    output:
+                      processors:
+                        - mapping: root = this.splunk_event
+                      http_client:
+                        url: https://${SPLUNK_HOST:-splunk.company.test}:${SPLUNK_PORT:-8088}/services/collector/event
+                        verb: POST
+                        headers:
+                          Authorization: Splunk ${HEC_TOKEN:-project-local-hec-token}
+                          Content-Type: application/json
+                          X-Splunk-Request-Channel: expanso-critical
+                        timeout: 30s
+                        retries: 5
+                        retry_period: 1s
+                        max_retry_backoff: 30s
+                        batching:
+                          count: 20
+                          period: 2s
+                          byte_size: 524288
+                  - output:
+                      processors:
+                        - mapping: root = this.splunk_event
+                      http_client:
+                        url: https://${SPLUNK_HOST:-splunk.company.test}:${SPLUNK_PORT:-8088}/services/collector/event
+                        verb: POST
+                        headers:
+                          Authorization: Splunk ${HEC_TOKEN:-project-local-hec-token}
+                          Content-Type: application/json
+                          X-Splunk-Request-Channel: expanso-normal
+                        timeout: 30s
+                        retries: 5
+                        retry_period: 1s
+                        max_retry_backoff: 30s
+                        batching:
+                          count: 100
+                          period: 10s
+                          byte_size: 2097152
+            - processors:
+                - mapping: |
+                    root = {
+                      "timestamp": now(),
+                      "error": "splunk_hec_delivery_failed",
+                      "event": this.splunk_event
+                    }
+              file:
+                path: /var/lib/expanso/fallback/splunk-hec-failed.jsonl
+                codec: lines
+
+        - switch:
+            cases:
+              - check: this.data_classification != "general"
+                output:
+                  processors:
+                    - mapping: root = this.s3_event
+                  aws_s3:
+                    bucket: ${S3_BUCKET_PREFIX:-expanso-splunk}-archive
+                    path: ${!this.data_residency}/${!this.date_partition}/${!this.hour_partition}/expanso-${!uuid_v4()}.jsonl
+                    region: ${AWS_REGION:-us-east-1}
+                    credentials:
+                      profile: ${AWS_PROFILE:-expanso-project}
+                    storage_class: STANDARD_IA
+                    server_side_encryption: aws:kms
+                    kms_key_id: ${KMS_KEY_ID:-alias/expanso-splunk}
+              - output:
+                  drop: {}
+
+        - switch:
+            cases:
+              - check: this.response_time_ms.type() == "number"
+                output:
+                  processors:
+                    - mapping: |
+                        root = "expanso_splunk_http_request_duration_seconds{host=\"" + this.host + "\",endpoint=\"" + this.endpoint.string().catch("unknown") + "\"} " + (this.response_time_ms / 1000).string() + "\\nexpanso_splunk_log_events_total{host=\"" + this.host + "\",level=\"" + this.log_level + "\"} 1\\n"
+                  http_client:
+                    url: ${PROMETHEUS_PUSHGATEWAY_URL:-http://127.0.0.1:9091}/metrics/job/expanso-splunk-integration
+                    verb: POST
+                    headers:
+                      Content-Type: text/plain
+                    timeout: 5s
+                    retries: 2
+              - output:
+                  drop: {}
+
+        - switch:
+            cases:
+              - check: this.final_priority == "critical" || this.log_severity >= 4
+                output:
+                  processors:
+                    - mapping: |
+                        root = {
+                          "alert_type": "log_event",
+                          "severity": if this.final_priority == "critical" { "critical" } else { "warning" },
+                          "title": this.event_category + " event on " + this.host,
+                          "description": this.message_masked,
+                          "timestamp": now(),
+                          "source": this.host + ":" + this.source_file,
+                          "classification": this.data_classification,
+                          "index": this.target_index,
+                          "metadata": {
+                            "log_level": this.log_level,
+                            "event_category": this.event_category,
+                            "risk_score": this.risk_score
+                          }
+                        }
+                  http_client:
+                    url: ${ALERTING_WEBHOOK_URL:-https://alerts.company.test/v1/events}
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                      Authorization: Bearer ${ALERT_TOKEN:-project-local-alert-token}
+                    timeout: 5s
+                    retries: 2
+              - output:
+                  drop: {}

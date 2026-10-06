@@ -547,6 +547,23 @@ for (const path of [
   });
 }
 
+test('complete content splitting retains batch context and valid routing', async () => {
+  const path = 'examples/data-routing/content-splitting-complete.yaml';
+  const expectation = contracts[path];
+  assert.equal(expectation.kind, 'records');
+  if (expectation.kind !== 'records') return;
+  const texts = await capture(
+    config(path),
+    'tests/fixtures/pipeline-inputs/data-routing.jsonl'
+  );
+  verifyOutputs(expectation, [], texts, manifest.environment);
+  const rows = texts[0]
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+  assert.ok(rows.every((row) => row.batch_context.total_items === 1));
+});
+
 test('CSV negotiation handles JSON arrays and quoted CSV input', async () => {
   for (const input of [
     '[{"name":"A, B","value":42},{"name":"C","value":7}]',
@@ -886,13 +903,20 @@ test('Splunk HEC envelopes mask PII in parsed and fallback log lines', async () 
       },
     };
     const rows = (await execute(pipeline)) as Array<{
-      event: { message: string; raw: string };
+      sourcetype?: string;
+      event?: { message?: string; raw_message?: string };
     }>;
-    assert.equal(rows.length, 1);
+    const hecRows = rows.filter((row) => row.sourcetype === 'app:custom');
+    assert.equal(hecRows.length, 1);
     const masked =
       'customer ***@***.*** SSN ***-**-**** card ****-****-****-**** phone ***-***-****';
-    assert.equal(rows[0].event.message, masked);
-    assert.equal(rows[0].event.raw, prefix + masked);
+    assert.equal(hecRows[0].event?.message, masked);
+    assert.equal(hecRows[0].event?.raw_message, prefix + masked);
+    const delivered = JSON.stringify(rows);
+    assert.doesNotMatch(delivered, /person@example\.com/);
+    assert.doesNotMatch(delivered, /123-45-6789/);
+    assert.doesNotMatch(delivered, /4532-1234-5678-9010/);
+    assert.doesNotMatch(delivered, /4155551234/);
   }
 });
 
@@ -1222,10 +1246,10 @@ test('PII processing failures reach only the DLQ before fan-out', async () => {
   );
 });
 
-test('ID deduplication accepts SQL timestamps without parsing a window', async () => {
+test('ID deduplication accepts SQL timestamps and archives duplicates', async () => {
   const path = 'examples/data-transformation/deduplicate-events-complete.yaml';
   const pipeline = config(path);
-  pipeline.cache_resources = parse(readFileSync(path, 'utf8')).cache_resources;
+  assert.ok(pipeline.cache_resources);
   const rows = [
     { event_id: 'first', timestamp: '2026-10-05 12:00:00' },
     { event_id: 'second', timestamp: '2026-10-05 12:00:01' },
@@ -1239,11 +1263,23 @@ test('ID deduplication accepts SQL timestamps without parsing a window', async (
   const outputs = (await execute(pipeline, fixture)) as Array<{
     event_id: string;
     dedup_key: string;
+    is_duplicate: boolean;
+    duplicate_metadata?: { strategy: string };
   }>;
   assert.deepEqual(outputs.map((row) => [row.event_id, row.dedup_key]).sort(), [
     ['first', 'first'],
+    ['first', 'first'],
     ['second', 'second'],
   ]);
+  assert.equal(
+    outputs.filter((row) => row.is_duplicate).length,
+    1,
+    JSON.stringify(outputs)
+  );
+  assert.equal(
+    outputs.find((row) => row.is_duplicate)?.duplicate_metadata?.strategy,
+    'event_id'
+  );
   writeFileSync(
     fixture,
     [
@@ -1274,13 +1310,19 @@ test('ID deduplication accepts SQL timestamps without parsing a window', async (
   );
   const composite = (await execute(pipeline, fixture)) as Array<{
     dedup_key: string;
+    is_duplicate: boolean;
   }>;
   assert.deepEqual(
     composite.map((row) => row.dedup_key).sort(),
-    ['2026-10-05T12:00:00Z', '2026-10-05T12:01:00Z'].map(
+    [
+      '2026-10-05T12:00:00Z',
+      '2026-10-05T12:00:00Z',
+      '2026-10-05T12:01:00Z',
+    ].map(
       (timestamp) => `click:web:${Math.floor(Date.parse(timestamp) / 60000)}`
     )
   );
+  assert.equal(composite.filter((row) => row.is_duplicate).length, 1);
 });
 
 for (const path of [

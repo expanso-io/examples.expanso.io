@@ -59,10 +59,11 @@ config:
           let end = meta("window_end_timestamp").ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano() / 1000000000
           let minute = 60
           root = if batch_index() == 0 {
-            {"aggregation": {
+            {
               "aggregation_type": $first.aggregation_type,
               "aggregation_level": $first.aggregation_level,
               "group_key": $first.group_key,
+              "aggregation_timestamp": now(),
               "sensor_id": $first.sensor_id,
               "location": $first.location,
               "window_start": ($end - $minute * $first.window_duration_minutes).ts_format("2006-01-02T15:04:05Z07:00"),
@@ -72,10 +73,21 @@ config:
               "temperature_avg": ($values.sum() / $values.length() * 100).round() / 100,
               "temperature_min": $values.min(),
               "temperature_max": $values.max(),
+              "temperature_change": if $first.aggregation_type == "sliding" { $values.index(-1) - $values.index(0) } else { deleted() },
+              "temperature_trend": if $first.aggregation_type == "sliding" {
+                if $values.index(-1) - $values.index(0) > 1 { "increasing" }
+                else if $values.index(-1) - $values.index(0) < -1 { "decreasing" }
+                else { "stable" }
+              } else { deleted() },
               "sensor_count": $events.map_each(event -> event.sensor_id).unique().length(),
-              "location_count": $events.map_each(event -> event.location).unique().length()
-            }}
+              "location_count": $events.map_each(event -> event.location).unique().length(),
+              "data_quality_score": if $events.length() >= 50 { 0.95 }
+                else if $events.length() >= 30 { 0.85 }
+                else if $events.length() >= 10 { 0.70 }
+                else { 0.50 }
+            }
           } else { deleted() }
+      - mapping: 'root = {"aggregation": this}.merge(this)'
 
   output:
     broker:

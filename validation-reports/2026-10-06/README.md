@@ -3,7 +3,7 @@
 Overall: **PASS**
 
 - expanso-edge: `v2.1.22` (pinned: `v2.1.22`)
-- Inventory digest: `sha256:5bbc9a3730ffbb5099ae7dc10372de5f195ca425bf2a11170c61f5f0fe1b5d0c`
+- Inventory digest: `sha256:3fd948131f1e2f2e2512ec0fd7f0cc525477864059a747d3d1fbe8d486714c5c`
 - Complete pipelines: 106. Validate: 106 pass, 0 fail. Run: 106 pass, 0 fail, 0 skipped.
 - Fragments (partial snippets, validated inside a synthetic pipeline, never run): 168. 101 pass, 67 fail.
 
@@ -375,10 +375,12 @@ Input, output, processor, and resource substitutions made by the fixture harness
   - output `output`: http_client to file (.validation-output/01-http_client.jsonl)
 - `examples/data-transformation/deduplicate-events-complete.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-transformation.jsonl`)
   - input `input`: http_server to file (tests/fixtures/pipeline-inputs/data-transformation.jsonl)
-  - output `output`: kafka to file (.validation-output/01-kafka.jsonl)
+  - output `output.switch.cases.0.output`: kafka to file (.validation-output/01-kafka.jsonl)
+  - output `output.switch.cases.1.output.file.path`: /var/expanso/duplicates/${!timestamp_unix_date('2006-01-02')}/dupes.jsonl to .validation-output/02-file.jsonl
 - `examples/data-transformation/deduplicate-events.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-transformation.jsonl`)
   - input `input`: http_server to file (tests/fixtures/pipeline-inputs/data-transformation.jsonl)
-  - output `output`: http_client to file (.validation-output/01-http_client.jsonl)
+  - output `output.switch.cases.0.output`: http_client to file (.validation-output/01-http_client.jsonl)
+  - output `output.switch.cases.1.output.file.path`: /var/expanso/duplicates/${!timestamp_unix_date('2006-01-02')}/dupes.jsonl to .validation-output/02-file.jsonl
 - `examples/data-transformation/deduplication-foundation.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-transformation.jsonl`)
   - input `input.generate.count`: unbounded to 25
   - input `input.generate.interval`: 1s to 1ms
@@ -505,10 +507,10 @@ Input, output, processor, and resource substitutions made by the fixture harness
   - output `output.broker.outputs.1.file.path`: ${LOCAL_ARCHIVE_PATH:/tmp/scada-review-events.jsonl} to .validation-output/02-file.jsonl
 - `examples/log-processing/enrich-export-complete.yaml` (fixture: `tests/fixtures/pipeline-inputs/log-processing.jsonl`)
   - input `input.generate.count`: unbounded to 25
-  - input `input.generate.interval`: 1s to 1ms
+  - input `input.generate.interval`: ${GENERATE_INTERVAL:1s} to 1ms
   - output `output.broker.outputs.0`: aws_s3 to file (.validation-output/01-aws_s3.jsonl)
   - output `output.broker.outputs.0`: gzip bytes to base64 framed file
-  - output `output.broker.outputs.0.aws_s3.batching`: count=200, period=2m to count=25, period=1s; batching processors retained
+  - output `output.broker.outputs.0.aws_s3.batching`: count=200, period=${BATCH_PERIOD:2m} to count=25, period=1s; batching processors retained
   - output `output.broker.outputs.1`: aws_s3 to file (.validation-output/02-aws_s3.jsonl)
 - `examples/log-processing/enrich-export.yaml` (fixture: `tests/fixtures/pipeline-inputs/log-processing.jsonl`)
   - input `input.generate.count`: unbounded to 25
@@ -588,7 +590,8 @@ Input, output, processor, and resource substitutions made by the fixture harness
   - output `output`: http_client to file (.validation-output/01-http_client.jsonl)
 - `static/files/data-transformation/deduplicate-events.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-transformation.jsonl`)
   - input `input`: http_server to file (tests/fixtures/pipeline-inputs/data-transformation.jsonl)
-  - output `output`: http_client to file (.validation-output/01-http_client.jsonl)
+  - output `output.switch.cases.0.output`: http_client to file (.validation-output/01-http_client.jsonl)
+  - output `output.switch.cases.1.output.file.path`: /var/expanso/duplicates/${!timestamp_unix_date('2006-01-02')}/dupes.jsonl to .validation-output/02-file.jsonl
 - `static/files/data-transformation/normalize-timestamps.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-transformation.jsonl`)
   - input `input`: http_server to file (.validation-input/recent-timestamps.jsonl)
   - output `output.broker.outputs.0`: http_client to file (.validation-output/01-http_client.jsonl)
@@ -655,8 +658,13 @@ Input, output, processor, and resource substitutions made by the fixture harness
   - output `output.broker.outputs.2.fallback.0`: kafka to file (.validation-output/04-kafka.jsonl)
   - output `output.broker.outputs.2.fallback.1.file.path`: /data/dead-letter/kafka-${! now().ts_format("2006-01-02") }.jsonl to .validation-output/05-file.jsonl
 - `static/pipelines/splunk-production-pipeline.yaml` (fixture: `tests/fixtures/pipeline-inputs/splunk-edge-processing.log`)
-  - input `input.file.paths`: ["/var/log/app/*.log"] to tests/fixtures/pipeline-inputs/splunk-edge-processing.log
-  - output `output`: http_client to file (.validation-output/01-http_client.jsonl)
+  - input `input.file.paths`: ["/var/log/applications/*.log","/var/log/security/*.log","/var/log/system/*.log","/opt/app/logs/*.log"] to tests/fixtures/pipeline-inputs/splunk-edge-processing.log
+  - output `output.broker.outputs.0.fallback.0.switch.cases.0.output`: http_client to file (.validation-output/01-http_client.jsonl)
+  - output `output.broker.outputs.0.fallback.0.switch.cases.1.output`: http_client to file (.validation-output/02-http_client.jsonl)
+  - output `output.broker.outputs.0.fallback.1.file.path`: /var/lib/expanso/fallback/splunk-hec-failed.jsonl to .validation-output/03-file.jsonl
+  - output `output.broker.outputs.1.switch.cases.0.output`: aws_s3 to file (.validation-output/04-aws_s3.jsonl)
+  - output `output.broker.outputs.2.switch.cases.0.output`: http_client to file (.validation-output/05-http_client.jsonl)
+  - output `output.broker.outputs.3.switch.cases.0.output`: http_client to file (.validation-output/06-http_client.jsonl)
 
 </details>
 

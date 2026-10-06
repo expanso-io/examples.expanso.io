@@ -21,6 +21,7 @@ config:
       # Step 1: Detect input format from Content-Type or structure
       - mapping: |
           let content = content().string()
+          meta http_accept = meta("Accept").or("application/json")
 
           root.source_format = if $content.has_prefix("{") || $content.has_prefix("[") {
             "json"
@@ -53,7 +54,7 @@ config:
       # Step 3: Transform to target format (based on Accept header or default)
       - mapping: |
           root = this
-          let target = meta("Accept").or("application/json")
+          let target = meta("http_accept").or("application/json")
 
           meta target_format = if $target.contains("xml") {
             "xml"

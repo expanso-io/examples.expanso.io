@@ -17,22 +17,33 @@ config:
     processors:
       # Step 1: Detect content type and validate
       - mapping: |
-          root = this
-          meta batch_id = uuid_v4()
-          meta received_at = now()
+          let batch_id = uuid_v4()
+          let received_at = now()
+          let data_type = if this.items.type() == "array" {
+            "json_array"
+          } else if this.records.type() == "array" {
+            "records"
+          } else if this.type() == "array" {
+            "raw_array"
+          } else {
+            "single"
+          }
+          root = if this.type() == "object" {
+            this.merge({
+              "batch_id": $batch_id,
+              "received_at": $received_at,
+              "data_type": $data_type
+            })
+          } else {
+            this
+          }
+          meta data_type = $data_type
+          meta batch_id = $batch_id
+          meta received_at = $received_at
 
       # Step 2: Extract items to split
       - mapping: |
-          meta item_count = if this.items.type() == "array" {
-            this.items.length()
-          } else if this.records.type() == "array" {
-            this.records.length()
-          } else if this.type() == "array" {
-            this.length()
-          } else {
-            1
-          }
-          root = if this.items.type() == "array" {
+          let items = if this.items.type() == "array" {
             this.items
           } else if this.records.type() == "array" {
             this.records
@@ -41,6 +52,8 @@ config:
           } else {
             [this]
           }
+          meta item_count = $items.length()
+          root = $items
 
       # Step 3: Split array into individual messages
       - unarchive:
@@ -67,7 +80,7 @@ config:
             {"invalid": true, "original": this}
           }
 
-          meta is_valid = $is_valid
+          meta is_valid = !this.invalid.or(false)
 
   output:
     switch:

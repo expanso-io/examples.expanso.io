@@ -6,12 +6,12 @@ labels:
   category: data-transformation
   pattern: deduplication
 
-cache_resources:
-  - label: dedup_cache
-    memory:
-      default_ttl: 1h
-
 config:
+  cache_resources:
+    - label: dedup_cache
+      memory:
+        default_ttl: 1h
+
   input:
     http_server:
       address: '0.0.0.0:8080'
@@ -19,6 +19,7 @@ config:
       allowed_verbs: ['POST']
 
   pipeline:
+    threads: 1
     processors:
       # Step 1: Parse and validate
       - mapping: root = content().parse_json()
@@ -49,28 +50,70 @@ config:
 
           meta dedup_key = root.dedup_key
 
-      # Step 3: Add dedup metadata
+      - group_by_value:
+          value: '${! this.dedup_key }'
       - mapping: |
           root = this
-          root.dedup_result = {
-            "is_duplicate": false,
-            "dedup_key": meta("dedup_key"),
-            "checked_at": now()
-          }
+          meta batch_duplicate = batch_index() > 0
 
-      # Step 4: Store keys in the local cache and drop messages seen before.
-      - dedupe:
-          cache: dedup_cache
-          key: '${!meta("dedup_key")}'
+      # Steps 3-5 run serially per message so duplicate keys in the same input
+      # batch cannot race between the cache lookup and write.
+      - for_each:
+          - branch:
+              request_map: root = this.dedup_key
+              processors:
+                - cache:
+                    resource: dedup_cache
+                    operator: exists
+                    key: '${! content() }'
+              result_map: |
+                root.is_duplicate = meta("batch_duplicate").bool() || content().string().bool()
+                meta cache_result = content().string()
+                meta is_duplicate = root.is_duplicate
+          - catch:
+              - mapping: |
+                  root = this
+                  root.is_duplicate = false
+                  meta cache_result = ""
+                  meta is_duplicate = false
+          - mapping: |
+              root = this
+              root.dedup_result = {
+                "is_duplicate": this.is_duplicate,
+                "dedup_key": meta("dedup_key"),
+                "checked_at": now()
+              }
+              root.duplicate_metadata = if this.is_duplicate {
+                {
+                  "detected_at": now(),
+                  "original_hash": this.dedup_key,
+                  "strategy": this.dedup_strategy.or("event_id")
+                }
+              } else { deleted() }
+          - switch:
+              - check: '!this.is_duplicate'
+                processors:
+                  - cache:
+                      resource: dedup_cache
+                      operator: set
+                      key: '${! meta("dedup_key") }'
+                      value: '${! json("received_at") }'
 
   output:
-    # The dedupe processor drops duplicates, so only unique events reach Kafka.
-    kafka:
-      addresses: ['${KAFKA_BROKERS:localhost:9092}']
-      topic: unique-events
-      batching:
-        count: 100
-        period: 5s
+    switch:
+      cases:
+        - check: '!this.is_duplicate'
+          output:
+            kafka:
+              addresses: ['${KAFKA_BROKERS:localhost:9092}']
+              topic: unique-events
+              batching:
+                count: 100
+                period: 5s
+        - output:
+            file:
+              path: "/var/expanso/duplicates/${!timestamp_unix_date('2006-01-02')}/dupes.jsonl"
+              codec: lines
 
 logger:
   level: INFO

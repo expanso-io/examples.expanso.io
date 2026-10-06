@@ -3,7 +3,7 @@
     "date": "2026-10-06",
     "edgeVersion": "v2.1.22",
     "pinnedEdgeVersion": "v2.1.22",
-    "inventoryDigest": "sha256:5bbc9a3730ffbb5099ae7dc10372de5f195ca425bf2a11170c61f5f0fe1b5d0c",
+    "inventoryDigest": "sha256:3fd948131f1e2f2e2512ec0fd7f0cc525477864059a747d3d1fbe8d486714c5c",
     "complete": {
       "total": 106,
       "validatePass": 106,
@@ -2545,9 +2545,15 @@
           },
           {
             "role": "output",
-            "at": "output",
+            "at": "output.switch.cases.0.output",
             "from": "kafka",
             "to": "file (.validation-output/01-kafka.jsonl)"
+          },
+          {
+            "role": "output",
+            "at": "output.switch.cases.1.output.file.path",
+            "from": "/var/expanso/duplicates/${!timestamp_unix_date('2006-01-02')}/dupes.jsonl",
+            "to": ".validation-output/02-file.jsonl"
           }
         ],
         "reason": "semantic output verified"
@@ -2578,9 +2584,15 @@
           },
           {
             "role": "output",
-            "at": "output",
+            "at": "output.switch.cases.0.output",
             "from": "http_client",
             "to": "file (.validation-output/01-http_client.jsonl)"
+          },
+          {
+            "role": "output",
+            "at": "output.switch.cases.1.output.file.path",
+            "from": "/var/expanso/duplicates/${!timestamp_unix_date('2006-01-02')}/dupes.jsonl",
+            "to": ".validation-output/02-file.jsonl"
           }
         ],
         "reason": "semantic output verified"
@@ -5959,7 +5971,7 @@
           {
             "role": "input",
             "at": "input.generate.interval",
-            "from": "1s",
+            "from": "${GENERATE_INTERVAL:1s}",
             "to": "1ms"
           },
           {
@@ -5977,7 +5989,7 @@
           {
             "role": "output",
             "at": "output.broker.outputs.0.aws_s3.batching",
-            "from": "count=200, period=2m",
+            "from": "count=200, period=${BATCH_PERIOD:2m}",
             "to": "count=25, period=1s; batching processors retained"
           },
           {
@@ -6918,9 +6930,15 @@
           },
           {
             "role": "output",
-            "at": "output",
+            "at": "output.switch.cases.0.output",
             "from": "http_client",
             "to": "file (.validation-output/01-http_client.jsonl)"
+          },
+          {
+            "role": "output",
+            "at": "output.switch.cases.1.output.file.path",
+            "from": "/var/expanso/duplicates/${!timestamp_unix_date('2006-01-02')}/dupes.jsonl",
+            "to": ".validation-output/02-file.jsonl"
           }
         ],
         "reason": "semantic output verified"
@@ -7528,14 +7546,44 @@
           {
             "role": "input",
             "at": "input.file.paths",
-            "from": "[\"/var/log/app/*.log\"]",
+            "from": "[\"/var/log/applications/*.log\",\"/var/log/security/*.log\",\"/var/log/system/*.log\",\"/opt/app/logs/*.log\"]",
             "to": "tests/fixtures/pipeline-inputs/splunk-edge-processing.log"
           },
           {
             "role": "output",
-            "at": "output",
+            "at": "output.broker.outputs.0.fallback.0.switch.cases.0.output",
             "from": "http_client",
             "to": "file (.validation-output/01-http_client.jsonl)"
+          },
+          {
+            "role": "output",
+            "at": "output.broker.outputs.0.fallback.0.switch.cases.1.output",
+            "from": "http_client",
+            "to": "file (.validation-output/02-http_client.jsonl)"
+          },
+          {
+            "role": "output",
+            "at": "output.broker.outputs.0.fallback.1.file.path",
+            "from": "/var/lib/expanso/fallback/splunk-hec-failed.jsonl",
+            "to": ".validation-output/03-file.jsonl"
+          },
+          {
+            "role": "output",
+            "at": "output.broker.outputs.1.switch.cases.0.output",
+            "from": "aws_s3",
+            "to": "file (.validation-output/04-aws_s3.jsonl)"
+          },
+          {
+            "role": "output",
+            "at": "output.broker.outputs.2.switch.cases.0.output",
+            "from": "http_client",
+            "to": "file (.validation-output/05-http_client.jsonl)"
+          },
+          {
+            "role": "output",
+            "at": "output.broker.outputs.3.switch.cases.0.output",
+            "from": "http_client",
+            "to": "file (.validation-output/06-http_client.jsonl)"
           }
         ],
         "reason": "semantic output verified"

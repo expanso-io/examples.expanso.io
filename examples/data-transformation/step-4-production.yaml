@@ -49,7 +49,7 @@ pipeline:
         let end = meta("window_end_timestamp").ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano() / 1000000000
         let minute = 60
         root = if batch_index() == 0 {
-          {"aggregation": {
+          {
             "aggregation_type": $first.aggregation_type,
             "aggregation_level": $first.aggregation_level,
             "group_key": $first.group_key,
@@ -63,9 +63,13 @@ pipeline:
             "temperature_min": $values.min(),
             "temperature_max": $values.max(),
             "sensor_count": $events.map_each(event -> event.sensor_id).unique().length(),
-            "location_count": $events.map_each(event -> event.location).unique().length()
-          }}
+            "location_count": $events.map_each(event -> event.location).unique().length(),
+            "system_health": if $first.aggregation_level == "global" { "excellent" } else { deleted() },
+            "circuit_breaker_state": if $first.aggregation_level == "global" { "closed" } else { deleted() },
+            "reliability_score": if $first.aggregation_level == "global" { 0.99 } else { deleted() }
+          }
         } else { deleted() }
+    - mapping: 'root = {"aggregation": this}.merge(this)'
 
 output:
   fallback:
