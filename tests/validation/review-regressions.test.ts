@@ -764,6 +764,78 @@ test('normalization continues to reject genuinely stale production events', asyn
   );
 });
 
+for (const path of [
+  'examples/data-transformation/normalize-timestamps.yaml',
+  'examples/data-transformation/normalize-timestamps-complete.yaml',
+  'static/files/data-transformation/normalize-timestamps.yaml',
+]) {
+  test(`normalization preserves fractional timestamps and millisecond metadata: ${path}`, async () => {
+    const instant = Math.floor((Date.now() - 86400000) / 1000) * 1000 + 123;
+    const iso = new Date(instant).toISOString();
+    const offset = new Date(instant + 2 * 3600000)
+      .toISOString()
+      .replace('Z', '+02:00');
+    const nano = iso.replace('.123Z', '.123456789Z');
+    const timestamps = [
+      iso,
+      instant,
+      offset,
+      nano,
+      iso.replace('T', ' ').replace('Z', ''),
+      iso.replace('.123Z', 'Z'),
+      ...[1, 10, 999].map((milliseconds) => instant - 123 + milliseconds),
+    ];
+    const fixture = join(work, 'fractional-timestamps.jsonl');
+    writeFileSync(
+      fixture,
+      timestamps
+        .map((timestamp, index) =>
+          JSON.stringify({
+            event_id: `fraction-${index}`,
+            event_type: 'activity',
+            timestamp,
+          })
+        )
+        .join('\n') + '\n'
+    );
+    const outputs = await capture(config(path), fixture);
+    const expected = [
+      iso,
+      iso,
+      iso,
+      nano,
+      iso,
+      iso.replace('.123Z', 'Z'),
+      ...[1, 10, 999].map((milliseconds) =>
+        new Date(instant - 123 + milliseconds)
+          .toISOString()
+          .replace('.010Z', '.01Z')
+      ),
+    ];
+    const destinations = path.includes('-complete')
+      ? outputs
+      : outputs.slice(0, 2);
+    for (const destination of destinations) {
+      const rows = destination
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      assert.equal(rows.length, timestamps.length);
+      for (const row of rows) {
+        const index = Number(row.event_id.replace('fraction-', ''));
+        assert.equal(row.timestamp, expected[index]);
+        assert.equal(row.timestamp_original, timestamps[index]);
+        if (!path.includes('-complete'))
+          assert.equal(
+            row.time_metadata.unix_milli,
+            Date.parse(expected[index])
+          );
+      }
+    }
+    if (!path.includes('-complete')) assert.equal(outputs[2], '');
+  });
+}
+
 test('Splunk HEC envelopes mask PII in parsed and fallback log lines', async () => {
   for (const prefix of ['2026-10-05 12:00:00 [ERROR] [worker] ', '']) {
     const pipeline = config('static/pipelines/splunk-production-pipeline.yaml');

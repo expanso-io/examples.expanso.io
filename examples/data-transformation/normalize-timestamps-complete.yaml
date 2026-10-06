@@ -41,7 +41,7 @@ config:
             "unix_seconds"
           } else if $ts.re_match("^\\d{13}$") {
             "unix_milliseconds"
-          } else if $ts.re_match("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$") {
+          } else if $ts.re_match("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}(\\.\\d+)?$") {
             "custom_datetime"
           } else {
             "unknown"
@@ -66,9 +66,9 @@ config:
               } else if $format == "unix_seconds" {
                 $ts.number()
               } else if $format == "unix_milliseconds" {
-                ($ts.number() / 1000)
+                (($ts.number() / 1000).floor().ts_format("2006-01-02T15:04:05", "UTC") + "." + ("000" + ($ts.number() % 1000).string()).slice(-3) + "Z").ts_parse("2006-01-02T15:04:05.000Z07:00")
               } else if $format == "custom_datetime" {
-                if $local_resolved.ts_format("2006-01-02 15:04:05", $local_zone) == $ts {
+                if $local_resolved.ts_format("2006-01-02 15:04:05.999999999", $local_zone) == $ts.ts_parse("2006-01-02 15:04:05").ts_format("2006-01-02 15:04:05.999999999") {
                     $local_resolved
                   } else {
                     throw("Invalid local timestamp for timezone: " + $local_zone)
@@ -92,7 +92,7 @@ config:
           root.processing_metadata.stage = "timezone_conversion"
 
           root.timestamp = if this.processing_metadata.parse_success {
-            this.timestamp_parsed.ts_format("2006-01-02T15:04:05Z07:00", "UTC")
+            this.timestamp_parsed.ts_format("2006-01-02T15:04:05.999999999Z07:00", "UTC")
           } else {
             this.timestamp
           }

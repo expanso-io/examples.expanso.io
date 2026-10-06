@@ -40,9 +40,9 @@ config:
           root.parsed_timestamp = if $ts.type() == "number" {
             # Unix timestamp (detect seconds vs milliseconds)
             if $ts > 10000000000 {
-              ($ts / 1000).floor().ts_format("2006-01-02T15:04:05Z07:00")
+              (($ts / 1000).floor().ts_format("2006-01-02T15:04:05", "UTC") + "." + ("000" + ($ts % 1000).string()).slice(-3) + "Z").ts_parse("2006-01-02T15:04:05.000Z07:00")
             } else {
-              $ts.ts_format("2006-01-02T15:04:05Z07:00")
+              $ts.ts_format("2006-01-02T15:04:05.999999999Z07:00")
             }
           } else if $ts.type() == "string" {
             # ISO8601 with timezone
@@ -56,7 +56,7 @@ config:
               $ts.ts_parse("01/02/2006 15:04:05")
             # SQL format YYYY-MM-DD HH:mm:ss
             } else if $ts.contains("-") && $ts.contains(":") && $ts.contains(" ") {
-              if $local_resolved.ts_format("2006-01-02 15:04:05", $local_zone) == $ts {
+              if $local_resolved.ts_format("2006-01-02 15:04:05.999999999", $local_zone) == $ts.ts_parse("2006-01-02 15:04:05").ts_format("2006-01-02 15:04:05.999999999") {
                 $local_resolved
               } else {
                 throw("Invalid local timestamp for timezone: " + $local_zone)
@@ -93,7 +93,7 @@ config:
       # Standardize to ISO8601 UTC
       - mapping: |
           root = this
-          root.timestamp = this.parsed_timestamp.ts_format("2006-01-02T15:04:05Z07:00", "UTC")
+          root.timestamp = this.parsed_timestamp.ts_format("2006-01-02T15:04:05.999999999Z07:00", "UTC")
           root = root.without("parsed_timestamp")
 
       # Add time metadata
