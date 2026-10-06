@@ -49,6 +49,9 @@ config:
       - mapping: |
           root = this
           let key = env("CARD_ENCRYPTION_KEY_HEX").decode("hex")
+          let key = if $key.length() != 32 {
+            throw("Expected a 32-byte AES key")
+          } else { $key }
           let number_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
           let name_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
           root.payment.card_number_encrypted = if this.payment.card_number != null {
@@ -86,6 +89,9 @@ config:
       - mapping: |
           root = this
           let key = env("PII_ENCRYPTION_KEY_HEX").decode("hex")
+          let key = if $key.length() != 32 {
+            throw("Expected a 32-byte AES key")
+          } else { $key }
           let ssn_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
           let email_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
           let phone_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
@@ -120,8 +126,14 @@ config:
           root.customer.phone_nonce = if this.customer.phone != null {
             $phone_nonce
           } else { deleted() }
+          let digits = if this.customer.phone != null {
+            this.customer.phone.re_replace_all("[^0-9]", "")
+          } else { "" }
+          let national = if $digits.length() == 11 && $digits.has_prefix("1") {
+            $digits.slice(1)
+          } else { $digits }
           root.customer.phone_area_code = if this.customer.phone != null {
-            this.customer.phone.re_replace_all("[^0-9]", "").slice(0, 3)
+            $national.slice(0, 3)
           }
           root.customer.date_of_birth_encrypted = if this.customer.date_of_birth != null {
             this.customer.date_of_birth.encrypt_aes(
@@ -140,6 +152,9 @@ config:
       - mapping: |
           root = this
           let key = env("ADDRESS_ENCRYPTION_KEY_HEX").decode("hex")
+          let key = if $key.length() != 32 {
+            throw("Expected a 32-byte AES key")
+          } else { $key }
           let street_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
           let zip_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
           root.billing_address.street_encrypted = if this.billing_address.street != null {

@@ -37,11 +37,13 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"card_number\": \"4532-1234-5678-9010\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"cvv\": \"123\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"expiration\": \"12/27\",",
@@ -49,7 +51,8 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"cardholder_name\": \"Sarah Johnson\"",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "},",
@@ -61,19 +64,23 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"email\": \"sarah.johnson@example.com\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"phone\": \"+1-415-555-0123\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"ssn\": \"123-45-6789\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"date_of_birth\": \"1985-03-15\"",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "},",
@@ -85,7 +92,8 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"street\": \"123 Main St\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"city\": \"San Francisco\",",
@@ -97,7 +105,8 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"zip\": \"94102\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"country\": \"US\"",
@@ -143,11 +152,13 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"card_number\": \"4532-1234-5678-9010\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"cvv\": \"123\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"expiration\": \"12/27\",",
@@ -155,7 +166,8 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"cardholder_name\": \"Sarah Johnson\"",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "},",
@@ -167,19 +179,23 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"email\": \"sarah.johnson@example.com\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"phone\": \"+1-415-555-0123\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"ssn\": \"123-45-6789\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"date_of_birth\": \"1985-03-15\"",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "},",
@@ -191,7 +207,8 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"street\": \"123 Main St\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"city\": \"San Francisco\",",
@@ -203,7 +220,8 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"zip\": \"94102\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"country\": \"US\"",
@@ -255,11 +273,13 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"card_number\": \"4532-1234-5678-9010\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"cvv\": \"123\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"expiration\": \"12/27\",",
@@ -267,7 +287,8 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"cardholder_name\": \"Sarah Johnson\"",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "},",
@@ -365,27 +386,33 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"card_last_four\": \"9010\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"card_brand\": \"visa\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"card_number_encrypted\": \"lpCo/ZX8nEv4v3QMZp7j7DXPHZHZgdSisDEbapgMAYu6QJU=\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"card_number_nonce\": \"52860578201ae859fc217382\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"cardholder_name_encrypted\": \"FQY/TPv7A9USu5VN9OMdxTXSJ7a3w+Y1HV8lHj0=\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"cardholder_name_nonce\": \"d4bd8726adf662873155fa49\"",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "},",
@@ -521,19 +548,23 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"email\": \"sarah.johnson@example.com\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"phone\": \"+1-415-555-0123\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"ssn\": \"123-45-6789\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"date_of_birth\": \"1985-03-15\"",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "},",
@@ -639,51 +670,63 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"ssn_last_four\": \"6789\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"email_domain\": \"example.com\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
-        "content": "\"phone_area_code\": \"141\",",
-        "indent": 2
+        "content": "\"phone_area_code\": \"415\",",
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"birth_year\": 1985,",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"ssn_encrypted\": \"mHk4hhUSNKyrm+8uqc5zUKfgzSK0ldV3Nu9b\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"ssn_nonce\": \"de7c2ff8f51df67359fd7292\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"email_encrypted\": \"kYxzQn3uiaoSRP2T7e1OUoHoLAoAl4jhO12cTAFr1XhdZLlnl1bJu78=\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"email_nonce\": \"b228b001aaf1433bfec2db4f\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"phone_encrypted\": \"FHavKi6h3xhC/Y/i7McfcU5mkiSgToR8hi5vQ99QBg==\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"phone_nonce\": \"ffa3a72cd946d9ec90ce902a\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"date_of_birth_encrypted\": \"AeSdHlZVlbvGjXvpTd3Y/pXiKdwgOZLQ1YE=\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"date_of_birth_nonce\": \"1111c29e0d4307c1780e94f9\"",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "},",
@@ -802,7 +845,7 @@ export const encryptDataStages: Stage[] = [
         "indent": 2
       },
       {
-        "content": "\"phone_area_code\": \"141\",",
+        "content": "\"phone_area_code\": \"415\",",
         "indent": 2
       },
       {
@@ -851,7 +894,8 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"street\": \"123 Main St\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"city\": \"San Francisco\",",
@@ -863,11 +907,13 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"zip\": \"94102\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"country\": \"US\"",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "}",
@@ -952,7 +998,7 @@ export const encryptDataStages: Stage[] = [
         "indent": 2
       },
       {
-        "content": "\"phone_area_code\": \"141\",",
+        "content": "\"phone_area_code\": \"415\",",
         "indent": 2
       },
       {
@@ -1009,23 +1055,28 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"country\": \"US\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"street_encrypted\": \"kraUixfb9IRW1rTsdspmNM3hV2UCKNSWt1XC\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"street_nonce\": \"c3af7140b21eaae7d4be1b74\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"zip_encrypted\": \"9Y0HgXmp1hsFBdZZSNWvM+Vm9lbD\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"zip_nonce\": \"cec741b3ae70c6947a7bc394\"",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "}",
@@ -1116,7 +1167,7 @@ export const encryptDataStages: Stage[] = [
         "indent": 2
       },
       {
-        "content": "\"phone_area_code\": \"141\",",
+        "content": "\"phone_area_code\": \"415\",",
         "indent": 2
       },
       {
@@ -1274,7 +1325,7 @@ export const encryptDataStages: Stage[] = [
         "indent": 2
       },
       {
-        "content": "\"phone_area_code\": \"141\",",
+        "content": "\"phone_area_code\": \"415\",",
         "indent": 2
       },
       {
@@ -1355,27 +1406,33 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"encryption_metadata\": {",
-        "indent": 1
+        "indent": 1,
+        "type": "added"
       },
       {
         "content": "\"encrypted\": true,",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"encryption_timestamp\": \"2025-10-20T14:30:00Z\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"key_version\": \"fixture-v1\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"algorithm\": \"AES-256-GCM\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"node_id\": \"fixture-node\"",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "}",
@@ -1419,7 +1476,8 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"payment\": {",
-        "indent": 1
+        "indent": 1,
+        "type": "highlighted"
       },
       {
         "content": "\"expiration\": \"12/27\",",
@@ -1455,7 +1513,8 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"customer\": {",
-        "indent": 1
+        "indent": 1,
+        "type": "highlighted"
       },
       {
         "content": "\"ssn_last_four\": \"6789\",",
@@ -1466,7 +1525,7 @@ export const encryptDataStages: Stage[] = [
         "indent": 2
       },
       {
-        "content": "\"phone_area_code\": \"141\",",
+        "content": "\"phone_area_code\": \"415\",",
         "indent": 2
       },
       {
@@ -1511,7 +1570,8 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"billing_address\": {",
-        "indent": 1
+        "indent": 1,
+        "type": "highlighted"
       },
       {
         "content": "\"city\": \"San Francisco\",",
@@ -1613,15 +1673,18 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"card_last_four\": \"9010\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"card_brand\": \"visa\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"card_number_encrypted\": \"lpCo/ZX8nEv4v3QMZp7j7DXPHZHZgdSisDEbapgMAYu6QJU=\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"card_number_nonce\": \"52860578201ae859fc217382\",",
@@ -1629,7 +1692,8 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"cardholder_name_encrypted\": \"FQY/TPv7A9USu5VN9OMdxTXSJ7a3w+Y1HV8lHj0=\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"cardholder_name_nonce\": \"d4bd8726adf662873155fa49\"",
@@ -1645,15 +1709,18 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"ssn_last_four\": \"6789\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"email_domain\": \"example.com\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
-        "content": "\"phone_area_code\": \"141\",",
-        "indent": 2
+        "content": "\"phone_area_code\": \"415\",",
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"birth_year\": 1985,",
@@ -1661,7 +1728,8 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"ssn_encrypted\": \"mHk4hhUSNKyrm+8uqc5zUKfgzSK0ldV3Nu9b\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"ssn_nonce\": \"de7c2ff8f51df67359fd7292\",",
@@ -1669,7 +1737,8 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"email_encrypted\": \"kYxzQn3uiaoSRP2T7e1OUoHoLAoAl4jhO12cTAFr1XhdZLlnl1bJu78=\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"email_nonce\": \"b228b001aaf1433bfec2db4f\",",
@@ -1677,7 +1746,8 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"phone_encrypted\": \"FHavKi6h3xhC/Y/i7McfcU5mkiSgToR8hi5vQ99QBg==\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"phone_nonce\": \"ffa3a72cd946d9ec90ce902a\",",
@@ -1713,7 +1783,8 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"street_encrypted\": \"kraUixfb9IRW1rTsdspmNM3hV2UCKNSWt1XC\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"street_nonce\": \"c3af7140b21eaae7d4be1b74\",",
@@ -1721,7 +1792,8 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"zip_encrypted\": \"9Y0HgXmp1hsFBdZZSNWvM+Vm9lbD\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"zip_nonce\": \"cec741b3ae70c6947a7bc394\"",
@@ -1733,11 +1805,13 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"encryption_metadata\": {",
-        "indent": 1
+        "indent": 1,
+        "type": "added"
       },
       {
         "content": "\"encrypted\": true,",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"encryption_timestamp\": \"2025-10-20T14:30:00Z\",",
@@ -1745,11 +1819,13 @@ export const encryptDataStages: Stage[] = [
       },
       {
         "content": "\"key_version\": \"fixture-v1\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"algorithm\": \"AES-256-GCM\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"node_id\": \"fixture-node\"",

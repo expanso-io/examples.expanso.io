@@ -3,6 +3,9 @@ pipeline:
     - mapping: |
         root = this
         let key = env("CARD_ENCRYPTION_KEY_HEX").decode("hex")
+        let key = if $key.length() != 32 {
+          throw("Expected a 32-byte AES key")
+        } else { $key }
         let number_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
         let name_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
         root.payment.card_number_encrypted = if this.payment.card_number != null {

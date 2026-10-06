@@ -66,13 +66,55 @@ test('Splunk preserves regional routing and critical delivery policy',()=>{
   assert.ok(region);
   const output=region.output;
   const upper=residency.toUpperCase();
-  assert.equal(output.aws_s3.bucket,'${S3_BUCKET_PREFIX}-'+residency);
+  assert.equal(output.aws_s3.bucket,'${S3_BUCKET_PREFIX}-'+residency.replaceAll('_','-'));
   assert.equal(output.aws_s3.region,'${AWS_REGION_'+upper+'}');
   assert.equal(output.aws_s3.kms_key_id,'${S3_KMS_KEY_ARN_'+upper+'}');
-  const value=run(output.processors,{data_residency:residency,s3_event:{data_residency:residency,retention_years:7}});
-  assert.deepEqual(value,[{data_residency:residency,retention_years:7}]);
+  const event={data_residency:residency,retention_years:7,data_classification:'pii',pipeline_version:'1.0.0'};
+  const value=run([...output.processors,{mapping:'root = {"event": this, "metadata": meta()}'}],{data_residency:residency,s3_event:event});
+  assert.deepEqual(value,[{event,metadata:{'data-classification':'pii','retention-years':'7','pipeline-version':'1.0.0'}}]);
  }
  const elapsed=pipeline.processors.find(x=>x.mapping?.includes('root.processing_duration_ms ='));
  const result=run([pipeline.processors[0],elapsed],{host:'fixture'})[0];
  assert.equal(typeof result.processing_duration_ms,'number');assert.ok(result.processing_duration_ms>=0);assert.ok(result.metric_event_id);
+});
+async function stageModule(p){
+ const source=fs.readFileSync(path.join(root,p),'utf8');
+ const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+ return import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
+}
+test('encrypt-data enforces AES-256 keys and retains national phone area codes',async()=>{
+ const {encryptDataStages:stages}=await stageModule('docs/data-security/encrypt-data-full.stages.ts');
+ const sample=JSON.parse(stages[0].inputLines.map(l=>l.content).join('\n'));
+ const processors=read('static/files/data-security/encrypt-data.yaml').config.pipeline.processors;
+ const keys=['CARD_ENCRYPTION_KEY_HEX','PII_ENCRYPTION_KEY_HEX','ADDRESS_ENCRYPTION_KEY_HEX'];
+ const env={...Object.fromEntries(keys.map(k=>[k,'01'.repeat(32)])),KEY_VERSION:'fixture-v1',NODE_ID:'fixture-node'};
+ for(const phone of ['+1-415-555-0123','415-555-0123']){
+  const fixture=structuredClone(sample);fixture.customer.phone=phone;
+  const [actual]=run(processors,fixture,env);
+  assert.equal(actual.customer.phone_area_code,'415');
+ }
+ for(let i=1;i<stages.length;i++){
+  const actual=run(processors.slice(0,i+1),sample,env)[0];
+  const expected=JSON.parse(stages[i].outputLines.map(l=>l.content).join('\n'));
+  if(actual.encryption_metadata){
+   assert.ok(Number.isFinite(Date.parse(actual.encryption_metadata.encryption_timestamp)));
+   expected.encryption_metadata.encryption_timestamp=actual.encryption_metadata.encryption_timestamp;
+  }
+  assert.deepEqual(normalize(actual),normalize(expected));
+ }
+ for(const key of keys)for(const invalid of ['01'.repeat(16),'01'.repeat(24),'bad-key'])
+  assert.deepEqual(run(processors,sample,{...env,[key]:invalid}),[]);
+});
+test('encryption explorers render plaintext and ciphertext change states',async()=>{
+ const {normalizeExplorerStages}=await stageModule('src/components/ExplorerV2/normalize.ts');
+ for(const [file,exportName]of [['encrypt-data','encryptDataStages'],['encryption-patterns','encryptionPatternsStages']]){
+  const stages=(await stageModule('docs/data-security/'+file+'-full.stages.ts'))[exportName];
+  const rendered=normalizeExplorerStages(stages,'authored','diff');
+  assert.equal(rendered[0].inputLines.find(l=>l.content.startsWith('"card_number":')).state,'changed');
+  assert.equal(rendered[1].inputLines.find(l=>l.content.startsWith('"card_number":')).state,'removed');
+  assert.equal(rendered[1].outputLines.find(l=>l.content.startsWith('"card_number_encrypted":')).state,'added');
+  assert.equal(rendered[1].outputLines.find(l=>l.content.startsWith('"card_number_nonce":')).state,'added');
+  const highlights=normalizeExplorerStages(stages,'authored','highlights');
+  assert.equal(highlights[1].outputLines.find(l=>l.content.startsWith('"card_number_encrypted":')).state,'changed');
+ }
 });

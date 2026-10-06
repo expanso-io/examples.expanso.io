@@ -3,6 +3,9 @@ pipeline:
     - mapping: |
         root = this
         let key = env("ADDRESS_ENCRYPTION_KEY_HEX").decode("hex")
+        let key = if $key.length() != 32 {
+          throw("Expected a 32-byte AES key")
+        } else { $key }
         let street_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
         let zip_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
         root.billing_address.street_encrypted = if this.billing_address.street != null {

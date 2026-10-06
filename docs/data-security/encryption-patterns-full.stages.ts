@@ -21,15 +21,18 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"card_number\": \"4532-1234-5678-9010\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"cvv\": \"123\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"cardholder_name\": \"Sarah Johnson\"",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "},",
@@ -41,27 +44,33 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"first_name\": \"Sarah\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"last_name\": \"Johnson\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"email\": \"sarah.johnson@example.com\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"phone\": \"+1-415-555-0123\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"ssn\": \"123-45-6789\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"date_of_birth\": \"1985-03-15\"",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "},",
@@ -73,11 +82,13 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"street\": \"123 Main St\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"zip\": \"94103\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"city\": \"San Francisco\",",
@@ -101,11 +112,13 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"street\": \"456 Market St\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"zip\": \"94105\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"city\": \"San Francisco\",",
@@ -143,15 +156,18 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"card_number\": \"4532-1234-5678-9010\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"cvv\": \"123\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"cardholder_name\": \"Sarah Johnson\"",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "},",
@@ -163,27 +179,33 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"first_name\": \"Sarah\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"last_name\": \"Johnson\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"email\": \"sarah.johnson@example.com\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"phone\": \"+1-415-555-0123\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"ssn\": \"123-45-6789\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"date_of_birth\": \"1985-03-15\"",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "},",
@@ -195,11 +217,13 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"street\": \"123 Main St\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"zip\": \"94103\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"city\": \"San Francisco\",",
@@ -223,11 +247,13 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"street\": \"456 Market St\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"zip\": \"94105\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"city\": \"San Francisco\",",
@@ -271,15 +297,18 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"card_number\": \"4532-1234-5678-9010\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"cvv\": \"123\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"cardholder_name\": \"Sarah Johnson\"",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "},",
@@ -389,35 +418,43 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"payment\": {",
-        "indent": 1
+        "indent": 1,
+        "type": "highlighted"
       },
       {
         "content": "\"card_last_four\": \"9010\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"card_bin\": \"453212\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"card_brand\": \"visa\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"card_number_encrypted\": \"lpCo/ZX8nEv4v3QMZp7j7DXPHZHZgdSisDEbapgMAYu6QJU=\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"card_number_nonce\": \"52860578201ae859fc217382\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"cardholder_name_encrypted\": \"FQY/TPv7A9USu5VN9OMdxTXSJ7a3w+Y1HV8lHj0=\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"cardholder_name_nonce\": \"d4bd8726adf662873155fa49\"",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "},",
@@ -573,27 +610,33 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"first_name\": \"Sarah\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"last_name\": \"Johnson\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"email\": \"sarah.johnson@example.com\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"phone\": \"+1-415-555-0123\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"ssn\": \"123-45-6789\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"date_of_birth\": \"1985-03-15\"",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "},",
@@ -707,71 +750,88 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"customer\": {",
-        "indent": 1
+        "indent": 1,
+        "type": "highlighted"
       },
       {
         "content": "\"date_of_birth\": \"1985-03-15\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"email_domain\": \"example.com\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"email_domain_type\": \"business\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"phone_country_code\": \"+1\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"phone_area_code\": \"415\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"ssn_last_four\": \"6789\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"email_encrypted\": \"kYxzQn3uiaoSRP2T7e1OUoHoLAoAl4jhO12cTAFr1XhdZLlnl1bJu78=\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"email_nonce\": \"b228b001aaf1433bfec2db4f\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"phone_encrypted\": \"FHavKi6h3xhC/Y/i7McfcU5mkiSgToR8hi5vQ99QBg==\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"phone_nonce\": \"ffa3a72cd946d9ec90ce902a\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"ssn_encrypted\": \"mHk4hhUSNKyrm+8uqc5zUKfgzSK0ldV3Nu9b\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"ssn_nonce\": \"de7c2ff8f51df67359fd7292\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"first_name_encrypted\": \"8bTSBScy5lspVQFfmhMTkTFE/jiw\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"first_name_nonce\": \"19784ba1a795818123adfa51\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"last_name_encrypted\": \"oYaSRzeYtC8YFd3ri+xuXgRtf1qeQ2Y=\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"last_name_nonce\": \"37a238b880b3e7f263499b28\"",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "},",
@@ -967,11 +1027,13 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"street\": \"123 Main St\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"zip\": \"94103\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"city\": \"San Francisco\",",
@@ -983,7 +1045,8 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"country\": \"US\"",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "},",
@@ -995,11 +1058,13 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"street\": \"456 Market St\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"zip\": \"94105\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"city\": \"San Francisco\",",
@@ -1011,7 +1076,8 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"country\": \"US\"",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "}",
@@ -1141,43 +1207,53 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"billing_address\": {",
-        "indent": 1
+        "indent": 1,
+        "type": "highlighted"
       },
       {
         "content": "\"city\": \"San Francisco\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"state\": \"CA\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"country\": \"US\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"zip_prefix\": \"941\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"metro_area\": \"sf_bay_area\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"street_encrypted\": \"kraUixfb9IRW1rTsdspmNM3hV2UCKNSWt1XC\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"street_nonce\": \"c3af7140b21eaae7d4be1b74\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"zip_encrypted\": \"9Y0HgXjL+O0/0OylXvpSGGi2nJW9\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"zip_nonce\": \"cec741b3ae70c6947a7bc394\"",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "},",
@@ -1197,31 +1273,38 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"country\": \"US\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"zip_prefix\": \"941\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"metro_area\": \"sf_bay_area\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"street_encrypted\": \"gsbAXd85EiIAjTx0Rw8cAkLNaR3XzWKDK1+4rwU=\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"street_nonce\": \"3da6fd3bc65870e32ffa7c3b\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"zip_encrypted\": \"zYQDTJo0l8kZPdZxrBBbpJaPVybJ\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"zip_nonce\": \"dd996a2c2be914f93905a46d\"",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "},",
@@ -1229,19 +1312,23 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"address_analysis\": {",
-        "indent": 1
+        "indent": 1,
+        "type": "added"
       },
       {
         "content": "\"same_city\": true,",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"same_state\": true,",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"same_metro\": true",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "}",
@@ -1309,7 +1396,8 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"date_of_birth\": \"1985-03-15\",",
-        "indent": 2
+        "indent": 2,
+        "type": "removed"
       },
       {
         "content": "\"email_domain\": \"example.com\",",
@@ -1369,7 +1457,8 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"last_name_nonce\": \"37a238b880b3e7f263499b28\"",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "},",
@@ -1535,7 +1624,8 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"customer\": {",
-        "indent": 1
+        "indent": 1,
+        "type": "highlighted"
       },
       {
         "content": "\"email_domain\": \"example.com\",",
@@ -1595,35 +1685,43 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"last_name_nonce\": \"37a238b880b3e7f263499b28\",",
-        "indent": 2
+        "indent": 2,
+        "type": "highlighted"
       },
       {
         "content": "\"birth_year\": 1985,",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"current_age\": 41,",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"age_range\": \"35_to_44\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"birth_decade\": \"1980s\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"birth_season\": \"spring\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"date_of_birth_encrypted\": \"AeSdHlZVlbvGjXvpTd3Y/pXiKdwgOZLQ1YE=\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"date_of_birth_nonce\": \"1111c29e0d4307c1780e94f9\"",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "},",
@@ -2253,27 +2351,33 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"multi_key_metadata\": {",
-        "indent": 1
+        "indent": 1,
+        "type": "added"
       },
       {
         "content": "\"encryption_architecture\": \"multi_tier_risk_based\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"key_tiers_used\": {",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"payment_critical\": {",
-        "indent": 3
+        "indent": 3,
+        "type": "added"
       },
       {
         "content": "\"rotation_schedule_days\": 90,",
-        "indent": 4
+        "indent": 4,
+        "type": "added"
       },
       {
         "content": "\"compliance_standards\": [",
-        "indent": 4
+        "indent": 4,
+        "type": "added"
       },
       {
         "content": "\"PCI-DSS\"",
@@ -2285,7 +2389,8 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"access_control\": \"payment_processor_only\"",
-        "indent": 4
+        "indent": 4,
+        "type": "added"
       },
       {
         "content": "},",
@@ -2293,15 +2398,18 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"pii_high\": {",
-        "indent": 3
+        "indent": 3,
+        "type": "added"
       },
       {
         "content": "\"rotation_schedule_days\": 180,",
-        "indent": 4
+        "indent": 4,
+        "type": "added"
       },
       {
         "content": "\"compliance_standards\": [",
-        "indent": 4
+        "indent": 4,
+        "type": "added"
       },
       {
         "content": "\"GDPR\",",
@@ -2317,7 +2425,8 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"access_control\": \"customer_service_analytics\"",
-        "indent": 4
+        "indent": 4,
+        "type": "added"
       },
       {
         "content": "},",
@@ -2325,15 +2434,18 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"location_medium\": {",
-        "indent": 3
+        "indent": 3,
+        "type": "added"
       },
       {
         "content": "\"rotation_schedule_days\": 365,",
-        "indent": 4
+        "indent": 4,
+        "type": "added"
       },
       {
         "content": "\"compliance_standards\": [",
-        "indent": 4
+        "indent": 4,
+        "type": "added"
       },
       {
         "content": "\"location_privacy\"",
@@ -2349,15 +2461,18 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"temporal_medium\": {",
-        "indent": 3
+        "indent": 3,
+        "type": "added"
       },
       {
         "content": "\"rotation_schedule_days\": 365,",
-        "indent": 4
+        "indent": 4,
+        "type": "added"
       },
       {
         "content": "\"compliance_standards\": [",
-        "indent": 4
+        "indent": 4,
+        "type": "added"
       },
       {
         "content": "\"HIPAA\"",
@@ -2381,23 +2496,28 @@ export const encryptionPatternsStages: Stage[] = [
       },
       {
         "content": "\"operational_metrics\": {",
-        "indent": 1
+        "indent": 1,
+        "type": "added"
       },
       {
         "content": "\"pipeline_health\": \"optimal\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"selected_field_count\": 12,",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"key_version\": \"fixture-v1\",",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "\"fixture_status\": \"illustrative\"",
-        "indent": 2
+        "indent": 2,
+        "type": "added"
       },
       {
         "content": "}",
