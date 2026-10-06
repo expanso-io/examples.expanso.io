@@ -46,11 +46,22 @@ jobs:
       - name: Type check
         run: npm run typecheck -- --noEmit
 
+      - name: Validate all 26 published example contracts
+        run: npm run test-example-conformance
+
       - name: Test privacy-safe analytics contract
         run: npm run test-analytics
 
       - name: Build
         run: npm run build
+
+      - name: Install pinned Playwright Chromium
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Test all 26 published example pages
+        env:
+          QUALITY_STATIC_SERVER: '1'
+        run: npm run quality:example-conformance
 
       - name: Verify the build carries no analytics tag
         run: npm run verify:analytics-build -- --build-dir build --variant none

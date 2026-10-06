@@ -217,11 +217,16 @@ export default function ExplorerV2({
   const hasCapturedEngagementRef = useRef(false);
   const actionMenuRef = useRef<HTMLDetailsElement | null>(null);
   const { feedback: copyFeedback, show: showCopyFeedback } = useCopyFeedback();
-  // Menu items disappear when the menu closes, so success surfaces on the
-  // trigger they came from.
+  // Menu items disappear when the menu closes, so their result surfaces on
+  // the trigger they came from.
 
   const menuCopyFeedback =
-    copyFeedback?.kind === 'success' && copyFeedback.key.startsWith('menu-')
+    copyFeedback !== null && copyFeedback.key.startsWith('menu-')
+      ? copyFeedback
+      : null;
+
+  const menuDownloadFeedback =
+    copyFeedback !== null && copyFeedback.key.startsWith('download-')
       ? copyFeedback
       : null;
 
@@ -448,13 +453,6 @@ export default function ExplorerV2({
         setStatus(`${label} copied.`);
       }
 
-      if (feedbackKey?.startsWith('menu-') && actionMenuRef.current) {
-        actionMenuRef.current.open = false;
-        actionMenuRef.current
-          .querySelector('summary')
-          ?.focus({ preventScroll: true });
-      }
-
       recordAnalyticsEvent(
         scope === 'share'
           ? createExplorerShareEvent(exampleId, currentStage.slug)
@@ -473,7 +471,17 @@ export default function ExplorerV2({
           `Could not copy ${label.toLowerCase()}. Select the text and copy it manually.`
         );
       }
+    } finally {
+      if (feedbackKey?.startsWith('menu-')) closeActionMenu();
     }
+  }
+
+  function closeActionMenu() {
+    if (!actionMenuRef.current) return;
+    actionMenuRef.current.open = false;
+    actionMenuRef.current
+      .querySelector('summary')
+      ?.focus({ preventScroll: true });
   }
 
   function copyShareLink() {
@@ -493,6 +501,8 @@ export default function ExplorerV2({
     filename: string,
     scope: 'stage' | 'full'
   ) {
+    const feedbackKey = `download-${scope}`;
+
     try {
       const url = URL.createObjectURL(
         new Blob([value], { type: 'text/yaml;charset=utf-8' })
@@ -503,16 +513,27 @@ export default function ExplorerV2({
       link.download = filename;
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      showCopyFeedback({
+        key: feedbackKey,
+        kind: 'success',
+        message: `${filename} download started.`,
+      });
       setStatusKind('success');
       setStatus(`${filename} download started.`);
       recordAnalyticsEvent(
         createPipelineDownloadEvent(exampleId, currentStage.slug, scope)
       );
     } catch {
+      const message = `Could not download ${scope === 'full' ? 'the full YAML' : 'the stage YAML'}. Copy it instead.`;
+      showCopyFeedback({
+        key: feedbackKey,
+        kind: 'error',
+        message,
+      });
       setStatusKind('error');
-      setStatus(
-        `Could not download ${scope === 'full' ? 'the full YAML' : 'the stage YAML'}. Copy it instead.`
-      );
+      setStatus(message);
+    } finally {
+      closeActionMenu();
     }
   }
 
@@ -679,7 +700,7 @@ export default function ExplorerV2({
               <CopyActionButton
                 feedbackKey="menu-share"
                 feedback={copyFeedback}
-                toast="error-only"
+                toast="never"
                 toastPlacement="inline"
                 onCopy={copyShareLink}
               >
@@ -688,7 +709,7 @@ export default function ExplorerV2({
               <CopyActionButton
                 feedbackKey="menu-stage"
                 feedback={copyFeedback}
-                toast="error-only"
+                toast="never"
                 toastPlacement="inline"
                 onCopy={() =>
                   void copyText(
@@ -718,7 +739,7 @@ export default function ExplorerV2({
                   <CopyActionButton
                     feedbackKey="menu-full"
                     feedback={copyFeedback}
-                    toast="error-only"
+                    toast="never"
                     toastPlacement="inline"
                     onCopy={() =>
                       void copyText(fullYaml, 'Full YAML', 'full', 'menu-full')
@@ -743,6 +764,16 @@ export default function ExplorerV2({
             </div>
           </details>
           {menuCopyFeedback ? <CopyToast feedback={menuCopyFeedback} /> : null}
+          {menuDownloadFeedback ? (
+            <span
+              className={styles.toast}
+              data-download-feedback=""
+              data-kind={menuDownloadFeedback.kind}
+              role={menuDownloadFeedback.kind === 'error' ? 'alert' : 'status'}
+            >
+              {menuDownloadFeedback.message}
+            </span>
+          ) : null}
         </span>
       </div>
 
@@ -774,19 +805,21 @@ export default function ExplorerV2({
               >
                 <div className={styles.panelHeader}>
                   <h4>{label}</h4>
-                  <button
-                    type="button"
+                  <CopyActionButton
+                    feedbackKey={panel}
+                    feedback={copyFeedback}
                     aria-label={`Copy ${label.toLowerCase()} ${payloadLabel} for ${currentStage.title}`}
-                    onClick={() =>
-                      copyText(
+                    onCopy={() =>
+                      void copyText(
                         value,
                         `${label} ${payloadLabel}`,
-                        isInput ? 'input' : 'output'
+                        panel,
+                        panel
                       )
                     }
                   >
                     Copy {payloadLabel}
-                  </button>
+                  </CopyActionButton>
                 </div>
                 <div
                   className={styles.dataScroll}
@@ -824,6 +857,7 @@ export default function ExplorerV2({
               <CopyActionButton
                 feedbackKey="yaml"
                 feedback={copyFeedback}
+                aria-label="Copy YAML"
                 onCopy={() =>
                   void copyText(
                     visibleYaml,
