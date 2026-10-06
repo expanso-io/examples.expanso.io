@@ -11,7 +11,7 @@ import {
 import { join } from 'node:path';
 import { createServer } from 'node:net';
 import { createServer as createHttpServer } from 'node:http';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { parse, stringify } from 'yaml';
 import { globSync } from 'glob';
 import matter from 'gray-matter';
@@ -2033,3 +2033,161 @@ for (const stage of [1, 2, 3]) {
     }
   });
 }
+
+for (const language of ['bloblang', 'coffee']) {
+  test(`selected ${language} fences reach inventory, fragment classification, and Edge lint`, async () => {
+    const fixtureRoot = join(work, `fence-${language}`);
+    mkdirSync(join(fixtureRoot, 'docs', 'test'), { recursive: true });
+    writeFileSync(
+      join(fixtureRoot, 'docs', 'test', 'step.mdx'),
+      `---\ntitle: Mapping\n---\n\n\x60\x60\x60${language}\nroot = this\nroot.checked = true\n\x60\x60\x60\n\n\x60\x60\x60${language}\nroot = (\n\x60\x60\x60\n`
+    );
+    const entries = discoverPipelineFiles(fixtureRoot).filter(
+      (file) => file.sourcePath === 'docs/test/step.mdx'
+    );
+    assert.equal(entries.length, 2);
+    for (const entry of entries) {
+      assert.equal(entry.kind, 'fragment');
+      assert.equal(
+        classifyPipelineCode(entry.source ?? '', language),
+        'fragment'
+      );
+      const wrapped = wrapFragment(entry.document);
+      assert.ok(wrapped);
+      const status = validateSource(edge, root, wrapped.source).status;
+      assert.equal(status, entry === entries[0] ? 'PASS' : 'FAIL');
+    }
+    const valid = wrapFragment(entries[0].document);
+    assert.ok(valid);
+    const output = JSON.parse(
+      (await execute(valid.source, [{ id: 'event' }])).toString()
+    );
+    assert.deepEqual(output, { id: 'event', checked: true });
+  });
+}
+
+test('selected restored PII pattern snippet reaches Edge and reports violations', async () => {
+  const path =
+    'docs/data-security/cross-border-gdpr/step-6-validate-anonymization.mdx';
+  const block = pageBlocks(path).find((block) =>
+    block.source.includes('let email_pattern')
+  );
+  assert.ok(block);
+  const entry = discoverPipelineFiles(root).find(
+    (file) => file.sourcePath === path && file.sourceLine === block.line
+  );
+  assert.ok(entry);
+  assert.equal(entry.kind, 'fragment');
+  const wrapped = wrapFragment(entry.document);
+  assert.ok(wrapped);
+  const good = { region: 'EU', note: 'redacted' };
+  assert.deepEqual(
+    JSON.parse((await execute(wrapped.source, [good])).toString()),
+    good
+  );
+  const bad = { region: 'EU', note: 'ada@example.com' };
+  await execute(wrapped.source, [bad], false, undefined, 'failed');
+});
+
+test('selected MCC enrichment preserves transaction fields through standardization', async () => {
+  const path =
+    'docs/enterprise-migration/db2-to-bigquery/step-4-categorize-transactions.mdx';
+  const mappings = pageBlocks(path)
+    .map((block) => parse(block.source))
+    .filter((document) => Array.isArray(document));
+  assert.equal(mappings.length, 3);
+  const record = {
+    TRANSACTION_ID: 'TX1',
+    CUSTOMER_ID: 'C1',
+    AMOUNT: 100,
+    MERCHANT_CATEGORY_CODE: '5411',
+    TRANSACTION_DATE: '2025-10-20',
+  };
+  const expected = [
+    { transaction_category: 'GROCERY_SUPERMARKET' },
+    { category_level1: 'RETAIL', category_level2: 'GROCERY' },
+    { high_risk: false },
+  ];
+  const standardize = parse(
+    pageBlocks(
+      'docs/enterprise-migration/db2-to-bigquery/step-5-standardize-schema.mdx'
+    )[0].source
+  ).pipeline.processors;
+  for (const [index, processors] of mappings.entries()) {
+    const source = stringify({ pipeline: { processors } });
+    assert.deepEqual(JSON.parse((await execute(source, [record])).toString()), {
+      ...record,
+      ...expected[index],
+    });
+    const output = JSON.parse(
+      (
+        await execute(
+          stringify({
+            pipeline: { processors: [...processors, ...standardize] },
+          }),
+          [record]
+        )
+      ).toString()
+    );
+    assert.equal(output.transaction_id, 'TX1');
+    assert.equal(output.customer_id, 'C1');
+    assert.equal(output.merchant_category_code, '5411');
+  }
+});
+
+test('selected fence-language CI command rejects changes unless explicitly listed', () => {
+  const fixtureRoot = join(work, 'fence-language-git');
+  mkdirSync(join(fixtureRoot, 'docs', 'test'), { recursive: true });
+  mkdirSync(join(fixtureRoot, 'content'));
+  const path = 'docs/test/step.mdx';
+  const page = (language: string) =>
+    `# Example\n\n\x60\x60\x60${language}\nroot = this\n\x60\x60\x60\n`;
+  writeFileSync(join(fixtureRoot, path), page('yaml'));
+  writeFileSync(
+    join(fixtureRoot, 'content', 'fence-language-changes.json'),
+    '[]\n'
+  );
+  const git = (args: string[]) =>
+    execFileSync('git', args, { cwd: fixtureRoot, encoding: 'utf8' });
+  git(['init', '--quiet']);
+  git(['add', '.']);
+  git([
+    '-c',
+    'user.name=Fixture',
+    '-c',
+    'user.email=fixture@example.invalid',
+    'commit',
+    '--quiet',
+    '-m',
+    'Fixture baseline',
+  ]);
+  const base = git(['rev-parse', 'HEAD']).trim();
+  const run = () =>
+    spawnSync(
+      process.execPath,
+      [
+        join(root, 'node_modules/tsx/dist/cli.mjs'),
+        join(root, 'scripts/validate-fence-languages.ts'),
+        '--base',
+        base,
+      ],
+      { cwd: fixtureRoot, encoding: 'utf8' }
+    );
+  assert.equal(run().status, 0);
+  for (const language of ['text', 'bloblang', 'coffee', '']) {
+    writeFileSync(join(fixtureRoot, path), page(language));
+    const result = run();
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /docs\/test\/step.mdx:3/);
+  }
+  writeFileSync(join(fixtureRoot, path), page('coffee'));
+  writeFileSync(
+    join(fixtureRoot, 'content', 'fence-language-changes.json'),
+    JSON.stringify([{ path, line: 3, from: 'yaml', to: 'coffee' }])
+  );
+  assert.equal(run().status, 0);
+  writeFileSync(join(fixtureRoot, path), page('bloblang'));
+  assert.equal(run().status, 1);
+  git(['mv', path, 'docs/test/renamed.mdx']);
+  assert.equal(run().status, 1);
+});

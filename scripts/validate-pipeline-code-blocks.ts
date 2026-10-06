@@ -31,7 +31,8 @@ for (const path of globSync('docs/**/*.mdx', {
   for (const block of extractYamlCodeBlocks(page)) {
     yamlBlocks += 1;
 
-    if (classifyPipelineCode(block.source)) renderedPipelineBlocks += 1;
+    if (classifyPipelineCode(block.source, block.language))
+      renderedPipelineBlocks += 1;
     else if (hasUnclassifiedExpansoCode(block.source))
       failures.push(
         `${path}#L${block.line}: YAML is not a recognised complete pipeline, fragment, or infrastructure document`

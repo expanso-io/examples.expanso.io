@@ -52,6 +52,7 @@ jobs:
             base=$(git rev-parse HEAD^)
           fi
 
+          echo "base=$base" >> "$GITHUB_OUTPUT"
           changed=$(git diff --name-only "$base" HEAD)
           run=false
           while IFS= read -r path; do
@@ -112,6 +113,12 @@ jobs:
       - name: Enforce Playwright browser isolation
         if: steps.scope.outputs.run == 'true'
         run: npm run quality:browser-isolation
+
+      - name: Reject unlisted snippet fence-language changes
+        if: steps.scope.outputs.run == 'true'
+        run: |
+          npm run validate-fence-languages -- \
+            --base "${{ steps.scope.outputs.base || 'origin/main' }}"
 
       - name: Verify published pipeline code-block classification
         if: steps.scope.outputs.run == 'true'

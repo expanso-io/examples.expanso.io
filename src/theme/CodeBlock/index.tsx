@@ -3,7 +3,10 @@ import OriginalCodeBlock from '@theme-original/CodeBlock';
 import type { ComponentProps } from 'react';
 
 import PipelineBadge from '../../components/PipelineBadge';
-import { classifyPipelineCode } from '../../lib/pipelineCode';
+import {
+  classifyPipelineCode,
+  isPipelineCodeLanguage,
+} from '../../lib/pipelineCode';
 import { completePipelineRouteForPath } from '../../catalog/completePipelineRoutes';
 import styles from './styles.module.css';
 
@@ -20,8 +23,8 @@ export default function CodeBlock(props: Props) {
     props.language ??
     /(?:^|\s)language-([^\s]+)/.exec(props.className ?? '')?.[1];
 
-  const kind = /^ya?ml$/i.test(language ?? '')
-    ? classifyPipelineCode(codeText(props.children))
+  const kind = isPipelineCodeLanguage(language ?? '')
+    ? classifyPipelineCode(codeText(props.children), language)
     : null;
 
   if (!kind) return <OriginalCodeBlock {...props} />;

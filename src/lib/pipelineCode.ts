@@ -101,8 +101,16 @@ export function isBloblangMappingSnippet(source: string): boolean {
   return /(?:^|\n)\s*(?:let\s+[a-zA-Z_]\w*\s*=|root(?:\.|\s*=))/m.test(source);
 }
 
-export function classifyPipelineCode(source: string): PipelineCodeKind | null {
+export function isPipelineCodeLanguage(language: string): boolean {
+  return /^(?:yaml|yml|bloblang|coffee)$/i.test(language);
+}
+
+export function classifyPipelineCode(
+  source: string,
+  language = 'yaml'
+): PipelineCodeKind | null {
   if (!source.trim()) return null;
+  if (/^(?:bloblang|coffee)$/i.test(language)) return 'fragment';
   let document: ParsedYaml;
 
   try {
@@ -149,34 +157,44 @@ export function hasUnclassifiedExpansoCode(source: string): boolean {
   }
 }
 
-export function extractYamlCodeBlocks(page: string): Array<{
+export interface CodeFence {
   source: string;
   line: number;
-}> {
-  const blocks: Array<{ source: string; line: number }> = [];
+  language: string;
+}
 
+export function extractCodeBlocks(
+  page: string,
+  checkIndentation = true
+): CodeFence[] {
+  const blocks: CodeFence[] = [];
   const fence =
-    /^([ \t]*)(`{3,}|~{3,})(?:yaml|yml)\b[^\n]*\n([\s\S]*?)^([ \t]*)\2[ \t]*$/gm;
-
+    /^([ \t]*)(`{3,}|~{3,})([^\s`~]*)[^\n]*\n([\s\S]*?)^([ \t]*)\2[ \t]*$/gm;
   for (const match of page.matchAll(fence)) {
     const indentation = match[1];
     const line = page.slice(0, match.index).split('\n').length + 1;
-
-    if (match[4] !== indentation)
-      throw new Error(`YAML fence indentation mismatch at line ${line - 1}`);
-
-    const source = match[3]
-      .split('\n')
-      .map((line) =>
-        line.startsWith(indentation) ? line.slice(indentation.length) : line
-      )
-      .join('\n');
-
+    if (
+      checkIndentation &&
+      isPipelineCodeLanguage(match[3]) &&
+      match[5] !== indentation
+    )
+      throw new Error(`Code fence indentation mismatch at line ${line - 1}`);
     blocks.push({
-      source,
+      source: match[4]
+        .split('\n')
+        .map((line) =>
+          line.startsWith(indentation) ? line.slice(indentation.length) : line
+        )
+        .join('\n'),
       line,
+      language: match[3],
     });
   }
-
   return blocks;
+}
+
+export function extractYamlCodeBlocks(page: string): CodeFence[] {
+  return extractCodeBlocks(page).filter((block) =>
+    isPipelineCodeLanguage(block.language)
+  );
 }

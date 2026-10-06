@@ -360,8 +360,9 @@ export function discoverPipelineFiles(repositoryRoot: string): PipelineFile[] {
           .replace(/\/index$/, '');
 
     for (const block of extractYamlCodeBlocks(page)) {
-      const renderedKind = classifyPipelineCode(block.source);
-      const unclassified = hasUnclassifiedExpansoCode(block.source);
+      const renderedKind = classifyPipelineCode(block.source, block.language);
+      const unclassified =
+        !renderedKind && hasUnclassifiedExpansoCode(block.source);
 
       if (!renderedKind && !unclassified) continue;
 
@@ -380,6 +381,12 @@ export function discoverPipelineFiles(repositoryRoot: string): PipelineFile[] {
           ? 'YAML could not be classified as a complete pipeline, supported fragment, or infrastructure document'
           : undefined,
       };
+
+      if (/^(?:bloblang|coffee)$/i.test(block.language)) {
+        file.document = block.source;
+        files.push(file);
+        continue;
+      }
 
       try {
         // SAFETY: rendered YAML fences are parsed as data-only values and the
