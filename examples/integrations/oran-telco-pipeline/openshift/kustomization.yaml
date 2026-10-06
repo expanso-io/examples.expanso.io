@@ -1,0 +1,31 @@
+# Single-Node OpenShift deployment for the O-RAN telemetry example.
+#
+#   oc apply -k examples/integrations/oran-telco-pipeline/openshift
+#
+# Operators that must already be installed on the cluster:
+#   - AMQ Streams (Strimzi) for the Kafka, KafkaNodePool, KafkaTopic, KafkaUser kinds
+#   - Red Hat build of OpenTelemetry for the OpenTelemetryCollector kind
+#
+# Secrets are created with `oc create secret` (see the setup page), never committed.
+# cluster/user-workload-monitoring.yaml is cluster-scoped and applied separately.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: oran-telemetry
+resources:
+  - 00-namespace.yaml
+  - 10-serviceaccount.yaml
+  - 20-pvc-data.yaml
+  - 21-pvc-edge-state.yaml
+  - 30-site-configmap.yaml
+  - 31-edge-config.yaml
+  - 40-kafka-nodepool.yaml
+  - 41-kafka.yaml
+  - 42-kafka-topic-structured.yaml
+  - 43-kafka-topic-alerts.yaml
+  - 44-kafka-user.yaml
+  - 45-kafka-consumer.yaml
+  - 50-otel-collector.yaml
+  - 51-servicemonitor.yaml
+  - 60-expanso-edge-deployment.yaml
+  - 61-expanso-edge-service.yaml
+  - 62-telemetry-networkpolicy.yaml

@@ -1,0 +1,33 @@
+# AMQ Streams (Strimzi) cluster in KRaft mode. The operator creates:
+#   Service  oran-kafka-kafka-bootstrap   (TLS listener on 9093)
+#   Secret   oran-kafka-cluster-ca-cert   (ca.crt, mounted into the edge agent)
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: oran-kafka
+  namespace: oran-telemetry
+  annotations:
+    strimzi.io/kraft: enabled
+    strimzi.io/node-pools: enabled
+spec:
+  kafka:
+    authorization:
+      type: simple
+    listeners:
+      # The only listener. Plaintext 9092 is not exposed.
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+        authentication:
+          type: scram-sha-512
+    config:
+      # One broker: every replication factor must be 1.
+      offsets.topic.replication.factor: 1
+      transaction.state.log.replication.factor: 1
+      transaction.state.log.min.isr: 1
+      default.replication.factor: 1
+      min.insync.replicas: 1
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}

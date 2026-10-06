@@ -1,0 +1,31 @@
+# Expanso Edge agent configuration, mounted at /etc/expanso/edge-config.yaml.
+# The labels are what the job spec's selector matches on.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: expanso-edge-config
+  namespace: oran-telemetry
+  labels:
+    app.kubernetes.io/part-of: oran-telco-pipeline
+data:
+  edge-config.yaml: |
+    name: sno-oran-edge
+    data_dir: /var/lib/expanso
+
+    log:
+      level: info
+      format: json
+
+    # Job targeting: static/pipelines/oran-telco-pipeline.yaml selects on these.
+    labels:
+      platform: openshift-sno
+      role: oran-du-telemetry
+
+    # Agent and pipeline metrics go to the same collector the pipeline posts to,
+    # over OTLP gRPC. User-workload monitoring scrapes the collector.
+    telemetry:
+      endpoint: oran-collector.oran-telemetry.svc:4317
+      protocol: grpc
+      export_interval: 30s
+      resource_attributes:
+        deployment_type: single-node-openshift

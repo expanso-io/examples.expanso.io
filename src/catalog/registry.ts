@@ -979,7 +979,7 @@ const authoredRecords = [
     verificationPolicyDigest: VERIFICATION_POLICY_DIGEST,
     title: 'O-RAN Telemetry',
     oneLineOutcome:
-      'Normalize synthetic radio telemetry and route selected metrics to example destinations.',
+      'Normalize synthetic radio telemetry on a Single-Node OpenShift node and route it to user-workload monitoring, Parquet on a PVC, and AMQ Streams Kafka.',
     primaryGoal: 'analyze-edge-data',
     goals: ['analyze-edge-data', 'route-data'],
     industries: ['telecommunications'],
@@ -996,9 +996,9 @@ const authoredRecords = [
       [
         {
           id: 'kafka',
-          label: 'Kafka',
+          label: 'AMQ Streams Kafka',
           kind: 'external',
-          location: 'cloud-account',
+          location: 'remote-site',
           componentId: 'kafka',
           requiredForCorePath: true,
         },
