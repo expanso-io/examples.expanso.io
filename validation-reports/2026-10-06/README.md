@@ -3,7 +3,7 @@
 Overall: **PASS**
 
 - expanso-edge: `v2.1.22` (pinned: `v2.1.22`)
-- Inventory digest: `sha256:258e5138ac4024352999a33eeb56af2216bef256ce90305271333473a8fc73f9`
+- Inventory digest: `sha256:5bbc9a3730ffbb5099ae7dc10372de5f195ca425bf2a11170c61f5f0fe1b5d0c`
 - Complete pipelines: 106. Validate: 106 pass, 0 fail. Run: 106 pass, 0 fail, 0 skipped.
 - Fragments (partial snippets, validated inside a synthetic pipeline, never run): 168. 101 pass, 67 fail.
 
