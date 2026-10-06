@@ -17,7 +17,7 @@ claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2
 
 # Step 4: Hash Identifiers
 
-Transform identifiers into irreversible hashes for cohort analytics while making re-identification impossible.
+Pseudonymize identifiers for cohort analytics. Hashing does not establish anonymity or prevent re-identification.
 
 ## The Goal
 
@@ -34,54 +34,20 @@ Hashed identifiers enable valuable analytics:
 - Track customer cohort behavior over time
 - Detect patterns across pseudonymous IDs
 
-The key is using **salted, one-way hashes** that cannot be reversed.
+A secret salt makes candidate matching harder; a known salt does not protect predictable identifiers.
 
 ## Implementation
 
-```yaml title="step-4-hash.yaml"
-pipeline:
-  processors:
-    # Steps 1-3 from previous...
-
-    # Step 4: Hash identifiers
-    - mapping: |
-        root = this
-
-        # Customer ID → pseudonymous cohort ID
-        # Fixed fallback is for this authored example; require a managed secret when adapting it
-        let salt = env("ANONYMIZATION_SALT").or("example-fixed-salt")
-        root.anonymized_customer_id = (this.customer_id.string() + $salt).hash("sha256").slice(0, 12)
-        root = root.without("customer_id")
-
-        # Email → retain the domain in this example
-        root.email_domain = if this.customer_email.contains("@") {
-          this.customer_email.split("@").index(1).lowercase()
-        } else {
-          "unknown"
-        }
-        root = root.without("customer_email")
-
-        # IBAN → retain the country prefix in this example
-        root.bank_country = this.iban.slice(0, 2)
-        root = root.without("iban")
-
-        # IP address → /16 subnet (country-level geolocation possible)
-        root.ip_subnet = if this.ip_address.contains(".") {
-          this.ip_address.split(".").slice(0, 2).join(".") + ".0.0/16"
-        } else {
-          "unknown"
-        }
-        root = root.without("ip_address")
-```
+See the hashing processor in the [canonical reference](./complete-pipeline) and its captured input and output in the [Explorer](./explorer). The fixed fallback salt is for the example; require a managed secret when adapting it.
 
 ## Understanding the Code
 
-| Expression                       | What It Does                                    |
-| -------------------------------- | ----------------------------------------------- |
-| `(value + $salt).hash("sha256")` | Salted SHA-256 hash                             |
-| `.slice(0, 12)`                  | Truncate to 12 chars (still unique enough)      |
-| `.split("@").index(1)`           | Get domain from email                           |
-| `.slice(0, 2)`                   | Get first 2 characters (country code from IBAN) |
+| Expression                       | What It Does                                          |
+| -------------------------------- | ----------------------------------------------------- |
+| `(value + $salt).hash("sha256")` | Salted SHA-256 hash                                   |
+| `.slice(0, 12)`                  | Truncate hexadecimal text; collisions remain possible |
+| `.split("@").index(1)`           | Get domain from email                                 |
+| `.slice(0, 2)`                   | Get first 2 characters (country code from IBAN)       |
 
 ## Why Salting Matters
 
@@ -101,29 +67,7 @@ hash("CUST-DE-12345" + "secret-salt-xyz") → "x9y8z7w6..."  # Requires salt kno
 
 ## Expected Output
 
-**Input:**
-
-```json
-{
-  "customer_id": "CUST-DE-12345",
-  "customer_email": "hans.schmidt@example.de",
-  "iban": "DE89370400440532013000",
-  "ip_address": "91.64.42.17",
-  ...
-}
-```
-
-**Output:**
-
-```json
-{
-  "anonymized_customer_id": "x9y8z7w6e5r4",
-  "email_domain": "example.de",
-  "bank_country": "DE",
-  "ip_subnet": "91.64.0.0/16",
-  ...
-}
-```
+Use the [Explorer checkpoints](./explorer) for the sample input and resulting fields.
 
 ## Analytics Value Preserved
 
@@ -144,6 +88,7 @@ Document your hash specification:
 # HASH SPECIFICATION (document for all pipelines):
 # Algorithm: SHA-256
 # Salt: env("ANONYMIZATION_SALT")
+# Encoding: hexadecimal before truncation
 # Truncation: 12 characters
 # Input format: Raw value as string
 ```
