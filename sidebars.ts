@@ -54,10 +54,7 @@ function familyPages(route: string): SidebarDoc[] {
 
       return { name, data };
     })
-    .filter(
-      ({ name, data }) =>
-        name !== 'index' && data.draft !== true && data.unlisted !== true
-    )
+    .filter(({ name, data }) => name !== 'index' && data.draft !== true)
     .sort(
       (left, right) =>
         surfaceRank(left.name) - surfaceRank(right.name) ||

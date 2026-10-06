@@ -116,7 +116,7 @@ describe('public example conformance', () => {
     );
 
     assert.equal(audit.auditVersion, '1.0.0');
-    assert.equal(audit.auditedAt, '2026-10-05');
+    assert.equal(audit.auditedAt, '2026-10-06');
     assert.match(audit.historyBaseline, /^[0-9a-f]{40}$/);
     assert.match(audit.redesignCommit, /^[0-9a-f]{40}$/);
     assert.equal(audit.features.length, 14);
