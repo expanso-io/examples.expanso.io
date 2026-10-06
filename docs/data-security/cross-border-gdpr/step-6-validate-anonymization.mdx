@@ -15,16 +15,16 @@ claimsVerifiedAt: '2026-07-18'
 claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Step 6: Validate Anonymization
+# Step 6: Validate Minimization
 
 Before output, verify that the direct-identifier fields named by this example were removed or transformed. This technical check does not prove that no personal data remains or that legal obligations have been met.
 
 ## The Goal
 
-- Check that no PII fields remain in the record
+- Check that the listed direct-identifier fields no longer remain in the record
 - Throw an error (reject the record) if validation fails
 - Add a transformation-check record with a timestamp
-- Document which fields were removed/hashed
+- Document which fields were removed, pseudonymized, or generalized
 
 ## Why This Matters
 
@@ -41,7 +41,7 @@ pipeline:
   processors:
     # Steps 1-5 from previous...
 
-    # Step 6: Validate anonymization completeness
+# Step 6: Validate configured minimization
     - mapping: |
         # List of PII fields that must NOT exist
         let pii_fields = [
@@ -64,20 +64,21 @@ pipeline:
         }
 
         # Add example transformation metadata
-        root._gdpr_compliance.anonymization_verified = true
+root._gdpr_compliance.minimization_verified = true
         root._gdpr_compliance.verification_timestamp = now()
         root._gdpr_compliance.fields_removed = ["customer_name", "customer_address", "customer_dob"]
-        root._gdpr_compliance.fields_hashed = ["customer_id", "customer_email", "iban", "ip_address"]
+root._gdpr_compliance.fields_pseudonymized = ["customer_id"]
+root._gdpr_compliance.fields_generalized = ["customer_email", "iban", "ip_address"]
 ```
 
 ## Understanding the Code
 
-| Expression                                            | What It Does                     |
-| ----------------------------------------------------- | -------------------------------- |
-| `$pii_fields.filter(f -> this.exists(f))`             | Find PII fields that still exist |
-| `$remaining_pii.length() > 0`                         | Check if any PII remains         |
-| `throw("message")`                                    | Reject record with error         |
-| `root._gdpr_compliance.anonymization_verified = true` | Add attestation                  |
+| Expression                                           | What It Does                      |
+| ---------------------------------------------------- | --------------------------------- |
+| `$pii_fields.filter(f -> this.exists(f))`            | Find PII fields that still exist  |
+| `$remaining_pii.length() > 0`                        | Check if any PII remains          |
+| `throw("message")`                                   | Reject record with error          |
+| `root._gdpr_compliance.minimization_verified = true` | Record that configured checks ran |
 
 ## Expected Behavior
 
@@ -86,7 +87,7 @@ pipeline:
 ```json
 {
   "transaction_id": "TXN-EU-2024-00001",
-  "anonymized_customer_id": "x9y8z7w6e5r4",
+  "pseudonymous_customer_id": "5f34d0b7e8fa09b26ce44d31",
   "email_domain": "example.de",
   "bank_country": "DE",
   "ip_subnet": "91.64.0.0/16",
@@ -95,11 +96,12 @@ pipeline:
   "transaction_hour": "2024-01-15T14:00:00Z",
   "_gdpr_compliance": {
     "legal_basis": "legitimate_interest_analytics",
-    "anonymization_applied": true,
-    "anonymization_verified": true,
+    "minimization_applied": true,
+    "minimization_verified": true,
     "verification_timestamp": "2024-01-15T02:00:00Z",
     "fields_removed": ["customer_name", "customer_address", "customer_dob"],
-    "fields_hashed": ["customer_id", "customer_email", "iban", "ip_address"]
+    "fields_pseudonymized": ["customer_id"],
+    "fields_generalized": ["customer_email", "iban", "ip_address"]
   }
 }
 ```
@@ -172,7 +174,7 @@ Generate daily summaries of the selected technical checks:
           "records_processed": meta("count"),
           "records_passed": meta("passed_count"),
           "records_failed": meta("failed_count"),
-          "anonymization_rate": 100.0
+"configured_check_pass_rate": 100.0
         }
 ```
 

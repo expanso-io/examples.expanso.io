@@ -1,7 +1,7 @@
 config:
   input:
     http_server:
-      address: "0.0.0.0:8080"
+      address: '0.0.0.0:8080'
       path: /sensors/ingest
 
   pipeline:
@@ -42,6 +42,13 @@ config:
 
   output:
     kafka:
-      addresses: ["${KAFKA_BROKER}"]
+      addresses: ['${KAFKA_TLS_BROKERS}']
       topic: sensor-readings-avro
+      tls:
+        enabled: true
+        root_cas_file: ${KAFKA_CA_FILE}
+      sasl:
+        mechanism: SCRAM-SHA-512
+        user: '${KAFKA_USERNAME}'
+        password: '${KAFKA_PASSWORD}'
       compression: snappy

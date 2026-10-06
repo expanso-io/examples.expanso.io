@@ -40,6 +40,13 @@ rg -n 'generate|mapping|parquet|aws_s3' \
 
 The file check exits successfully. The final command identifies synthetic generation, transformation, encoding, and the external S3 handoff.
 
+## Deployment contract
+
+- Attach an AWS workload identity to Expanso Edge; do not mount access keys or an AWS profile.
+- Grant `s3:PutObject` only on the configured `transactions/` prefix and `kms:Encrypt` only with `S3_KMS_KEY_ARN`.
+- Pre-provision the bucket with public access blocked, TLS required, KMS enforcement, and a reviewed retention policy.
+- Configure DuckLake or MotherDuck to read that exact bucket and partition layout with its own read-only identity. The pipeline writes Parquet to S3; it does not register a MotherDuck table.
+
 ## Cleanup
 
 No files or external resources are created.

@@ -1,18 +1,30 @@
 - mapping: |
     root = this
+    let key = env("CARD_ENCRYPTION_KEY_HEX").decode("hex")
 
-    # Encrypt full card number with AES-256-GCM
-    root.payment.card_number_encrypted = if this.payment.card_number.exists() {
-      this.payment.card_number.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
+    # AES-GCM requires a unique nonce for each field encryption. Store the
+    # nonce next to the ciphertext so an authorized consumer can decrypt it.
+    let card_number_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+    root.payment.card_number_encrypted = if this.payment.card_number != null {
+      this.payment.card_number.encrypt_aes(
+        "gcm",
+        $key,
+        $card_number_nonce.decode("hex")
+      ).encode("base64")
+    }
+    root.payment.card_number_nonce = if this.payment.card_number != null {
+      $card_number_nonce
+    } else {
+      deleted()
     }
 
-    # Keep last 4 digits for display (PCI-DSS allowed)
-    root.payment.card_last_four = if this.payment.card_number.exists() {
+    # Keep last 4 digits only if the reviewed output contract needs them.
+    root.payment.card_last_four = if this.payment.card_number != null {
       this.payment.card_number.re_replace_all("[^0-9]", "").slice(-4)
     }
 
-    # Detect card brand for analytics (PCI-DSS allowed)
-    root.payment.card_brand = if this.payment.card_number.exists() {
+    # Detect the card brand without retaining the account number.
+    root.payment.card_brand = if this.payment.card_number != null {
       match {
         this.payment.card_number.re_match("^4") => "visa"
         this.payment.card_number.re_match("^5[1-5]") => "mastercard"
@@ -22,18 +34,22 @@
       }
     }
 
-    # Encrypt CVV (never store unencrypted)
-    root.payment.cvv_encrypted = if this.payment.cvv.exists() {
-      this.payment.cvv.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
+    let cardholder_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+    root.payment.cardholder_name_encrypted = if this.payment.cardholder_name != null {
+      this.payment.cardholder_name.encrypt_aes(
+        "gcm",
+        $key,
+        $cardholder_nonce.decode("hex")
+      ).encode("base64")
+    }
+    root.payment.cardholder_name_nonce = if this.payment.cardholder_name != null {
+      $cardholder_nonce
+    } else {
+      deleted()
     }
 
-    # Encrypt cardholder name
-    root.payment.cardholder_name_encrypted = if this.payment.cardholder_name.exists() {
-      this.payment.cardholder_name.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
-    }
-
-    # Remove plaintext credit card data
-    root.payment = this.payment.without(
+    # CVV is deleted rather than retained in any form.
+    root.payment = root.payment.without(
       "card_number",
       "cvv",
       "cardholder_name"

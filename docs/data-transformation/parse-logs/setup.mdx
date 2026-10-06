@@ -22,11 +22,7 @@ Before building the multi-format log parser, you'll set up sample log data and e
 
 ## Prerequisites
 
-This example requires the following services to be running:
-
-- **[Kafka](/getting-started/services/kafka)**
-
-Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
+The canonical pipeline reads JSON Lines from `/var/log/app` and sends selected records to an authenticated HTTPS log service. It does not connect to Kafka.
 
 ## Step 1: Create Sample Log Data
 
@@ -73,17 +69,21 @@ echo "✅ Sample log data created in ~/expanso-logs/"
 Configure variables for log destinations and secrets:
 
 ```bash
-# Export environment variables for the session
-export LOG_ENDPOINT="https://your-log-service.com/api"
-export TIMESERIES_ENDPOINT="https://your-metrics-service.com/api"
-export ANALYTICS_ENDPOINT="https://your-analytics-service.com/api"
-export ALERT_ENDPOINT="https://your-alerts-service.com/api"
-export IP_SALT="your-secure-salt-string"
+# Load the endpoint and token from the deployment secret manager.
+test -n "$LOG_HTTPS_URL"
+test -n "$LOG_API_TOKEN"
 
-# Verify variables are set
-echo "LOG_ENDPOINT: $LOG_ENDPOINT"
-echo "IP_SALT configured: ${IP_SALT:+Yes}"
+case "$LOG_HTTPS_URL" in
+  https://*) ;;
+  *) echo "LOG_HTTPS_URL must use HTTPS" >&2; exit 1 ;;
+esac
 ```
+
+Mount `/var/log/app` read-only and grant the Expanso Edge runtime identity access only to the log files it must process. Restrict egress to `LOG_HTTPS_URL`; the bearer token must have ingest-only access at that destination.
+
+## Deployment contract
+
+The file mount, HTTPS endpoint, ingest-only token, and egress restriction above are required for deployment. Do not copy the token into a checked-in environment file.
 
 ---
 

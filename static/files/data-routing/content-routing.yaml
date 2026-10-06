@@ -17,11 +17,10 @@ config:
     processors:
       # Parse JSON input and validate
       - mapping: |
-          root = this
-
-          # Ensure severity field exists
-          if !this.severity.exists() {
+          root = if this.severity == null {
             throw("Missing required field: severity")
+          } else {
+            this
           }
 
           # Normalize severity to uppercase
@@ -37,80 +36,62 @@ config:
         # Case 1: Critical errors to PagerDuty
         - check: this.severity == "CRITICAL" || this.severity == "FATAL"
           output:
+            # PagerDuty Events API v2 envelope. The routing key is the
+            # integration credential and belongs in the request body.
+            processors:
+              - mapping: |
+                  root.routing_key = env("PAGERDUTY_ROUTING_KEY")
+                  root.event_action = "trigger"
+                  root.dedup_key = this.event_id.or(uuid_v4())
+                  root.payload = {
+                    "summary": this.message.or("Critical error occurred"),
+                    "severity": "critical",
+                    "source": this.source.or("unknown"),
+                    "timestamp": this.timestamp,
+                    "custom_details": this
+                  }
             http_client:
               url: https://events.pagerduty.com/v2/enqueue
               verb: POST
               headers:
                 Content-Type: application/json
-                Authorization: Token ${PAGERDUTY_TOKEN}
-
-              # Transform to PagerDuty event format
-              processors:
-                - mapping: |
-                    root.routing_key = env("PAGERDUTY_ROUTING_KEY")
-                    root.event_action = "trigger"
-                    root.payload = {
-                      "summary": this.message.or("Critical error occurred"),
-                      "severity": "critical",
-                      "source": this.source.or("unknown"),
-                      "timestamp": this.timestamp,
-                      "custom_details": this
-                    }
-
-              # Fast delivery for critical alerts
-              max_retries: 5
-              retry_as_batch: false
-              backoff:
-                initial_interval: 500ms
-                max_interval: 5s
+              retries: 5
+              retry_period: 500ms
+              max_retry_backoff: 5s
 
         # Case 2: Warnings to Slack
         - check: this.severity == "WARNING" || this.severity == "WARN"
           output:
+            processors:
+              - mapping: |
+                  root.text = ":warning: " + this.message.or("Warning")
+                  root.blocks = [
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "*Severity:* " + this.severity + "\n*Source:* " + this.source.or("unknown") + "\n*Message:* " + this.message.or("N/A")
+                      }
+                    }
+                  ]
             http_client:
-              url: ${SLACK_WEBHOOK_URL}
+              url: ${SLACK_HTTPS_WEBHOOK_URL}
               verb: POST
               headers:
                 Content-Type: application/json
+              retries: 3
 
-              # Transform to Slack message format
-              processors:
-                - mapping: |
-                    root.text = ":warning: " + this.message.or("Warning")
-                    root.blocks = [
-                      {
-                        "type": "section",
-                        "text": {
-                          "type": "mrkdwn",
-                          "text": "*Severity:* " + this.severity + "\n*Source:* " + this.source.or("unknown") + "\n*Message:* " + this.message.or("N/A")
-                        }
-                      }
-                    ]
-
-              # Batch warnings to avoid Slack rate limits
-              batching:
-                count: 10
-                period: 30s
-
-              max_retries: 3
-
-        # Case 3: Everything else to Elasticsearch
+        # Case 3: Everything else to the Elasticsearch document API
         - output:
-            elasticsearch:
-              urls:
-                - ${ELASTICSEARCH_URL:http://elasticsearch:9200}
-
-              # Use date-based indices
-              index: logs-${!timestamp_unix_date("2006-01-02")}
-              id: ${!json("event_id")}
-
-              batching:
-                count: 500
-                period: 10s
-
-              gzip_compression: true
-
-              max_retries: 3
-              backoff:
-                initial_interval: 1s
-                max_interval: 30s
+            http_client:
+              url: '${ELASTICSEARCH_HTTPS_URL}/logs-${! now().ts_format("2006-01-02") }/_doc/${! this.event_id.or(uuid_v4()) }'
+              verb: PUT
+              headers:
+                Authorization: 'ApiKey ${ELASTICSEARCH_API_KEY}'
+                Content-Type: application/json
+              tls:
+                enabled: true
+                root_cas_file: ${ELASTICSEARCH_CA_FILE}
+              retries: 3
+              retry_period: 1s
+              max_retry_backoff: 30s

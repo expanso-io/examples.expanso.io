@@ -21,11 +21,7 @@ Before building the log filtering pipeline, you'll set up sample application log
 
 ## Prerequisites
 
-This example requires the following services to be running:
-
-- **[Kafka](/getting-started/services/kafka)**
-
-Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
+The canonical pipeline reads local logs and writes retained records to files. It does not connect to Kafka.
 
 ## Step 1: Create Sample Log Directory
 
@@ -77,7 +73,15 @@ Set up environment variables that will be used for processing metadata and node 
 ```bash
 # Set processing node identifier
 export NODE_ID="edge-001"
+export LOG_OUTPUT_PATH="/var/log/expanso"
 ```
+
+## Deployment contract
+
+- Mount `/var/log/app` read-only and `LOG_OUTPUT_PATH` from encrypted persistent storage.
+- Run Expanso Edge as a non-root identity with read access only to the selected input logs and write access only to the output mount.
+- Restrict Prometheus metrics access to the monitoring network or an authenticating proxy.
+- Apply retention and deletion rules to both the error and unrouted-record files; they can contain sensitive log content.
 
 ---
 

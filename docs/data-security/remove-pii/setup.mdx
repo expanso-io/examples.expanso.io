@@ -46,6 +46,13 @@ printf 'IP=%s EMAIL=%s USER=%s\n' \
 
 The configuration has no built-in salt fallback. Treat a missing or empty value as a failed precondition, and load secrets through the controls used by the adapted environment.
 
+## Deployment contract
+
+- Put ports 8080 and 9090 behind authenticated TLS proxies or ingress policies; do not expose either listener directly.
+- Load `IP_SALT`, `EMAIL_SALT`, and `USER_SALT` from the deployment secret manager and grant access only to this workload identity.
+- Mount `/var/log/expanso` from persistent, encrypted storage with write permission only for the Expanso Edge runtime identity.
+- Apply network policy that permits only the ingress proxy, the monitoring collector, and required Expanso control-plane traffic.
+
 ## Run the exact fixture gate
 
 With Docker available, run the machine gate from the repository root:
@@ -54,7 +61,7 @@ With Docker available, run the machine gate from the repository root:
 npm run test-pipelines
 ```
 
-The gate pulls the digest-pinned Benthos image, serves the canonical HTTP input, posts the synthetic fixture, and compares the file output byte for byte. Its checked-in salts are fixture-specific values, not secrets or deployment defaults.
+The gate serves the canonical HTTP input, posts the synthetic fixture, and compares the file output byte for byte. Its checked-in salts are fixture-specific values, not secrets or deployment defaults.
 
 ## Scope
 

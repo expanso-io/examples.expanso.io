@@ -21,31 +21,23 @@ Before building the deduplication pipeline, you'll set up cache resources and pr
 
 ## Prerequisites
 
-This example requires the following services to be running:
+The canonical pipeline uses an in-process cache capped at 100,000 entries with a one-hour TTL. It does not connect to Kafka or Redis. Put its HTTP listener behind authenticated TLS ingress and allow egress only to the analytics service.
 
-- **[Kafka](/getting-started/services/kafka)**
-- **[Redis](/getting-started/services/redis)**
-
-Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
+## Deployment contract
 
 ## Step 1: Configure Example-Specific Variables
 
 After setting up the core services, configure deduplication-specific variables:
 
 ```bash
-# Analytics endpoint for processed events (optional)
-export ANALYTICS_ENDPOINT="https://analytics.example.com/api/v1"
+# Load these from the deployment environment and secret manager.
+test -n "$ANALYTICS_HTTPS_URL"
+test -n "$ANALYTICS_API_TOKEN"
 
-# Cache configuration
-export DEDUP_TTL="1h"
-export DEDUP_CACHE_SIZE="100000"
-
-# Test webhook endpoint
-export WEBHOOK_PORT="8080"
-
-# Verify configuration
-echo "Redis URL: $REDIS_URL"
-echo "Cache TTL: $DEDUP_TTL"
+case "$ANALYTICS_HTTPS_URL" in
+  https://*) ;;
+  *) echo "ANALYTICS_HTTPS_URL must use HTTPS" >&2; exit 1 ;;
+esac
 ```
 
 ## Step 2: Prepare Test Data
@@ -87,8 +79,8 @@ EOF
 echo "Test data created successfully!"
 ```
 
-## Step 3: Verify Cache Resource
+## Step 3: Confirm the state boundary
 
-Before proceeding, verify that the cache resource is working correctly for deduplication. You can use the `redis-cli` to interact with your Redis instance.
+The in-process cache is per Expanso Edge execution and is lost on restart. Do not scale this configuration horizontally when duplicate suppression must span replicas. Use a reviewed shared, authenticated, TLS-protected cache before making that guarantee.
 
 **Ready for Step 1:** [Implement Hash-Based Deduplication](/data-transformation/deduplicate-events/step-1-hash-based-exact-duplicates)

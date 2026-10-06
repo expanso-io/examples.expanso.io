@@ -10,10 +10,7 @@ input:
     inputs:
       # Source 1: Structured maintenance logs (CSV)
       - csv:
-          paths:
-            [
-              '../../../examples/integrations/medical-device-intelligence/maintenance-logs.csv',
-            ]
+          paths: ['${MEDICAL_FIXTURE_DIR}/maintenance-logs.csv']
           parse_header_row: true
           batch_count: 0 # read all rows
         processors:
@@ -25,10 +22,7 @@ input:
 
       # Source 2: Device error events (JSON)
       - file:
-          paths:
-            [
-              '../../../examples/integrations/medical-device-intelligence/error-events.json',
-            ]
+          paths: ['${MEDICAL_FIXTURE_DIR}/error-events.json']
           codec: all-bytes
         processors:
           - mapping: |
@@ -37,10 +31,7 @@ input:
 
       # Source 3: Freeform technician notes (text)
       - file:
-          paths:
-            [
-              '../../../examples/integrations/medical-device-intelligence/technician-notes.txt',
-            ]
+          paths: ['${MEDICAL_FIXTURE_DIR}/technician-notes.txt']
           codec: all-bytes
         processors:
           - mapping: |
@@ -61,9 +52,8 @@ pipeline:
     # analyze_reports.py owns fixture loading, optional Claude access, and
     # the authored mock response used when credentials are absent.
     - command:
-        name: python3
-        args:
-          - './scripts/analyze_reports.py'
+        name: uv
+        args_mapping: 'root = ["run", "--no-project", "./scripts/analyze_reports.py"]'
 
     # --- Stage 3: Shape the output ---
     # Ensure consistent structure for downstream consumers
@@ -78,17 +68,23 @@ output:
     outputs:
       # Output 1: Write a local review copy
       - file:
-          path: './output/review-candidates.json'
+          path: '${MEDICAL_REVIEW_PATH}/review-candidates.json'
           codec: lines
 
       # Output 2: Forward the same candidate JSON to a fleet endpoint
       - http_client:
-          url: 'http://localhost:8089/api/v1/review-candidates'
+          url: '${FLEET_HTTPS_URL}/api/v1/review-candidates'
           verb: POST
           headers:
             Content-Type: application/json
+            Authorization: 'Bearer ${FLEET_API_TOKEN}'
+          tls:
+            enabled: true
+            root_cas_file: '${FLEET_CA_FILE}'
+            client_certs:
+              - cert_file: '${FLEET_CLIENT_CERT}'
+                key_file: '${FLEET_CLIENT_KEY}'
           max_in_flight: 1
           retries: 3
-          backoff:
-            initial_interval: 1s
-            max_interval: 10s
+          retry_period: 1s
+          max_retry_backoff: 10s

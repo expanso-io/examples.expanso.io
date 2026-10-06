@@ -1,7 +1,7 @@
 config:
   input:
     http_server:
-      address: "0.0.0.0:8080"
+      address: '0.0.0.0:8080'
       path: /sensors/readings
 
   pipeline:
@@ -24,7 +24,7 @@ config:
           operator: add
           key: ${! this.group_key }
           value: ${! this }
-          ttl: "60s"
+          ttl: '60s'
 
       # Aggregate when window closes
       - group_by:
@@ -56,13 +56,15 @@ config:
     caches:
       window_cache:
         memory:
-          default_ttl: "60s"
-          compaction_interval: "10s"
+          default_ttl: '60s'
+          compaction_interval: '10s'
 
   output:
     http_client:
-      url: "${ANALYTICS_ENDPOINT}/metrics/aggregated"
+      url: '${ANALYTICS_HTTPS_URL}/metrics/aggregated'
       verb: POST
+      headers:
+        Authorization: 'Bearer ${ANALYTICS_API_TOKEN}'
       batching:
         count: 50
         period: 10s

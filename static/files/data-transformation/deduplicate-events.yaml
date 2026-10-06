@@ -8,7 +8,7 @@ config:
 
   input:
     http_server:
-      address: "0.0.0.0:8080"
+      address: '0.0.0.0:8080'
       path: /webhooks/signup
 
   pipeline:
@@ -57,7 +57,7 @@ config:
                   "original_hash": this.dedup_hash,
                   "strategy": "hash-based"
                 }
-          result_map: root = deleted()  # Don't merge back
+          result_map: root = deleted() # Don't merge back
 
       # Drop duplicates
       - mapping: |
@@ -69,5 +69,7 @@ config:
 
   output:
     http_client:
-      url: "${ANALYTICS_ENDPOINT}/events"
+      url: '${ANALYTICS_HTTPS_URL}/events'
       verb: POST
+      headers:
+        Authorization: 'Bearer ${ANALYTICS_API_TOKEN}'

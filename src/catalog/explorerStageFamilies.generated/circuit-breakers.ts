@@ -209,10 +209,10 @@ export const GENERATED_EXPLORER_STAGE_FAMILY = {
     },
     canonicalPipelinePath: "static/files/data-routing/circuit-breakers.yaml",
     pipelineSha256:
-      "sha256:c41a5c65c6795da6ce8996bf428fd517e6ec21fcec6331601ea42ce2e4b29428",
+      "sha256:55bb3e1e5254816967b15ceb1b53fe7c886bbbf4befe162c6aaea257f277539a",
     fullYamlFilename: "circuit-breakers.yaml",
     fullYaml:
-      "- http:\n    url: https://api.example.com/endpoint\n    timeout: 5s\n    retries: 3              # Failure threshold\n    retry_period: 1s        # Initial backoff\n    max_retry_backoff: 30s  # Maximum backoff\n",
+      "- http_client:\n    url: '${DOWNSTREAM_HTTPS_URL}/endpoint'\n    headers:\n      Authorization: 'Bearer ${DOWNSTREAM_API_TOKEN}'\n    timeout: 5s\n    retries: 3 # Failure threshold\n    retry_period: 1s # Initial backoff\n    max_retry_backoff: 30s # Maximum backoff\n",
   },
   stages: GENERATED_EXPLORER_STAGES,
 } satisfies GeneratedExplorerStageFamily;

@@ -4,6 +4,7 @@
 import csv
 import json
 import os
+import subprocess
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
@@ -15,9 +16,47 @@ recommend clinical or safety action, infer a real manufacturer, or claim accurac
 Return JSON with fixture_batch_id and review_candidates. Each candidate must contain
 candidate_id, device_id, review_reason, source_signals, and evidence_refs."""
 
+OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "fixture_batch_id": {"type": "string"},
+        "review_candidates": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string"},
+                    "device_id": {"type": "string"},
+                    "review_reason": {"type": "string"},
+                    "source_signals": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "evidence_refs": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": [
+                    "candidate_id",
+                    "device_id",
+                    "review_reason",
+                    "source_signals",
+                    "evidence_refs",
+                ],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["fixture_batch_id", "review_candidates"],
+    "additionalProperties": False,
+}
+
 
 def load_fixtures():
-    with (DATA_DIR / "maintenance-logs.csv").open(newline="", encoding="utf-8") as stream:
+    with (DATA_DIR / "maintenance-logs.csv").open(
+        newline="", encoding="utf-8"
+    ) as stream:
         maintenance = list(csv.DictReader(stream))
     with (DATA_DIR / "error-events.json").open(encoding="utf-8") as stream:
         events = json.load(stream)
@@ -26,24 +65,31 @@ def load_fixtures():
 
 
 def analyze_with_claude(fixtures):
-    import anthropic
-
-    client = anthropic.Anthropic()
-    response = client.messages.create(
-        model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
-        max_tokens=2048,
-        system=SYSTEM_PROMPT,
-        messages=[
-            {
-                "role": "user",
-                "content": json.dumps(fixtures, sort_keys=True),
-            }
+    prompt = SYSTEM_PROMPT + "\n\nFixtures:\n" + json.dumps(fixtures, sort_keys=True)
+    completed = subprocess.run(
+        [
+            "claude",
+            "--print",
+            "--restricted",
+            "--permission-prompts",
+            "none",
+            "--no-session-persistence",
+            "--output-format",
+            "json",
+            "--json-schema",
+            json.dumps(OUTPUT_SCHEMA, separators=(",", ":")),
+            "--model",
+            os.environ.get("ANTHROPIC_MODEL", "sonnet"),
+            prompt,
         ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
-    text = response.content[0].text
-    if "```" in text:
-        text = text.split("```", 2)[1].removeprefix("json").strip()
-    return json.loads(text)
+    envelope = json.loads(completed.stdout)
+    result = envelope.get("structured_output", envelope.get("result"))
+    return json.loads(result) if isinstance(result, str) else result
 
 
 def deterministic_mock():
@@ -75,7 +121,7 @@ def deterministic_mock():
 
 def main():
     fixtures = load_fixtures()
-    if os.environ.get("ANTHROPIC_API_KEY", "").strip():
+    if os.environ.get("MEDICAL_ANALYZER_MODE") == "claude-subscription":
         result = analyze_with_claude(fixtures)
     else:
         result = deterministic_mock()

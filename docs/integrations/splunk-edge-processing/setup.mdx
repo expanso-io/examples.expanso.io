@@ -41,6 +41,13 @@ rg -n 'file:|mapping:|http|SPLUNK_HEC_TOKEN' \
 
 Both file checks exit successfully. The fixture shows synthetic logs, and the final command identifies file input, mapping, HTTP output, and token placeholder.
 
+## Deployment contract
+
+- Mount source logs read-only and `SPLUNK_FALLBACK_PATH` from encrypted persistent storage writable only by Expanso Edge.
+- Use a Splunk HEC token limited to the target index, set the HTTPS host and port, and mount `SPLUNK_CA_FILE` read-only.
+- Attach an AWS workload identity with prefix-limited `s3:PutObject` and `kms:Encrypt` on `S3_KMS_KEY_ARN`; do not mount AWS profiles or access keys.
+- Protect Pushgateway and alert outputs with their bearer tokens, restrict egress to all four configured HTTPS destinations, and keep retained raw logs under the approved access and deletion policy.
+
 ## Cleanup
 
 No files or external resources are created.
@@ -49,6 +56,6 @@ No files or external resources are created.
 
 - A missing file means the checkout does not contain the referenced artifact.
 - No search matches means the reference changed; inspect the complete file before updating this route.
-- Syntax inspection does not validate HEC authentication, acknowledgement, indexing, or retention behavior.
+- Syntax inspection does not validate HEC acknowledgement, indexing, or retention behavior.
 
 **Next:** [Inspect file collection](/integrations/splunk-edge-processing/step-1-collect-like-inputs-conf).

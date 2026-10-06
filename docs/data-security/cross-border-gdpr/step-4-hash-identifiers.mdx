@@ -1,9 +1,9 @@
 ---
-title: 'Step 4: Hash Identifiers'
-sidebar_label: 'Step 4: Hash Identifiers'
+title: 'Step 4: Pseudonymize Identifiers'
+sidebar_label: 'Step 4: Pseudonymize Identifiers'
 sidebar_position: 6
-description: Pseudonymize customer identifiers with one-way hashing
-keywords: [hash, pseudonymization, identifiers, salt, sha256]
+description: Pseudonymize customer identifiers with a deployment-owned HMAC key
+keywords: [hmac, pseudonymization, identifiers, secret-management]
 contentArchetype: step
 executionStatus: architecture-only
 operationalEvidence: not-assessed
@@ -15,13 +15,13 @@ claimsVerifiedAt: '2026-07-18'
 claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Step 4: Hash Identifiers
+# Step 4: Pseudonymize Identifiers
 
-Transform identifiers into irreversible hashes for cohort analytics while making re-identification impossible.
+Transform customer identifiers into stable keyed digests for cohort analytics. The result is pseudonymous and can still be personal data.
 
 ## The Goal
 
-- **Customer ID** → Salted hash (count unique customers without knowing who)
+- **Customer ID** → HMAC digest (count unique customers without exposing the source identifier)
 - **Email** → Retain the domain in this authored example
 - **IBAN** → Retain the country prefix in this authored example
 - **IP Address** → /16 subnet (regional analysis)
@@ -34,7 +34,7 @@ Hashed identifiers enable valuable analytics:
 - Track customer cohort behavior over time
 - Detect patterns across pseudonymous IDs
 
-The key is using **salted, one-way hashes** that cannot be reversed.
+Use a deployment-owned HMAC key so an attacker cannot precompute the digest from a likely identifier list. Control the key and output as sensitive data.
 
 ## Implementation
 
@@ -47,11 +47,12 @@ pipeline:
     - mapping: |
         root = this
 
-        # Customer ID → pseudonymous cohort ID
-        # Fixed fallback is for this authored example; require a managed secret when adapting it
-        let salt = env("ANONYMIZATION_SALT").or("example-fixed-salt")
-        root.anonymized_customer_id = (this.customer_id.string() + $salt).hash("sha256").slice(0, 12)
-        root = root.without("customer_id")
+# Customer ID -> pseudonymous cohort ID
+root.pseudonymous_customer_id = this.customer_id.string().hash(
+  "hmac_sha256",
+  env("GDPR_CUSTOMER_HMAC_KEY")
+).encode("hex").slice(0, 24)
+root = root.without("customer_id")
 
         # Email → retain the domain in this example
         root.email_domain = if this.customer_email.contains("@") {
@@ -76,28 +77,16 @@ pipeline:
 
 ## Understanding the Code
 
-| Expression                       | What It Does                                    |
-| -------------------------------- | ----------------------------------------------- |
-| `(value + $salt).hash("sha256")` | Salted SHA-256 hash                             |
-| `.slice(0, 12)`                  | Truncate to 12 chars (still unique enough)      |
-| `.split("@").index(1)`           | Get domain from email                           |
-| `.slice(0, 2)`                   | Get first 2 characters (country code from IBAN) |
+| Expression                  | What It Does                                    |
+| --------------------------- | ----------------------------------------------- |
+| `.hash("hmac_sha256", key)` | Keyed SHA-256 digest                            |
+| `.slice(0, 24)`             | Truncate the hexadecimal digest for cohort IDs  |
+| `.split("@").index(1)`      | Get domain from email                           |
+| `.slice(0, 2)`              | Get first 2 characters (country code from IBAN) |
 
-## Why Salting Matters
+## Key custody matters
 
-**Without salt:** Attacker with customer ID list can hash each and match.
-
-**With salt:** Attacker needs both the ID list AND your secret salt.
-
-```
-customer_id = "CUST-DE-12345"
-
-# Without salt (vulnerable):
-hash("CUST-DE-12345") → "a1b2c3d4..."  # Rainbow table attack possible
-
-# With the demonstration salt:
-hash("CUST-DE-12345" + "secret-salt-xyz") → "x9y8z7w6..."  # Requires salt knowledge
-```
+Load `GDPR_CUSTOMER_HMAC_KEY` from the deployment secret manager, restrict it to the pipeline identity, and version rotations. A stable HMAC supports cohort joins, so it must not be described or handled as anonymous data.
 
 ## Expected Output
 
@@ -117,7 +106,7 @@ hash("CUST-DE-12345" + "secret-salt-xyz") → "x9y8z7w6..."  # Requires salt kno
 
 ```json
 {
-  "anonymized_customer_id": "x9y8z7w6e5r4",
+"pseudonymous_customer_id": "5f34d0b7e8fa09b26ce44d31",
   "email_domain": "example.de",
   "bank_country": "DE",
   "ip_subnet": "91.64.0.0/16",
@@ -127,24 +116,24 @@ hash("CUST-DE-12345" + "secret-salt-xyz") → "x9y8z7w6..."  # Requires salt kno
 
 ## Analytics Value Preserved
 
-| Original       | Pseudonymous output    | Analytics Possible                      |
-| -------------- | ---------------------- | --------------------------------------- |
-| customer_id    | anonymized_customer_id | Count unique customers, cohort tracking |
-| customer_email | email_domain           | B2B vs B2C ratio, company analysis      |
-| iban           | bank_country           | Geographic distribution by bank country |
-| ip_address     | ip_subnet              | Regional traffic patterns               |
+| Original       | Pseudonymous output      | Analytics Possible                      |
+| -------------- | ------------------------ | --------------------------------------- |
+| customer_id    | pseudonymous_customer_id | Count unique customers, cohort tracking |
+| customer_email | email_domain             | B2B vs B2C ratio, company analysis      |
+| iban           | bank_country             | Geographic distribution by bank country |
+| ip_address     | ip_subnet                | Regional traffic patterns               |
 
 ## Adaptation checks
 
 ### Consistent Hashing Across Pipelines
 
-Document your hash specification:
+Document your HMAC specification:
 
 ```yaml
-# HASH SPECIFICATION (document for all pipelines):
-# Algorithm: SHA-256
-# Salt: env("ANONYMIZATION_SALT")
-# Truncation: 12 characters
+# HMAC SPECIFICATION (document for all pipelines):
+# Algorithm: HMAC-SHA-256
+# Key: env("GDPR_CUSTOMER_HMAC_KEY")
+# Truncation: 24 hexadecimal characters
 # Input format: Raw value as string
 ```
 

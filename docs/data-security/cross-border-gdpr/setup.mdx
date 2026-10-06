@@ -46,8 +46,15 @@ Then inspect the [Complete reference configuration](/data-security/cross-border-
 
 ## Adaptation checks
 
-- Replace demonstration salts with environment-managed secrets.
+- Load the HMAC key from the deployment secret manager and define rotation and re-keying behavior.
 - Assess linkability across retained and external datasets.
 - Review purpose, access, retention, deletion, destination, and transfer context.
+
+## Deployment contract
+
+- Use certificate-verified PostgreSQL with `PG_SSL_ROOT_CERT`, `PG_SSL_CLIENT_CERT`, and `PG_SSL_CLIENT_KEY` mounted read-only; restrict the database role to `SELECT` on the required columns.
+- Load `GDPR_CUSTOMER_HMAC_KEY` from the secret manager and expose it only to this workload identity.
+- Use Google Cloud workload identity. Grant BigQuery append access only to the pre-provisioned `global_analytics.minimized_transactions` table and object-create access only to the EU archive bucket prefix.
+- Provision the archive bucket in the approved EU region and mount `GDPR_AUDIT_PATH` from persistent storage writable only by Expanso Edge.
 
 This route is a configuration review, not a verified execution guide.

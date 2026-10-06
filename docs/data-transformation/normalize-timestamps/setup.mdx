@@ -55,23 +55,26 @@ echo "Sample data created with $(wc -l < ~/timestamp-samples/mixed-timestamps.js
 Set up configuration for the timestamp normalization pipeline:
 
 ```bash
-# Set environment variables
-export EXPANSO_PROJECT="timestamp-normalization"
-export EXPANSO_ENVIRONMENT="dev"
-export TIMESTAMP_SECRET_SALT="your-secret-salt-here-$(openssl rand -hex 16)"
+# Load endpoints, credentials, and trust roots from the deployment.
+test -n "$TIMESERIES_HTTPS_URL"
+test -n "$TIMESERIES_API_TOKEN"
+test -n "$KAFKA_TLS_BROKERS"
+test -r "$KAFKA_CA_FILE"
+test -n "$KAFKA_USERNAME"
+test -n "$KAFKA_PASSWORD"
+test -d "$TIMESTAMP_DLQ_PATH"
 
-# Create .env file for persistence
-cat > ~/.expanso-timestamps.env << EOF
-EXPANSO_PROJECT=${EXPANSO_PROJECT}
-EXPANSO_ENVIRONMENT=${EXPANSO_ENVIRONMENT}
-TIMESTAMP_SECRET_SALT=${TIMESTAMP_SECRET_SALT}
-EOF
-
-# Source environment
-source ~/.expanso-timestamps.env
-
-echo "Environment configured for project: ${EXPANSO_PROJECT}"
+case "$TIMESERIES_HTTPS_URL" in
+  https://*) ;;
+  *) echo "TIMESERIES_HTTPS_URL must use HTTPS" >&2; exit 1 ;;
+esac
 ```
+
+Use a Kafka TLS listener, SCRAM-SHA-512 credentials limited to produce on `events.normalized`, and a mounted CA bundle. Mount `TIMESTAMP_DLQ_PATH` from persistent storage with write permission only for the Expanso Edge runtime identity. Put port 8080 behind authenticated TLS ingress.
+
+## Deployment contract
+
+The variables and controls above are required for deployment. Keep the time-series token, Kafka credentials, and CA material out of the job file, and restrict network access to the named destinations.
 
 ## Step 3: Verify Timezone Database
 

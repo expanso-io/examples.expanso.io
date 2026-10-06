@@ -6,7 +6,7 @@ namespace: default
 config:
   input:
     http_server:
-      address: "0.0.0.0:8080"
+      address: '0.0.0.0:8080'
       path: /events/ingest
       timeout: 10s
 
@@ -153,16 +153,25 @@ config:
       outputs:
         # Time-series database
         - http_client:
-            url: "${TIMESERIES_ENDPOINT}/write"
+            url: '${TIMESERIES_HTTPS_URL}/write'
             verb: POST
+            headers:
+              Authorization: 'Bearer ${TIMESERIES_API_TOKEN}'
             batching:
               count: 500
               period: 10s
 
         # Analytics
         - kafka:
-            addresses: ["${KAFKA_BROKER}"]
-            topic: "events.normalized"
+            addresses: ['${KAFKA_TLS_BROKERS}']
+            topic: 'events.normalized'
+            tls:
+              enabled: true
+              root_cas_file: ${KAFKA_CA_FILE}
+            sasl:
+              mechanism: SCRAM-SHA-512
+              user: '${KAFKA_USERNAME}'
+              password: '${KAFKA_PASSWORD}'
             compression: gzip
             batching:
               count: 100
@@ -173,7 +182,7 @@ config:
             - check: errored()
               output:
                 file:
-                  path: "/var/log/expanso/timestamp-dlq.jsonl"
+                  path: '${TIMESTAMP_DLQ_PATH}/timestamp-dlq.jsonl'
                   codec: lines
             - output:
                 drop: {}

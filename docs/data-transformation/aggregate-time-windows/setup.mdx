@@ -21,30 +21,26 @@ Before building the time-windowed aggregation pipeline, you'll set up sample IoT
 
 ## Prerequisites
 
-This example requires the following services to be running:
+The canonical pipeline uses an in-process, 60-second window cache. It does not connect to Kafka or Redis. Put its HTTP listener behind authenticated TLS ingress and allow egress only to the analytics service.
 
-- **[Kafka](/getting-started/services/kafka)**
-- **[Redis](/getting-started/services/redis)**
-
-Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
+## Deployment contract
 
 ## Step 1: Configure Example-Specific Variables
 
 After setting up the core services, configure aggregation-specific variables:
 
 ```bash
-# Analytics endpoint for cloud ingestion (optional)
-export ANALYTICS_ENDPOINT="https://analytics.example.com/api/v1"
-export ANALYTICS_API_KEY="your_analytics_api_key_here"
+# Load these from the deployment environment and secret manager.
+test -n "$ANALYTICS_HTTPS_URL"
+test -n "$ANALYTICS_API_TOKEN"
 
-# Local buffering directory for network outages
-export BUFFER_PATH="/var/expanso/buffer"
-mkdir -p "$BUFFER_PATH"
-
-# Verify environment
-echo "Analytics endpoint: $ANALYTICS_ENDPOINT"
-echo "Buffer directory: $BUFFER_PATH"
+case "$ANALYTICS_HTTPS_URL" in
+  https://*) ;;
+  *) echo "ANALYTICS_HTTPS_URL must use HTTPS" >&2; exit 1 ;;
+esac
 ```
+
+Grant the workload identity access only to read its analytics token. Restrict inbound traffic to the fronting proxy and do not expose port 8080 directly. The in-process cache is intentionally ephemeral: a restart discards the open 60-second window, so use a reviewed durable state design if that loss is unacceptable.
 
 ## Step 2: Download Sample IoT Sensor Data
 

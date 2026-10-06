@@ -2,7 +2,7 @@
 title: Setup Environment for Log Enrichment
 sidebar_label: Setup
 sidebar_position: 3
-description: Configure AWS credentials and an S3 bucket for log enrichment.
+description: Configure workload identity, KMS encryption, and S3 destinations for log enrichment.
 keywords: [setup, aws, s3, credentials, environment, deployment]
 contentArchetype: reference
 executionStatus: architecture-only
@@ -17,39 +17,34 @@ claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2
 
 # Setup Environment for Log Enrichment
 
-Before building the log enrichment pipeline, you'll set up AWS credentials and create an S3 bucket.
+Before deploying the log enrichment pipeline, pre-provision the S3 destinations and KMS key used by the Expanso Edge workload identity.
 
 ## Prerequisites
 
-This example requires the following services to be running:
+The canonical pipeline generates synthetic records and writes to S3. It does not connect to Kafka and does not read a node-local AWS profile.
 
-- **[Kafka](/getting-started/services/kafka)**
+## Deployment contract
 
-Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
+## Step 1: Configure workload identity
 
-## Step 1: Configure AWS Credentials
-
-Set up AWS credentials for S3 access:
+Attach an IAM role to the edge workload. Limit it to `s3:PutObject` on the two configured prefixes and `kms:Encrypt` with the selected key. Do not mount long-lived access keys or an AWS profile.
 
 ```bash
-# Configure AWS profile (recommended)
-aws configure --profile expanso-demo
-# Enter your AWS Access Key ID, Secret Key, and region
-
-# Test AWS credentials
-aws s3 ls --profile expanso-demo
+aws sts get-caller-identity
+test -n "$AWS_REGION"
+test -n "$S3_BUCKET_NAME"
+test -n "$S3_ERROR_BUCKET_NAME"
+test -n "$S3_KMS_KEY_ARN"
 ```
 
-## Step 2: Create S3 Bucket
+## Step 2: Verify pre-provisioned storage
 
-Create an S3 bucket for storing enriched logs:
+Enable bucket public-access blocking, require TLS, require the configured KMS key, and set lifecycle and retention policies before deployment.
 
 ```bash
-# Create S3 bucket (replace with unique name)
-aws s3 mb s3://your-company-logs-demo --profile expanso-demo
-
-# Verify bucket creation
-aws s3 ls --profile expanso-demo | grep your-company-logs-demo
+aws s3api head-bucket --bucket "$S3_BUCKET_NAME"
+aws s3api head-bucket --bucket "$S3_ERROR_BUCKET_NAME"
+aws kms describe-key --key-id "$S3_KMS_KEY_ARN" >/dev/null
 ```
 
 ## Step 3: Verify Environment Variables
@@ -63,18 +58,15 @@ export NODE_ID="edge-node-demo"
 # Set pipeline identification
 export PIPELINE_NAME="log-enrichment-s3-demo"
 
-# Set AWS region (if using environment variables)
-export AWS_REGION="us-east-1"
-
 # Verify variables are set
 echo "Node ID: $NODE_ID"
 echo "Pipeline: $PIPELINE_NAME"
-echo "Region: $AWS_REGION"
+test -n "$AWS_REGION"
 ```
 
 ## Next Steps
 
-✅ Your environment is now configured for log enrichment!
+The storage and identity contract is now ready for log enrichment.
 
 The next tutorial will show you how to add lineage metadata to track data processing:
 

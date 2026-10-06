@@ -3,7 +3,7 @@ title: 'Step 5: Generalize Values'
 sidebar_label: 'Step 5: Generalize'
 sidebar_position: 7
 description: Reduce precision on numeric and temporal fields while preserving analytics value
-keywords: [generalize, bucket, precision, anonymization, k-anonymity]
+keywords: [generalize, bucket, precision, minimization]
 contentArchetype: step
 executionStatus: architecture-only
 operationalEvidence: not-assessed
@@ -17,24 +17,24 @@ claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2
 
 # Step 5: Generalize Values
 
-Reduce precision on values to achieve k-anonymity—ensuring each data point represents many individuals, not just one.
+Reduce precision on selected values. Bucketing can lower detail, but this example does not measure or establish k-anonymity.
 
 ## The Goal
 
 - **Transaction amount** → Bucket (0-10, 10-50, 50-100, etc.)
 - **Timestamp** → Reduce to hour-level precision in this example
-- Keep exact amount for SUM calculations (not PII without identifier)
+- Keep exact amount for SUM calculations, subject to a full-record linkability assessment
 
 ## Why Generalize?
 
-Generalization achieves **k-anonymity**: each record looks like at least k other people.
+Generalization may reduce uniqueness. You must measure equivalence classes across the released dataset before making any k-anonymity claim.
 
 | Precision                  | k-anonymity  | Risk |
 | -------------------------- | ------------ | ---- |
 | Exact: €247.83 at 14:32:17 | k=1 (unique) | High |
 | Bucket: €100-500 at 14:00  | k=many       | Low  |
 
-When combined with hashed identifiers, generalized values make re-identification statistically impossible.
+The pseudonymous identifier and retained fields can still support linkage. Treat the output as personal data unless a qualified review establishes otherwise.
 
 ## Implementation
 
@@ -100,11 +100,7 @@ pipeline:
 
 ## Why Keep Exact Amount?
 
-The exact `transaction_amount` (249.99) is kept because:
-
-1. **Not PII alone:** Without an identifier, knowing someone spent €249.99 doesn't identify them
-2. **Analytics need:** Aggregate SUM/AVG requires exact values
-3. **Risk is bucket:** The bucket is used for distribution queries, exact for totals
+The exact `transaction_amount` (249.99) is kept because aggregate SUM/AVG requires it. The privacy review must assess whether it contributes to singling out or linkage in the released record; use only the bucket if exact values are not necessary.
 
 This is a risk-based decision. Privacy review may require different buckets, field deletion, or a different output entirely.
 
@@ -160,9 +156,9 @@ _ => "100+"
 }
 ```
 
-### Minimum Bucket Size (k-anonymity)
+### Minimum Bucket Size
 
-Ensure buckets have enough records:
+If the release policy specifies a minimum cohort size, calculate it across the actual release population and merge undersized buckets:
 
 ```yaml
 # In aggregation step, filter out buckets with < k records
@@ -182,6 +178,6 @@ root = if meta("bucket_count") < 5 {
     href="../step-6-validate-anonymization"
     className="button button--primary button--lg"
   >
-    📖 Step 6: Validate Anonymization →
+    Step 6: Validate Minimization
   </a>
 </div>

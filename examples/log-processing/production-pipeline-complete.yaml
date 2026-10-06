@@ -9,10 +9,10 @@ labels:
 config:
   input:
     http_server:
-      address: "0.0.0.0:8080"
+      address: '0.0.0.0:8080'
       path: /logs/ingest
-      allowed_verbs: ["POST"]
-      rate_limit: "1000/1s"
+      allowed_verbs: ['POST']
+      rate_limit: '1000/1s'
 
   pipeline:
     processors:
@@ -88,30 +88,36 @@ config:
             - check: 'this.severity_score >= 2'
               output:
                 http_client:
-                  url: "${ELASTICSEARCH:http://es:9200}/logs-${!timestamp_unix_date('2006.01.02')}/_doc"
+                  url: "${ELASTICSEARCH_HTTPS_URL}/logs-${!timestamp_unix_date('2006.01.02')}/_doc"
                   verb: POST
                   headers:
                     Content-Type: application/json
+                    Authorization: 'ApiKey ${ELASTICSEARCH_API_KEY}'
                   batching:
                     count: 100
                     period: 5s
 
         # S3 for archival
         - aws_s3:
-            bucket: "${S3_BUCKET:logs-archive}"
+            bucket: '${S3_BUCKET}'
             path: "logs/${!timestamp_unix_date('2006/01/02')}/${!uuid_v4()}.jsonl"
             batching:
               count: 500
               period: 60s
             compression: gzip
+            server_side_encryption: aws:kms
+            kms_key_id: '${S3_KMS_KEY_ARN}'
 
         # Alerts for critical logs
         - switch:
             - check: 'meta("priority") == "high"'
               output:
                 http_client:
-                  url: "${ALERT_WEBHOOK:http://alerts:8080/webhook}"
+                  url: '${ALERT_HTTPS_WEBHOOK_URL}'
                   verb: POST
+                  headers:
+                    Content-Type: application/json
+                    Authorization: 'Bearer ${ALERT_API_TOKEN}'
                   batching:
                     count: 1
                     period: 1s

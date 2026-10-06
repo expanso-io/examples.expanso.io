@@ -6,7 +6,7 @@ labels:
   environment: production
   data-type: sensor-readings
   validation: enabled
-priority: 100  # High priority for data quality
+priority: 100 # High priority for data quality
 
 # Deploy to edge nodes that collect sensor data
 selector:
@@ -29,12 +29,12 @@ config:
   # Accept sensor readings via HTTP
   input:
     http_server:
-      address: "0.0.0.0:8080"
+      address: '0.0.0.0:8080'
       path: /sensor/readings
       allowed_verbs:
         - POST
       timeout: 5s
-      rate_limit: "1000/1s"
+      rate_limit: '1000/1s'
 
   # Processing pipeline with validation
   pipeline:
@@ -58,7 +58,7 @@ config:
       - try:
           # Attempt schema validation
           - json_schema:
-              schema_path: "file:///etc/expanso/schemas/sensor-schema-v1.0.0.json"
+              schema_path: 'file:///etc/expanso/schemas/sensor-schema-v1.0.0.json'
 
           # If validation succeeds, add success metadata
           - mapping: |
@@ -113,10 +113,11 @@ config:
             - check: 'meta("validation_status") == "passed"'
               output:
                 http_client:
-                  url: "${ANALYTICS_ENDPOINT:http://analytics-api:8080}/ingest"
+                  url: '${ANALYTICS_HTTPS_URL}/ingest'
                   verb: POST
                   headers:
                     Content-Type: application/json
+                    Authorization: 'Bearer ${ANALYTICS_API_TOKEN}'
                   batching:
                     count: 100
                     period: 5s
@@ -136,7 +137,7 @@ config:
             - check: 'meta("validation_status") == "failed"'
               output:
                 file:
-                  path: "/var/log/expanso/schema-validation-dlq-${!timestamp_unix()}.jsonl"
+                  path: '${SCHEMA_DLQ_PATH}/schema-validation-${! timestamp_unix() }.jsonl'
                   codec: lines
                   batching:
                     count: 50
@@ -162,10 +163,11 @@ config:
                 }
 
           http_client:
-            url: "${METRICS_ENDPOINT:http://metrics-collector:8080}/validation"
+            url: '${METRICS_HTTPS_URL}/validation'
             verb: POST
             headers:
               Content-Type: application/json
+              Authorization: 'Bearer ${METRICS_API_TOKEN}'
             batching:
               count: 100
               period: 10s

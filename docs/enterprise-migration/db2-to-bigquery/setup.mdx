@@ -41,6 +41,13 @@ rg -n 'sql_select|mapping|gcp_bigquery' \
 
 Both `test` commands exit successfully. The fixture prints a synthetic transaction, and the final command identifies the source, transformation, and destination sections.
 
+## Deployment contract
+
+- Install the IBM Db2 ODBC driver on the selected edge nodes and mount `DB2_CA_CERT` read-only.
+- Set `DB2_TLS_PORT` to the database TLS listener, load the database password and `ACCOUNT_HASH_KEY` from the secret manager, and restrict the Db2 role to `SELECT` on `TRANSACTIONS`.
+- Use Google Cloud workload identity and grant append access only to the pre-provisioned `financial_data.transactions` table.
+- Create that table with a DAY partition on `_partition_date` and schema fields that preserve both `amount` and `currency` before deploying the job.
+
 ## Cleanup
 
 No files or external resources are created.

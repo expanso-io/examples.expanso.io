@@ -53,6 +53,13 @@ The fixture contains 20 synthetic line records. The first five show voltage, cur
 
 No runtime result is expected. The reference has not been executed as an end-to-end integration, and Kafka delivery remains untested.
 
+## Deployment contract
+
+- Terminate the OT protocol in a separately managed gateway and allow only its decoded line feed to reach the loopback-bound Expanso socket. The pipeline is not a Modbus client.
+- Use a Kafka TLS listener, mount `KAFKA_CA_FILE` read-only, and load SCRAM-SHA-512 credentials from the secret manager.
+- Grant the Kafka principal produce access only to `KAFKA_TOPIC` and no broker administration or consumer permissions.
+- Mount `SCADA_ARCHIVE_PATH` from encrypted persistent storage and permit writes only from the Expanso Edge runtime identity. Isolate OT ingress from IT egress with network policy.
+
 ## Cleanup
 
 None. These commands do not modify checked-in files.

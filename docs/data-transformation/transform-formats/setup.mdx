@@ -18,146 +18,34 @@ claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2
 
 # Setup Environment for Format Transformation
 
-Before building the complete format transformation solution, you'll set up schema registries and configure format definitions.
+The canonical pipeline embeds its Avro schema and sends encoded records to Kafka. It does not use Schema Registry or cloud object storage.
 
 ## Prerequisites
 
-This example requires the following services to be running:
-
-- **[Kafka](/getting-started/services/kafka)**
-
-Before you begin, please ensure these services are set up and running according to their respective guides. Additionally, ensure you have completed the [Local Development Setup](/getting-started/local-development) guide for general environment configuration.
+Provision a Kafka TLS listener, a trusted CA bundle, and SCRAM-SHA-512 credentials. Create `sensor-readings-avro` first and grant the workload identity produce access only to that topic.
 
 ## Step 1: Configure Environment Variables
 
-Set up the environment variables needed for multi-format processing:
+Load the Kafka connection values from the deployment environment and secret manager:
 
 ```bash
-# Format transformation configuration
-export SCHEMA_REGISTRY_URL="http://localhost:8081"
-export CLOUD_STORAGE_BUCKET="your-format-bucket"
-export CLOUD_REGION="us-east-1"
-
-# Verify environment setup
-echo "Schema Registry: $SCHEMA_REGISTRY_URL"
-echo "Storage Bucket: $CLOUD_STORAGE_BUCKET"
-echo "Region: $CLOUD_REGION"
+test -n "$KAFKA_TLS_BROKERS"
+test -r "$KAFKA_CA_FILE"
+test -n "$KAFKA_USERNAME"
+test -n "$KAFKA_PASSWORD"
 ```
 
-## Step 2: Start Schema Registry
+Put port 8080 behind authenticated TLS ingress. Restrict egress to the configured Kafka brokers and mount the CA read-only. Do not use a plaintext 9092 listener.
 
-Format transformation requires a schema registry to manage Avro schemas and ensure compatibility:
+## Deployment contract
 
-```bash
-# Pull and start Confluent Schema Registry
-docker run -d \
-  --name format-schema-registry \
-  -p 8081:8081 \
-  -e SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS=localhost:9092 \
-  -e SCHEMA_REGISTRY_HOST_NAME=schema-registry \
-  -e SCHEMA_REGISTRY_LISTENERS=http://0.0.0.0:8081 \
-  confluentinc/cp-schema-registry:latest
+The authenticated ingress, Kafka TLS listener, SCRAM credentials, topic ACL, and read-only CA mount above are required for deployment.
 
-# Wait for startup
-sleep 10
+## Step 2: Review the embedded schema
 
-# Verify schema registry is running
-curl -f http://localhost:8081/subjects || echo "Schema registry not ready, waiting..."
-```
+The schema in `static/files/data-transformation/transform-formats.yaml` is the wire contract. Consumers must use that exact record definition; changing it requires a coordinated compatibility review.
 
-## Step 3: Create Sample Format Definitions
-
-Create the schema definitions that will guide our format transformations:
-
-### Avro Schema
-
-Create `sensor-data.avsc`:
-
-```json title="sensor-data.avsc"
-{
-  "type": "record",
-  "name": "SensorData",
-  "namespace": "com.example.formats",
-  "fields": [
-    {
-      "name": "sensor_id",
-      "type": "string"
-    },
-    {
-      "name": "location",
-      "type": "string"
-    },
-    {
-      "name": "temperature",
-      "type": "double"
-    },
-    {
-      "name": "humidity",
-      "type": "double"
-    },
-    {
-      "name": "timestamp",
-      "type": "long"
-    },
-    {
-      "name": "metadata",
-      "type": {
-        "type": "record",
-        "name": "Metadata",
-        "fields": [
-          {
-            "name": "device_type",
-            "type": "string"
-          },
-          {
-            "name": "firmware_version",
-            "type": "string"
-          }
-        ]
-      }
-    }
-  ]
-}
-```
-
-### Protobuf Schema
-
-Create `sensor-data.proto`:
-
-```protobuf title="sensor-data.proto"
-syntax = "proto3";
-
-package com.example.formats;
-
-import "google/protobuf/timestamp.proto";
-
-message SensorData {
-  string sensor_id = 1;
-  string location = 2;
-  double temperature = 3;
-  double humidity = 4;
-  google.protobuf.Timestamp timestamp = 5;
-  Metadata metadata = 6;
-}
-
-message Metadata {
-  string device_type = 1;
-  string firmware_version = 2;
-}
-```
-
-## Step 4: Register Schemas
-
-Register the Avro schema with the schema registry:
-
-```bash
-# Register the sensor data schema
-curl -X POST -H "Content-Type: application/vnd.schemaregistry.v1+json" \
-  --data @sensor-data.avsc \
-  http://localhost:8081/subjects/sensor-data-value/versions
-```
-
-## Step 5: Create Sample Data Files
+## Step 3: Create Sample Data Files
 
 Create sample data in different formats for testing:
 

@@ -48,4 +48,11 @@ Then inspect the [Complete reference configuration](/data-security/encrypt-data/
 - Test key lookup, unavailable-key, malformed-input, rotation, and recovery paths.
 - Review retained and derived fields independently of encrypted fields.
 
+## Deployment contract
+
+- Terminate authenticated mTLS at a node-local proxy that is the only process allowed to reach `127.0.0.1:8080`.
+- Load the three 32-byte hexadecimal AES keys and `KEY_VERSION` from the deployment secret manager; grant the workload identity no access to unrelated keys.
+- Mount the payment-processor CA, client certificate, and client key read-only, and load both destination bearer tokens as secrets.
+- Restrict egress to the payment and analytics HTTPS origins. The payment destination must require the configured client certificate.
+
 This route is a configuration review, not a verified execution guide.
