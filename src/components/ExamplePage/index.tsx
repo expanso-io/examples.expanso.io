@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import Link from '@docusaurus/Link';
 import styles from './styles.module.css';
 import { getCatalogOverviewProjection } from '../../catalog/overviewProjection';
+import { EXAMPLE_RECORD_BY_ID } from '../../catalog/registry';
 import type { GeneratedExplorerStageFamily } from '../../catalog/explorerStageConfigs.generated';
 import DataPipelineExplorer from '../DataPipelineExplorer';
 import type { ExampleAction, ExamplePageMeta } from './types';
@@ -30,7 +32,7 @@ interface ExampleHeaderProjection extends ExamplePageMeta {
 
 type ExplorerFamilyLoader = () => Promise<GeneratedExplorerStageFamily>;
 
-const explorerFamilyLoaders: Readonly<Record<string, ExplorerFamilyLoader>> = {
+const explorerFamilyLoaders = {
   'circuit-breakers': () =>
     import(
       '../../catalog/explorerStageFamilies.generated/circuit-breakers'
@@ -135,7 +137,7 @@ const explorerFamilyLoaders: Readonly<Record<string, ExplorerFamilyLoader>> = {
     import(
       '../../catalog/explorerStageFamilies.generated/production-pipeline'
     ).then((module) => module.GENERATED_EXPLORER_STAGE_FAMILY),
-};
+} satisfies Record<string, ExplorerFamilyLoader>;
 
 function InlineExplorer({
   exampleId,
@@ -146,7 +148,10 @@ function InlineExplorer({
 }) {
   const [generatedFamily, setGeneratedFamily] =
     useState<GeneratedExplorerStageFamily | null>(null);
-  const familyLoader = explorerFamilyLoaders[exampleId];
+
+  const familyLoader = Object.entries(explorerFamilyLoaders).find(
+    ([id]) => id === exampleId
+  )?.[1];
 
   useEffect(() => {
     if (!familyLoader) return;
@@ -154,6 +159,7 @@ function InlineExplorer({
     void familyLoader().then((family) => {
       if (active) setGeneratedFamily(family);
     });
+
     return () => {
       active = false;
     };
@@ -176,6 +182,7 @@ function InlineExplorer({
 
 export function ExampleExplorer({ exampleId }: { exampleId: string }) {
   const { title } = getCatalogOverviewProjection(exampleId).header;
+
   return <InlineExplorer exampleId={exampleId} title={title} />;
 }
 
@@ -190,15 +197,53 @@ export function resolveExampleHeaderProjection(
 }
 
 export function ExampleHeader(props: ExampleHeaderProps) {
-  const { outcome, problem, title } = resolveExampleHeaderProjection(props);
+  const projection = resolveExampleHeaderProjection(props);
+  const { outcome, problem, title } = projection;
   const eyebrow = props.eyebrow ?? 'Expanso example';
   const exampleId = 'exampleId' in props ? props.exampleId : null;
+  const record = exampleId ? EXAMPLE_RECORD_BY_ID.get(exampleId) : undefined;
+
+  const setupHref = record
+    ? `${record.routes.overview.replace(/\/$/, '')}/setup/`
+    : undefined;
+
+  const runHref = record?.routes.run ?? setupHref;
+  const deployHref = setupHref ?? record?.routes.reference;
+
+  const executionLabel =
+    projection.executionStatus === 'offline-runnable'
+      ? 'Runs offline'
+      : projection.executionStatus === 'requires-integration'
+        ? 'Requires integration'
+        : 'Architecture review';
 
   return (
     <>
-      <header className={styles.header} data-example-surface="overview">
+      <header
+        className={styles.header}
+        data-example-surface="overview"
+        data-example-template-section="explanation"
+      >
         <p className={styles.eyebrow}>{eyebrow}</p>
         <h1 className={styles.title}>{title}</h1>
+        <dl aria-label="Example status">
+          <div>
+            <dt>Level</dt>
+            <dd>{projection.difficulty}</dd>
+          </div>
+          <div>
+            <dt>Evidence</dt>
+            <dd>{executionLabel}</dd>
+          </div>
+          <div>
+            <dt>Time</dt>
+            <dd>{projection.expectedTime.inspectMinutes} min to inspect</dd>
+          </div>
+          <div>
+            <dt>Verified</dt>
+            <dd>{projection.verifiedAt}</dd>
+          </div>
+        </dl>
         <div className={styles.intro}>
           <section>
             <h2>The problem</h2>
@@ -209,9 +254,65 @@ export function ExampleHeader(props: ExampleHeaderProps) {
             <p>{outcome}</p>
           </section>
         </div>
+        <nav className={styles.actions} aria-label="Example actions">
+          <Link
+            className="button button--primary"
+            to={props.primaryAction.href}
+          >
+            {props.primaryAction.label}
+          </Link>
+          {props.secondaryAction ? (
+            <Link
+              className="button button--secondary"
+              to={props.secondaryAction.href}
+            >
+              {props.secondaryAction.label}
+            </Link>
+          ) : null}
+        </nav>
       </header>
       {exampleId && props.explorer !== false ? (
         <InlineExplorer exampleId={exampleId} title={title} />
+      ) : null}
+      {record && runHref && deployHref ? (
+        <section
+          className={styles.surface}
+          data-example-template-section="run-deploy"
+          aria-labelledby={`${record.id}-run-deploy`}
+        >
+          <div>
+            <p className={styles.eyebrow}>Next steps</p>
+            <h2 id={`${record.id}-run-deploy`}>Run and deploy</h2>
+          </div>
+          <div className={styles.intro}>
+            <section>
+              <h3>
+                {record.executionStatus === 'offline-runnable'
+                  ? 'Run the checked example'
+                  : 'Review the run path'}
+              </h3>
+              <p>
+                {record.executionStatus === 'offline-runnable'
+                  ? 'Use the checked-in fixture and compare the result with the expected output before changing the pipeline.'
+                  : 'This example needs its named integrations or platform before it can run. Review the prerequisites and replace example endpoints before testing it.'}
+              </p>
+              <Link to={runHref}>
+                {record.executionStatus === 'offline-runnable'
+                  ? 'Open run instructions'
+                  : 'Open configuration review'}
+              </Link>
+            </section>
+            <section>
+              <h3>Deploy it</h3>
+              <p>
+                Add the authentication, TLS, storage, network policy, and
+                least-privilege settings required by your target before you
+                deploy this pipeline.
+              </p>
+              <Link to={deployHref}>Open deployment requirements</Link>
+            </section>
+          </div>
+        </section>
       ) : null}
     </>
   );

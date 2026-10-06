@@ -53,8 +53,8 @@ interface CopyActionButtonProps {
   feedback: CopyFeedback | null;
   onCopy: () => void;
   children: ReactNode;
-  /** Menu items show success on the menu trigger instead, so they opt out. */
-  toast?: 'always' | 'error-only';
+  /** Menu items show their result on the menu trigger instead. */
+  toast?: 'always' | 'error-only' | 'never';
   toastPlacement?: 'floating' | 'inline';
   'aria-label'?: string;
 }
@@ -76,7 +76,8 @@ export default function CopyActionButton({
   const label = copyButtonLabel(children, feedback, feedbackKey);
 
   const showToast =
-    active !== null && (toast === 'always' || active.kind === 'error');
+    active !== null &&
+    (toast === 'always' || (toast === 'error-only' && active.kind === 'error'));
 
   return (
     <span className={styles.copyAnchor}>

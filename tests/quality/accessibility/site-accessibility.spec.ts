@@ -540,11 +540,18 @@ test.describe('accessibility-v1 inventory matrix', () => {
           async () => {
             await openActionMenu();
             await download.click();
-            await expect(
-              explorerV2
-                .getByRole('alert')
-                .filter({ hasText: /^Could not download / })
-            ).toContainText(
+
+            const downloadFeedback = explorerV2.locator(
+              '[data-download-feedback]'
+            );
+
+            await expect(downloadFeedback).toBeVisible();
+            await expect(downloadFeedback).toHaveAttribute('role', 'alert');
+            await expect(downloadFeedback).toHaveAttribute(
+              'data-kind',
+              'error'
+            );
+            await expect(downloadFeedback).toContainText(
               /Could not download (?:the full YAML|the stage YAML).*Copy it instead/i
             );
           }
