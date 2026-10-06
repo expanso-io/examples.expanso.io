@@ -47,6 +47,42 @@ const agent = new LocalEdgeAgent(edge, work, {
   REVIEW_EMPTY_ENCRYPTION_KEY: '',
 });
 let sequence = 0;
+const failedContracts = [
+  'examples/data-routing/smart-buffering-step-1.yaml',
+  'examples/data-routing/smart-buffering-step-3.yaml',
+  'examples/data-routing/priority-queues-complete.yaml',
+  'examples/integrations/scada-energy-edge/scada-edge-complete.yaml',
+  'examples/integrations/scada-energy-edge/step-3-classify-faults.yaml',
+  'examples/integrations/scada-energy-edge/step-4-route-destinations.yaml',
+  'examples/log-processing/enrichment-foundation.yaml',
+  'examples/data-routing/circuit-breakers-foundation.yaml',
+  'examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml',
+  'static/files/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml',
+];
+const failedExpectations = JSON.parse(
+  readFileSync('tests/fixtures/pipeline-inputs/expectations.json', 'utf8')
+);
+for (const path of failedContracts) {
+  test(`reported semantic failure: ${path}`, async () => {
+    const file = discoverPipelineFiles(root).find((file) => file.path === path);
+    assert.ok(file, path);
+    const entry = {
+      ...manifest.categories?.[file.category],
+      ...manifest.families?.[file.family],
+      ...manifest.pipelines?.[path],
+    };
+    const expectation = failedExpectations[path];
+    assert.ok(expectation, path);
+    const candidate = `tests/fixtures/pipeline-inputs/${file.family}.jsonl`;
+    const fixture = entry.fixture ?? (existsSync(candidate) ? candidate : undefined);
+    const outputs = await capture(config(path), fixture, {
+      inputMetadata: entry.inputMetadata,
+      processors: entry.processorStandIns,
+      outputFormats: expectation.outputs.map((output) => output.format ?? 'jsonl'),
+    });
+    verifyOutputs(expectation, [], outputs, manifest.environment);
+  });
+}
 before(async () => {
   execFileSync(
     'openssl',

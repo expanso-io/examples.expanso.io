@@ -1,17 +1,17 @@
 # Example pipeline validation: 2026-10-06
 
-Overall: **PASS**
+Overall: **FAIL**
 
 - expanso-edge: `v2.1.22` (pinned: `v2.1.22`)
-- Inventory digest: `sha256:773a37da2e0d752935f62d8125bcdad28cbe51da50571be8b373f8ccb272984b`
-- Complete pipelines: 106. Validate: 106 pass, 0 fail. Run: 106 pass, 0 fail, 0 skipped.
-- Fragments (partial snippets, validated inside a synthetic pipeline, never run): 168. 96 pass, 72 fail.
+- Inventory digest: `sha256:01576c6768cd19c7683adb2e4714c37aee40cb4dcbf00f60002c8167dae07016`
+- Complete pipelines: 106. Validate: 106 pass, 0 fail. Run: 96 pass, 10 fail, 0 skipped.
+- Fragments (partial snippets, validated inside a synthetic pipeline, never run): 168. 101 pass, 67 fail.
 
 How to read this report:
 
 - **Validate** runs `expanso-edge validate` on the file as committed. Fragments are wrapped in a generate-to-drop pipeline first.
 - Validation-only environment values in the fixture manifest satisfy non-metered local salts where the validator requires a concrete string.
-- **Run** deploys the pipeline to a local-mode expanso-edge agent and requires the expected output to be written. `native` means the file ran as written. `fixture harness` means the input was replaced by a checked-in fixture file and every leaf output by a local file; processors and routing logic ran unchanged.
+- **Run** deploys the pipeline to a local-mode expanso-edge agent and requires the expected output to be written. `native` means the file ran as written. `fixture harness` means the input was replaced by a checked-in fixture file and every leaf output by a local file; processor and resource substitutions are listed below. Runs with those substitutions exercise stubbed processing and do not verify the replaced integrations.
 - **SKIP** names the external service or missing fixture that prevents a local run. Skipped pipelines are still validated.
 - Regenerate locally with `npm run validate-examples`.
 
@@ -21,15 +21,15 @@ How to read this report:
 
 | Pipeline | Source | Validate | Run | expanso-edge |
 |---|---|---|---|---|
-| circuit-breakers | [examples/data-routing/circuit-breakers-complete.yaml](../../examples/data-routing/circuit-breakers-complete.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| circuit-breakers | [examples/data-routing/circuit-breakers-foundation.yaml](../../examples/data-routing/circuit-breakers-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
+| circuit-breakers | [examples/data-routing/circuit-breakers-complete.yaml](../../examples/data-routing/circuit-breakers-complete.yaml) | PASS | PASS (stubbed fixture harness) | v2.1.22 |
+| circuit-breakers | [examples/data-routing/circuit-breakers-foundation.yaml](../../examples/data-routing/circuit-breakers-foundation.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
 | content-routing | [examples/data-routing/complete-content-routing.yaml](../../examples/data-routing/complete-content-routing.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | fan-out | [examples/data-routing/complete-fan-out.yaml](../../examples/data-routing/complete-fan-out.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | content-routing | [examples/data-routing/content-routing.yaml](../../examples/data-routing/content-routing.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | content-splitting | [examples/data-routing/content-splitting-complete.yaml](../../examples/data-routing/content-splitting-complete.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | content-splitting | [examples/data-routing/content-splitting-foundation.yaml](../../examples/data-routing/content-splitting-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | content-splitting | [examples/data-routing/content-splitting.yaml](../../examples/data-routing/content-splitting.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| database-circuit-breaker | [examples/data-routing/database-circuit-breaker-foundation.yaml](../../examples/data-routing/database-circuit-breaker-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
+| database-circuit-breaker | [examples/data-routing/database-circuit-breaker-foundation.yaml](../../examples/data-routing/database-circuit-breaker-foundation.yaml) | PASS | PASS (stubbed fixture harness) | v2.1.22 |
 | fan-out | [examples/data-routing/fan-out-complete.yaml](../../examples/data-routing/fan-out-complete.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | fan-out | [examples/data-routing/fan-out-foundation.yaml](../../examples/data-routing/fan-out-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | fan-out-kafka | [examples/data-routing/fan-out-kafka.yaml](../../examples/data-routing/fan-out-kafka.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
@@ -38,15 +38,15 @@ How to read this report:
 | fan-out-s3 | [examples/data-routing/fan-out-s3.yaml](../../examples/data-routing/fan-out-s3.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | kafka-fan-out | [examples/data-routing/kafka-fan-out.yaml](../../examples/data-routing/kafka-fan-out.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | order-processing | [examples/data-routing/order-processing-foundation.yaml](../../examples/data-routing/order-processing-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| priority-queues | [examples/data-routing/priority-queues-complete.yaml](../../examples/data-routing/priority-queues-complete.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
+| priority-queues | [examples/data-routing/priority-queues-complete.yaml](../../examples/data-routing/priority-queues-complete.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
 | priority-queues | [examples/data-routing/priority-queues-foundation.yaml](../../examples/data-routing/priority-queues-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | priority-queues | [examples/data-routing/priority-queues.yaml](../../examples/data-routing/priority-queues.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | s3-fan-out | [examples/data-routing/s3-fan-out.yaml](../../examples/data-routing/s3-fan-out.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | single-destination | [examples/data-routing/single-destination.yaml](../../examples/data-routing/single-destination.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | smart-buffering | [examples/data-routing/smart-buffering-foundation.yaml](../../examples/data-routing/smart-buffering-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| smart-buffering | [examples/data-routing/smart-buffering-step-1.yaml](../../examples/data-routing/smart-buffering-step-1.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
+| smart-buffering | [examples/data-routing/smart-buffering-step-1.yaml](../../examples/data-routing/smart-buffering-step-1.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
 | smart-buffering | [examples/data-routing/smart-buffering-step-2.yaml](../../examples/data-routing/smart-buffering-step-2.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| smart-buffering | [examples/data-routing/smart-buffering-step-3.yaml](../../examples/data-routing/smart-buffering-step-3.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
+| smart-buffering | [examples/data-routing/smart-buffering-step-3.yaml](../../examples/data-routing/smart-buffering-step-3.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
 | smart-buffering | [examples/data-routing/smart-buffering-step-4.yaml](../../examples/data-routing/smart-buffering-step-4.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | smart-buffering | [examples/data-routing/smart-buffering.yaml](../../examples/data-routing/smart-buffering.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | step-0-original | [examples/data-routing/step-0-original.yaml](../../examples/data-routing/step-0-original.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
@@ -64,22 +64,22 @@ How to read this report:
 | encrypt-data | [examples/data-security/encrypt-data.yaml](../../examples/data-security/encrypt-data.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | encryption | [examples/data-security/encryption-foundation.yaml](../../examples/data-security/encryption-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | encryption-patterns | [examples/data-security/encryption-patterns-complete.yaml](../../examples/data-security/encryption-patterns-complete.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| enforce-schema | [examples/data-security/enforce-schema-complete.yaml](../../examples/data-security/enforce-schema-complete.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| enforce-schema | [examples/data-security/enforce-schema.yaml](../../examples/data-security/enforce-schema.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
+| enforce-schema | [examples/data-security/enforce-schema-complete.yaml](../../examples/data-security/enforce-schema-complete.yaml) | PASS | PASS (stubbed fixture harness) | v2.1.22 |
+| enforce-schema | [examples/data-security/enforce-schema.yaml](../../examples/data-security/enforce-schema.yaml) | PASS | PASS (stubbed fixture harness) | v2.1.22 |
 | remove-pii | [examples/data-security/remove-pii-complete.yaml](../../examples/data-security/remove-pii-complete.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | remove-pii | [examples/data-security/remove-pii-foundation.yaml](../../examples/data-security/remove-pii-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | remove-pii | [examples/data-security/remove-pii.yaml](../../examples/data-security/remove-pii.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | schema-validation | [examples/data-security/schema-validation-foundation.yaml](../../examples/data-security/schema-validation-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | cross-border-gdpr | [static/files/data-security/cross-border-gdpr.yaml](../../static/files/data-security/cross-border-gdpr.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | encrypt-data | [static/files/data-security/encrypt-data.yaml](../../static/files/data-security/encrypt-data.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| enforce-schema | [static/files/data-security/enforce-schema.yaml](../../static/files/data-security/enforce-schema.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
+| enforce-schema | [static/files/data-security/enforce-schema.yaml](../../static/files/data-security/enforce-schema.yaml) | PASS | PASS (stubbed fixture harness) | v2.1.22 |
 
 ### data-transformation
 
 | Pipeline | Source | Validate | Run | expanso-edge |
 |---|---|---|---|---|
-| aggregate-time-windows | [examples/data-transformation/aggregate-time-windows-complete.yaml](../../examples/data-transformation/aggregate-time-windows-complete.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| aggregate-time-windows | [examples/data-transformation/aggregate-time-windows.yaml](../../examples/data-transformation/aggregate-time-windows.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
+| aggregate-time-windows | [examples/data-transformation/aggregate-time-windows-complete.yaml](../../examples/data-transformation/aggregate-time-windows-complete.yaml) | PASS | PASS (stubbed fixture harness) | v2.1.22 |
+| aggregate-time-windows | [examples/data-transformation/aggregate-time-windows.yaml](../../examples/data-transformation/aggregate-time-windows.yaml) | PASS | PASS (stubbed fixture harness) | v2.1.22 |
 | deduplicate-events | [examples/data-transformation/deduplicate-events-complete.yaml](../../examples/data-transformation/deduplicate-events-complete.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | deduplicate-events | [examples/data-transformation/deduplicate-events.yaml](../../examples/data-transformation/deduplicate-events.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | deduplication | [examples/data-transformation/deduplication-foundation.yaml](../../examples/data-transformation/deduplication-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
@@ -90,11 +90,11 @@ How to read this report:
 | normalize-timestamps | [examples/data-transformation/normalize-timestamps.yaml](../../examples/data-transformation/normalize-timestamps.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | parse-logs | [examples/data-transformation/parse-logs-complete.yaml](../../examples/data-transformation/parse-logs-complete.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | parse-logs | [examples/data-transformation/parse-logs.yaml](../../examples/data-transformation/parse-logs.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| step-4-production | [examples/data-transformation/step-4-production.yaml](../../examples/data-transformation/step-4-production.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
+| step-4-production | [examples/data-transformation/step-4-production.yaml](../../examples/data-transformation/step-4-production.yaml) | PASS | PASS (stubbed fixture harness) | v2.1.22 |
 | transform-formats | [examples/data-transformation/transform-formats-complete.yaml](../../examples/data-transformation/transform-formats-complete.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | transform-formats | [examples/data-transformation/transform-formats.yaml](../../examples/data-transformation/transform-formats.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | tumbling-windows | [examples/data-transformation/tumbling-windows-foundation.yaml](../../examples/data-transformation/tumbling-windows-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| aggregate-time-windows | [static/files/data-transformation/aggregate-time-windows.yaml](../../static/files/data-transformation/aggregate-time-windows.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
+| aggregate-time-windows | [static/files/data-transformation/aggregate-time-windows.yaml](../../static/files/data-transformation/aggregate-time-windows.yaml) | PASS | PASS (stubbed fixture harness) | v2.1.22 |
 | deduplicate-events | [static/files/data-transformation/deduplicate-events.yaml](../../static/files/data-transformation/deduplicate-events.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | normalize-timestamps | [static/files/data-transformation/normalize-timestamps.yaml](../../static/files/data-transformation/normalize-timestamps.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | parse-logs | [static/files/data-transformation/parse-logs.yaml](../../static/files/data-transformation/parse-logs.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
@@ -104,9 +104,9 @@ How to read this report:
 
 | Pipeline | Source | Validate | Run | expanso-edge |
 |---|---|---|---|---|
-| db2-to-bigquery | [examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml](../../examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
+| db2-to-bigquery | [examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml](../../examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
 | nightly-backup | [examples/enterprise-migration/nightly-backup/nightly-backup.yaml](../../examples/enterprise-migration/nightly-backup/nightly-backup.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| db2-to-bigquery | [static/files/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml](../../static/files/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
+| db2-to-bigquery | [static/files/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml](../../static/files/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
 | nightly-backup | [static/files/enterprise-migration/nightly-backup/nightly-backup.yaml](../../static/files/enterprise-migration/nightly-backup/nightly-backup.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 
 ### explorer-stages
@@ -114,7 +114,7 @@ How to read this report:
 | Pipeline | Source | Validate | Run | expanso-edge |
 |---|---|---|---|---|
 | aggregate-time-windows | [examples/explorer-stages/aggregate-time-windows/01-original-high-frequency-events.yaml](../../examples/explorer-stages/aggregate-time-windows/01-original-high-frequency-events.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| aggregate-time-windows | [examples/explorer-stages/aggregate-time-windows/05-multi-level-configuration.yaml](../../examples/explorer-stages/aggregate-time-windows/05-multi-level-configuration.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
+| aggregate-time-windows | [examples/explorer-stages/aggregate-time-windows/05-multi-level-configuration.yaml](../../examples/explorer-stages/aggregate-time-windows/05-multi-level-configuration.yaml) | PASS | PASS (stubbed fixture harness) | v2.1.22 |
 | content-routing | [examples/explorer-stages/content-routing/01-original-input.yaml](../../examples/explorer-stages/content-routing/01-original-input.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | content-splitting | [examples/explorer-stages/content-splitting/01-original-bundled-message.yaml](../../examples/explorer-stages/content-splitting/01-original-bundled-message.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | encryption-patterns | [examples/explorer-stages/encryption-patterns/01-original-sensitive-data.yaml](../../examples/explorer-stages/encryption-patterns/01-original-sensitive-data.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
@@ -142,12 +142,12 @@ How to read this report:
 
 | Pipeline | Source | Validate | Run | expanso-edge |
 |---|---|---|---|---|
-| medical-device-intelligence | [docs/integrations/medical-device-intelligence/pipeline.yaml](../../docs/integrations/medical-device-intelligence/pipeline.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| scada-energy-edge | [examples/integrations/scada-energy-edge/scada-edge-complete.yaml](../../examples/integrations/scada-energy-edge/scada-edge-complete.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
+| medical-device-intelligence | [docs/integrations/medical-device-intelligence/pipeline.yaml](../../docs/integrations/medical-device-intelligence/pipeline.yaml) | PASS | PASS (stubbed fixture harness) | v2.1.22 |
+| scada-energy-edge | [examples/integrations/scada-energy-edge/scada-edge-complete.yaml](../../examples/integrations/scada-energy-edge/scada-edge-complete.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
 | step-1-parse-registers | [examples/integrations/scada-energy-edge/step-1-parse-registers.yaml](../../examples/integrations/scada-energy-edge/step-1-parse-registers.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | step-2-filter-nominal | [examples/integrations/scada-energy-edge/step-2-filter-nominal.yaml](../../examples/integrations/scada-energy-edge/step-2-filter-nominal.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| step-3-classify-faults | [examples/integrations/scada-energy-edge/step-3-classify-faults.yaml](../../examples/integrations/scada-energy-edge/step-3-classify-faults.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| step-4-route-destinations | [examples/integrations/scada-energy-edge/step-4-route-destinations.yaml](../../examples/integrations/scada-energy-edge/step-4-route-destinations.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
+| step-3-classify-faults | [examples/integrations/scada-energy-edge/step-3-classify-faults.yaml](../../examples/integrations/scada-energy-edge/step-3-classify-faults.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
+| step-4-route-destinations | [examples/integrations/scada-energy-edge/step-4-route-destinations.yaml](../../examples/integrations/scada-energy-edge/step-4-route-destinations.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
 | motherduck-retail-analytics | [static/pipelines/motherduck-retail-pipeline.yaml](../../static/pipelines/motherduck-retail-pipeline.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | oran-telco-pipeline | [static/pipelines/oran-telco-pipeline.yaml](../../static/pipelines/oran-telco-pipeline.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | splunk-edge-processing | [static/pipelines/splunk-production-pipeline.yaml](../../static/pipelines/splunk-production-pipeline.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
@@ -158,7 +158,7 @@ How to read this report:
 |---|---|---|---|---|
 | enrich-export | [examples/log-processing/enrich-export-complete.yaml](../../examples/log-processing/enrich-export-complete.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | enrich-export | [examples/log-processing/enrich-export.yaml](../../examples/log-processing/enrich-export.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| enrichment | [examples/log-processing/enrichment-foundation.yaml](../../examples/log-processing/enrichment-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
+| enrichment | [examples/log-processing/enrichment-foundation.yaml](../../examples/log-processing/enrichment-foundation.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
 | filter-severity | [examples/log-processing/filter-severity-complete.yaml](../../examples/log-processing/filter-severity-complete.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | filter-severity | [examples/log-processing/filter-severity.yaml](../../examples/log-processing/filter-severity.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | filtering | [examples/log-processing/filtering-foundation.yaml](../../examples/log-processing/filtering-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
@@ -168,9 +168,93 @@ How to read this report:
 | filter-severity | [static/files/log-processing/filter-severity.yaml](../../static/files/log-processing/filter-severity.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | production-pipeline | [static/files/log-processing/production-pipeline.yaml](../../static/files/log-processing/production-pipeline.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 
+## Failure details
+
+### examples/data-routing/circuit-breakers-foundation.yaml
+
+Run failure: semantic output verification failed
+
+```text
+missing expected record at output undefined
+```
+
+### examples/data-routing/priority-queues-complete.yaml
+
+Run failure: semantic output verification failed
+
+```text
+record count at output 0
+
+0 !== 1
+```
+
+### examples/data-routing/smart-buffering-step-1.yaml
+
+Run failure: semantic output verification failed
+
+```text
+unexpected priority_tier: 2
+```
+
+### examples/data-routing/smart-buffering-step-3.yaml
+
+Run failure: semantic output verification failed
+
+```text
+unexpected priority_score: 500
+```
+
+### examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml
+
+Run failure: semantic output verification failed
+
+```text
+unexpected amount_usd: 135.54000000000002
+```
+
+### examples/integrations/scada-energy-edge/scada-edge-complete.yaml
+
+Run failure: semantic output verification failed
+
+```text
+missing expected record at output undefined
+```
+
+### examples/integrations/scada-energy-edge/step-3-classify-faults.yaml
+
+Run failure: semantic output verification failed
+
+```text
+missing expected record at output undefined
+```
+
+### examples/integrations/scada-energy-edge/step-4-route-destinations.yaml
+
+Run failure: semantic output verification failed
+
+```text
+missing expected record at output undefined
+```
+
+### examples/log-processing/enrichment-foundation.yaml
+
+Run failure: semantic output verification failed
+
+```text
+missing id
+```
+
+### static/files/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml
+
+Run failure: semantic output verification failed
+
+```text
+unexpected amount_usd: 135.54000000000002
+```
+
 ## Run substitutions
 
-Edges swapped by the fixture harness. Everything between input and output ran as committed.
+Input, output, processor, and resource substitutions made by the fixture harness. Replaced processors and resources were not exercised as committed.
 
 <details><summary>Show per-pipeline substitutions</summary>
 
@@ -181,7 +265,7 @@ Edges swapped by the fixture harness. Everything between input and output ran as
   - output `output.broker.outputs.1`: http_client to file (.validation-output/02-http_client.jsonl)
 - `examples/data-routing/circuit-breakers-complete.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-routing.jsonl`)
   - processor `pipeline.processors.1.branch.processors.0.try.0`: http to deterministic mapping stub
-  - processor `pipeline.processors.1.branch.processors.1.catch.0.try.0`: http to deterministic mapping stub
+  - processor `pipeline.processors.1.branch.processors.1.catch.1.try.0`: http to deterministic mapping stub
   - input `input`: http_server to file (tests/fixtures/pipeline-inputs/data-routing.jsonl)
   - output `output.fallback.0`: http_client to file (.validation-output/01-http_client.jsonl)
   - output `output.fallback.1`: kafka to file (.validation-output/02-kafka.jsonl)
@@ -313,16 +397,18 @@ Edges swapped by the fixture harness. Everything between input and output ran as
 - `examples/data-routing/step-0-original.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-routing.jsonl`)
   - input `input`: http_server to file (tests/fixtures/pipeline-inputs/data-routing.jsonl)
   - output `output`: kafka to file (.validation-output/01-kafka.jsonl)
-- `examples/data-security/cross-border-gdpr/cross-border-gdpr.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-security.jsonl`)
-  - input `input`: sql_select to file (tests/fixtures/pipeline-inputs/data-security.jsonl)
+- `examples/data-security/cross-border-gdpr/cross-border-gdpr.yaml` (fixture: `tests/fixtures/pipeline-inputs/cross-border-gdpr.jsonl`)
+  - input `input`: sql_select to file (tests/fixtures/pipeline-inputs/cross-border-gdpr.jsonl)
   - output `output.broker.outputs.0`: gcp_bigquery to file (.validation-output/01-gcp_bigquery.jsonl)
   - output `output.broker.outputs.1`: gcp_cloud_storage to file (.validation-output/02-gcp_cloud_storage.jsonl)
   - output `output.broker.outputs.2.file.path`: /var/log/expanso/gdpr-audit-${!timestamp_format("2006-01-02")}.jsonl to .validation-output/03-file.jsonl
 - `examples/data-security/encrypt-data-complete.yaml` (fixture: `tests/fixtures/pipeline-inputs/encryption.jsonl`)
   - input `input`: http_server to file (tests/fixtures/pipeline-inputs/encryption.jsonl)
+  - input `input.processors`: request metadata to registered fixture request metadata
   - output `output`: stdout to file (.validation-output/01-stdout.jsonl)
 - `examples/data-security/encrypt-data.yaml` (fixture: `tests/fixtures/pipeline-inputs/encryption.jsonl`)
   - input `input`: http_server to file (tests/fixtures/pipeline-inputs/encryption.jsonl)
+  - input `input.processors`: request metadata to registered fixture request metadata
   - output `output.broker.outputs.0`: http_client to file (.validation-output/01-http_client.jsonl)
   - output `output.broker.outputs.1`: http_client to file (.validation-output/02-http_client.jsonl)
 - `examples/data-security/encryption-foundation.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-security.jsonl`)
@@ -351,18 +437,25 @@ Edges swapped by the fixture harness. Everything between input and output ran as
   - output `output`: stdout to file (.validation-output/01-stdout.jsonl)
 - `examples/data-security/remove-pii.yaml` (fixture: `tests/fixtures/pipeline-inputs/remove-pii.jsonl`)
   - input `input`: http_server to file (tests/fixtures/pipeline-inputs/remove-pii.jsonl)
-  - output `output.broker.outputs.0`: http_client to file (.validation-output/01-http_client.jsonl)
-  - output `output.broker.outputs.1.file.path`: /var/log/expanso/pii-audit-${!timestamp_unix()}.jsonl to .validation-output/02-file.jsonl
-  - output `output.broker.outputs.2.switch.cases.0.output.file.path`: /var/log/expanso/pii-dlq-${!timestamp_unix()}.jsonl to .validation-output/03-file.jsonl
+  - output `output.switch.cases.0.output.broker.outputs.0`: http_client to file (.validation-output/01-http_client.jsonl)
+  - output `output.switch.cases.0.output.broker.outputs.1.file.path`: /var/log/expanso/pii-audit-${!timestamp_unix()}.jsonl to .validation-output/02-file.jsonl
+  - output `output.switch.cases.1.output.file.path`: /var/log/expanso/pii-dlq-${!timestamp_unix()}.jsonl to .validation-output/03-file.jsonl
 - `examples/data-security/schema-validation-foundation.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-security.jsonl`)
   - input `input`: http_server to file (tests/fixtures/pipeline-inputs/data-security.jsonl)
   - output `output`: stdout to file (.validation-output/01-stdout.jsonl)
 - `examples/data-transformation/aggregate-time-windows-complete.yaml` (fixture: `tests/fixtures/pipeline-inputs/aggregate-time-windows.jsonl`)
   - input `input`: kafka to file (tests/fixtures/pipeline-inputs/aggregate-time-windows.jsonl)
+  - processor `pipeline.processors`: 60-second window arithmetic to 0.3-second window arithmetic for fixture execution
+  - input `input.sequence`: fixture EOF after first window acknowledgement to finite input held open until overlapping windows flush
+  - input `input.processors`: historical event timestamps to current timestamps at 1/200 time scale
+  - resource `buffer.system_window`: one-minute window unit to 300ms window unit for fixture execution
   - output `output.broker.outputs.0`: http_client to file (.validation-output/01-http_client.jsonl)
   - output `output.broker.outputs.1.file.path`: /var/expanso/buffer/aggregations-${!timestamp_unix()}.jsonl to .validation-output/02-file.jsonl
 - `examples/data-transformation/aggregate-time-windows.yaml` (fixture: `tests/fixtures/pipeline-inputs/aggregate-time-windows.jsonl`)
   - input `input`: http_server to file (tests/fixtures/pipeline-inputs/aggregate-time-windows.jsonl)
+  - processor `pipeline.processors`: 60-second window arithmetic to 0.3-second window arithmetic for fixture execution
+  - input `input.processors`: historical event timestamps to current timestamps at 1/200 time scale
+  - resource `buffer.system_window`: one-minute window unit to 300ms window unit for fixture execution
   - output `output`: http_client to file (.validation-output/01-http_client.jsonl)
 - `examples/data-transformation/deduplicate-events-complete.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-transformation.jsonl`)
   - input `input`: http_server to file (tests/fixtures/pipeline-inputs/data-transformation.jsonl)
@@ -386,13 +479,15 @@ Edges swapped by the fixture harness. Everything between input and output ran as
   - input `input`: http_server to file (tests/fixtures/pipeline-inputs/data-transformation.jsonl)
   - output `output`: stdout to file (.validation-output/01-stdout.jsonl)
 - `examples/data-transformation/normalize-timestamps-complete.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-transformation.jsonl`)
-  - input `input`: kafka to file (tests/fixtures/pipeline-inputs/data-transformation.jsonl)
+  - input `input`: kafka to file (.validation-input/recent-timestamps.jsonl)
   - output `output`: kafka to file (.validation-output/01-kafka.jsonl)
+  - input `input.file`: historical normalization fixture timestamps to previous-day timestamps and matching semantic expectations
 - `examples/data-transformation/normalize-timestamps.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-transformation.jsonl`)
-  - input `input`: http_server to file (tests/fixtures/pipeline-inputs/data-transformation.jsonl)
+  - input `input`: http_server to file (.validation-input/recent-timestamps.jsonl)
   - output `output.broker.outputs.0`: http_client to file (.validation-output/01-http_client.jsonl)
   - output `output.broker.outputs.1`: kafka to file (.validation-output/02-kafka.jsonl)
   - output `output.broker.outputs.2.switch.cases.0.output.file.path`: /var/log/expanso/timestamp-dlq.jsonl to .validation-output/03-file.jsonl
+  - input `input.file`: historical normalization fixture timestamps to previous-day timestamps and matching semantic expectations
 - `examples/data-transformation/parse-logs-complete.yaml` (fixture: `tests/fixtures/pipeline-inputs/parse-logs.jsonl`)
   - input `input`: http_server to file (tests/fixtures/pipeline-inputs/parse-logs.jsonl)
   - output `output.switch.cases.0.output`: http_client to file (.validation-output/01-http_client.jsonl)
@@ -401,8 +496,10 @@ Edges swapped by the fixture harness. Everything between input and output ran as
   - input `input.file.paths`: ["/var/log/app/*.jsonl"] to tests/fixtures/pipeline-inputs/parse-logs.jsonl
   - output `output`: http_client to file (.validation-output/01-http_client.jsonl)
 - `examples/data-transformation/step-4-production.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-transformation.jsonl`)
-  - resource `cache_resources.0`: redis to memory cache
   - input `input`: kafka to file (tests/fixtures/pipeline-inputs/data-transformation.jsonl)
+  - processor `pipeline.processors`: 60-second window arithmetic to 0.3-second window arithmetic for fixture execution
+  - input `input.processors`: historical event timestamps to current timestamps at 1/200 time scale
+  - resource `buffer.system_window`: one-minute window unit to 300ms window unit for fixture execution
   - output `output.fallback.0`: http_client to file (.validation-output/01-http_client.jsonl)
   - output `output.fallback.1.file.path`: /var/buffer/aggregations.jsonl to .validation-output/02-file.jsonl
 - `examples/data-transformation/transform-formats-complete.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-transformation.jsonl`)
@@ -411,6 +508,7 @@ Edges swapped by the fixture harness. Everything between input and output ran as
 - `examples/data-transformation/transform-formats.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-transformation.jsonl`)
   - input `input`: http_server to file (tests/fixtures/pipeline-inputs/data-transformation.jsonl)
   - output `output`: kafka to file (.validation-output/01-kafka.jsonl)
+  - output `output`: avro bytes to base64 framed file
 - `examples/data-transformation/tumbling-windows-foundation.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-transformation.jsonl`)
   - input `input.generate.count`: unbounded to 25
   - input `input.generate.interval`: 1s to 1ms
@@ -418,18 +516,26 @@ Edges swapped by the fixture harness. Everything between input and output ran as
 - `examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml` (fixture: `tests/fixtures/pipeline-inputs/enterprise-migration.jsonl`)
   - input `input`: sql_select to file (tests/fixtures/pipeline-inputs/enterprise-migration.jsonl)
   - output `output`: gcp_bigquery to file (.validation-output/01-gcp_bigquery.jsonl)
-- `examples/enterprise-migration/nightly-backup/nightly-backup.yaml` (fixture: `tests/fixtures/pipeline-inputs/enterprise-migration.jsonl`)
-  - input `input`: sequence to file (tests/fixtures/pipeline-inputs/enterprise-migration.jsonl)
+- `examples/enterprise-migration/nightly-backup/nightly-backup.yaml` (fixture: `tests/fixtures/pipeline-inputs/nightly-backup.jsonl`)
+  - input `input`: sequence to file (tests/fixtures/pipeline-inputs/nightly-backup.jsonl)
   - output `output.switch.cases.0.output`: gcp_cloud_storage to file (.validation-output/01-gcp_cloud_storage.jsonl)
+  - output `output.switch.cases.0.output`: parquet bytes to file after Parquet decoding
+  - output `output.switch.cases.0.output.gcp_cloud_storage.batching`: count=10000, period=60s to count=25, period=1s; batching processors retained
   - output `output.switch.cases.1.output`: gcp_cloud_storage to file (.validation-output/02-gcp_cloud_storage.jsonl)
+  - output `output.switch.cases.1.output`: parquet bytes to file after Parquet decoding
+  - output `output.switch.cases.1.output.gcp_cloud_storage.batching`: count=50000, period=120s to count=25, period=1s; batching processors retained
   - output `output.switch.cases.2.output`: gcp_cloud_storage to file (.validation-output/03-gcp_cloud_storage.jsonl)
+  - output `output.switch.cases.2.output`: parquet bytes to file after Parquet decoding
+  - output `output.switch.cases.2.output.gcp_cloud_storage.batching`: count=10000, period=60s to count=25, period=1s; batching processors retained
   - output `output.switch.cases.3.output`: gcp_cloud_storage to file (.validation-output/04-gcp_cloud_storage.jsonl)
 - `examples/explorer-stages/aggregate-time-windows/01-original-high-frequency-events.yaml` (fixture: `tests/fixtures/pipeline-inputs/aggregate-time-windows.jsonl`)
   - input `input.file.paths`: ["sensor-data.jsonl"] to tests/fixtures/pipeline-inputs/aggregate-time-windows.jsonl
   - output `output`: stdout to file (.validation-output/01-stdout.jsonl)
 - `examples/explorer-stages/aggregate-time-windows/05-multi-level-configuration.yaml` (fixture: `tests/fixtures/pipeline-inputs/aggregate-time-windows.jsonl`)
-  - resource `cache_resources.0`: redis to memory cache
   - input `input`: kafka to file (tests/fixtures/pipeline-inputs/aggregate-time-windows.jsonl)
+  - processor `pipeline.processors`: 60-second window arithmetic to 0.3-second window arithmetic for fixture execution
+  - input `input.processors`: historical event timestamps to current timestamps at 1/200 time scale
+  - resource `buffer.system_window`: one-minute window unit to 300ms window unit for fixture execution
   - output `output.fallback.0`: http_client to file (.validation-output/01-http_client.jsonl)
   - output `output.fallback.1.file.path`: /var/buffer/aggregations.jsonl to .validation-output/02-file.jsonl
 - `examples/explorer-stages/content-routing/01-original-input.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-routing.jsonl`)
@@ -485,6 +591,8 @@ Edges swapped by the fixture harness. Everything between input and output ran as
   - input `input.generate.count`: unbounded to 25
   - input `input.generate.interval`: 1s to 1ms
   - output `output.broker.outputs.0`: aws_s3 to file (.validation-output/01-aws_s3.jsonl)
+  - output `output.broker.outputs.0`: gzip bytes to base64 framed file
+  - output `output.broker.outputs.0.aws_s3.batching`: count=200, period=2m to count=25, period=1s; batching processors retained
   - output `output.broker.outputs.1`: aws_s3 to file (.validation-output/02-aws_s3.jsonl)
 - `examples/log-processing/enrich-export.yaml` (fixture: `tests/fixtures/pipeline-inputs/log-processing.jsonl`)
   - input `input.generate.count`: unbounded to 25
@@ -540,13 +648,14 @@ Edges swapped by the fixture harness. Everything between input and output ran as
   - output `output.switch.cases.1.output`: http_client to file (.validation-output/02-http_client.jsonl)
   - output `output.switch.cases.2.output`: http_client to file (.validation-output/03-http_client.jsonl)
   - output `output.switch.cases.3.output`: http_client to file (.validation-output/04-http_client.jsonl)
-- `static/files/data-security/cross-border-gdpr.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-security.jsonl`)
-  - input `input`: sql_select to file (tests/fixtures/pipeline-inputs/data-security.jsonl)
+- `static/files/data-security/cross-border-gdpr.yaml` (fixture: `tests/fixtures/pipeline-inputs/cross-border-gdpr.jsonl`)
+  - input `input`: sql_select to file (tests/fixtures/pipeline-inputs/cross-border-gdpr.jsonl)
   - output `output.broker.outputs.0`: gcp_bigquery to file (.validation-output/01-gcp_bigquery.jsonl)
   - output `output.broker.outputs.1`: gcp_cloud_storage to file (.validation-output/02-gcp_cloud_storage.jsonl)
   - output `output.broker.outputs.2.file.path`: /var/log/expanso/gdpr-audit-${!timestamp_format("2006-01-02")}.jsonl to .validation-output/03-file.jsonl
 - `static/files/data-security/encrypt-data.yaml` (fixture: `tests/fixtures/pipeline-inputs/encryption.jsonl`)
   - input `input`: http_server to file (tests/fixtures/pipeline-inputs/encryption.jsonl)
+  - input `input.processors`: request metadata to registered fixture request metadata
   - output `output.broker.outputs.0`: http_client to file (.validation-output/01-http_client.jsonl)
   - output `output.broker.outputs.1`: http_client to file (.validation-output/02-http_client.jsonl)
 - `static/files/data-security/enforce-schema.yaml` (fixture: `tests/fixtures/pipeline-inputs/sensor-schema-input.jsonl`)
@@ -557,29 +666,40 @@ Edges swapped by the fixture harness. Everything between input and output ran as
   - output `output.broker.outputs.2`: http_client to file (.validation-output/03-http_client.jsonl)
 - `static/files/data-transformation/aggregate-time-windows.yaml` (fixture: `tests/fixtures/pipeline-inputs/aggregate-time-windows.jsonl`)
   - input `input`: http_server to file (tests/fixtures/pipeline-inputs/aggregate-time-windows.jsonl)
+  - processor `pipeline.processors`: 60-second window arithmetic to 0.3-second window arithmetic for fixture execution
+  - input `input.processors`: historical event timestamps to current timestamps at 1/200 time scale
+  - resource `buffer.system_window`: one-minute window unit to 300ms window unit for fixture execution
   - output `output`: http_client to file (.validation-output/01-http_client.jsonl)
 - `static/files/data-transformation/deduplicate-events.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-transformation.jsonl`)
   - input `input`: http_server to file (tests/fixtures/pipeline-inputs/data-transformation.jsonl)
   - output `output`: http_client to file (.validation-output/01-http_client.jsonl)
 - `static/files/data-transformation/normalize-timestamps.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-transformation.jsonl`)
-  - input `input`: http_server to file (tests/fixtures/pipeline-inputs/data-transformation.jsonl)
+  - input `input`: http_server to file (.validation-input/recent-timestamps.jsonl)
   - output `output.broker.outputs.0`: http_client to file (.validation-output/01-http_client.jsonl)
   - output `output.broker.outputs.1`: kafka to file (.validation-output/02-kafka.jsonl)
   - output `output.broker.outputs.2.switch.cases.0.output.file.path`: /var/log/expanso/timestamp-dlq.jsonl to .validation-output/03-file.jsonl
+  - input `input.file`: historical normalization fixture timestamps to previous-day timestamps and matching semantic expectations
 - `static/files/data-transformation/parse-logs.yaml` (fixture: `tests/fixtures/pipeline-inputs/parse-logs.jsonl`)
   - input `input.file.paths`: ["/var/log/app/*.jsonl"] to tests/fixtures/pipeline-inputs/parse-logs.jsonl
   - output `output`: http_client to file (.validation-output/01-http_client.jsonl)
 - `static/files/data-transformation/transform-formats.yaml` (fixture: `tests/fixtures/pipeline-inputs/data-transformation.jsonl`)
   - input `input`: http_server to file (tests/fixtures/pipeline-inputs/data-transformation.jsonl)
   - output `output`: kafka to file (.validation-output/01-kafka.jsonl)
+  - output `output`: avro bytes to base64 framed file
 - `static/files/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml` (fixture: `tests/fixtures/pipeline-inputs/enterprise-migration.jsonl`)
   - input `input`: sql_select to file (tests/fixtures/pipeline-inputs/enterprise-migration.jsonl)
   - output `output`: gcp_bigquery to file (.validation-output/01-gcp_bigquery.jsonl)
-- `static/files/enterprise-migration/nightly-backup/nightly-backup.yaml` (fixture: `tests/fixtures/pipeline-inputs/enterprise-migration.jsonl`)
-  - input `input`: sequence to file (tests/fixtures/pipeline-inputs/enterprise-migration.jsonl)
+- `static/files/enterprise-migration/nightly-backup/nightly-backup.yaml` (fixture: `tests/fixtures/pipeline-inputs/nightly-backup.jsonl`)
+  - input `input`: sequence to file (tests/fixtures/pipeline-inputs/nightly-backup.jsonl)
   - output `output.switch.cases.0.output`: gcp_cloud_storage to file (.validation-output/01-gcp_cloud_storage.jsonl)
+  - output `output.switch.cases.0.output`: parquet bytes to file after Parquet decoding
+  - output `output.switch.cases.0.output.gcp_cloud_storage.batching`: count=10000, period=60s to count=25, period=1s; batching processors retained
   - output `output.switch.cases.1.output`: gcp_cloud_storage to file (.validation-output/02-gcp_cloud_storage.jsonl)
+  - output `output.switch.cases.1.output`: parquet bytes to file after Parquet decoding
+  - output `output.switch.cases.1.output.gcp_cloud_storage.batching`: count=50000, period=120s to count=25, period=1s; batching processors retained
   - output `output.switch.cases.2.output`: gcp_cloud_storage to file (.validation-output/03-gcp_cloud_storage.jsonl)
+  - output `output.switch.cases.2.output`: parquet bytes to file after Parquet decoding
+  - output `output.switch.cases.2.output.gcp_cloud_storage.batching`: count=10000, period=60s to count=25, period=1s; batching processors retained
   - output `output.switch.cases.3.output`: gcp_cloud_storage to file (.validation-output/04-gcp_cloud_storage.jsonl)
 - `static/files/first-results/filter-logs.yaml` (fixture: `none`)
   - input `input.generate.interval`: 1s to 1ms
@@ -607,13 +727,17 @@ Edges swapped by the fixture harness. Everything between input and output ran as
   - input `input.generate.count`: unbounded to 25
   - input `input.generate.interval`: 100ms to 1ms
   - output `output`: aws_s3 to file (.validation-output/01-aws_s3.jsonl)
+  - output `output`: parquet bytes to file after Parquet decoding
+  - output `output.aws_s3.batching`: count=1000, period=10s to count=25, period=1s; batching processors retained
 - `static/pipelines/oran-telco-pipeline.yaml` (fixture: `tests/fixtures/pipeline-inputs/oran-telco-pipeline.jsonl`)
   - input `input`: broker to file (tests/fixtures/pipeline-inputs/oran-telco-pipeline.jsonl)
   - output `output.broker.outputs.0.fallback.0`: http_client to file (.validation-output/01-http_client.jsonl)
-  - output `output.broker.outputs.0.fallback.1.file.path`: /data/errors/grafana-${!now().ts_format("2006-01-02")}.jsonl to .validation-output/02-file.jsonl
-  - output `output.broker.outputs.1.file.path`: /data/oran-telemetry/${!this.date}/region=${!this.region}/gnb=${!this.gnb_id}/du-metrics-${!uuid_v4().string().slice(0,8)}.jsonl to .validation-output/03-file.jsonl
-  - output `output.broker.outputs.2`: kafka to file (.validation-output/04-kafka.jsonl)
-  - output `output.broker.outputs.3.file.path`: /data/buffer/oran-${!count("buffer")}.jsonl to .validation-output/05-file.jsonl
+  - output `output.broker.outputs.0.fallback.1.file.path`: /data/dead-letter/otel-${! now().ts_format("2006-01-02") }.jsonl to .validation-output/02-file.jsonl
+  - output `output.broker.outputs.1.broker.batching`: {"count":10000,"period":"5m"} to count=25, period=1s; batching processors retained
+  - output `output.broker.outputs.1.broker.outputs.0.file.path`: /data/oran-telemetry/date=${! now().ts_format("2006-01-02") }/node=${! env("NODE_ID").or("unknown") }/part-${! uuid_v4() }.parquet to .validation-output/03-file.jsonl
+  - output `output.broker.outputs.1.broker.outputs.0`: parquet bytes to file after Parquet decoding
+  - output `output.broker.outputs.2.fallback.0`: kafka to file (.validation-output/04-kafka.jsonl)
+  - output `output.broker.outputs.2.fallback.1.file.path`: /data/dead-letter/kafka-${! now().ts_format("2006-01-02") }.jsonl to .validation-output/05-file.jsonl
 - `static/pipelines/splunk-production-pipeline.yaml` (fixture: `tests/fixtures/pipeline-inputs/splunk-edge-processing.log`)
   - input `input.file.paths`: ["/var/log/app/*.log"] to tests/fixtures/pipeline-inputs/splunk-edge-processing.log
   - output `output`: http_client to file (.validation-output/01-http_client.jsonl)
@@ -643,7 +767,7 @@ These files are tutorial steps or component snippets, not complete pipelines. Th
 | [examples/data-routing/step-3-priority-output.yaml](../../examples/data-routing/step-3-priority-output.yaml) | fragment | PASS (wrapped) |  |
 | [examples/data-routing/step-4-priority-routing.yaml](../../examples/data-routing/step-4-priority-routing.yaml) | fragment | FAIL (wrapped) | Missing required field 'addresses' in switch component |
 | [examples/data-routing/step-4-starvation-prevention.yaml](../../examples/data-routing/step-4-starvation-prevention.yaml) | fragment | PASS (wrapped) |  |
-| [examples/data-security/encryption-patterns.yaml](../../examples/data-security/encryption-patterns.yaml) | fragment | FAIL (wrapped) | Missing parameter: iv:  }  # |
+| [examples/data-security/encryption-patterns.yaml](../../examples/data-security/encryption-patterns.yaml) | fragment | PASS (wrapped) |  |
 | [examples/data-security/step-0-no-validation.yaml](../../examples/data-security/step-0-no-validation.yaml) | fragment | PASS (wrapped) |  |
 | [examples/data-security/step-1-define-schema.yaml](../../examples/data-security/step-1-define-schema.yaml) | fragment | FAIL (wrapped) | Unrecognised method 'validate_json_schema':   |
 | [examples/data-security/step-1-delete-card.yaml](../../examples/data-security/step-1-delete-card.yaml) | fragment | PASS (wrapped) |  |
@@ -727,10 +851,10 @@ These files are tutorial steps or component snippets, not complete pipelines. Th
 | [examples/explorer-stages/normalize-timestamps/02-parse-multiple-formats.yaml](../../examples/explorer-stages/normalize-timestamps/02-parse-multiple-formats.yaml) | fragment | PASS (wrapped) |  |
 | [examples/explorer-stages/normalize-timestamps/03-normalize-to-utc-metadata.yaml](../../examples/explorer-stages/normalize-timestamps/03-normalize-to-utc-metadata.yaml) | fragment | PASS (wrapped) |  |
 | [examples/explorer-stages/oran-telco-pipeline/01-adapter-output.yaml](../../examples/explorer-stages/oran-telco-pipeline/01-adapter-output.yaml) | fragment | PASS (wrapped) |  |
-| [examples/explorer-stages/oran-telco-pipeline/02-parse-authored-fields.yaml](../../examples/explorer-stages/oran-telco-pipeline/02-parse-authored-fields.yaml) | fragment | FAIL (wrapped) | Invalid syntax in call to fold() |
+| [examples/explorer-stages/oran-telco-pipeline/02-parse-authored-fields.yaml](../../examples/explorer-stages/oran-telco-pipeline/02-parse-authored-fields.yaml) | fragment | PASS (wrapped) |  |
 | [examples/explorer-stages/oran-telco-pipeline/03-add-review-metadata.yaml](../../examples/explorer-stages/oran-telco-pipeline/03-add-review-metadata.yaml) | fragment | PASS (wrapped) |  |
 | [examples/explorer-stages/oran-telco-pipeline/04-select-review-candidates.yaml](../../examples/explorer-stages/oran-telco-pipeline/04-select-review-candidates.yaml) | fragment | PASS (wrapped) |  |
-| [examples/explorer-stages/oran-telco-pipeline/05-external-destinations.yaml](../../examples/explorer-stages/oran-telco-pipeline/05-external-destinations.yaml) | fragment | FAIL (wrapped) | Unknown field 'http' in broker component |
+| [examples/explorer-stages/oran-telco-pipeline/05-external-destinations.yaml](../../examples/explorer-stages/oran-telco-pipeline/05-external-destinations.yaml) | fragment | PASS (wrapped) |  |
 | [examples/explorer-stages/parse-logs/01-original-input.yaml](../../examples/explorer-stages/parse-logs/01-original-input.yaml) | fragment | PASS (wrapped) |  |
 | [examples/explorer-stages/parse-logs/02-format-detection.yaml](../../examples/explorer-stages/parse-logs/02-format-detection.yaml) | fragment | PASS (wrapped) |  |
 | [examples/explorer-stages/parse-logs/03-json-log-parsing.yaml](../../examples/explorer-stages/parse-logs/03-json-log-parsing.yaml) | fragment | PASS (wrapped) |  |
@@ -765,7 +889,7 @@ These files are tutorial steps or component snippets, not complete pipelines. Th
 | [examples/explorer-stages/transform-formats/03-avro-parquet.yaml](../../examples/explorer-stages/transform-formats/03-avro-parquet.yaml) | fragment | FAIL (wrapped) | Unknown field 'codec' in aws_s3 component |
 | [examples/explorer-stages/transform-formats/04-auto-detection.yaml](../../examples/explorer-stages/transform-formats/04-auto-detection.yaml) | fragment | FAIL (wrapped) | Expected line break (unexpected end of expression) |
 | [examples/integrations/oran-input.yaml](../../examples/integrations/oran-input.yaml) | fragment | FAIL (wrapped) | Unknown component or field 'prometheus_input' |
-| [examples/integrations/oran-output.yaml](../../examples/integrations/oran-output.yaml) | fragment | FAIL (wrapped) | Unknown field 'http' in broker component |
+| [examples/integrations/oran-output.yaml](../../examples/integrations/oran-output.yaml) | fragment | PASS (wrapped) |  |
 | [examples/integrations/oran-step-1-parse.yaml](../../examples/integrations/oran-step-1-parse.yaml) | fragment | FAIL (wrapped) | Invalid syntax in call to fold() |
 | [examples/integrations/oran-step-2-enrich.yaml](../../examples/integrations/oran-step-2-enrich.yaml) | fragment | PASS (wrapped) |  |
 | [examples/integrations/oran-step-3-filter.yaml](../../examples/integrations/oran-step-3-filter.yaml) | fragment | PASS (wrapped) |  |
@@ -793,4 +917,4 @@ These files are tutorial steps or component snippets, not complete pipelines. Th
 | [examples/log-processing/step-5-fan-out.yaml](../../examples/log-processing/step-5-fan-out.yaml) | fragment | FAIL (wrapped) | Missing required field 'id' in broker component |
 | [static/files/data-routing/circuit-breakers.yaml](../../static/files/data-routing/circuit-breakers.yaml) | fragment | PASS (wrapped) |  |
 | [static/files/data-routing/fan-out-pattern.yaml](../../static/files/data-routing/fan-out-pattern.yaml) | fragment | PASS (wrapped) |  |
-| [static/files/data-security/encryption-patterns.yaml](../../static/files/data-security/encryption-patterns.yaml) | fragment | FAIL (wrapped) | Missing parameter: iv:  }  # |
+| [static/files/data-security/encryption-patterns.yaml](../../static/files/data-security/encryption-patterns.yaml) | fragment | PASS (wrapped) |  |
