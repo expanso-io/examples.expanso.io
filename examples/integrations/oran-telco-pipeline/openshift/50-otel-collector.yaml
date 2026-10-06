@@ -1,0 +1,54 @@
+# OpenTelemetry Collector managed by the Red Hat build of OpenTelemetry operator.
+# The pipeline posts OTLP/HTTP JSON to :4318, the edge agent exports its own
+# metrics over OTLP gRPC to :4317, and the Prometheus exporter on :8889 is what
+# OpenShift user-workload monitoring scrapes (see 51-servicemonitor.yaml).
+#
+# The operator creates Service oran-collector with ports otlp-grpc, otlp-http,
+# and prometheus.
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: oran
+  namespace: oran-telemetry
+  labels:
+    app.kubernetes.io/part-of: oran-telco-pipeline
+spec:
+  mode: deployment
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      batch:
+        timeout: 10s
+      memory_limiter:
+        check_interval: 5s
+        limit_percentage: 80
+        spike_limit_percentage: 20
+    exporters:
+      prometheus:
+        endpoint: 0.0.0.0:8889
+        # Keeps du_id, cell_id, gnb_id, and region as Prometheus labels.
+        resource_to_telemetry_conversion:
+          enabled: true
+        # Expose oran_* series under the names the pipeline emits, without
+        # unit suffixes such as _ratio appended to the score gauges.
+        add_metric_suffixes: false
+    service:
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [prometheus]

@@ -1,0 +1,24 @@
+# Site identity read by the pipeline through env("...") in its mappings.
+# Change these per site; the job spec itself stays identical across the fleet.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oran-site
+  namespace: oran-telemetry
+  labels:
+    app.kubernetes.io/part-of: oran-telco-pipeline
+data:
+  REGION: us-west-2
+  MARKET: seattle
+  SITE_TYPE: urban-macro
+  GNB_ID: gnb-seattle-01
+  DU_ID: du-001
+  CELL_ID: cell-1
+  # In-cluster DU API. Replace with the DU exporter Service for this site.
+  DU_ENDPOINT: http://oran-du.oran-du.svc:8080
+  # Collector Service created by the OpenTelemetryCollector CR (OTLP/HTTP).
+  OTEL_ENDPOINT: http://oran-collector.oran-telemetry.svc:4318
+  # AMQ Streams TLS listener (9093). The cluster CA is mounted from a Secret.
+  KAFKA_BOOTSTRAP_SERVERS: oran-kafka-kafka-bootstrap.oran-telemetry.svc:9093
+  KAFKA_USERNAME: expanso-oran
+  SIMULATION_INTERVAL: 10s

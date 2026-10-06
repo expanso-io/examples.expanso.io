@@ -6,7 +6,7 @@ export const oranTelcoPipelineStages: Stage[] = [
     slug: 'adapter-output',
     title: 'Adapter output',
     description:
-      'Inspect authored telemetry after a site-specific exporter has decoded and emitted it. No O-RAN protocol collection occurs in this stage.',
+      'Inspect authored telemetry after a site-specific exporter has decoded and emitted it. No O-RAN protocol collection occurs in this stage. On SNO, the ingress NetworkPolicy admits TCP 8080 only from pods labelled app.kubernetes.io/name: oran-du in namespace oran-du.',
     inputLines: [
       {
         content:
@@ -302,38 +302,67 @@ export const oranTelcoPipelineStages: Stage[] = [
     slug: 'external-destinations',
     title: 'External destinations',
     description:
-      'Inspect separate output shapes for observability, storage, and analytics services. Each service remains an external boundary.',
+      'Fan the retained records out to the three destinations provisioned on the Single-Node OpenShift cluster: an OpenTelemetry Collector that user-workload monitoring scrapes, Parquet files on a PersistentVolumeClaim, and an AMQ Streams Kafka topic over TLS. The manifests restrict telemetry ingress to the DU namespace and pod label and enforce separate Kafka producer and consumer ACLs.',
     inputLines: [
-      { content: '[Filtered anomalies ready for routing]', indent: 0 },
+      { content: '[Records retained for review]', indent: 0 },
+      { content: '• DU_001: prb-band + cpu-band', indent: 0 },
+      { content: '• DU_003: timing-band', indent: 0 },
     ],
     outputLines: [
       {
-        content: '# External observability receiver',
+        content:
+          '# otel_collector → http://oran-collector.oran-telemetry.svc:4318/v1/metrics',
         indent: 0,
         type: 'highlighted',
       },
       {
-        content: '# → Contract and authentication require validation',
+        content:
+          '# OTLP/HTTP JSON; ServiceMonitor hands the collector to user-workload monitoring',
         indent: 0,
-        type: 'highlighted',
+        type: 'comment',
+      },
+      {
+        content: '# fallback: /data/dead-letter/otel-<date>.jsonl on the PVC',
+        indent: 0,
+        type: 'comment',
       },
       { content: '', indent: 0 },
-      { content: '# External object storage', indent: 0, type: 'highlighted' },
       {
-        content: '# → Encoding and recovery require validation',
+        content:
+          '# parquet_pvc → /data/oran-telemetry/date=<date>/part-<uuid>.parquet',
         indent: 0,
         type: 'highlighted',
+      },
+      {
+        content:
+          '# parquet_encode per batch (1000 records or 300s), zstd, written with codec all-bytes',
+        indent: 0,
+        type: 'comment',
+      },
+      {
+        content:
+          '# /data is PersistentVolumeClaim oran-telemetry-data; no hostPath under restricted-v2',
+        indent: 0,
+        type: 'comment',
       },
       { content: '', indent: 0 },
       {
-        content: '# External analytics broker',
+        content:
+          '# amq_streams_kafka → oran-kafka-kafka-bootstrap.oran-telemetry.svc:9093',
         indent: 0,
         type: 'highlighted',
       },
       {
-        content: '# → Delivery and schema require validation',
+        content:
+          '# topic oran-telemetry-alerts, key cell_id, TLS with /etc/expanso/kafka-ca/ca.crt',
         indent: 0,
-        type: 'highlighted',
+        type: 'comment',
+      },
+      {
+        content:
+          '# SCRAM-SHA-512 as KafkaUser expanso-oran; plaintext 9092 is not exposed',
+        indent: 0,
+        type: 'comment',
       },
     ],
   },
