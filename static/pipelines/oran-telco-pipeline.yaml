@@ -60,11 +60,11 @@ config:
         # 2. DU API polling over the cluster network.
         - label: du_api_realtime
           http_client:
-            url: "${DU_ENDPOINT:http://oran-du.oran-du.svc:8080}/api/v1/metrics/realtime"
+            url: '${DU_ENDPOINT:http://oran-du.oran-du.svc:8080}/api/v1/metrics/realtime'
             verb: GET
             rate_limit: du_api_polling
             headers:
-              Authorization: "Bearer ${DU_API_KEY}"
+              Authorization: 'Bearer ${DU_API_KEY}'
               Accept: application/json
               User-Agent: expanso-edge-oran-collector/2.0.0
             timeout: 30s
@@ -83,7 +83,7 @@ config:
         # 3. Simulated DU telemetry so the job produces data before a DU is wired in.
         - label: du_simulator
           generate:
-            interval: "${SIMULATION_INTERVAL:10s}"
+            interval: '${SIMULATION_INTERVAL:10s}'
             count: 0
             mapping: |
               root.timestamp = now()
@@ -308,19 +308,19 @@ config:
           name: oran_telemetry_messages_processed
           labels:
             pipeline_id: oran-edge-telemetry
-            du_id: "${! this.du_id }"
-            region: "${! this.region }"
-            collection_method: "${! this.collection_method }"
+            du_id: '${! this.du_id }'
+            region: '${! this.region }'
+            collection_method: '${! this.collection_method }'
       - metric:
           type: timing
           name: oran_telemetry_processing_latency_ns
-          value: "${! now().ts_unix_nano() - this.timestamp_ns }"
+          value: '${! now().ts_unix_nano() - this.timestamp_ns }'
       - metric:
           type: gauge
           name: oran_telemetry_data_quality_score
-          value: "${! this.data_quality_score }"
+          value: '${! this.data_quality_score }'
           labels:
-            du_id: "${! this.du_id }"
+            du_id: '${! this.du_id }'
 
   output:
     broker:
@@ -405,7 +405,7 @@ config:
                 }
           fallback:
             - http_client:
-                url: "${OTEL_ENDPOINT:http://oran-collector.oran-telemetry.svc:4318}/v1/metrics"
+                url: '${OTEL_ENDPOINT:http://oran-collector.oran-telemetry.svc:4318}/v1/metrics'
                 verb: POST
                 headers:
                   Content-Type: application/json
@@ -526,17 +526,20 @@ config:
                 }
           fallback:
             - kafka:
-                addresses: ["${KAFKA_BOOTSTRAP_SERVERS:oran-kafka-kafka-bootstrap.oran-telemetry.svc:9093}"]
+                addresses:
+                  [
+                    '${KAFKA_BOOTSTRAP_SERVERS:oran-kafka-kafka-bootstrap.oran-telemetry.svc:9093}',
+                  ]
                 topic: oran-telemetry-structured
-                key: "${! this.network.site_id }-${! this.network.cell_id }"
+                key: '${! this.network.site_id }-${! this.network.cell_id }'
                 client_id: expanso-oran-pipeline
                 tls:
                   enabled: true
                   root_cas_file: /etc/expanso/kafka-ca/ca.crt
                 sasl:
                   mechanism: SCRAM-SHA-512
-                  user: "${KAFKA_USERNAME}"
-                  password: "${KAFKA_PASSWORD}"
+                  user: '${KAFKA_USERNAME}'
+                  password: '${KAFKA_PASSWORD}'
                 compression: lz4
                 idempotent_write: false
                 ack_replicas: true

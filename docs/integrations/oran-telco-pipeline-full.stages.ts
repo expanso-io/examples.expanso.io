@@ -310,12 +310,14 @@ export const oranTelcoPipelineStages: Stage[] = [
     ],
     outputLines: [
       {
-        content: '# otel_collector → http://oran-collector.oran-telemetry.svc:4318/v1/metrics',
+        content:
+          '# otel_collector → http://oran-collector.oran-telemetry.svc:4318/v1/metrics',
         indent: 0,
         type: 'highlighted',
       },
       {
-        content: '# OTLP/HTTP JSON; ServiceMonitor hands the collector to user-workload monitoring',
+        content:
+          '# OTLP/HTTP JSON; ServiceMonitor hands the collector to user-workload monitoring',
         indent: 0,
         type: 'comment',
       },
@@ -326,33 +328,39 @@ export const oranTelcoPipelineStages: Stage[] = [
       },
       { content: '', indent: 0 },
       {
-        content: '# parquet_pvc → /data/oran-telemetry/date=<date>/part-<uuid>.parquet',
+        content:
+          '# parquet_pvc → /data/oran-telemetry/date=<date>/part-<uuid>.parquet',
         indent: 0,
         type: 'highlighted',
       },
       {
-        content: '# parquet_encode per batch (1000 records or 300s), zstd, written with codec all-bytes',
+        content:
+          '# parquet_encode per batch (1000 records or 300s), zstd, written with codec all-bytes',
         indent: 0,
         type: 'comment',
       },
       {
-        content: '# /data is PersistentVolumeClaim oran-telemetry-data; no hostPath under restricted-v2',
+        content:
+          '# /data is PersistentVolumeClaim oran-telemetry-data; no hostPath under restricted-v2',
         indent: 0,
         type: 'comment',
       },
       { content: '', indent: 0 },
       {
-        content: '# amq_streams_kafka → oran-kafka-kafka-bootstrap.oran-telemetry.svc:9093',
+        content:
+          '# amq_streams_kafka → oran-kafka-kafka-bootstrap.oran-telemetry.svc:9093',
         indent: 0,
         type: 'highlighted',
       },
       {
-        content: '# topic oran-telemetry-alerts, key cell_id, TLS with /etc/expanso/kafka-ca/ca.crt',
+        content:
+          '# topic oran-telemetry-alerts, key cell_id, TLS with /etc/expanso/kafka-ca/ca.crt',
         indent: 0,
         type: 'comment',
       },
       {
-        content: '# SCRAM-SHA-512 as KafkaUser expanso-oran; plaintext 9092 is not exposed',
+        content:
+          '# SCRAM-SHA-512 as KafkaUser expanso-oran; plaintext 9092 is not exposed',
         indent: 0,
         type: 'comment',
       },

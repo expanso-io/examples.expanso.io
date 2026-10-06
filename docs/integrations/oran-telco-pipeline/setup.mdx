@@ -3,7 +3,16 @@ title: Deploy the O-RAN Telemetry Job on Single-Node OpenShift
 sidebar_label: Run path
 sidebar_position: 3
 description: Run the Expanso Edge agent on an SNO node under the restricted SCC and deploy the telemetry job through Expanso Cloud.
-keywords: [oran, telemetry, openshift, sno, amq-streams, user-workload-monitoring, deployment]
+keywords:
+  [
+    oran,
+    telemetry,
+    openshift,
+    sno,
+    amq-streams,
+    user-workload-monitoring,
+    deployment,
+  ]
 contentArchetype: run
 executionStatus: architecture-only
 operationalEvidence: not-assessed
@@ -23,17 +32,17 @@ The manifests live in [`examples/integrations/oran-telco-pipeline/openshift`](ht
 
 ## What lands on the cluster
 
-| Resource                                              | Purpose                                                                    |
-| ----------------------------------------------------- | -------------------------------------------------------------------------- |
-| Namespace `oran-telemetry`                            | Restricted pod security, default SCC                                       |
-| PVC `oran-telemetry-data` (50Gi) at `/data`           | Parquet output and dead-letter files                                       |
-| PVC `expanso-edge-state` (1Gi) at `/var/lib/expanso`  | Node identity, so restarts do not re-register the node                     |
-| `Kafka` `oran-kafka` + `KafkaNodePool` (AMQ Streams)  | One KRaft broker, TLS listener on 9093 only, SCRAM-SHA-512                 |
-| `KafkaTopic` x2, `KafkaUser` x2           | Topics and producer/consumer identities with separate ACLs |
-| `OpenTelemetryCollector` `oran`                       | OTLP in (4317/4318), Prometheus exporter out (8889)                        |
-| `ServiceMonitor` `oran-collector`                     | Hands the exporter to OpenShift user-workload monitoring                   |
-| Deployment + Service `expanso-edge`                   | The agent, plus an in-cluster endpoint for DU exporters to POST telemetry  |
-| ConfigMaps `oran-site`, `expanso-edge-config`         | Site identity env vars; agent config with the labels the job selects on    |
+| Resource                                             | Purpose                                                                   |
+| ---------------------------------------------------- | ------------------------------------------------------------------------- |
+| Namespace `oran-telemetry`                           | Restricted pod security, default SCC                                      |
+| PVC `oran-telemetry-data` (50Gi) at `/data`          | Parquet output and dead-letter files                                      |
+| PVC `expanso-edge-state` (1Gi) at `/var/lib/expanso` | Node identity, so restarts do not re-register the node                    |
+| `Kafka` `oran-kafka` + `KafkaNodePool` (AMQ Streams) | One KRaft broker, TLS listener on 9093 only, SCRAM-SHA-512                |
+| `KafkaTopic` x2, `KafkaUser` x2                      | Topics and producer/consumer identities with separate ACLs                |
+| `OpenTelemetryCollector` `oran`                      | OTLP in (4317/4318), Prometheus exporter out (8889)                       |
+| `ServiceMonitor` `oran-collector`                    | Hands the exporter to OpenShift user-workload monitoring                  |
+| Deployment + Service `expanso-edge`                  | The agent, plus an in-cluster endpoint for DU exporters to POST telemetry |
+| ConfigMaps `oran-site`, `expanso-edge-config`        | Site identity env vars; agent config with the labels the job selects on   |
 
 ## Prerequisites
 
@@ -45,7 +54,7 @@ The manifests live in [`examples/integrations/oran-telco-pipeline/openshift`](ht
 
 ## Run the deployment
 
-1. Validate the job offline. This checks the config schema, every Bloblang mapping, and the component types.
+1. From the repository root, validate the job offline. This checks the config schema, every Bloblang mapping, and the component types.
 
    ```bash
    expanso-edge validate static/pipelines/oran-telco-pipeline.yaml
@@ -110,12 +119,11 @@ The ingress NetworkPolicy permits TCP 8080 only from pods labelled `app.kubernet
 
 ## Cleanup
 
-`oc delete -k .` removes the PersistentVolumeClaims and the Parquet files on them. Copy anything you want to keep first.
+From the OpenShift manifest directory, `oc delete -k .` removes the namespace, its Secrets, and the PersistentVolumeClaims. Volume data deletion follows the StorageClass reclaim policy. Copy anything you want to keep first.
 
 ```bash
 expanso-cli job delete oran-edge-telemetry
 oc delete -k .
-oc -n oran-telemetry delete secret expanso-bootstrap oran-du-api
 ```
 
 ## Common failures

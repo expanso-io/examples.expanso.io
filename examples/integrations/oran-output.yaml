@@ -123,7 +123,7 @@ output:
               }
         fallback:
           - http_client:
-              url: "${OTEL_ENDPOINT:http://oran-collector.oran-telemetry.svc:4318}/v1/metrics"
+              url: '${OTEL_ENDPOINT:http://oran-collector.oran-telemetry.svc:4318}/v1/metrics'
               verb: POST
               headers:
                 Content-Type: application/json
@@ -147,8 +147,16 @@ output:
                     - { name: region, type: UTF8 }
                     - { name: ptp_offset_ns, type: INT64, optional: true }
                     - { name: cpu_percent, type: DOUBLE, optional: true }
-                    - { name: prb_dl_util_percent, type: DOUBLE, optional: true }
-                    - { name: prb_ul_util_percent, type: DOUBLE, optional: true }
+                    - {
+                        name: prb_dl_util_percent,
+                        type: DOUBLE,
+                        optional: true,
+                      }
+                    - {
+                        name: prb_ul_util_percent,
+                        type: DOUBLE,
+                        optional: true,
+                      }
                     - { name: rsrp_dbm, type: DOUBLE, optional: true }
                     - { name: sinr_db, type: DOUBLE, optional: true }
                     - { name: timing_review, type: UTF8, optional: true }
@@ -166,7 +174,10 @@ output:
       # cluster CA mounted from the operator-managed Secret.
       - label: amq_streams_kafka
         kafka:
-          addresses: ["${KAFKA_BOOTSTRAP_SERVERS:oran-kafka-kafka-bootstrap.oran-telemetry.svc:9093}"]
+          addresses:
+            [
+              '${KAFKA_BOOTSTRAP_SERVERS:oran-kafka-kafka-bootstrap.oran-telemetry.svc:9093}',
+            ]
           topic: oran-telemetry-alerts
           key: '${! this.cell_id }'
           tls:
@@ -174,6 +185,6 @@ output:
             root_cas_file: /etc/expanso/kafka-ca/ca.crt
           sasl:
             mechanism: SCRAM-SHA-512
-            user: "${KAFKA_USERNAME}"
-            password: "${KAFKA_PASSWORD}"
+            user: '${KAFKA_USERNAME}'
+            password: '${KAFKA_PASSWORD}'
           ack_replicas: true

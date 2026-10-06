@@ -3,7 +3,8 @@ title: 'Step 3: Route O-RAN Telemetry to Multiple Destinations'
 sidebar_label: 'Step 3: Route Outputs'
 sidebar_position: 6
 description: 'Fan out transformed telemetry to the OpenTelemetry Collector, Parquet on a PVC, and AMQ Streams Kafka on a Single-Node OpenShift cluster.'
-keywords: [oran, telecom, telemetry, routing, fan-out, kafka, parquet, openshift]
+keywords:
+  [oran, telecom, telemetry, routing, fan-out, kafka, parquet, openshift]
 contentArchetype: step
 executionStatus: architecture-only
 operationalEvidence: not-assessed
@@ -18,7 +19,7 @@ claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2
 
 # Step 3: Multi-Destination Routing
 
-Route each processed record to the three destinations provisioned on the SNO cluster. Every fragment below comes from `static/pipelines/oran-telco-pipeline.yaml`, which passes `expanso-edge validate`.
+Route each processed record to the three destinations provisioned on the SNO cluster. The fragments below abbreviate the [complete job spec](/integrations/oran-telco-pipeline/complete-oran-pipeline); use that spec for deployment.
 
 ## The Fan-Out Pattern
 
@@ -38,7 +39,7 @@ graph TD
     style E fill:#fff3e0
 ```
 
-Each output keeps its own retry and batching policy. A destination that is down does not block the other two; its records go to a dead-letter file on the claim.
+Each output keeps its own retry and batching policy. The collector and Kafka outputs fall back to dead-letter files after delivery fails. Parquet has no fallback, and a full or unavailable claim can block progress across the fan-out.
 
 ```yaml
 output:
@@ -87,7 +88,7 @@ OpenShift runs no Prometheus Pushgateway, and a Pushgateway would not accept JSO
         }
   fallback:
     - http_client:
-        url: "${OTEL_ENDPOINT:http://oran-collector.oran-telemetry.svc:4318}/v1/metrics"
+        url: '${OTEL_ENDPOINT:http://oran-collector.oran-telemetry.svc:4318}/v1/metrics'
         verb: POST
         headers:
           Content-Type: application/json
@@ -183,17 +184,20 @@ The `Kafka` resource exposes one listener: TLS on 9093 with SCRAM-SHA-512. The o
         }
   fallback:
     - kafka:
-        addresses: ["${KAFKA_BOOTSTRAP_SERVERS:oran-kafka-kafka-bootstrap.oran-telemetry.svc:9093}"]
+        addresses:
+          [
+            '${KAFKA_BOOTSTRAP_SERVERS:oran-kafka-kafka-bootstrap.oran-telemetry.svc:9093}',
+          ]
         topic: oran-telemetry-structured
-        key: "${! this.network.site_id }-${! this.network.cell_id }"
+        key: '${! this.network.site_id }-${! this.network.cell_id }'
         client_id: expanso-oran-pipeline
         tls:
           enabled: true
           root_cas_file: /etc/expanso/kafka-ca/ca.crt
         sasl:
           mechanism: SCRAM-SHA-512
-          user: "${KAFKA_USERNAME}"
-          password: "${KAFKA_PASSWORD}"
+          user: '${KAFKA_USERNAME}'
+          password: '${KAFKA_PASSWORD}'
         compression: lz4
         idempotent_write: false
         ack_replicas: true
@@ -210,7 +214,7 @@ The producer ACLs permit Write and Describe on the two telemetry topics. Idempot
 
 ## Dead-Letter Files and Replay
 
-When a first tier fails after its retries, the record moves to the `file` tier with `fallback_error` set in metadata and lands under `/data/dead-letter/`. Replay with a separate short-lived job (a `file` input and the same output block), then delete the file.
+When a first tier fails after its retries, the record moves to the `file` tier with `fallback_error` set in metadata and lands under `/data/dead-letter/`. Replay through a separate Cloud-deployed job that extracts `original_payload` and sends it to the corresponding transport. The payload already has the destination shape; do not apply the original output mapping again. Delete the file only after confirming delivery.
 
 ## Monitoring Pipeline Health
 
@@ -222,16 +226,16 @@ Three `metric` processors count records, time processing latency, and gauge the 
     type: counter
     name: oran_telemetry_messages_processed
     labels:
-      du_id: "${! this.du_id }"
-      collection_method: "${! this.collection_method }"
+      du_id: '${! this.du_id }'
+      collection_method: '${! this.collection_method }'
 - metric:
     type: timing
     name: oran_telemetry_processing_latency_ns
-    value: "${! now().ts_unix_nano() - this.timestamp_ns }"
+    value: '${! now().ts_unix_nano() - this.timestamp_ns }'
 - metric:
     type: gauge
     name: oran_telemetry_data_quality_score
-    value: "${! this.data_quality_score }"
+    value: '${! this.data_quality_score }'
 ```
 
 ## Next Steps

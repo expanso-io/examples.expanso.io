@@ -3,7 +3,18 @@ title: 'Step 5: Store O-RAN Telemetry as Parquet and Route to Cloudera'
 sidebar_label: 'Step 5: Parquet and Cloudera'
 sidebar_position: 8
 description: 'Write Parquet files to a PersistentVolumeClaim on the SNO node and hand the Kafka feed to Cloudera over the AMQ Streams TLS listener.'
-keywords: [oran, telecom, telemetry, parquet, cloudera, kafka, amq-streams, openshift, analytics]
+keywords:
+  [
+    oran,
+    telecom,
+    telemetry,
+    parquet,
+    cloudera,
+    kafka,
+    amq-streams,
+    openshift,
+    analytics,
+  ]
 contentArchetype: step
 executionStatus: architecture-only
 operationalEvidence: not-assessed
@@ -25,7 +36,7 @@ The pipeline writes Parquet itself, on the node, to a PersistentVolumeClaim. The
 1. Decide the columns. Every field in the `parquet_encode` schema must be set by the output's mapping or marked `optional: true`.
 2. Pick the batch size from the record rate. One batch is one file.
 3. Apply the manifests from the [run path](/integrations/oran-telco-pipeline/setup), wait one batch period, then [read a file back](#reading-files-back).
-4. Give Cloudera its own `KafkaUser` and the cluster CA. Do not share the producer's credentials.
+4. Use the provisioned `cloudera-consumer` identity and the cluster CA for Cloudera. Do not share the producer's credentials.
 
 ## Long-Term Analytics Architecture
 
@@ -139,39 +150,7 @@ The pipeline produces to `oran-telemetry-structured` (12 partitions, keyed by `s
 
 `cloudera-consumer` has Read/Describe permissions on telemetry topics and its consumer group; the producer has Write/Describe topic permissions. The User Operator creates their password Secrets.
 
-```yaml
-apiVersion: kafka.strimzi.io/v1beta2
-kind: KafkaUser
-metadata:
-  name: cloudera-consumer
-  namespace: oran-telemetry
-  labels:
-    strimzi.io/cluster: oran-kafka
-spec:
-  authentication:
-    type: scram-sha-512
-  authorization:
-    type: simple
-    acls:
-      - resource:
-          type: topic
-          name: oran-telemetry-structured
-          patternType: literal
-        operations: [Read, Describe]
-        host: "*"
-      - resource:
-          type: topic
-          name: oran-telemetry-alerts
-          patternType: literal
-        operations: [Read, Describe]
-        host: "*"
-      - resource:
-          type: group
-          name: cloudera-oran-telemetry
-          patternType: literal
-        operations: [Read, Describe]
-        host: "*"
-```
+ACL source: [`45-kafka-consumer.yaml`](https://github.com/expanso-io/examples.expanso.io/blob/main/examples/integrations/oran-telco-pipeline/openshift/45-kafka-consumer.yaml).
 
 ```bash
 oc -n oran-telemetry get secret oran-kafka-cluster-ca-cert \
