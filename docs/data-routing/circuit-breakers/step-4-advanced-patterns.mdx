@@ -42,24 +42,39 @@ config:
       # 1. Check the cache first
       - branch:
           processors:
-            - cache:
-                resource: user_profile_cache
-                operator: exists
-                key: user_${!this.user_id}
-          result_map: root.profile_cached = content().string().bool()
+            - branch:
+                processors:
+                  - cache:
+                      resource: user_profile_cache
+                      operator: exists
+                      key: user_${!this.user_id}
+                result_map: root.profile_exists = content().string().bool()
+            - switch:
+                - check: this.profile_exists
+                  processors:
+                    - try:
+                        - cache:
+                            resource: user_profile_cache
+                            operator: get
+                            key: user_${!this.user_id}
+                        - mapping: |
+                            root.profile = this
+                            root.found = true
+                    - catch:
+                        - mapping: |
+                            root = {"found": false}
+                - processors:
+                    - mapping: |
+                        root = {"found": false}
+          result_map: |
+            root.profile_cached = this.found
+            root.user_profile = if this.found { this.profile } else { deleted() }
 
       # 2. Act based on cache hit or miss
       - switch:
           # CACHE HIT: Use the cached data
           - check: this.profile_cached
             processors:
-              - branch:
-                  processors:
-                    - cache:
-                        resource: user_profile_cache
-                        operator: get
-                        key: user_${!this.user_id}
-                  result_map: root.user_profile = this
               - mapping: |
                   root = this
                   root.data_source = "cache"
@@ -168,13 +183,17 @@ pipeline:
   processors:
     # 1. Perform a quick health check
     - try:
-        - http:
-            url: ${MOCK_API_URL}/health
-            verb: GET
-            timeout: 1s
-        - mapping: root.api_is_healthy = true
+        - branch:
+            processors:
+              - http:
+                  url: ${MOCK_API_URL}/health
+                  verb: GET
+                  timeout: 1s
+            result_map: root.api_is_healthy = true
     - catch:
-        - mapping: root.api_is_healthy = false
+        - mapping: |
+            root = this
+            root.api_is_healthy = false
 
     # 2. Choose a breaker policy based on health
     - switch:

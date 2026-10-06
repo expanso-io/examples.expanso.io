@@ -1471,3 +1471,128 @@ test('published Splunk audit retains only CEF or ERROR while HEC receives every 
     );
   }
 });
+
+for (const healthy of [true, false]) {
+  test(`published adaptive health check preserves sensor_id when healthy=${healthy}`, async () => {
+    const path =
+      'docs/data-routing/circuit-breakers/step-4-advanced-patterns.mdx';
+    const block = pageBlocks(path)[2];
+    const wrapped = wrapFragment(parse(block.source));
+    assert.ok(wrapped);
+    const config = parse(wrapped.source);
+    const requests: string[] = [];
+    const receiver = createHttpServer((request, response) => {
+      requests.push(request.url ?? '');
+      response.setHeader('Content-Type', 'application/json');
+      if (request.url === '/health') {
+        response.statusCode = healthy ? 200 : 503;
+        response.end(JSON.stringify({ healthy }));
+      } else {
+        response.end(
+          JSON.stringify({
+            sensor_id: request.url?.split('/').at(-1),
+            policy: request.headers['x-fixture-policy'],
+          })
+        );
+      }
+    });
+    await new Promise<void>((resolve, reject) => {
+      receiver.once('error', reject);
+      receiver.listen(0, '127.0.0.1', resolve);
+    });
+    const address = receiver.address();
+    assert.ok(address && typeof address !== 'string');
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const health =
+      config.pipeline.processors[0].try[0].branch.processors[0].http;
+    health.url = baseUrl + '/health';
+    health.retries = 0;
+    for (const [
+      index,
+      route,
+    ] of config.pipeline.processors[2].switch.entries()) {
+      route.processors[0].http.url = baseUrl + '/metadata/${!this.sensor_id}';
+      route.processors[0].http.headers = {
+        'X-Fixture-Policy': index === 0 ? 'normal' : 'fast',
+      };
+    }
+    const records = readFileSync(
+      'tests/fixtures/pipeline-inputs/adaptive-health-routing.jsonl',
+      'utf8'
+    )
+      .trim()
+      .split('\n')
+      .map((row) => JSON.parse(row));
+    try {
+      const output = JSON.parse(
+        (await execute(stringify(config), records)).toString()
+      );
+      assert.equal(output.sensor_id, records[0].sensor_id);
+      assert.equal(output.policy, healthy ? 'normal' : 'fast');
+      assert.deepEqual(requests, ['/health', '/metadata/temp_001']);
+    } finally {
+      receiver.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
+        receiver.close((error) => (error ? reject(error) : resolve()))
+      );
+    }
+  });
+}
+
+test('published cache retrieval failure uses the database miss path', async () => {
+  await withPostgres(async (dsn) => {
+    const path =
+      'docs/data-routing/circuit-breakers/step-4-advanced-patterns.mdx';
+    const wrapped = wrapFragment(parse(pageBlocks(path)[0].source));
+    assert.ok(wrapped);
+    const config = parse(wrapped.source);
+    config.pipeline.threads = 1;
+    config.pipeline.processors[1].switch[1].processors[0].try[0].branch.processors[0].sql_select.dsn =
+      dsn;
+    let guardedReads = 0;
+    const expireBeforeRead = (node: unknown): void => {
+      if (Array.isArray(node)) {
+        for (let index = 0; index < node.length; index += 1) {
+          if (node[index]?.cache?.operator === 'get') {
+            node.splice(index, 0, {
+              cache: { ...node[index].cache, operator: 'delete' },
+            });
+            guardedReads += 1;
+            index += 1;
+          }
+          expireBeforeRead(node[index]);
+        }
+      } else if (node !== null && typeof node === 'object') {
+        for (const value of Object.values(node)) expireBeforeRead(value);
+      }
+    };
+    expireBeforeRead(config.pipeline.processors);
+    assert.equal(guardedReads, 1);
+    config.pipeline.processors.unshift({
+      cache: {
+        resource: 'user_profile_cache',
+        operator: 'set',
+        key: 'user_${!this.user_id}',
+        value: '{"name":"Stale","tier":"expired"}',
+      },
+    });
+    const records = readFileSync(
+      'tests/fixtures/pipeline-inputs/expired-profile-cache.jsonl',
+      'utf8'
+    )
+      .trim()
+      .split('\n')
+      .map((row) => JSON.parse(row));
+    const output = JSON.parse(
+      (
+        await execute(stringify(config), records, false, undefined, 'failed')
+      ).toString()
+    );
+    assert.equal(output.event_id, records[0].event_id);
+    assert.equal(output.user_id, records[0].user_id);
+    assert.equal(output.profile_cached, false);
+    assert.equal(output.data_source, 'database');
+    assert.deepEqual(output.user_profile, { name: 'Ada', tier: 'premium' });
+    assert.equal(output.db_error, undefined);
+  });
+});
