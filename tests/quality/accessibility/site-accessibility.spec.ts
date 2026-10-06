@@ -234,9 +234,16 @@ test.describe('accessibility-v1 inventory matrix', () => {
           if ((await explorer.count()) > 0) {
             const currentStage = explorer.locator('[aria-current="step"]');
             const initialStage = await currentStage.getAttribute('aria-label');
+            const stageCount = await explorer
+              .locator('button[aria-label^="Stage "]')
+              .count();
             const outsideControl = page.locator('nav a, header a').first();
             await outsideControl.focus();
             await page.keyboard.press('ArrowRight');
+            if (stageCount > 1) {
+              await expect(currentStage).toHaveAccessibleName(/Stage 2 of/);
+            }
+            await page.keyboard.press('ArrowLeft');
             await expect(currentStage).toHaveAttribute(
               'aria-label',
               initialStage ?? ''
@@ -246,9 +253,6 @@ test.describe('accessibility-v1 inventory matrix', () => {
               .first()
               .focus();
             await page.keyboard.press('ArrowRight');
-            const stageCount = await explorer
-              .locator('button[aria-label^="Stage "]')
-              .count();
             if (stageCount > 1) {
               await expect(
                 explorer.locator('[aria-current="step"]')
@@ -493,7 +497,11 @@ test.describe('accessibility-v1 inventory matrix', () => {
           async () => {
             await openActionMenu();
             await download.click();
-            await expect(explorerV2.getByRole('alert')).toContainText(
+            await expect(
+              explorerV2
+                .getByRole('alert')
+                .filter({ hasText: /^Could not download / })
+            ).toContainText(
               /Could not download (?:the full YAML|the stage YAML).*Copy it instead/i
             );
           }
