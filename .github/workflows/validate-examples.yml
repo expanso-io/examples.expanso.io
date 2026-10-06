@@ -34,6 +34,7 @@ jobs:
           BEFORE_SHA: ${{ github.event.before }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
+          set -euo pipefail
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
             echo "Manual run: validating every published pipeline."
@@ -52,16 +53,23 @@ jobs:
           fi
 
           changed=$(git diff --name-only "$base" HEAD)
-          relevant=$(printf '%s\n' "$changed" | grep -E \
-            '^(examples/.*\.ya?ml|static/(files|pipelines)/.*\.ya?ml|docs/.*\.(ya?ml|mdx)|tests/|playwright\.config\.ts$|scripts/validate-examples\.ts$|scripts/validate-pipeline-code-blocks\.ts$|scripts/quality/validate-browser-isolation\.ts$|scripts/validation/|validation-reports/|src/catalog/|src/components/(PipelineBadge|ExplorerV2)/|src/lib/pipelineCode\.ts$|src/theme/CodeBlock/|\.github/workflows/(validate-examples|nightly-edge-drift)\.yml$|package(-lock)?\.json$|\.husky/pre-commit$|CONTRIBUTING\.md$|\.lintstagedrc\.js$)' || true)
+          run=false
+          while IFS= read -r path; do
+            case "$path" in
+              ''|LICENSE|LICENSE.txt|static/img/*.avif|static/img/*.gif|\
+              static/img/*.ico|static/img/*.jpg|static/img/*.jpeg|\
+              static/img/*.png|static/img/*.svg|static/img/*.webp) ;;
+              *) run=true ;;
+            esac
+          done <<< "$changed"
 
-          if [ -z "$relevant" ]; then
+          if [ "$run" = false ]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "No example, pipeline, fixture, report, badge, or validation-script changes; validation is a fast no-op."
+            echo "Only explicit no-op files changed; validation is a fast no-op."
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
             echo "Validation-related changes:"
-            printf '%s\n' "$relevant"
+            printf '%s\n' "$changed"
           fi
 
       - name: Set up Node.js
