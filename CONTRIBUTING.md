@@ -34,7 +34,7 @@ Never infer either status from prose. Never use `production-ready` as a substitu
 
 A family exposes at most four primary surfaces:
 
-1. Overview: outcome, metadata, system boundary, action, limitations, related examples.
+1. Overview: explanation and metadata, explorer guidance and per-stage input/output/configuration, then run and deploy instructions. Preserve the system boundary, actions, limitations, and related examples.
 2. Explore: the verified transformation or deterministic runtime behavior.
 3. Run locally: prerequisites, one command path, fixture, expected result, cleanup. This route is allowed only for `offline-runnable`.
 4. Reference: canonical configuration, adaptations, failure modes, and troubleshooting.
@@ -47,7 +47,7 @@ Every topology node is labeled `expanso-native`, `protocol-adapter`, `custom`, o
 
 ## Explorer V2
 
-Use Explorer V2 only when the interaction teaches a distinct task. It requires:
+Every published family must expose Explorer V2 on its overview and explorer route. It requires:
 
 - a canonical pipeline and deterministic fixture;
 - stable stage ids and semantic diffs;
@@ -76,11 +76,26 @@ npm run validate-catalog
 npm run validate-content
 npm run validate-claims
 npm run test-pipelines
+npm run test-example-conformance
 npm run quality:contracts
 npm run test-performance-harness
 npm run test-machine-journey-reducer
 npm run build
 git diff --check
 ```
+
+After building, run the class-wide browser gate:
+
+```bash
+QUALITY_STATIC_SERVER=1 npm run quality:example-conformance
+```
+
+It checks every published family for page order, every stage's owned evidence,
+focused keyboard navigation with preserved scroll, fresh operation-specific
+feedback beside copy and download controls, actions and unfolded sidebar routes,
+related examples, light/dark contrast, and 320px reflow. Pending sibling repairs
+do not exempt a family from these assertions. See the
+[conformance report](validation-reports/conformance/README.md) for recorded
+results and dependencies.
 
 Browser, accessibility, performance, exact-SHA artifact, deploy, redirect, and production-canary gates remain separate. A local pass never implies deployment or production acceptance.
