@@ -19,9 +19,7 @@ config:
 
   pipeline:
     processors:
-      - json_documents:
-          parts: []
-
+      - mapping: root = content().parse_json()
       - mapping: |
           root = this
 
@@ -69,19 +67,19 @@ config:
       outputs:
         - label: sorted_output
           processors:
-            # Sort batch by priority_score before sending
-            - sort:
-                value: root.priority_score
-                order: descending
+            # Sort each batch by priority_score before sending
+            - archive:
+                format: json_array
+            - mapping: root = this.sort_by(item -> -item.priority_score)
+            - unarchive:
+                format: json_array
             - mapping: |
                 root = this
                 root.sent_at = now()
-
-          output:
-            http_client:
-              url: ${DESTINATION_URL}
-              verb: POST
-              headers:
-                Content-Type: application/json
-              timeout: 30s
-              max_retries: 3
+          http_client:
+            url: ${DESTINATION_URL}
+            verb: POST
+            headers:
+              Content-Type: application/json
+            timeout: 30s
+            retries: 3

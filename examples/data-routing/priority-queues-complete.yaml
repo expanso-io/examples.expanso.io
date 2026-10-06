@@ -9,16 +9,14 @@ labels:
 config:
   input:
     http_server:
-      address: "0.0.0.0:8080"
+      address: '0.0.0.0:8080'
       path: /events
-      allowed_verbs: ["POST"]
+      allowed_verbs: ['POST']
 
   pipeline:
     processors:
       # Step 1: Parse and validate
-      - json_documents:
-          parts: []
-
+      - mapping: root = content().parse_json()
       - mapping: |
           root = this
           root.event_id = this.event_id.or(uuid_v4())
@@ -47,10 +45,11 @@ config:
           }
 
           # Event type boost
-          root.type_boost = match this.event_type.or("").lowercase() {
-            x if x.contains("payment") => 20,
-            x if x.contains("security") => 15,
-            x if x.contains("auth") => 10,
+          let event_type = this.event_type.or("").lowercase()
+          root.type_boost = match {
+            $event_type.contains("payment") => 20,
+            $event_type.contains("security") => 15,
+            $event_type.contains("auth") => 10,
             _ => 0
           }
 
@@ -59,11 +58,11 @@ config:
           root = this
           root.priority_score = (this.severity_score * this.tier_multiplier + this.type_boost).round()
 
-          root.priority_queue = if this.priority_score >= 150 {
+          root.priority_queue = if root.priority_score >= 150 {
             "critical"
-          } else if this.priority_score >= 100 {
+          } else if root.priority_score >= 100 {
             "high"
-          } else if this.priority_score >= 50 {
+          } else if root.priority_score >= 50 {
             "normal"
           } else {
             "low"
@@ -76,56 +75,57 @@ config:
           root = this
 
           # Boost priority for older events to prevent starvation
-          let age_seconds = if this.timestamp.exists() {
-            (now().ts_unix() - this.timestamp.parse_timestamp().ts_unix()).or(0)
+          let age_seconds = if this.exists("timestamp") {
+            (now().ts_unix() - this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_unix()).or(0)
           } else { 0 }
 
           # Add 1 priority point per minute of age (max 30)
-          let age_boost = (age_seconds / 60).floor().min(30)
-          root.final_score = this.priority_score + age_boost
-          root.age_boost_applied = age_boost
+          let age_boost = [ ($age_seconds / 60).floor(), 30 ].min()
+          root.final_score = this.priority_score + $age_boost
+          root.age_boost_applied = $age_boost
 
   output:
     switch:
-      # Critical → immediate processing
-      - check: 'meta("priority_queue") == "critical"'
-        output:
-          kafka:
-            addresses: ["${KAFKA_BROKERS:localhost:9092}"]
-            topic: events-critical
-            ack_replicas: true
-            batching:
-              count: 1
-              period: 0s
+      cases:
+        # Critical → immediate processing
+        - check: 'meta("priority_queue") == "critical"'
+          output:
+            kafka:
+              addresses: ['${KAFKA_BROKERS:localhost:9092}']
+              topic: events-critical
+              ack_replicas: true
+              batching:
+                count: 1
+                period: 0s
 
-      # High priority → fast processing
-      - check: 'meta("priority_queue") == "high"'
-        output:
-          kafka:
-            addresses: ["${KAFKA_BROKERS:localhost:9092}"]
-            topic: events-high
-            batching:
-              count: 10
-              period: 2s
+        # High priority → fast processing
+        - check: 'meta("priority_queue") == "high"'
+          output:
+            kafka:
+              addresses: ['${KAFKA_BROKERS:localhost:9092}']
+              topic: events-high
+              batching:
+                count: 10
+                period: 2s
 
-      # Normal priority → standard processing
-      - check: 'meta("priority_queue") == "normal"'
-        output:
-          kafka:
-            addresses: ["${KAFKA_BROKERS:localhost:9092}"]
-            topic: events-normal
-            batching:
-              count: 50
-              period: 10s
+        # Normal priority → standard processing
+        - check: 'meta("priority_queue") == "normal"'
+          output:
+            kafka:
+              addresses: ['${KAFKA_BROKERS:localhost:9092}']
+              topic: events-normal
+              batching:
+                count: 50
+                period: 10s
 
-      # Low priority → batch processing
-      - output:
-          kafka:
-            addresses: ["${KAFKA_BROKERS:localhost:9092}"]
-            topic: events-low
-            batching:
-              count: 200
-              period: 60s
+        # Low priority → batch processing
+        - output:
+            kafka:
+              addresses: ['${KAFKA_BROKERS:localhost:9092}']
+              topic: events-low
+              batching:
+                count: 200
+                period: 60s
 
 logger:
   level: INFO

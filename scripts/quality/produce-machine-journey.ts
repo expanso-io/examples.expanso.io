@@ -607,8 +607,7 @@ function actualValues(
           'examples/data-security/remove-pii/fixture-environment.json' &&
         candidate.expectedOutputPath ===
           'examples/data-security/remove-pii/expected-output.jsonl' &&
-        candidate.executorImage ===
-          'jeffail/benthos:4.13.0@sha256:ec9b635d10bf267eb5b5c4c348b36752af1a5444ba768aefc6ca2c92ae2e22dd' &&
+        candidate.executor === 'expanso-edge v2.1.22' &&
         candidate.executed === true &&
         candidate.assertedOutput === true &&
         candidate.status === 'PASS'

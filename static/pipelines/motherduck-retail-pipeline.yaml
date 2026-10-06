@@ -6,6 +6,7 @@
 #   AWS_REGION   - AWS region (default: us-east-1)
 
 name: motherduck-retail-pos
+type: pipeline
 
 config:
   input:
@@ -24,8 +25,7 @@ config:
           _ => "exchange"
         }
 
-        root.payment_method = ["card", "card", "card", "cash", "mobile", "gift_card"]
-          .index(random_int(min: 0, max: 5))
+        root.payment_method = ["card", "card", "card", "cash", "mobile", "gift_card"].index(random_int(min: 0, max: 5))
         root.employee_id = "EMP-" + random_int(min: 1000, max: 9999).string()
 
         let categories = ["grocery", "produce", "dairy", "bakery", "meat",
@@ -41,10 +41,10 @@ config:
           }
         )
 
-        root.subtotal = root.items.map_each(this.qty * this.unit_price).sum().round(2)
+        root.subtotal = root.items.map_each(this.qty * this.unit_price).sum().round()
         root.tax_rate = 0.0875
-        root.tax_amount = (root.subtotal * root.tax_rate).round(2)
-        root.total_amount = (root.subtotal + root.tax_amount).round(2)
+        root.tax_amount = (root.subtotal * root.tax_rate).round()
+        root.total_amount = (root.subtotal + root.tax_amount).round()
 
         root = if root.type == "return" {
           root.assign({
@@ -93,7 +93,7 @@ config:
           root.is_weekend = root.day_of_week == "Saturday" || root.day_of_week == "Sunday"
           root.basket_size = this.items.length()
           root.avg_item_price = if root.basket_size > 0 {
-            (this.subtotal.abs() / root.basket_size).round(2)
+            this.subtotal.abs() / root.basket_size
           }
 
       # 2. Validate and flag anomalies
@@ -123,12 +123,7 @@ config:
           root.anomaly_flags = this.anomaly_flags.format_json()
           root = root.without("items")
 
-      # 4. Batch for optimal Parquet file size
-      - batch:
-          count: 1000
-          period: 10s
-
-      # 5. Encode to Parquet
+      # 4. Encode to Parquet
       - parquet_encode:
           schema:
             - name: txn_id
@@ -187,7 +182,7 @@ config:
 
   output:
     aws_s3:
-      bucket: "${S3_BUCKET}"
+      bucket: '${S3_BUCKET}'
       path: >-
         transactions/region=${! json("store_region") }/date=${! now().ts_format("2006-01-02") }/batch_${! timestamp_unix() }_${! count("s3_files") }.parquet
       content_type: application/octet-stream

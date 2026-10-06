@@ -209,13 +209,12 @@ function pipelineSummary(): Record<string, unknown> {
         completePipelinePath: 'examples/data-security/remove-pii-complete.yaml',
         expectedOutputPath:
           'examples/data-security/remove-pii/expected-output.jsonl',
-        executorImage:
-          'jeffail/benthos:4.13.0@sha256:ec9b635d10bf267eb5b5c4c348b36752af1a5444ba768aefc6ca2c92ae2e22dd',
+      executor: 'expanso-edge v2.1.22',
         executed: true,
         assertedOutput: true,
         status: 'PASS',
-        reason:
-          'Pinned Benthos executed the canonical HTTP-to-file config and produced the exact expected JSONL bytes.',
+      reason:
+        'Pinned expanso-edge v2.1.22 validated and executed the canonical pipeline and produced the exact expected JSONL bytes.',
       },
     ],
   };

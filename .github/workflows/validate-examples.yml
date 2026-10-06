@@ -1,0 +1,80 @@
+name: Validate Example Pipelines
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'examples/**/*.yaml'
+      - 'examples/**/*.yml'
+      - 'static/files/**/*.yaml'
+      - 'static/files/**/*.yml'
+      - 'static/pipelines/**/*.yaml'
+      - 'static/pipelines/**/*.yml'
+      - 'docs/**/pipeline.yaml'
+      - 'docs/**/pipeline.yml'
+      - 'tests/fixtures/pipeline-inputs/**'
+      - 'scripts/validate-examples.ts'
+      - 'scripts/validation/**'
+      - 'validation-reports/**'
+      - '.github/workflows/validate-examples.yml'
+      - 'package.json'
+      - 'package-lock.json'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'examples/**/*.yaml'
+      - 'examples/**/*.yml'
+      - 'static/files/**/*.yaml'
+      - 'static/files/**/*.yml'
+      - 'static/pipelines/**/*.yaml'
+      - 'static/pipelines/**/*.yml'
+      - 'docs/**/pipeline.yaml'
+      - 'docs/**/pipeline.yml'
+      - 'tests/fixtures/pipeline-inputs/**'
+      - 'scripts/validate-examples.ts'
+      - 'scripts/validation/**'
+      - 'validation-reports/**'
+      - '.github/workflows/validate-examples.yml'
+      - 'package.json'
+      - 'package-lock.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-examples-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: 22.23.2
+
+jobs:
+  validate:
+    name: Validate and run complete pipelines
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate and run examples with pinned Expanso Edge
+        env:
+          EXPANSO_DISABLEANALYTICS: 'true'
+        run: npm run validate-examples
+
+      - name: Print Expanso Edge version
+        run: ./.bin/expanso-edge version
+
+      - name: Require committed validation reports
+        run: |
+          git diff --exit-code -- \
+            validation-reports

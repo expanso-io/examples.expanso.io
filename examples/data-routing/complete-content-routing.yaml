@@ -3,9 +3,9 @@
 
 input:
   http_server:
-    address: "0.0.0.0:8080"
+    address: '0.0.0.0:8080'
     path: /events
-    allowed_verbs: ["POST"]
+    allowed_verbs: ['POST']
 
 pipeline:
   processors:
@@ -25,9 +25,9 @@ pipeline:
         root = this
         root.event_family = if this.event_type.contains("auth") || this.event_type.contains("login") {
           "authentication"
-        } else if this.event_type.contains("payment") || this.amount.exists() {
+        } else if this.event_type.contains("payment") || this.exists("amount") {
           "payment"
-        } else if this.event_type.contains("metric") || this.cpu.exists() || this.memory.exists() {
+        } else if this.event_type.contains("metric") || this.exists("cpu") || this.exists("memory") {
           "telemetry"
         } else {
           "general"
@@ -52,10 +52,10 @@ pipeline:
           "payment" => 20, "authentication" => 15, _ => 10
         }
 
-        root.priority_score = severity_score + tier_score + family_score
-        root.priority = if this.priority_score >= 60 { "critical" }
-                       else if this.priority_score >= 45 { "high" }
-                       else if this.priority_score >= 30 { "normal" }
+        root.priority_score = $severity_score + $tier_score + $family_score
+        root.priority = if root.priority_score >= 60 { "critical" }
+                       else if root.priority_score >= 45 { "high" }
+                       else if root.priority_score >= 30 { "normal" }
                        else { "low" }
 
     # Step 4: Add routing metadata
@@ -67,50 +67,48 @@ pipeline:
 
 output:
   switch:
-    # Critical events → immediate processing + alerting
-    - check: 'meta("priority") == "critical"'
-      output:
-        broker:
-          pattern: fan_out
-          outputs:
-            - kafka:
-                addresses: ["${KAFKA_BROKERS:localhost:9092}"]
-                topic: critical-events
-                ack_replicas: true
-            - http_client:
-                url: "${ALERT_ENDPOINT:http://alerts:8080}/critical"
-                verb: POST
+    cases:
+      # Critical events → immediate processing + alerting
+      - check: 'meta("priority") == "critical"'
+        output:
+          broker:
+            pattern: fan_out
+            outputs:
+              - kafka:
+                  addresses: ['${KAFKA_BROKERS:localhost:9092}']
+                  topic: critical-events
+                  ack_replicas: true
+              - http_client:
+                  url: '${ALERT_ENDPOINT:http://alerts:8080}/critical'
+                  verb: POST
 
-    # Payment events → fraud detection
-    - check: 'meta("event_family") == "payment"'
-      output:
-        kafka:
-          addresses: ["${KAFKA_BROKERS:localhost:9092}"]
-          topic: payment-events
-          ack_replicas: true
+      # Payment events → fraud detection
+      - check: 'meta("event_family") == "payment"'
+        output:
+          kafka:
+            addresses: ['${KAFKA_BROKERS:localhost:9092}']
+            topic: payment-events
+            ack_replicas: true
 
-    # Authentication events → security monitoring
-    - check: 'meta("event_family") == "authentication"'
-      output:
-        kafka:
-          addresses: ["${KAFKA_BROKERS:localhost:9092}"]
-          topic: auth-events
+      # Authentication events → security monitoring
+      - check: 'meta("event_family") == "authentication"'
+        output:
+          kafka:
+            addresses: ['${KAFKA_BROKERS:localhost:9092}']
+            topic: auth-events
 
-    # Telemetry → batch processing
-    - check: 'meta("event_family") == "telemetry"'
-      output:
-        file:
-          path: "/var/expanso/telemetry/${!timestamp_unix_date('2006-01-02')}.jsonl"
-          codec: lines
-          batching:
-            count: 1000
-            period: 60s
+      # Telemetry → batch processing
+      - check: 'meta("event_family") == "telemetry"'
+        output:
+          file:
+            path: "/var/expanso/telemetry/${!timestamp_unix_date('2006-01-02')}.jsonl"
+            codec: lines
 
-    # Default → standard queue
-    - output:
-        kafka:
-          addresses: ["${KAFKA_BROKERS:localhost:9092}"]
-          topic: general-events
-          batching:
-            count: 100
-            period: 10s
+      # Default → standard queue
+      - output:
+          kafka:
+            addresses: ['${KAFKA_BROKERS:localhost:9092}']
+            topic: general-events
+            batching:
+              count: 100
+              period: 10s

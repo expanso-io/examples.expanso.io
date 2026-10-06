@@ -5,34 +5,36 @@ input:
     topics: ['sensor-events']
     consumer_group: 'aggregation-pipeline'
 
-resources:
-  caches:
-    production_cache:
-      redis:
-        url: 'redis://redis-cluster:6379'
-        sentinel:
-          master_name: 'aggregation-cache'
-  rate_limits:
-    input_limit:
+cache_resources:
+  - label: production_cache
+    redis:
+      url: 'redis://redis-cluster:6379'
+
+rate_limit_resources:
+  - label: input_limit
+    local:
       count: 100000
-      per: '1s'
+      interval: 1s
 
 pipeline:
   processors:
+    - rate_limit:
+        resource: input_limit
     - try:
-        processors:
-          - json: {}
-          - mapping: |
-              if !this.exists("sensor_id") { error("Missing sensor_id") }
-              if this.temperature < -50 || this.temperature > 100 {
-                error("Temperature out of range")
-              }
-              root = this
-              root.processing_instance = "aggregation-instance-1"
-        catch:
-          - http_client:
-              url: 'https://errors.company.com/validation-errors'
-          - mapping: 'deleted()'
+        - mapping: |
+            root = if !this.exists("sensor_id") {
+              throw("Missing sensor_id")
+            } else if this.temperature < -50 || this.temperature > 100 {
+              throw("Temperature out of range")
+            } else {
+              this
+            }
+            root.processing_instance = "aggregation-instance-1"
+    - catch:
+        - log:
+            level: WARN
+            message: 'validation failed: ${! error() }'
+        - mapping: root = deleted()
 
     - branch:
         request_map: |
@@ -44,38 +46,27 @@ pipeline:
         processors:
           - cache:
               resource: production_cache
-              key: ${! this.group_key + "|" + this.aggregation_level }
-              value: ${! this }
-          - group_by:
-              - key: ${! this.group_key }
-                value: ${! this }
+              operator: set
+              key: ${! this.index(0).group_key + "|" + this.index(0).aggregation_level }
+              value: ${! content() }
           - mapping: |
-              let level = this[0].aggregation_level
-              if level == "global" {
-                root.aggregation_level = "global"
-                root.sensor_count = this.map_each(e -> e.sensor_id).unique().length()
-                root.location_count = this.map_each(e -> e.location).unique().length()
-                root.temperature_avg = this.map_each(e -> e.temperature).mean().round(2)
-                root.system_health = "excellent"
-                root.circuit_breaker_state = "closed"
-                root.reliability_score = 0.99
-              }
+              let temperatures = this.map_each(e -> e.temperature)
+              root.aggregation_level = "global"
+              root.sensor_count = this.map_each(e -> e.sensor_id).unique().length()
+              root.location_count = this.map_each(e -> e.location).unique().length()
+              root.temperature_avg = ($temperatures.sum() / $temperatures.length() * 100).round() / 100
+              root.system_health = "excellent"
+              root.circuit_breaker_state = "closed"
+              root.reliability_score = 0.99
+        result_map: root.aggregation = this
 
 output:
-  circuit_breaker:
-    failure_threshold: 5
-    outputs:
-      - http_client:
-          url: 'https://analytics.company.com/aggregations'
-          batching:
-            count: 500
-            period: '10s'
-    fallback:
-      - file:
-          path: '/var/buffer/aggregations.jsonl'
-
-metrics:
-  prometheus:
-    use_histogram_timing: true
-    static_labels:
-      service: 'time-window-aggregation'
+  fallback:
+    - http_client:
+        url: 'https://analytics.company.com/aggregations'
+        retries: 5
+        batching:
+          count: 500
+          period: '10s'
+    - file:
+        path: '/var/buffer/aggregations.jsonl'

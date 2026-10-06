@@ -168,7 +168,7 @@ export const REMOVE_PII_EXPLORER_EVIDENCE = {
     'sha256:d70b31e982b67a9a04c3269ebfa6ed8f6961c0f7664919534a0f4cb760e63b96',
   bindingManifestPath: 'content/explorer-stage-bindings-v1.json',
   bindingManifestSha256:
-    'sha256:77c076256471a13df69caa254c1aa963b968e95f0f8e091370dcd21f6e64b10b',
+    'sha256:1ddd20b015b99c7e3f1b5e83656a921e06f8909f2251cb6e999adbbe5f3da1e7',
   authoredStageModulePath: 'docs/data-security/remove-pii-full.stages.ts',
   authoredStageModuleSha256:
     'sha256:403e909acfed726fbae5ca5b63e38c8cd85c3ade30efea6fdc647ec0368d832e',
@@ -198,7 +198,7 @@ export const REMOVE_PII_EXPLORER_EVIDENCE = {
   fixtureEnvironmentPath:
     'examples/data-security/remove-pii/fixture-environment.json',
   fixtureEnvironmentSha256:
-    'sha256:4d2bec15465fdc8731c1d4e205e2aae834faf6ecdaa399f65c6f2c512ddb4c99',
+    'sha256:829c319c3a1622761164858b140a852927c91d5c65e0e32d373cf878c57a08cf',
   expectedOutputPath: 'examples/data-security/remove-pii/expected-output.jsonl',
   expectedOutputSha256:
     'sha256:189eeefe48eb725e12d480d67e87278db2f588b1b38d18a666e69499fbcf10e3',

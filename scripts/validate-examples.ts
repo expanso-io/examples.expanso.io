@@ -1,0 +1,568 @@
+#!/usr/bin/env tsx
+/**
+ * Validate and run every example pipeline with the pinned expanso-edge release,
+ * then write a dated Markdown report.
+ *
+ * Usage:
+ *   npm run validate-examples                       # validate + run, write reports
+ *   npm run validate-examples -- --no-run           # validate only
+ *   npm run validate-examples -- --only remove-pii  # filter by path substring
+ *   npm run validate-examples -- --no-report        # print results, write nothing
+ *   npm run validate-examples -- --date 2026-10-05  # override the report date (UTC default)
+ *
+ * Exit code is 1 when any complete pipeline fails validation or execution, or
+ * when a file in the inventory is not valid YAML. Fragment validation failures
+ * are reported but do not fail the run.
+ */
+
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import {
+  LocalEdgeAgent,
+  PINNED_EDGE_VERSION,
+  resolveEdgeBinary,
+  validateFile,
+  validateSource,
+} from './validation/edge';
+import {
+  assessRunnability,
+  planRun,
+  wrapFragment,
+  type LocalStandIns,
+} from './validation/harness';
+import {
+  discoverPipelineFiles,
+  inventoryDigest,
+  pipelineConfigOf,
+} from './validation/inventory';
+import { renderIndex, renderReport, summarize } from './validation/report';
+import type {
+  PipelineFile,
+  PipelineReport,
+  RunResult,
+  ValidateResult,
+} from './validation/types';
+import type { YamlObject } from './validation/yaml-value';
+
+const repositoryRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+const FIXTURE_ROOT = 'tests/fixtures/pipeline-inputs';
+
+const RUN_TIMEOUT_MS = 45_000;
+
+interface ManifestEntry {
+  fixture?: string;
+  minRecords?: number;
+  pathStandIns?: Record<string, string>;
+  processorStandIns?: Record<string, YamlObject>;
+  skip?: string;
+  timeoutMs?: number;
+  validationEnv?: Record<string, string>;
+}
+
+interface Manifest {
+  categories?: Record<string, ManifestEntry>;
+  environment?: Record<string, string>;
+  families?: Record<string, ManifestEntry>;
+  pipelines?: Record<string, ManifestEntry>;
+}
+
+interface Options {
+  run: boolean;
+  report: boolean;
+  install: boolean;
+  only: string | null;
+  date: string;
+  reportDir: string;
+}
+
+function parseArgs(argv: readonly string[]): Options {
+  const options: Options = {
+    run: true,
+    report: true,
+    install: true,
+    only: null,
+    date: new Date().toISOString().slice(0, 10),
+    reportDir: 'validation-reports',
+  };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+
+    if (arg === '--no-run') options.run = false;
+    else if (arg === '--no-report') options.report = false;
+    else if (arg === '--no-install') options.install = false;
+    else if (arg === '--only') options.only = argv[++index] ?? null;
+    else if (arg === '--date') options.date = argv[++index] ?? options.date;
+    else if (arg === '--report-dir')
+      options.reportDir = argv[++index] ?? options.reportDir;
+    else if (arg === '--help' || arg === '-h') {
+      process.stdout.write(
+        readFileSync(fileURLToPath(import.meta.url), 'utf8')
+          .split('*/')[0]
+          .replace(/^\/\*\*\n|^ \* ?/gm, '')
+      );
+      process.exit(0);
+    } else throw new Error(`unknown argument: ${arg}`);
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(options.date))
+    throw new Error(`--date must be YYYY-MM-DD, got ${options.date}`);
+
+  return options;
+}
+
+function log(line: string): void {
+  process.stderr.write(`${line}\n`);
+}
+
+function loadManifest(): Manifest {
+  const path = join(repositoryRoot, FIXTURE_ROOT, 'manifest.json');
+
+  if (!existsSync(path)) return {};
+
+  // SAFETY: this checked-in JSON file is owned by the harness and typechecked
+  // through every property access below; malformed JSON fails immediately.
+  return JSON.parse(readFileSync(path, 'utf8')) as Manifest;
+}
+
+function resolveManifestEntry(
+  manifest: Manifest,
+  file: PipelineFile
+): ManifestEntry {
+  const byCategory = manifest.categories?.[file.category] ?? {};
+  const byFamily = manifest.families?.[file.family] ?? {};
+  const byPath = manifest.pipelines?.[file.path] ?? {};
+
+  return { ...byCategory, ...byFamily, ...byPath };
+}
+
+function resolveFixture(
+  entry: ManifestEntry,
+  file: PipelineFile
+): string | null {
+  const candidates = [entry.fixture, `${FIXTURE_ROOT}/${file.family}.jsonl`];
+
+  for (const candidate of candidates) {
+    if (candidate && existsSync(join(repositoryRoot, candidate)))
+      return candidate;
+  }
+
+  return null;
+}
+
+function resolveStandIns(entry: ManifestEntry): LocalStandIns {
+  return {
+    processors: entry.processorStandIns,
+    paths: Object.fromEntries(
+      Object.entries(entry.pathStandIns ?? {}).map(([source, path]) => [
+        source,
+        { absolute: pathToFileURL(join(repositoryRoot, path)).href, display: path },
+      ])
+    ),
+  };
+}
+
+function countRecords(paths: readonly string[]): number {
+  let total = 0;
+
+  for (const path of paths) {
+    if (!existsSync(path)) continue;
+    total += readFileSync(path, 'utf8')
+      .split('\n')
+      .filter((line) => line.trim().length > 0).length;
+  }
+
+  return total;
+}
+
+function errorLines(logPath: string): string[] {
+  if (!existsSync(logPath)) return [];
+
+  return readFileSync(logPath, 'utf8')
+    .split('\n')
+    .filter((line) =>
+      /"level":"(error|fatal|panic)"|level=(error|fatal|panic)|\bERR\b|\bERROR\b/.test(
+        line
+      )
+    );
+}
+
+async function runPipeline(
+  agent: LocalEdgeAgent,
+  file: PipelineFile,
+  manifest: Manifest,
+  index: number
+): Promise<RunResult> {
+  const config = pipelineConfigOf(file.document);
+
+  if (!config) return { status: 'SKIP', reason: 'no pipeline config' };
+  const entry = resolveManifestEntry(manifest, file);
+
+  if (entry.skip) return { status: 'SKIP', reason: entry.skip };
+  const standIns = resolveStandIns(entry);
+  const verdict = assessRunnability(config, standIns);
+
+  if (!verdict.runnable)
+    return { status: 'SKIP', reason: verdict.reason ?? 'not runnable locally' };
+
+  const fixtureRelative = resolveFixture(entry, file);
+
+  const fixture = fixtureRelative
+    ? join(repositoryRoot, fixtureRelative)
+    : null;
+
+  const outputDir = join(
+    agent.dataDir,
+    '..',
+    'outputs',
+    String(index).padStart(3, '0')
+  );
+
+  mkdirSync(outputDir, { recursive: true });
+  let plan;
+
+  try {
+    plan = planRun(config, fixture, outputDir, standIns);
+  } catch (error) {
+    return {
+      status: 'SKIP',
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  const started = Date.now();
+
+  const jobName =
+    `ev-${String(index).padStart(3, '0')}-${file.family.replace(/[^a-z0-9-]/gi, '-').toLowerCase()}`.slice(
+      0,
+      60
+    );
+
+  const deployed = await agent.deploy({
+    name: jobName,
+    type: 'pipeline',
+    config: plan.config,
+  });
+
+  if (deployed.ok === false) {
+    return {
+      status: 'FAIL',
+      mode: plan.mode,
+      fixture: fixtureRelative ?? undefined,
+      substitutions: plan.substitutions,
+      reason: 'agent rejected the pipeline',
+      detail: deployed.error,
+      durationMs: Date.now() - started,
+    };
+  }
+
+  const timeoutMs = entry.timeoutMs ?? RUN_TIMEOUT_MS;
+  const deadline = started + timeoutMs;
+  let finalState = 'unknown';
+  let finalMessage = '';
+
+  try {
+    while (Date.now() < deadline) {
+      const status = await agent.executionStatus(deployed.jobId);
+
+      if (status) {
+        finalState = status.state;
+        finalMessage = status.message;
+
+        if (
+          status.state === 'completed' ||
+          status.state === 'failed' ||
+          status.state === 'stopped'
+        )
+          break;
+      }
+
+      if (countRecords(plan.outputFiles) >= (entry.minRecords ?? 1)) break;
+      await new Promise((resolveSleep) => setTimeout(resolveSleep, 250));
+    }
+
+    // Give file outputs a moment to flush after the stream reports completion.
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, 300));
+    const records = countRecords(plan.outputFiles);
+    const errors = errorLines(agent.pipelineLogPath(deployed.jobId));
+    const minRecords = entry.minRecords ?? 1;
+
+    const base = {
+      mode: plan.mode,
+      fixture: fixtureRelative ?? undefined,
+      substitutions: plan.substitutions,
+      records,
+      durationMs: Date.now() - started,
+    };
+
+    if (finalState === 'failed') {
+      return {
+        status: 'FAIL',
+        ...base,
+        reason: `execution failed: ${finalMessage}`,
+        detail: errors.join('\n') || finalMessage,
+      };
+    }
+
+    if (finalState !== 'completed' && records < minRecords) {
+      return {
+        status: 'FAIL',
+        ...base,
+        reason: `did not complete within ${timeoutMs}ms (state ${finalState})`,
+        detail: [finalMessage, ...errors].filter(Boolean).join('\n'),
+      };
+    }
+
+    if (errors.length > 0) {
+      return {
+        status: 'FAIL',
+        ...base,
+        reason: 'pipeline logged errors while running',
+        detail: errors.slice(0, 20).join('\n'),
+      };
+    }
+
+    if (records < minRecords) {
+      return {
+        status: 'FAIL',
+        ...base,
+        reason: `produced ${records} records, expected at least ${minRecords}`,
+      };
+    }
+
+    const suffix =
+      finalState === 'completed' ? '' : ` while stream remained ${finalState}`;
+
+    return {
+      status: 'PASS',
+      ...base,
+      reason: `${records} records written${suffix}`,
+    };
+  } finally {
+    await agent.deleteJob(deployed.jobId);
+  }
+}
+
+function validate(
+  file: PipelineFile,
+  edge: ReturnType<typeof resolveEdgeBinary>,
+  validationEnv: Readonly<Record<string, string>> = {}
+): ValidateResult {
+  if (file.kind === 'invalid-yaml') {
+    return {
+      status: 'FAIL',
+      mode: 'file',
+      errors: [{ message: file.parseError ?? 'not valid YAML' }],
+    };
+  }
+
+  if (file.kind === 'fragment') {
+    const wrapped = wrapFragment(file.document);
+
+    if (!wrapped) {
+      return {
+        status: 'FAIL',
+        mode: 'wrapped',
+        errors: [{ message: 'fragment is not a recognisable pipeline piece' }],
+      };
+    }
+
+    return validateSource(edge, repositoryRoot, wrapped.source, validationEnv);
+  }
+
+  return validateFile(edge, repositoryRoot, file.path, validationEnv);
+}
+
+function writeReports(
+  reports: PipelineReport[],
+  options: Options,
+  edgeVersion: string,
+  digest: string
+): void {
+  const summary = summarize(reports, {
+    date: options.date,
+    edgeVersion,
+    pinnedEdgeVersion: PINNED_EDGE_VERSION,
+    inventoryDigest: digest,
+  });
+
+  const reportRoot = join(repositoryRoot, options.reportDir);
+  const dated = join(reportRoot, options.date);
+  const latest = join(reportRoot, 'latest');
+
+  for (const dir of [dated, latest]) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, 'README.md'),
+      renderReport(reports, summary, 2),
+      'utf8'
+    );
+    writeFileSync(
+      join(dir, 'report.json'),
+      `${JSON.stringify({ summary, pipelines: reports.map(stripDocument) }, null, 2)}\n`,
+      'utf8'
+    );
+  }
+
+  const dates = readdirSync(reportRoot, { withFileTypes: true })
+    .filter(
+      (entry) => entry.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(entry.name)
+    )
+    .map((entry) => entry.name);
+
+  writeFileSync(
+    join(reportRoot, 'README.md'),
+    renderIndex(dates, summary),
+    'utf8'
+  );
+  log(
+    `report written to ${options.reportDir}/${options.date}/README.md and ${options.reportDir}/latest/README.md`
+  );
+}
+
+function stripDocument(
+  report: PipelineReport
+): Omit<PipelineReport, 'file'> & { file: Omit<PipelineFile, 'document'> } {
+  const { document: _document, ...file } = report.file;
+
+  const run = report.run
+    ? {
+        ...report.run,
+        durationMs: undefined,
+        records: undefined,
+        reason:
+          report.run.status === 'PASS'
+            ? 'expected output observed'
+            : report.run.reason,
+      }
+    : undefined;
+
+  void _document;
+
+  return { ...report, file, run };
+}
+
+async function main(): Promise<void> {
+  const options = parseArgs(process.argv.slice(2));
+
+  const edge = resolveEdgeBinary(repositoryRoot, {
+    install: options.install,
+    log,
+  });
+
+  log(`expanso-edge ${edge.version} (${edge.path})`);
+
+  let files = discoverPipelineFiles(repositoryRoot).filter(
+    (file) => file.kind !== 'manifest'
+  );
+
+  const digest = inventoryDigest(repositoryRoot, files);
+
+  const only = options.only;
+
+  if (only) files = files.filter((file) => file.path.includes(only));
+  log(
+    `inventory: ${files.length} files (${files.filter((file) => file.kind.startsWith('complete')).length} complete pipelines)`
+  );
+
+  const manifest = loadManifest();
+  const validationEnvironment = manifest.environment ?? {};
+  const reports: PipelineReport[] = [];
+
+  for (const file of files) {
+    const entry = resolveManifestEntry(manifest, file);
+    reports.push({
+      file,
+      validate: validate(file, edge, {
+        ...validationEnvironment,
+        ...entry.validationEnv,
+      }),
+    });
+  }
+
+  if (options.run) {
+    const workRoot = join(repositoryRoot, '.bin');
+    mkdirSync(workRoot, { recursive: true });
+    const workDir = mkdtempSync(join(workRoot, 'examples-validation-'));
+    const agent = new LocalEdgeAgent(edge, workDir, validationEnvironment);
+
+    try {
+      await agent.start();
+      log(
+        `local expanso-edge agent started (pid ${agent.pid}, ${agent.apiBase})`
+      );
+      let index = 0;
+
+      for (const report of reports) {
+        if (!report.file.kind.startsWith('complete')) continue;
+        index += 1;
+
+        if (report.validate.status !== 'PASS') {
+          report.run = { status: 'SKIP', reason: 'validation failed' };
+          continue;
+        }
+
+        report.run = await runPipeline(agent, report.file, manifest, index);
+        log(
+          `run ${report.run.status.padEnd(4)} ${report.file.path}: ${report.run.reason}`
+        );
+
+        if (report.run.status === 'FAIL' && report.run.detail)
+          log(report.run.detail);
+      }
+    } finally {
+      await agent.stop();
+
+      if (process.env.KEEP_VALIDATION_WORKDIR)
+        log(`work directory kept at ${workDir}`);
+      else rmSync(workDir, { recursive: true, force: true });
+    }
+  }
+
+  for (const report of reports) {
+    const run = report.run ? ` run=${report.run.status}` : '';
+    log(
+      `${report.validate.status.padEnd(4)} ${report.file.kind.padEnd(13)} ${report.file.path}${run}`
+    );
+  }
+
+  if (options.report && !options.only)
+    writeReports(reports, options, edge.version, digest);
+  else if (options.only)
+    log('report skipped because --only filters the inventory');
+
+  const summary = summarize(reports, {
+    date: options.date,
+    edgeVersion: edge.version,
+    pinnedEdgeVersion: PINNED_EDGE_VERSION,
+    inventoryDigest: digest,
+  });
+
+  log(
+    `complete pipelines: ${summary.complete.total}; validate ${summary.complete.validatePass} pass / ${summary.complete.validateFail} fail; run ${summary.complete.runPass} pass / ${summary.complete.runFail} fail / ${summary.complete.runSkip} skip; fragments ${summary.fragments.validatePass} pass / ${summary.fragments.validateFail} fail; invalid yaml ${summary.invalidYaml}`
+  );
+
+  if (
+    summary.complete.validateFail > 0 ||
+    summary.complete.runFail > 0 ||
+    summary.invalidYaml > 0
+  ) {
+    process.exitCode = 1;
+  }
+}
+
+main().catch((error) => {
+  log(error instanceof Error ? (error.stack ?? error.message) : String(error));
+  process.exitCode = 1;
+});

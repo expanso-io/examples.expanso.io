@@ -9,20 +9,18 @@ config:
       address: 0.0.0.0:8080
       path: /logs
       timeout: 5s
-      rate_limit: "10000/s"
+      rate_limit: '10000/s'
 
   pipeline:
     processors:
       # Step 1: Parse and validate
-      - json_documents:
-          parts: []
-
+      - mapping: root = content().parse_json()
       # Step 2: Classify priority based on severity
       - mapping: |
-          root = this
-
-          if !this.severity.exists() {
+          root = if !this.exists("severity") {
             throw("Missing required field: severity")
+          } else {
+            this
           }
 
           # Normalize severity to uppercase
@@ -63,7 +61,7 @@ config:
           output:
             label: critical_queue
             kafka:
-              addresses: ["${KAFKA_BROKERS}"]
+              addresses: ['${KAFKA_BROKERS}']
               topic: logs-critical
 
               # No batching - send immediately
@@ -87,7 +85,7 @@ config:
           output:
             label: high_priority_queue
             kafka:
-              addresses: ["${KAFKA_BROKERS}"]
+              addresses: ['${KAFKA_BROKERS}']
               topic: logs-high
 
               # Small batches for fast delivery
@@ -112,7 +110,7 @@ config:
           output:
             label: normal_queue
             kafka:
-              addresses: ["${KAFKA_BROKERS}"]
+              addresses: ['${KAFKA_BROKERS}']
               topic: logs-normal
 
               # Standard batching for balanced throughput/latency
@@ -136,7 +134,7 @@ config:
           output:
             label: low_priority_queue
             kafka:
-              addresses: ["${KAFKA_BROKERS}"]
+              addresses: ['${KAFKA_BROKERS}']
               topic: logs-low
 
               # Large batches to minimize overhead
@@ -159,7 +157,7 @@ config:
         # Default: Treat unknown priorities as normal
         - output:
             kafka:
-              addresses: ["${KAFKA_BROKERS}"]
+              addresses: ['${KAFKA_BROKERS}']
               topic: logs-normal
               batching:
                 count: 100
