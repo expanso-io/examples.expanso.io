@@ -386,12 +386,17 @@ export default function ExplorerV2({
     value: string,
     label: string,
     scope: 'stage' | 'full' | 'input' | 'output' | 'share',
-    feedbackKey: string
+    feedbackKey?: string
   ) {
     try {
       await writeClipboardText(value);
-      showCopyFeedback(copyResultFeedback(feedbackKey, label, 'success'));
-      if (feedbackKey.startsWith('menu-') && actionMenuRef.current) {
+      if (feedbackKey) {
+        showCopyFeedback(copyResultFeedback(feedbackKey, label, 'success'));
+      } else {
+        setStatusKind('success');
+        setStatus(`${label} copied.`);
+      }
+      if (feedbackKey?.startsWith('menu-') && actionMenuRef.current) {
         actionMenuRef.current.open = false;
         actionMenuRef.current
           .querySelector('summary')
@@ -407,7 +412,14 @@ export default function ExplorerV2({
             )
       );
     } catch {
-      showCopyFeedback(copyResultFeedback(feedbackKey, label, 'error'));
+      if (feedbackKey) {
+        showCopyFeedback(copyResultFeedback(feedbackKey, label, 'error'));
+      } else {
+        setStatusKind('error');
+        setStatus(
+          `Could not copy ${label.toLowerCase()}. Select the text and copy it manually.`
+        );
+      }
     }
   }
 
@@ -706,21 +718,19 @@ export default function ExplorerV2({
               >
                 <div className={styles.panelHeader}>
                   <h4>{label}</h4>
-                  <CopyActionButton
-                    feedbackKey={panel}
-                    feedback={copyFeedback}
+                  <button
+                    type="button"
                     aria-label={`Copy ${label.toLowerCase()} ${payloadLabel} for ${currentStage.title}`}
-                    onCopy={() =>
-                      void copyText(
+                    onClick={() =>
+                      copyText(
                         value,
                         `${label} ${payloadLabel}`,
-                        isInput ? 'input' : 'output',
-                        panel
+                        isInput ? 'input' : 'output'
                       )
                     }
                   >
                     Copy {payloadLabel}
-                  </CopyActionButton>
+                  </button>
                 </div>
                 <div
                   className={styles.dataScroll}

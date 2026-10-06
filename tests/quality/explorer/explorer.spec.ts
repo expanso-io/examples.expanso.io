@@ -411,9 +411,11 @@ test('copy actions confirm where the reader clicked and close the menu', async (
     name: /Copy input JSON for Original Input/,
   });
   await inputCopy.click();
-  await expect(inputCopy).toHaveText('Copied');
-  await expect(inputCopy).toHaveAttribute('data-copy-state', 'success');
-  await expect(toast).toHaveText('Input JSON copied.');
+  await expect(inputCopy).toHaveText('Copy JSON');
+  await expect(explorer.locator('[data-explorer-status]')).toHaveText(
+    'Input JSON copied.'
+  );
+  await expect(toast).toHaveCount(0);
   await expect(
     explorer.getByRole('button', {
       name: /Copy output JSON for Original Input/,
