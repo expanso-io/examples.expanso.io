@@ -1,23 +1,65 @@
+# Single-Node OpenShift destinations. Paths, hosts, and credentials are
+# satisfied by the manifests under examples/integrations/oran-telco-pipeline/openshift/.
 output:
   broker:
+    pattern: fan_out
     outputs:
-      # External observability receiver
-      - http:
-          url: "http://prometheus-pushgateway:9091/metrics/job/oran-telemetry"
-          verb: POST
-          headers:
-            Content-Type: "application/json"
+      # Observability: OTLP/HTTP to the OpenTelemetry Collector on the node.
+      # OpenShift user-workload monitoring scrapes the collector (ServiceMonitor).
+      - label: otel_collector
+        fallback:
+          - http_client:
+              url: "${OTEL_ENDPOINT:http://oran-collector.oran-telemetry.svc:4318}/v1/metrics"
+              verb: POST
+              headers:
+                Content-Type: application/json
+          - file:
+              path: '/data/dead-letter/otel-${! now().ts_format("2006-01-02") }.jsonl'
+              codec: lines
 
-      # External storage path
-      - file:
-          path: "/data/oran-metrics/${!timestamp_unix()}.parquet"
-          format: "parquet"
+      # Storage: Parquet files on the PersistentVolumeClaim mounted at /data.
+      - label: parquet_pvc
+        broker:
           batching:
             count: 1000
             period: 300s
+            processors:
+              - parquet_encode:
+                  default_compression: zstd
+                  schema:
+                    - { name: timestamp, type: INT64 }
+                    - { name: cell_id, type: UTF8 }
+                    - { name: site_name, type: UTF8 }
+                    - { name: region, type: UTF8 }
+                    - { name: ptp_offset_ns, type: INT64, optional: true }
+                    - { name: cpu_percent, type: DOUBLE, optional: true }
+                    - { name: prb_dl_util_percent, type: DOUBLE, optional: true }
+                    - { name: prb_ul_util_percent, type: DOUBLE, optional: true }
+                    - { name: rsrp_dbm, type: DOUBLE, optional: true }
+                    - { name: sinr_db, type: DOUBLE, optional: true }
+                    - { name: timing_review, type: UTF8, optional: true }
+                    - name: review_reasons
+                      type: LIST
+                      optional: true
+                      fields:
+                        - { name: element, type: UTF8 }
+          outputs:
+            - file:
+                path: '/data/oran-telemetry/date=${! now().ts_format("2006-01-02") }/part-${! uuid_v4() }.parquet'
+                codec: all-bytes
 
-      # External analytics broker
-      - kafka:
-          addresses: ["kafka.cloudera.internal:9092"]
-          topic: "oran-telemetry-alerts"
-          partition: "round_robin"
+      # Analytics: AMQ Streams (Strimzi) Kafka, TLS listener on 9093,
+      # cluster CA mounted from the operator-managed Secret.
+      - label: amq_streams_kafka
+        kafka:
+          addresses: ["${KAFKA_BOOTSTRAP_SERVERS:oran-kafka-kafka-bootstrap.oran-telemetry.svc:9093}"]
+          topic: oran-telemetry-alerts
+          key: '${! this.cell_id }'
+          tls:
+            enabled: true
+            root_cas_file: /etc/expanso/kafka-ca/ca.crt
+          sasl:
+            mechanism: SCRAM-SHA-512
+            user: "${KAFKA_USERNAME}"
+            password: "${KAFKA_PASSWORD}"
+          ack_replicas: true

@@ -1,0 +1,113 @@
+# Expanso Edge agent on the SNO node, running under the restricted-v2 SCC.
+#
+# OpenShift assigns the UID and fsGroup from the namespace range, so there is
+# no runAsUser here; both PersistentVolumeClaims are group-writable to that
+# UID. There is no hostPath and no hostNetwork. DU telemetry reaches the agent
+# over the expanso-edge Service, not through a mounted host directory.
+#
+# The pipeline itself is not in this manifest. It is deployed through Expanso
+# Cloud (expanso-cli job deploy) and scheduled onto this agent by its labels.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: expanso-edge
+  namespace: oran-telemetry
+  labels:
+    app.kubernetes.io/name: expanso-edge
+    app.kubernetes.io/part-of: oran-telco-pipeline
+spec:
+  replicas: 1
+  # ReadWriteOnce claims: never run two agents against the same state.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: expanso-edge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: expanso-edge
+        app.kubernetes.io/part-of: oran-telco-pipeline
+    spec:
+      serviceAccountName: expanso-edge
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: expanso-edge
+          image: ghcr.io/expanso-io/expanso-edge:latest
+          args:
+            - run
+            - --no-watch
+            - --config
+            - /etc/expanso/edge-config.yaml
+            - --bootstrap-token
+            - $(EXPANSO_EDGE_BOOTSTRAP_TOKEN)
+          env:
+            - name: EXPANSO_EDGE_BOOTSTRAP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: expanso-bootstrap
+                  key: token
+            - name: NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: expanso-oran # created by the KafkaUser
+                  key: password
+            - name: DU_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: oran-du-api
+                  key: token
+          envFrom:
+            - configMapRef:
+                name: oran-site
+          ports:
+            - name: telemetry
+              containerPort: 8080
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: edge-config
+              mountPath: /etc/expanso/edge-config.yaml
+              subPath: edge-config.yaml
+              readOnly: true
+            - name: edge-state
+              mountPath: /var/lib/expanso
+            - name: data
+              mountPath: /data
+            - name: kafka-ca
+              mountPath: /etc/expanso/kafka-ca
+              readOnly: true
+      volumes:
+        - name: edge-config
+          configMap:
+            name: expanso-edge-config
+        - name: edge-state
+          persistentVolumeClaim:
+            claimName: expanso-edge-state
+        - name: data
+          persistentVolumeClaim:
+            claimName: oran-telemetry-data
+        - name: kafka-ca
+          secret:
+            secretName: oran-kafka-cluster-ca-cert # created by the Kafka CR
+            items:
+              - key: ca.crt
+                path: ca.crt
