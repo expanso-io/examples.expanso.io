@@ -17,7 +17,6 @@ import {
   CONSENT_COOKIE_NAME,
   getAnalyticsConsent,
   setAnalyticsConsent,
-  updateGtmConsent,
 } from '../lib/analytics';
 
 interface RootProps {
@@ -46,9 +45,6 @@ export default function Root({ children }: RootProps): React.JSX.Element {
   useEffect(() => {
     const consent = getAnalyticsConsent(document.cookie, CONSENT_COOKIE_NAME);
     setShowConsent(consent === 'unset');
-    if (consent !== 'unset') {
-      updateGtmConsent(consent === 'granted');
-    }
   }, []);
 
   useEffect(() => {
@@ -120,7 +116,6 @@ export default function Root({ children }: RootProps): React.JSX.Element {
 
   const chooseConsent = (granted: boolean) => {
     setShowConsent(false);
-    updateGtmConsent(granted);
     void setAnalyticsConsent(granted);
   };
 

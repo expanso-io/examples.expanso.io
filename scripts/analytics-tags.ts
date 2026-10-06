@@ -5,12 +5,12 @@
  * blocked at the network layer wherever a production-variant build is opened.
  */
 
-/** Hosts the site or the GTM container contacts. Matched as a full hostname
- * or any subdomain of it. */
+/** Hosts the site contacts, or that the retired GTM container contacted.
+ * Matched as a full hostname or any subdomain of it. */
 export const ANALYTICS_HOSTS = [
   // Scarf pixel
   'static.scarf.sh',
-  // Google Tag Manager, gtag, Google Analytics and Google Ads
+  // gtag.js for the dedicated GA adapter, and the retired GTM and Google Ads
   'googletagmanager.com',
   'google-analytics.com',
   'analytics.google.com',
@@ -20,7 +20,7 @@ export const ANALYTICS_HOSTS = [
   // PostHog, through the managed proxy and direct
   'web.t.expanso.io',
   'posthog.com',
-  // Tags the GTM container fires
+  // Tags the retired GTM container fired
   'clarity.ms',
   'licdn.com',
   'ads.linkedin.com',
@@ -55,23 +55,17 @@ export const PRODUCTION_PAGE_TAGS = [
     pattern:
       /<img\b[^>]*\bsrc\s*=\s*["']https:\/\/static\.scarf\.sh\/a\.png\?x-pxid=82d5c930-f525-4047-bb21-25a09e68ed2d["'][^>]*>/,
   },
-  {
-    id: 'gtm-loader',
-    pattern: /googletagmanager\.com\/gtm\.js\?id=[^<]*GTM-MPSKFDMF/,
-  },
-  {
-    id: 'gtm-noscript',
-    pattern:
-      /<noscript>\s*<iframe\b[^>]*\bsrc\s*=\s*["']https:\/\/www\.googletagmanager\.com\/ns\.html\?id=GTM-MPSKFDMF["']/,
-  },
-  {
-    id: 'gtm-consent-default',
-    pattern: /gtag\(\s*["']consent["']\s*,\s*["']default["']\s*,\s*\{/,
-  },
-  {
-    id: 'legacy-ga-guard',
-    pattern: /ga-disable-G-X1RJ0QGN3Z/,
-  },
+] as const;
+
+/** Tags this site no longer emits in any build. The shared Google Tag Manager
+ * container fired GA4, Google Ads and six other vendors before any consent
+ * choice; expanso.io and docs.expanso.io removed it too. The corporate GA4
+ * stream only reached this site through that container. */
+export const RETIRED_TAGS = [
+  'GTM-MPSKFDMF',
+  'googletagmanager.com/gtm.js',
+  'googletagmanager.com/ns.html',
+  'G-X1RJ0QGN3Z',
 ] as const;
 
 /** What the production JavaScript must carry: the direct PostHog collector and

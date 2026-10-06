@@ -37,7 +37,7 @@ const productionRouteGuardPlugin: PluginModule = () => ({
 // Third-party analytics belong only in the build that deploys the live site.
 // The production-build job sets this switch on main; PR checks, previews and
 // local builds never do, so their browsers reach no analytics host. Every tag
-// below (Scarf, GTM and its consent default, the PostHog client module and the
+// below (Scarf, the PostHog client module and the
 // Google adapter inside src/lib/analytics.ts) hangs off this one switch.
 const productionAnalytics = process.env.EXPANSO_PRODUCTION_ANALYTICS === '1';
 
@@ -57,26 +57,6 @@ const analyticsBuildSwitchPlugin: PluginModule = () => ({
     };
   },
 });
-
-// Google Tag Manager consent mode starts denied; the banner in src/theme/Root
-// upgrades it. Only meaningful alongside the GTM container.
-const gtmConsentDefaultTag = {
-  tagName: 'script',
-  attributes: {},
-  innerHTML: `
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){dataLayer.push(arguments);}
-        gtag('consent', 'default', {
-          'ad_storage': 'denied',
-          'analytics_storage': 'denied',
-          'ad_user_data': 'denied',
-          'ad_personalization': 'denied',
-          'personalization_storage': 'denied',
-          'functionality_storage': 'denied',
-          'security_storage': 'granted'
-        });
-      `,
-};
 
 // Scarf counts cookieless page visits on every page, so it is plain HTML
 // outside React and independent of analytics consent. Absolute positioning
@@ -138,7 +118,6 @@ const config: Config = {
         }
       `,
     },
-    ...(productionAnalytics ? [gtmConsentDefaultTag] : []),
   ],
 
   url: 'https://examples.expanso.io',
@@ -201,12 +180,6 @@ const config: Config = {
     './plugins/tailwind-config.cjs',
     './plugins/alias-config.cjs',
     productionAnalytics && './plugins/posthog-analytics.cjs',
-    productionAnalytics && [
-      '@docusaurus/plugin-google-tag-manager',
-      {
-        containerId: 'GTM-MPSKFDMF',
-      },
-    ],
     [
       '@docusaurus/plugin-client-redirects',
       {

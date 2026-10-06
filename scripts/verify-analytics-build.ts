@@ -6,7 +6,8 @@
  *
  * `none` fails on the first analytics host or identifier found in any text
  * file of the build. `production` requires every real page to carry each tag
- * and the JavaScript to carry the PostHog and Google adapters.
+ * and the JavaScript to carry the PostHog and Google adapters, and fails on
+ * any retired tag.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
@@ -16,6 +17,7 @@ import {
   ANALYTICS_MARKERS,
   PRODUCTION_PAGE_TAGS,
   PRODUCTION_SCRIPT_MARKERS,
+  RETIRED_TAGS,
 } from './analytics-tags';
 
 export type Variant = 'none' | 'production';
@@ -31,6 +33,7 @@ export interface VerificationReport {
   pages: number;
   findings: Finding[];
   missing: Finding[];
+  retired: Finding[];
 }
 
 const TEXT_EXTENSIONS = new Set([
@@ -87,6 +90,7 @@ export function verifyAnalyticsBuild(
   const needles = [...ANALYTICS_HOSTS, ...ANALYTICS_MARKERS];
   const findings: Finding[] = [];
   const missing: Finding[] = [];
+  const retired: Finding[] = [];
   const scriptHits = new Set<string>();
   let pages = 0;
 
@@ -95,6 +99,9 @@ export function verifyAnalyticsBuild(
     const text = readFileSync(absolute, 'utf8');
     for (const needle of needles) {
       if (text.includes(needle)) findings.push({ file, needle });
+    }
+    for (const needle of RETIRED_TAGS) {
+      if (text.includes(needle)) retired.push({ file, needle });
     }
     if (variant !== 'production') continue;
     if (file.endsWith('.html') && isRealPage(text)) {
@@ -119,7 +126,14 @@ export function verifyAnalyticsBuild(
     }
   }
 
-  return { variant, scannedFiles: files.length, pages, findings, missing };
+  return {
+    variant,
+    scannedFiles: files.length,
+    pages,
+    findings,
+    missing,
+    retired,
+  };
 }
 
 export function reportProblems(report: VerificationReport): string[] {
@@ -128,9 +142,14 @@ export function reportProblems(report: VerificationReport): string[] {
       ({ file, needle }) => `${file} contains analytics marker ${needle}`
     );
   }
-  const problems = report.missing.map(
-    ({ file, needle }) => `${file} is missing production tag ${needle}`
-  );
+  const problems = [
+    ...report.missing.map(
+      ({ file, needle }) => `${file} is missing production tag ${needle}`
+    ),
+    ...report.retired.map(
+      ({ file, needle }) => `${file} carries retired tag ${needle}`
+    ),
+  ];
   if (report.findings.length === 0) {
     problems.push('production build carries no analytics marker at all');
   }

@@ -30,11 +30,7 @@ function fixture(files: Record<string, string>): string {
 
 const productionPage = [
   '<!doctype html><html><head>',
-  '<script>/^(docs|examples)\\.expanso\\.io$/.test(window.location.hostname)&&(window["ga-disable-G-X1RJ0QGN3Z"]=!0)</script>',
-  '<script>!function(e,t,a,n){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var g=t.getElementsByTagName(a)[0],m=t.createElement(a);m.async=!0,m.src="https://www.googletagmanager.com/gtm.js?id=GTM-MPSKFDMF",g.parentNode.insertBefore(m,g)}(window,document,"script","dataLayer")</script>',
-  '<script>function gtag(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],gtag("consent","default",{ad_storage:"denied"})</script>',
   '</head><body>',
-  '<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-MPSKFDMF" height="0" width="0"></iframe></noscript>',
   '<div id="__docusaurus"></div>',
   '<img referrerpolicy="no-referrer-when-downgrade" src="https://static.scarf.sh/a.png?x-pxid=82d5c930-f525-4047-bb21-25a09e68ed2d" alt="" width="0" height="0">',
   '</body></html>',
@@ -46,14 +42,18 @@ const productionScript =
 
 const unminifiedProductionPage = [
   '<!doctype html><html><head>',
-  "<script>/^(docs|examples)\\.expanso\\.io$/.test(window.location.hostname) && (window['ga-disable-G-X1RJ0QGN3Z'] = true)</script>",
-  "<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','GTM-MPSKFDMF');</script>",
-  "<script>\n  window.dataLayer = window.dataLayer || [];\n  function gtag(){dataLayer.push(arguments);}\n  gtag( 'consent', 'default', {\n    'ad_storage': 'denied'\n  });\n</script>",
   '</head><body>',
-  '<noscript>\n<iframe src = \'https://www.googletagmanager.com/ns.html?id=GTM-MPSKFDMF\' height="0" width="0"></iframe>\n</noscript>',
   '<div id="__docusaurus"></div>',
   "<img alt='' src = 'https://static.scarf.sh/a.png?x-pxid=82d5c930-f525-4047-bb21-25a09e68ed2d' width='0'>",
   '</body></html>',
+].join('');
+
+// The Google Tag Manager container and the old GA guard this site used to emit.
+// GTM fired GA4, Google Ads and six other vendors before any consent choice.
+const retiredGtmTags = [
+  '<script>/^(docs|examples)\\.expanso\\.io$/.test(window.location.hostname)&&(window["ga-disable-G-X1RJ0QGN3Z"]=!0)</script>',
+  '<script>!function(e,t,a,n){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var g=t.getElementsByTagName(a)[0],m=t.createElement(a);m.async=!0,m.src="https://www.googletagmanager.com/gtm.js?id=GTM-MPSKFDMF",g.parentNode.insertBefore(m,g)}(window,document,"script","dataLayer")</script>',
+  '<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-MPSKFDMF" height="0" width="0"></iframe></noscript>',
 ].join('');
 
 const plainPage =
@@ -77,7 +77,10 @@ describe('analytics build variant verifier', () => {
 
   it('names every file and marker when a normal build leaks a tag', () => {
     const root = fixture({
-      'index.html': productionPage,
+      'index.html': productionPage.replace(
+        '</head>',
+        `${retiredGtmTags}</head>`
+      ),
       'assets/js/main.js': productionScript,
       'about/index.html': plainPage.replace(
         '</body>',
@@ -123,17 +126,20 @@ describe('analytics build variant verifier', () => {
     assert.deepEqual(reportProblems(report), []);
   });
 
-  it('fails a production build whose GTM loader names another container', () => {
+  it('fails a production build that brings back the retired GTM container', () => {
     const root = fixture({
       'index.html': productionPage.replace(
-        'gtm.js?id=GTM-MPSKFDMF',
-        'gtm.js?id=GTM-OTHER00'
+        '</head>',
+        `${retiredGtmTags}</head>`
       ),
       'assets/js/main.js': productionScript,
     });
     const problems = reportProblems(verifyAnalyticsBuild(root, 'production'));
     assert.deepEqual(problems, [
-      'index.html is missing production tag gtm-loader',
+      'index.html carries retired tag GTM-MPSKFDMF',
+      'index.html carries retired tag googletagmanager.com/gtm.js',
+      'index.html carries retired tag googletagmanager.com/ns.html',
+      'index.html carries retired tag G-X1RJ0QGN3Z',
     ]);
   });
 

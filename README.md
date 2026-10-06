@@ -85,9 +85,9 @@ outbound SDK payloads without sending events to production or starting a server.
 It covers semantic event delivery, manual route pageview ownership, production
 hostname gating, campaign/QA labels, consent persistence and revocation.
 
-The direct collector owns PostHog delivery; the existing dataLayer contract is
-retained for Google integration. GTM must not forward these events to PostHog a
-second time. Only `examples.expanso.io` can initialize the production collector.
+The direct collector owns PostHog delivery. Semantic events are also pushed
+to `window.dataLayer`; no tag reads it since GTM was retired, and the browser
+tests use it to check the event schema. Only `examples.expanso.io` can initialize the production collector.
 `analytics_test=1` (or `true`) marks a synthetic journey through sessionStorage;
 staff tagging requires explicit localStorage `expanso_analytics_internal=1`
 (or `true`). Neither flag grants consent. URLs omit queries/fragments; only
@@ -95,8 +95,8 @@ allowlisted campaign labels are retained as separate properties.
 
 ### Production-only analytics tags
 
-Every third-party tag (the Scarf pixel, the GTM container and its consent
-default, the PostHog client module and the dedicated GA adapter) is emitted
+Every third-party tag (the Scarf pixel, the PostHog client module and the
+dedicated GA adapter) is emitted
 only when `EXPANSO_PRODUCTION_ANALYTICS=1` is set at build time. The
 production-build job in `.github/workflows/phase1-foundation.yml` sets it on
 `main` only, so pull-request checks, previews and local builds carry none of
@@ -106,7 +106,10 @@ PostHog SDK chunk, ingestion host and project key from non-production builds.
 `npm run verify:analytics-build -- --build-dir build --variant none` fails if
 any analytics host or identifier appears in a normal build and runs on every
 pull request; `--variant production` confirms the flagged `main` artifact
-carries every tag and runs only in that production-build job. Browser suites that
+carries every tag and none of the retired ones, and runs only in that
+production-build job. The shared Google Tag Manager container (`GTM-MPSKFDMF`)
+is retired: it fired GA4, Google Ads and six other vendors before any consent
+choice, and expanso.io and docs.expanso.io removed it too. Browser suites that
 measure a production-variant build (`tests/quality/performance.spec.ts`,
 `tests/analytics/collector.test.ts`) abort requests to every host listed in
 `scripts/analytics-tags.ts`.
@@ -127,7 +130,7 @@ script or sends events until analytics consent is granted and DNT is absent.
 QA/internal events have `debug_mode: true` and `traffic_type: internal`.
 Queries and hashes are omitted from page locations/referrers; allowlisted UTM
 labels are mapped to campaign fields. Enhanced measurement must remain disabled
-on the dedicated stream, and shared GTM must not duplicate this manual adapter.
+on the dedicated stream.
 `npm run test-analytics` includes executable GA unit tests;
 `npm run test-analytics-collector` verifies the browser command/request boundary
 with every external request intercepted.
