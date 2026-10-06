@@ -17,7 +17,6 @@ config:
     processors:
       # Step 1: Detect log format
       - mapping: |
-          root = this
           let content = content().string()
 
           root.detected_format = if $content.has_prefix("{") || $content.has_prefix("[") {
@@ -88,11 +87,11 @@ config:
           - check: 'meta("log_format") == "csv"'
             processors:
               - mapping: |
-                  let columns = this.original.split(",").map_each(column -> column.trim())
-                  root.timestamp = $columns.index(0)
-                  root.level = $columns.index(1).uppercase()
-                  root.service = $columns.index(2)
-                  root.message = $columns.slice(3).join(",")
+                  let row = ("timestamp,level,service,message\n" + this.original).parse_csv().index(0)
+                  root.timestamp = $row.timestamp
+                  root.level = $row.level.uppercase()
+                  root.service = $row.service
+                  root.message = $row.message
 
           # Unknown format - keep original
           - processors:

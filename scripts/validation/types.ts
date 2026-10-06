@@ -72,6 +72,7 @@ export interface PipelineReport {
 }
 
 export interface ReportSummary {
+  failure?: string;
   date: string;
   edgeVersion: string;
   pinnedEdgeVersion: string;

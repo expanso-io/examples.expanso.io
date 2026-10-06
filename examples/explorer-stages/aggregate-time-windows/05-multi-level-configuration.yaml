@@ -1,14 +1,9 @@
 # Production multi-level aggregation with reliability
 input:
   kafka:
-    addresses: ["kafka-broker-1:9092", "kafka-broker-2:9092"]
-    topics: ["sensor-events"]
+    addresses: [ "kafka-broker-1:9092", "kafka-broker-2:9092" ]
+    topics: [ "sensor-events" ]
     consumer_group: "aggregation-pipeline"
-
-cache_resources:
-  - label: production_cache
-    redis:
-      url: "redis://redis-cluster:6379"
 
 rate_limit_resources:
   - label: input_limit
@@ -33,29 +28,44 @@ pipeline:
     - catch:
         - log:
             level: WARN
-            message: 'validation failed: ${! error() }'
+            message: "validation failed: ${! error() }"
         - mapping: root = deleted()
-
-    - branch:
-        request_map: |
-          root = [
-            this.merge({"aggregation_level": "sensor", "group_key": this.sensor_id}),
-            this.merge({"aggregation_level": "location", "group_key": this.location}),
-            this.merge({"aggregation_level": "global", "group_key": "global"})
-          ]
-        processors:
-          - cache:
-              resource: production_cache
-              operator: set
-              key: ${! this.index(0).group_key + "|" + this.index(0).aggregation_level }
-              value: ${! content() }
-          - mapping: |
-              let temperatures = this.map_each(e -> e.temperature)
-              root.aggregation_level = "global"
-              root.sensor_count = this.map_each(e -> e.sensor_id).unique().length()
-              root.location_count = this.map_each(e -> e.location).unique().length()
-              root.temperature_avg = ($temperatures.sum() / $temperatures.length() * 100).round() / 100
-        result_map: root.aggregation = this
+    - archive:
+        format: json_array
+    - mapping: |-
+        root = this.map_each(event -> [
+          event.merge({"aggregation_type":"multi_level","aggregation_level":"sensor","group_key":event.sensor_id+"|sensor","window_duration_minutes":1}),
+          event.merge({"aggregation_type":"multi_level","aggregation_level":"location","group_key":event.location+"|location","window_duration_minutes":1}),
+          event.merge({"aggregation_type":"multi_level","aggregation_level":"global","group_key":"global","window_duration_minutes":1})
+        ]).flatten()
+    - unarchive:
+        format: json_array
+    - group_by_value:
+        value: ${! this.group_key }
+    - mapping: |-
+        let events = json().from_all().sort_by(event -> event.timestamp)
+        let first = $events.index(0)
+        let values = $events.map_each(event -> event.temperature)
+        let end = meta("window_end_timestamp").ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano() / 1000000000
+        let minute = env("WINDOW_MINUTE_SECONDS").or("60").number()
+        root = if batch_index() == 0 {
+          {"aggregation": {
+            "aggregation_type": $first.aggregation_type,
+            "aggregation_level": $first.aggregation_level,
+            "group_key": $first.group_key,
+            "sensor_id": $first.sensor_id,
+            "location": $first.location,
+            "window_start": ($end - $minute * $first.window_duration_minutes).ts_format("2006-01-02T15:04:05Z07:00"),
+            "window_end": meta("window_end_timestamp"),
+            "window_duration_minutes": $first.window_duration_minutes,
+            "event_count": $events.length(),
+            "temperature_avg": ($values.sum() / $values.length() * 100).round() / 100,
+            "temperature_min": $values.min(),
+            "temperature_max": $values.max(),
+            "sensor_count": $events.map_each(event -> event.sensor_id).unique().length(),
+            "location_count": $events.map_each(event -> event.location).unique().length()
+          }}
+        } else { deleted() }
 
 output:
   fallback:
@@ -67,3 +77,7 @@ output:
           period: "10s"
     - file:
         path: "/var/buffer/aggregations.jsonl"
+buffer:
+  system_window:
+    size: ${WINDOW_MINUTE:1m}
+    timestamp_mapping: root = this.timestamp

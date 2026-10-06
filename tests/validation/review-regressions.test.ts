@@ -12,12 +12,17 @@ import {
 import { planRun } from '../../scripts/validation/harness';
 import {
   verifyEncryption,
+  verifyOutputs,
+  type Expectation,
   type EncryptionExpectation,
 } from '../../scripts/validation/expectations';
 import type { YamlObject } from '../../scripts/validation/yaml-value';
 import { stringify } from 'yaml';
 import { renderReport, summarize } from '../../scripts/validation/report';
 import type { PipelineReport } from '../../scripts/validation/types';
+import { discoverPipelineFiles } from '../../scripts/validation/inventory';
+import { writeFailureReport } from '../../scripts/validation/failure-report';
+import type { LocalStandIns } from '../../scripts/validation/harness';
 
 const root = process.cwd();
 const manifest = JSON.parse(
@@ -42,13 +47,28 @@ function config(path: string): YamlObject {
 
 async function execute(
   pipeline: YamlObject,
-  fixture?: string
+  fixture?: string,
+  standIns: LocalStandIns = {}
 ): Promise<unknown[]> {
+  return (await capture(pipeline, fixture, standIns)).flatMap((text) =>
+    text
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+  );
+}
+
+async function capture(
+  pipeline: YamlObject,
+  fixture?: string,
+  standIns: LocalStandIns = {}
+): Promise<string[]> {
   sequence += 1;
   const plan = planRun(
     pipeline,
     fixture ? join(root, fixture) : null,
-    join(work, String(sequence))
+    join(work, String(sequence)),
+    standIns
   );
   const validity = validateSource(
     edge,
@@ -79,11 +99,8 @@ async function execute(
         ? readFileSync(agent.pipelineLogPath(deployed.jobId), 'utf8')
         : JSON.stringify(await agent.executionStatus(deployed.jobId))
     );
-    return plan.outputFiles.filter(existsSync).flatMap((path) =>
-      readFileSync(path, 'utf8')
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => JSON.parse(line))
+    return plan.outputFiles.map((path) =>
+      existsSync(path) ? readFileSync(path, 'utf8') : ''
     );
   } finally {
     await agent.deleteJob(deployed.jobId);
@@ -371,5 +388,214 @@ test('the emitted Markdown distinguishes skipped and stubbed execution', () => {
   assert.match(
     markdown,
     /Replaced processors and resources were not exercised as committed/
+  );
+});
+
+const contracts = JSON.parse(
+  readFileSync('tests/fixtures/pipeline-inputs/expectations.json', 'utf8')
+) as Record<string, Expectation>;
+
+test('every complete inventory entry has a semantic output contract', () => {
+  const complete = discoverPipelineFiles(root).filter((file) =>
+    file.kind.startsWith('complete')
+  );
+  assert.equal(complete.length, 106);
+  for (const file of complete) {
+    const entry = {
+      ...manifest.categories?.[file.category],
+      ...manifest.families?.[file.family],
+      ...manifest.pipelines?.[file.path],
+    };
+    const expectation = contracts[file.path] ?? entry.expectation;
+    assert.ok(expectation, file.path);
+    if (expectation.kind === 'records') {
+      assert.ok(expectation.outputs.length > 0, file.path);
+      for (const output of expectation.outputs) {
+        assert.ok(
+          output.count === 0 ||
+            output.records?.length ||
+            output.invariant ||
+            Object.keys(output.every?.equals ?? {}).length,
+          file.path
+        );
+      }
+    }
+  }
+});
+
+for (const path of [
+  'examples/data-transformation/aggregate-time-windows.yaml',
+  'examples/data-transformation/aggregate-time-windows-complete.yaml',
+  'examples/data-transformation/step-4-production.yaml',
+  'examples/explorer-stages/aggregate-time-windows/05-multi-level-configuration.yaml',
+  'examples/data-transformation/transform-formats.yaml',
+]) {
+  test(`executes and verifies semantic records: ${path}`, async () => {
+    const file = discoverPipelineFiles(root).find(
+      (file) => file.path === path
+    )!;
+    const entry = {
+      ...manifest.categories?.[file.category],
+      ...manifest.families?.[file.family],
+      ...manifest.pipelines?.[path],
+    };
+    const expectation = contracts[path];
+    assert.equal(expectation.kind, 'records');
+    if (expectation.kind !== 'records') return;
+    const texts = await capture(config(path), entry.fixture, {
+      outputFormats: expectation.outputs.map(
+        (output) => output.format ?? 'jsonl'
+      ),
+      processors: entry.processorStandIns,
+    });
+    verifyOutputs(expectation, [], texts, manifest.environment);
+    assert.throws(() =>
+      verifyOutputs(
+        expectation,
+        [],
+        texts.map(() => ''),
+        manifest.environment
+      )
+    );
+    if (!path.includes('transform-formats')) {
+      const rows = texts.flatMap((text) =>
+        text
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => JSON.parse(line))
+      );
+      assert.ok(rows.some((row) => (row.aggregation ?? row).event_count === 2));
+    }
+  });
+}
+
+test('CSV negotiation handles JSON arrays and quoted CSV input', async () => {
+  for (const input of [
+    '[{"name":"A, B","value":42},{"name":"C","value":7}]',
+    'name,value\n"A, B",42\nC,7\n',
+  ]) {
+    const pipeline = config(
+      'examples/data-transformation/transform-formats-complete.yaml'
+    );
+    pipeline.input = {
+      generate: {
+        count: 1,
+        mapping: `root = ${JSON.stringify(input)}\nmeta Accept = "text/csv"`,
+      },
+    };
+    pipeline.output = {
+      stdout: {},
+      processors: [{ mapping: 'root = content().parse_csv()' }],
+    };
+    assert.deepEqual(await execute(pipeline), [
+      [
+        { name: 'A, B', value: '42' },
+        { name: 'C', value: '7' },
+      ],
+    ]);
+  }
+});
+
+test('CSV log parsing preserves commas inside quoted fields', async () => {
+  const pipeline = config(
+    'examples/data-transformation/parse-logs-complete.yaml'
+  );
+  pipeline.input = {
+    generate: {
+      count: 1,
+      mapping: `root = ${JSON.stringify('2026-10-05T12:00:00Z,WARN,"billing,worker","request failed"')}`,
+    },
+  };
+  pipeline.output = { stdout: {} };
+  const rows = (await execute(pipeline)) as Array<Record<string, unknown>>;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].service, 'billing,worker');
+  assert.equal(rows[0].message, 'request failed');
+  assert.equal(rows[0].level, 'WARN');
+});
+
+test('retail enrichment rounds average item prices to cents', async () => {
+  const original = config('static/pipelines/motherduck-retail-pipeline.yaml');
+  const pipeline = original.pipeline as { processors: unknown[] };
+  const rows = (await execute({
+    input: {
+      generate: {
+        count: 1,
+        mapping:
+          'root = {"store_id":1,"timestamp":"2026-10-05T12:00:00Z","subtotal":13.96,"items":[{},{},{}]}',
+      },
+    },
+    pipeline: { processors: [pipeline.processors[0]] } as YamlObject,
+    output: { stdout: {} },
+  })) as Array<{ avg_item_price: number }>;
+  assert.equal(rows[0].avg_item_price, 4.65);
+});
+
+test('setup failures emit browsable failure evidence and replace stale latest', () => {
+  const destination = join(work, 'failure-report');
+  writeFailureReport(destination, '2026-10-05', new Error('download failed'));
+  writeFailureReport(
+    destination,
+    '2026-10-06',
+    new Error('agent startup failed')
+  );
+  const latest = JSON.parse(
+    readFileSync(
+      join(destination, 'validation-reports/latest/report.json'),
+      'utf8'
+    )
+  );
+  assert.equal(latest.summary.failure, 'agent startup failed');
+  assert.equal(latest.summary.date, '2026-10-06');
+  assert.match(
+    readFileSync(
+      join(destination, 'validation-reports/latest/README.md'),
+      'utf8'
+    ),
+    /Overall: \*\*FAIL\*\*/
+  );
+  assert.match(
+    readFileSync(join(destination, 'validation-reports/README.md'), 'utf8'),
+    /2026-10-06/
+  );
+});
+
+test('record contracts reject changed values and incorrect routing', () => {
+  const expectation: Expectation = {
+    kind: 'records',
+    outputs: [
+      {
+        count: 1,
+        records: [
+          {
+            equals: { event_id: 'one', temperature: 21.8 },
+            absent: ['card_number'],
+          },
+        ],
+      },
+      { count: 0 },
+    ],
+  };
+  verifyOutputs(
+    expectation,
+    [],
+    ['{"event_id":"one","temperature":21.8}\n', ''],
+    {}
+  );
+  assert.throws(() =>
+    verifyOutputs(
+      expectation,
+      [],
+      ['{"event_id":"one","temperature":10}\n', ''],
+      {}
+    )
+  );
+  assert.throws(() =>
+    verifyOutputs(
+      expectation,
+      [],
+      ['', '{"event_id":"one","temperature":21.8}\n'],
+      {}
+    )
   );
 });

@@ -43,10 +43,8 @@ import {
   pipelineConfigOf,
 } from './validation/inventory';
 import { renderIndex, renderReport, summarize } from './validation/report';
-import {
-  verifyEncryption,
-  type EncryptionExpectation,
-} from './validation/expectations';
+import { writeFailureReport } from './validation/failure-report';
+import { verifyOutputs, type Expectation } from './validation/expectations';
 import type {
   PipelineFile,
   PipelineReport,
@@ -62,7 +60,7 @@ const FIXTURE_ROOT = 'tests/fixtures/pipeline-inputs';
 const RUN_TIMEOUT_MS = 45_000;
 
 interface ManifestEntry {
-  expectation?: EncryptionExpectation;
+  expectation?: Expectation;
   fixture?: string;
   minRecords?: number;
   pathStandIns?: Record<string, string>;
@@ -80,21 +78,18 @@ interface Manifest {
 }
 
 interface Options {
-  install: boolean;
   date: string;
 }
 
 function parseArgs(argv: readonly string[]): Options {
   const options: Options = {
-    install: true,
     date: new Date().toISOString().slice(0, 10),
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
 
-    if (arg === '--no-install') options.install = false;
-    else if (arg === '--date') options.date = argv[++index] ?? options.date;
+    if (arg === '--date') options.date = argv[++index] ?? options.date;
     else if (arg === '--help' || arg === '-h') {
       process.stdout.write(
         readFileSync(fileURLToPath(import.meta.url), 'utf8')
@@ -122,7 +117,19 @@ function loadManifest(): Manifest {
 
   // SAFETY: this checked-in JSON file is owned by the harness and typechecked
   // through every property access below; malformed JSON fails immediately.
-  return JSON.parse(readFileSync(path, 'utf8')) as Manifest;
+  const manifest = JSON.parse(readFileSync(path, 'utf8')) as Manifest;
+  const contracts = JSON.parse(
+    readFileSync(
+      join(repositoryRoot, FIXTURE_ROOT, 'expectations.json'),
+      'utf8'
+    )
+  ) as Record<string, Expectation>;
+  for (const [path, expectation] of Object.entries(contracts))
+    manifest.pipelines = {
+      ...manifest.pipelines,
+      [path]: { ...manifest.pipelines?.[path], expectation },
+    };
+  return manifest;
 }
 
 function resolveManifestEntry(
@@ -152,6 +159,10 @@ function resolveFixture(
 
 function resolveStandIns(entry: ManifestEntry): LocalStandIns {
   return {
+    outputFormats:
+      entry.expectation?.kind === 'records'
+        ? entry.expectation.outputs.map((output) => output.format ?? 'jsonl')
+        : undefined,
     processors: entry.processorStandIns,
     paths: Object.fromEntries(
       Object.entries(entry.pathStandIns ?? {}).map(([source, path]) => [
@@ -332,7 +343,7 @@ async function runPipeline(
       };
     }
 
-    if (!entry.expectation || !fixture) {
+    if (!entry.expectation) {
       return {
         status: 'FAIL',
         ...base,
@@ -345,10 +356,14 @@ async function runPipeline(
           .split('\n')
           .filter((line) => line.trim())
           .map((line) => JSON.parse(line));
-      verifyEncryption(
+      verifyOutputs(
         entry.expectation,
-        parseLines(fixture),
-        plan.outputFiles.filter(existsSync).flatMap(parseLines),
+        entry.expectation.kind === 'encryption' && fixture
+          ? parseLines(fixture)
+          : [],
+        plan.outputFiles.map((path) =>
+          existsSync(path) ? readFileSync(path, 'utf8') : ''
+        ),
         manifest.environment ?? {}
       );
     } catch (error) {
@@ -469,11 +484,14 @@ function stripDocument(
   return { ...report, file, run };
 }
 
+let reportDate = new Date().toISOString().slice(0, 10);
+
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
+  reportDate = options.date;
 
   const edge = resolveEdgeBinary(repositoryRoot, {
-    install: options.install,
+    install: true,
     log,
   });
 
@@ -537,9 +555,7 @@ async function main(): Promise<void> {
     } finally {
       await agent.stop();
 
-      if (process.env.KEEP_VALIDATION_WORKDIR)
-        log(`work directory kept at ${workDir}`);
-      else rmSync(workDir, { recursive: true, force: true });
+      rmSync(workDir, { recursive: true, force: true });
     }
   }
 
@@ -575,6 +591,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
+  writeFailureReport(repositoryRoot, reportDate, error);
   log(error instanceof Error ? (error.stack ?? error.message) : String(error));
   process.exitCode = 1;
 });

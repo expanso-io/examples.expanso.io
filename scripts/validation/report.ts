@@ -72,6 +72,7 @@ function formatErrors(result: ValidateResult): string {
 export function summarize(
   reports: readonly PipelineReport[],
   options: {
+    failure?: string;
     date: string;
     edgeVersion: string;
     pinnedEdgeVersion: string;
@@ -139,7 +140,7 @@ export function renderReport(
   );
 
   const overall =
-    blocking.length > 0 || summary.invalidYaml > 0
+    summary.failure || blocking.length > 0 || summary.invalidYaml > 0
       ? 'FAIL'
       : summary.complete.runPass === summary.complete.total
         ? 'PASS'
@@ -148,6 +149,14 @@ export function renderReport(
   lines.push(`# Example pipeline validation: ${summary.date}`);
   lines.push('');
   lines.push(`Overall: **${overall}**`);
+  if (summary.failure) {
+    lines.push('');
+    lines.push(
+      'The validation invocation failed before complete evidence was collected:'
+    );
+    lines.push('');
+    lines.push(summary.failure);
+  }
   lines.push('');
   lines.push(
     `- expanso-edge: \`${summary.edgeVersion}\` (pinned: \`${summary.pinnedEdgeVersion}\`)`

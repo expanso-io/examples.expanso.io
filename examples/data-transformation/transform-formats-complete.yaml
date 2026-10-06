@@ -20,7 +20,6 @@ config:
     processors:
       # Step 1: Detect input format from Content-Type or structure
       - mapping: |
-          root = this
           let content = content().string()
 
           root.source_format = if $content.has_prefix("{") || $content.has_prefix("[") {
@@ -56,7 +55,7 @@ config:
           root = this
           let target = meta("Accept").or("application/json")
 
-          root.target_format = if $target.contains("xml") {
+          meta target_format = if $target.contains("xml") {
             "xml"
           } else if $target.contains("csv") {
             "csv"
@@ -64,8 +63,7 @@ config:
             "json"
           }
 
-          meta target_format = root.target_format
-          meta response_content_type = match root.target_format {
+          meta response_content_type = match meta("target_format") {
             "xml" => "application/xml"
             "csv" => "text/csv"
             _ => "application/json"
@@ -86,7 +84,7 @@ config:
           - check: 'meta("target_format") == "csv"'
             processors:
               - mapping: |
-                  let rows = if this.data.type() == "array" { this.data } else { [this.data.without("target_format")] }
+                  let rows = if this.data.type() == "array" { this.data } else { [this.data] }
                   let columns = $rows.map_each(row -> row.keys()).flatten().unique().sort()
                   let header = $columns.map_each(col -> "\"" + col.replace_all("\"", "\"\"") + "\"").join(",")
                   let lines = $rows.map_each(row -> $columns.map_each(col -> "\"" + row.get(col).or("").string().replace_all("\"", "\"\"") + "\"").join(","))
