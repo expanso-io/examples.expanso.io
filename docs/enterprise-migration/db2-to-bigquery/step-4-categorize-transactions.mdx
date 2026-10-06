@@ -97,14 +97,15 @@ Common MCC prefixes and their meanings:
 For precise MCC codes instead of prefixes:
 
 ```yaml
-let mcc_map = {
-  "5411": "GROCERY_SUPERMARKET",
-  "5412": "GROCERY_CONVENIENCE",
-  "5541": "GAS_STATION",
-  "5542": "GAS_AUTOMATED"
-}
+- mapping: |
+    let mcc_map = {
+      "5411": "GROCERY_SUPERMARKET",
+      "5412": "GROCERY_CONVENIENCE",
+      "5541": "GAS_STATION",
+      "5542": "GAS_AUTOMATED"
+    }
 
-root.transaction_category = $mcc_map.get(this.MERCHANT_CATEGORY_CODE.string()).or("OTHER")
+    root.transaction_category = $mcc_map.get(this.MERCHANT_CATEGORY_CODE.string()).or("OTHER")
 ```
 
 ### External Category Lookup
@@ -123,18 +124,20 @@ input:
 Add hierarchical categorization:
 
 ```yaml
-root.category_level1 = match $mcc {
-this.has_prefix("5") => "RETAIL",
-this.has_prefix("4") => "TRAVEL",
-this.has_prefix("6") => "FINANCIAL",
-_ => "OTHER"
-}
+- mapping: |
+    let mcc = this.MERCHANT_CATEGORY_CODE.string()
+    root.category_level1 = match $mcc {
+    this.has_prefix("5") => "RETAIL",
+    this.has_prefix("4") => "TRAVEL",
+    this.has_prefix("6") => "FINANCIAL",
+    _ => "OTHER"
+    }
 
-root.category_level2 = match $mcc {
-this.has_prefix("54") => "GROCERY",
-this.has_prefix("58") => "DINING",
-_ => root.category_level1
-}
+    root.category_level2 = match $mcc {
+    this.has_prefix("54") => "GROCERY",
+    this.has_prefix("58") => "DINING",
+    _ => root.category_level1
+    }
 ```
 
 ### Flagging High-Risk Categories
@@ -142,12 +145,14 @@ _ => root.category_level1
 Add fraud indicators:
 
 ```yaml
-root.high_risk = match $mcc {
-  this.has_prefix("59") => true,   # Misc retail
-  this.has_prefix("79") => true,   # Recreation
-  this.has_prefix("76") => true,   # Misc services
-  _ => false
-}
+- mapping: |
+    let mcc = this.MERCHANT_CATEGORY_CODE.string()
+    root.high_risk = match $mcc {
+      this.has_prefix("59") => true,   # Misc retail
+      this.has_prefix("79") => true,   # Recreation
+      this.has_prefix("76") => true,   # Misc services
+      _ => false
+    }
 ```
 
 ---

@@ -127,13 +127,14 @@ The output switch above writes rejected records to `etl-dlq.jsonl`. Set that pat
 Check data types, not just presence:
 
 ```yaml
-root = if this.amount_usd.type() != "number" {
-  throw("amount_usd must be numeric, got: " + this.amount_usd.type())
-} else if this.amount_usd < 0 {
-  throw("amount_usd cannot be negative: " + this.amount_usd.string())
-} else {
-  this
-}
+- mapping: |
+    root = if this.amount_usd.type() != "number" {
+      throw("amount_usd must be numeric, got: " + this.amount_usd.type())
+    } else if this.amount_usd < 0 {
+      throw("amount_usd cannot be negative: " + this.amount_usd.string())
+    } else {
+      this
+    }
 ```
 
 ### Range Validation
@@ -141,21 +142,22 @@ root = if this.amount_usd.type() != "number" {
 Flag suspicious values:
 
 ```yaml
-root._warnings = []
+- mapping: |
+    root._warnings = []
 
-# Flag unusually large transactions
-root._warnings = if this.amount_usd > 100000 {
-  root._warnings.append("Large transaction: review required")
-} else {
-  root._warnings
-}
+    # Flag unusually large transactions
+    root._warnings = if this.amount_usd > 100000 {
+      root._warnings.append("Large transaction: review required")
+    } else {
+      root._warnings
+    }
 
-# Flag future dates
-root._warnings = if this.transaction_date > now().ts_format("2006-01-02") {
-  root._warnings.append("Future transaction date")
-} else {
-  root._warnings
-}
+    # Flag future dates
+    root._warnings = if this.transaction_date > now().ts_format("2006-01-02") {
+      root._warnings.append("Future transaction date")
+    } else {
+      root._warnings
+    }
 ```
 
 ### Validation Metrics

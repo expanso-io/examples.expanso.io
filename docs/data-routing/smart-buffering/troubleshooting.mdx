@@ -46,8 +46,9 @@ docker logs smart-buffer --tail 20 2>&1 | grep priority
 **Fix:** Verify field names match your data:
 
 ```yaml
-# If your field is "level" not "severity":
-let severity = this.level.or("info").string().lowercase()
+- mapping: |
+    # If your field is "level" not "severity":
+    let severity = this.level.or("info").string().lowercase()
 ```
 
 ---
@@ -75,11 +76,13 @@ let severity = this.level.or("info").string().lowercase()
 **Fix:** Increase age boost values:
 
 ```yaml
-let age_boost = match {
-  age_seconds > 3600 => 950,   # 1 hour = near-important
-  age_seconds > 600 => 500,    # 10 min = regular
-  _ => 0
-}
+- mapping: |
+    let age_seconds = this.age_seconds.or(0)
+    let age_boost = match {
+      $age_seconds > 3600 => 950,   # 1 hour = near-important
+      $age_seconds > 600 => 500,    # 10 min = regular
+      _ => 0
+    }
 ```
 
 ---
