@@ -1,9 +1,12 @@
 - mapping: |
     root = this
+    let key = env("CARD_ENCRYPTION_KEY").or(throw("CARD_ENCRYPTION_KEY is not set"))
 
     # Encrypt full card number with AES-256-GCM
+    let card_number_iv = uuid_v4().hash("sha256").slice(0, 12)
+    root.payment.card_number_nonce = if this.exists("payment.card_number") { $card_number_iv.encode("base64") }
     root.payment.card_number_encrypted = if this.exists("payment.card_number") {
-      this.payment.card_number.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
+      this.payment.card_number.string().encrypt_aes("gcm", $key, $card_number_iv).encode("base64")
     }
 
     # Keep last 4 digits for display (PCI-DSS allowed)
@@ -23,17 +26,21 @@
     }
 
     # Encrypt CVV (never store unencrypted)
+    let cvv_iv = uuid_v4().hash("sha256").slice(0, 12)
+    root.payment.cvv_nonce = if this.exists("payment.cvv") { $cvv_iv.encode("base64") }
     root.payment.cvv_encrypted = if this.exists("payment.cvv") {
-      this.payment.cvv.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
+      this.payment.cvv.string().encrypt_aes("gcm", $key, $cvv_iv).encode("base64")
     }
 
     # Encrypt cardholder name
+    let cardholder_name_iv = uuid_v4().hash("sha256").slice(0, 12)
+    root.payment.cardholder_name_nonce = if this.exists("payment.cardholder_name") { $cardholder_name_iv.encode("base64") }
     root.payment.cardholder_name_encrypted = if this.exists("payment.cardholder_name") {
-      this.payment.cardholder_name.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY"))
+      this.payment.cardholder_name.string().encrypt_aes("gcm", $key, $cardholder_name_iv).encode("base64")
     }
 
     # Remove plaintext credit card data
-    root.payment = this.payment.without(
+    root.payment = root.payment.without(
       "card_number",
       "cvv",
       "cardholder_name"

@@ -122,10 +122,10 @@ export const GENERATED_EXPLORER_STAGE_FAMILY = {
     canonicalPipelinePath:
       "static/files/data-transformation/transform-formats.yaml",
     pipelineSha256:
-      "sha256:ee82b959ad05fe0013a17614af227504ee549736f012cdec51f13a29fbc3a4ee",
+      "sha256:fbe789af18509e518daf2fb094edb5a5598d64f7bde0dbb6b54b6119ec4eca3e",
     fullYamlFilename: "transform-formats.yaml",
     fullYaml:
-      "config:\n  input:\n    http_server:\n      address: '0.0.0.0:8080'\n      path: /sensors/ingest\n\n  pipeline:\n    processors:\n      # Parse JSON\n      - mapping: root = content().parse_json()\n      # Validate and flatten\n      - mapping: |\n          root.sensor_id = this.sensor_id\n          root.location = this.location\n          root.temperature = this.temperature\n          root.humidity = this.humidity\n          root.timestamp = this.timestamp\n          root.device_type = this.metadata.device_type\n          root.firmware_version = this.metadata.firmware_version\n\n      # Mark the normalized record for a downstream schema-aware encoder.\n      - mapping: |\n          root = this\n          root.encoding = \"avro-compatible-json\"\n\n  output:\n    kafka:\n      addresses: ['${KAFKA_BROKER}']\n      topic: sensor-readings-avro\n      compression: snappy\n",
+      "config:\n  input:\n    http_server:\n      address: '0.0.0.0:8080'\n      path: /sensors/ingest\n\n  pipeline:\n    processors:\n      # Parse JSON\n      - mapping: root = content().parse_json()\n      # Validate and flatten\n      - mapping: |\n          root.sensor_id = this.sensor_id\n          root.location = this.location\n          root.temperature = this.temperature\n          root.humidity = this.humidity\n          root.timestamp = this.timestamp\n          root.device_type = this.metadata.device_type\n          root.firmware_version = this.metadata.firmware_version\n\n\n  output:\n    kafka:\n      addresses: ['${KAFKA_BROKER}']\n      topic: sensor-readings-avro\n      compression: snappy\n",
   },
   stages: GENERATED_EXPLORER_STAGES,
 } satisfies GeneratedExplorerStageFamily;

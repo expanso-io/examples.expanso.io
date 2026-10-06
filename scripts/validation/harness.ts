@@ -210,7 +210,9 @@ export function assessRunnability(
   return { runnable: true };
 }
 
-function* outputProcessors(output: YamlValue | undefined): Generator<YamlValue> {
+function* outputProcessors(
+  output: YamlValue | undefined
+): Generator<YamlValue> {
   if (output === undefined || !isYamlObject(output)) return;
 
   if (output.processors !== undefined) yield output.processors;
@@ -268,10 +270,7 @@ export function planRun(
     return markerIndex >= 0 ? path.slice(markerIndex + 1) : path;
   };
 
-  const replaceProcessorStandIns = (
-    node: YamlValue,
-    at: string
-  ): YamlValue => {
+  const replaceProcessorStandIns = (node: YamlValue, at: string): YamlValue => {
     if (Array.isArray(node)) {
       return node.map((entry, index) =>
         replaceProcessorStandIns(entry, `${at}.${index}`)
@@ -563,8 +562,29 @@ export function planRun(
     }
 
     if (!LOCAL_OUTPUTS.has(kind)) native = false;
+    const settings = next[kind];
+    const batching =
+      isYamlObject(settings) && isYamlObject(settings.batching)
+        ? settings.batching
+        : undefined;
     delete next[kind];
     next.file = { path: target, codec: 'lines' };
+
+    if (batching?.processors !== undefined) {
+      substitutions.push({
+        role: 'output',
+        at: `${at}.${kind}.batching`,
+        from: `count=${String(batching.count)}, period=${String(batching.period)}`,
+        to: 'count=25, period=1ms; batching processors retained',
+      });
+      return {
+        broker: {
+          pattern: 'fan_out',
+          batching: { ...batching, count: 25, period: '1ms' },
+          outputs: [next],
+        },
+      };
+    }
 
     return next;
   };

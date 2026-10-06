@@ -48,10 +48,14 @@ config:
           }
 
       # Step 3: Parse timestamp
-      - catch:
+      - try:
           - mapping: |
               let format = this.format_detected
               let ts = this.timestamp_original
+              let local_zone = this.timezone.or("UTC")
+              let local_offset = if $format == "custom_datetime" { $ts.ts_parse("2006-01-02 15:04:05").ts_format("-07:00", $local_zone) } else { null }
+              let local_candidate = if $local_offset != null { ($ts + " " + $local_offset).ts_parse("2006-01-02 15:04:05 -07:00") } else { null }
+              let local_resolved = if $local_candidate != null { ($ts + " " + $local_candidate.ts_format("-07:00", $local_zone)).ts_parse("2006-01-02 15:04:05 -07:00") } else { null }
 
               root = this
 
@@ -60,17 +64,22 @@ config:
               } else if $format == "iso8601_naive" {
                 ($ts.string() + "Z").ts_parse("2006-01-02T15:04:05Z07:00")
               } else if $format == "unix_seconds" {
-                $ts.ts_unix()
+                $ts.number()
               } else if $format == "unix_milliseconds" {
-                ($ts.number() / 1000).ts_unix()
+                ($ts.number() / 1000)
               } else if $format == "custom_datetime" {
-                ($ts.string() + " UTC").parse_timestamp("2006-01-02 15:04:05 MST")
+                if $local_resolved.ts_format("2006-01-02 15:04:05", $local_zone) == $ts {
+                    $local_resolved
+                  } else {
+                    throw("Invalid local timestamp for timezone: " + $local_zone)
+                  }
               } else {
                 throw("Unsupported timestamp format: " + $format)
               }
 
               root.processing_metadata.parse_success = true
 
+      - catch:
           - mapping: |
               root = this
               root.processing_metadata.parse_success = false

@@ -1,0 +1,375 @@
+import assert from 'node:assert/strict';
+import { after, before, test } from 'node:test';
+import { createServer } from 'node:http';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { parse } from 'yaml';
+import {
+  LocalEdgeAgent,
+  resolveEdgeBinary,
+  validateSource,
+} from '../../scripts/validation/edge';
+import { planRun } from '../../scripts/validation/harness';
+import {
+  verifyEncryption,
+  type EncryptionExpectation,
+} from '../../scripts/validation/expectations';
+import type { YamlObject } from '../../scripts/validation/yaml-value';
+import { stringify } from 'yaml';
+import { renderReport, summarize } from '../../scripts/validation/report';
+import type { PipelineReport } from '../../scripts/validation/types';
+
+const root = process.cwd();
+const manifest = JSON.parse(
+  readFileSync('tests/fixtures/pipeline-inputs/manifest.json', 'utf8')
+);
+const edge = resolveEdgeBinary(root, { install: false, log: () => {} });
+const work = mkdtempSync(join(root, '.bin', 'review-regressions-'));
+const agent = new LocalEdgeAgent(edge, work, manifest.environment);
+let sequence = 0;
+before(async () => {
+  await agent.start();
+});
+after(async () => {
+  await agent.stop();
+  rmSync(work, { recursive: true, force: true });
+});
+
+function config(path: string): YamlObject {
+  const document = parse(readFileSync(path, 'utf8'));
+  return document.config ?? document;
+}
+
+async function execute(
+  pipeline: YamlObject,
+  fixture?: string
+): Promise<unknown[]> {
+  sequence += 1;
+  const plan = planRun(
+    pipeline,
+    fixture ? join(root, fixture) : null,
+    join(work, String(sequence))
+  );
+  const validity = validateSource(
+    edge,
+    root,
+    stringify(plan.config),
+    manifest.environment
+  );
+  assert.equal(validity.status, 'PASS', JSON.stringify(validity));
+  const deployed = await agent.deploy({
+    name: `review-${sequence}`,
+    type: 'pipeline',
+    config: plan.config,
+  });
+  assert.equal(deployed.ok, true, JSON.stringify(deployed));
+  if (!deployed.ok) throw new Error(deployed.error);
+  try {
+    const deadline = Date.now() + 20_000;
+    let state = '';
+    while (Date.now() < deadline) {
+      state = (await agent.executionStatus(deployed.jobId))?.state ?? '';
+      if (['completed', 'failed', 'stopped'].includes(state)) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.equal(
+      state,
+      'completed',
+      existsSync(agent.pipelineLogPath(deployed.jobId))
+        ? readFileSync(agent.pipelineLogPath(deployed.jobId), 'utf8')
+        : JSON.stringify(await agent.executionStatus(deployed.jobId))
+    );
+    return plan.outputFiles.filter(existsSync).flatMap((path) =>
+      readFileSync(path, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+    );
+  } finally {
+    await agent.deleteJob(deployed.jobId);
+  }
+}
+
+for (const path of [
+  'examples/data-security/encrypt-data.yaml',
+  'examples/data-security/encrypt-data-complete.yaml',
+  'examples/data-security/encryption-patterns-complete.yaml',
+]) {
+  test(`retains and decrypts protected fields with distinct nonces: ${path}`, async () => {
+    const fixture = 'tests/fixtures/pipeline-inputs/encryption.jsonl';
+    const outputs = await execute(config(path), fixture);
+    const inputs = readFileSync(fixture, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const expectation = (manifest.pipelines[path]?.expectation ??
+      manifest.families[
+        path.includes('patterns') ? 'encryption-patterns' : 'encrypt-data'
+      ].expectation) as EncryptionExpectation;
+    verifyEncryption(expectation, inputs, outputs, manifest.environment);
+    assert.throws(
+      () => verifyEncryption(expectation, inputs, inputs, manifest.environment),
+      /plaintext/
+    );
+  });
+}
+
+for (const path of [
+  'examples/data-transformation/normalize-timestamps.yaml',
+  'examples/data-transformation/normalize-timestamps-complete.yaml',
+]) {
+  test(`normalizes valid naive and zoned timestamps: ${path}`, async () => {
+    const pipeline = config(path);
+    const instant = new Date(Date.now() - 3_600_000);
+    const expected = instant.toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const wallClock = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'America/Los_Angeles',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    }).format(instant);
+    pipeline.input = {
+      generate: {
+        count: 1,
+        mapping: `root = ${JSON.stringify({ event_id: 'zone', event_type: 'test', timestamp: wallClock, timezone: 'America/Los_Angeles' })}`,
+      },
+    };
+    pipeline.output = { stdout: {} };
+    const rows = (await execute(pipeline)) as Array<{ timestamp: string }>;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].timestamp, expected);
+    pipeline.input = {
+      generate: {
+        count: 1,
+        mapping: `root = ${JSON.stringify({ event_id: 'naive', event_type: 'test', timestamp: expected.slice(0, -1) })}`,
+      },
+    };
+    const naive = (await execute(pipeline)) as Array<{ timestamp: string }>;
+    assert.equal(naive[0].timestamp, expected);
+  });
+}
+
+test('preserves cent precision in generated retail transactions', async () => {
+  const original = config('static/pipelines/motherduck-retail-pipeline.yaml');
+  const rows = (await execute({
+    input: original.input,
+    output: { stdout: {} },
+  })) as Array<{
+    type: string;
+    items: Array<{ qty: number; unit_price: number }>;
+    subtotal: number;
+    tax_amount: number;
+    total_amount: number;
+  }>;
+  assert.equal(rows.length, 25);
+  for (const row of rows) {
+    const subtotal =
+      Math.round(
+        row.items.reduce((sum, item) => sum + item.qty * item.unit_price, 0) *
+          100
+      ) / 100;
+    const sign = row.type === 'return' ? -1 : 1;
+    assert.equal(row.subtotal, sign * subtotal);
+    assert.equal(
+      row.tax_amount,
+      (sign * Math.round(subtotal * 0.0875 * 100)) / 100
+    );
+    assert.equal(
+      row.total_amount,
+      Math.round((row.subtotal + row.tax_amount) * 100) / 100
+    );
+  }
+});
+
+test('tries secondary enrichment only when primary fails', async () => {
+  let primaryFails = true;
+  let secondaryCalls = 0;
+  const server = createServer((request, response) => {
+    if (request.url?.startsWith('/primary') && primaryFails) {
+      response.writeHead(500);
+      response.end('failed');
+      return;
+    }
+    if (request.url?.startsWith('/secondary')) secondaryCalls += 1;
+    response.setHeader('content-type', 'application/json');
+    response.end('{"value":"enriched"}');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    const original = config(
+      'examples/data-routing/circuit-breakers-complete.yaml'
+    );
+    const serialized = stringify(original)
+      .replace(
+        '${PRIMARY_API:http://api:8080}',
+        `http://127.0.0.1:${address.port}/primary`
+      )
+      .replace(
+        '${SECONDARY_API:http://backup-api:8080}',
+        `http://127.0.0.1:${address.port}/secondary`
+      );
+    const pipeline = parse(serialized) as YamlObject;
+    pipeline.input = {
+      generate: { count: 1, mapping: 'root = {"event_id":"fallback"}' },
+    };
+    pipeline.output = { stdout: {} };
+    const failed = (await execute(pipeline)) as Array<{
+      enrichment_source: string;
+    }>;
+    assert.equal(failed[0].enrichment_source, 'secondary_api');
+    assert.equal(secondaryCalls, 1);
+    primaryFails = false;
+    const healthy = (await execute(pipeline)) as Array<{
+      enrichment_source: string;
+    }>;
+    assert.equal(healthy[0].enrichment_source, 'primary_api');
+    assert.equal(secondaryCalls, 1);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve()))
+    );
+  }
+});
+
+test('serializes CSV and XML responses into their selected wire formats', async () => {
+  for (const target of ['csv', 'xml']) {
+    const pipeline = config(
+      'examples/data-transformation/transform-formats-complete.yaml'
+    );
+    pipeline.input = {
+      generate: {
+        count: 1,
+        mapping: `root = {"name":"A, B","value":42}\nmeta Accept = "application/${target}"`,
+      },
+    };
+    pipeline.output =
+      target === 'csv'
+        ? {
+            stdout: {},
+            processors: [{ mapping: 'root = content().parse_csv()' }],
+          }
+        : { stdout: {}, processors: [{ xml: { operator: 'to_json' } }] };
+    const rows = await execute(pipeline);
+    assert.equal(rows.length, 1);
+    if (target === 'csv')
+      assert.deepEqual(rows[0], [{ name: 'A, B', value: '42' }]);
+    else assert.ok(JSON.stringify(rows[0]).includes('A, B'));
+  }
+});
+
+test('backup batches round-trip through real Parquet encoding', async () => {
+  const source = parse(
+    readFileSync(
+      'examples/enterprise-migration/nightly-backup/nightly-backup.yaml',
+      'utf8'
+    )
+  );
+  const pipeline: YamlObject = {
+    input: {
+      generate: {
+        count: 2,
+        mapping:
+          'root = {"order_id":123,"amount":1.99,"_backup_metadata":{"backup_date":"2026-10-05"}}',
+      },
+    },
+    output: source.config.output.switch.cases[0].output,
+  };
+  const destination = pipeline.output as YamlObject;
+  destination.processors = [{ parquet_decode: {} }];
+  const rows = await execute(pipeline);
+  const records = rows.flat() as Array<{ record: string }>;
+  assert.equal(records.length, 2);
+  for (const row of records)
+    assert.deepEqual(JSON.parse(row.record), {
+      order_id: 123,
+      amount: 1.99,
+      _backup_metadata: { backup_date: '2026-10-05' },
+    });
+});
+
+test('the reusable encryption pattern preserves decryptable payment fields', async () => {
+  const fixture = 'tests/fixtures/pipeline-inputs/encryption.jsonl';
+  const output = await execute(
+    {
+      input: { file: { paths: [join(root, fixture)], codec: 'lines' } },
+      pipeline: {
+        processors: parse(
+          readFileSync(
+            'examples/data-security/encryption-patterns.yaml',
+            'utf8'
+          )
+        ),
+      },
+      output: { stdout: {} },
+    },
+    fixture
+  );
+  const expectation = manifest.families['encrypt-data']
+    .expectation as EncryptionExpectation;
+  const paymentExpectation = {
+    ...expectation,
+    fields: expectation.fields.filter((field) =>
+      field.source.startsWith('payment.')
+    ),
+    removed: expectation.removed.filter((path) => path.startsWith('payment.')),
+  };
+  verifyEncryption(
+    paymentExpectation,
+    readFileSync(fixture, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line)),
+    output,
+    manifest.environment
+  );
+});
+
+test('the emitted Markdown distinguishes skipped and stubbed execution', () => {
+  const reports: PipelineReport[] = [
+    {
+      file: {
+        path: 'example.yaml',
+        kind: 'complete-bare',
+        family: 'example',
+        category: 'test',
+      },
+      validate: { status: 'PASS', mode: 'file', errors: [] },
+      run: { status: 'SKIP', reason: 'external service unavailable' },
+    },
+  ];
+  const options = {
+    date: '2026-10-05',
+    edgeVersion: edge.version,
+    pinnedEdgeVersion: edge.version,
+    inventoryDigest: 'fixture-digest',
+  };
+  assert.match(
+    renderReport(reports, summarize(reports, options), 2),
+    /Overall: \*\*INCOMPLETE\*\*/
+  );
+  reports[0].run = {
+    status: 'PASS',
+    mode: 'fixture-harness',
+    reason: 'semantic output verified',
+    substitutions: [
+      {
+        role: 'processor',
+        at: 'pipeline.processors.0',
+        from: 'http',
+        to: 'mapping',
+      },
+    ],
+  };
+  const markdown = renderReport(reports, summarize(reports, options), 2);
+  assert.match(markdown, /PASS \(stubbed fixture harness\)/);
+  assert.match(
+    markdown,
+    /Replaced processors and resources were not exercised as committed/
+  );
+});

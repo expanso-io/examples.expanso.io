@@ -12,6 +12,9 @@ config:
       address: '0.0.0.0:8080'
       path: /transform
       allowed_verbs: ['POST']
+      sync_response:
+        headers:
+          Content-Type: '${! meta("response_content_type") }'
 
   pipeline:
     processors:
@@ -51,7 +54,7 @@ config:
       # Step 3: Transform to target format (based on Accept header or default)
       - mapping: |
           root = this
-          let target = meta("http_accept").or("application/json")
+          let target = meta("Accept").or("application/json")
 
           root.target_format = if $target.contains("xml") {
             "xml"
@@ -62,10 +65,12 @@ config:
           }
 
           meta target_format = root.target_format
+          meta response_content_type = match root.target_format {
+            "xml" => "application/xml"
+            "csv" => "text/csv"
+            _ => "application/json"
+          }
 
-      # Step 4: Add transformation metadata. The local harness exercises the
-      # normalized JSON representation; destination-specific serialization is
-      # applied by the receiving integration.
       - mapping: |
           root.data = this
           root.transformation = {
@@ -73,6 +78,19 @@ config:
             "target_format": meta("target_format"),
             "transformed_at": now()
           }
+
+      - switch:
+          - check: 'meta("target_format") == "xml"'
+            processors:
+              - mapping: root = this.format_xml()
+          - check: 'meta("target_format") == "csv"'
+            processors:
+              - mapping: |
+                  let rows = if this.data.type() == "array" { this.data } else { [this.data.without("target_format")] }
+                  let columns = $rows.map_each(row -> row.keys()).flatten().unique().sort()
+                  let header = $columns.map_each(col -> "\"" + col.replace_all("\"", "\"\"") + "\"").join(",")
+                  let lines = $rows.map_each(row -> $columns.map_each(col -> "\"" + row.get(col).or("").string().replace_all("\"", "\"\"") + "\"").join(","))
+                  root = $header + "\r\n" + $lines.join("\r\n") + "\r\n"
 
   output:
     # Reply to the HTTP request that delivered the message

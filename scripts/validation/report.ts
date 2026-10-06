@@ -36,7 +36,14 @@ function runCell(result: RunResult | undefined): string {
   if (result.status === 'SKIP') return `SKIP: ${escapeCell(result.reason)}`;
 
   if (result.status === 'PASS') {
-    const mode = result.mode === 'native' ? 'native' : 'fixture harness';
+    const stubbed = result.substitutions?.some(
+      (entry) => entry.role === 'processor' || entry.role === 'resource'
+    );
+    const mode = stubbed
+      ? 'stubbed fixture harness'
+      : result.mode === 'native'
+        ? 'native'
+        : 'fixture harness';
 
     return `PASS (${mode})`;
   }
@@ -132,7 +139,11 @@ export function renderReport(
   );
 
   const overall =
-    blocking.length === 0 && summary.invalidYaml === 0 ? 'PASS' : 'FAIL';
+    blocking.length > 0 || summary.invalidYaml > 0
+      ? 'FAIL'
+      : summary.complete.runPass === summary.complete.total
+        ? 'PASS'
+        : 'INCOMPLETE';
 
   lines.push(`# Example pipeline validation: ${summary.date}`);
   lines.push('');
@@ -161,7 +172,7 @@ export function renderReport(
     '- Validation-only environment values in the fixture manifest satisfy non-metered local salts where the validator requires a concrete string.'
   );
   lines.push(
-    '- **Run** deploys the pipeline to a local-mode expanso-edge agent and requires the expected output to be written. `native` means the file ran as written. `fixture harness` means the input was replaced by a checked-in fixture file and every leaf output by a local file; processors and routing logic ran unchanged.'
+    '- **Run** deploys the pipeline to a local-mode expanso-edge agent and requires the expected output to be written. `native` means the file ran as written. `fixture harness` means the input was replaced by a checked-in fixture file and every leaf output by a local file; processor and resource substitutions are listed below. Runs with those substitutions exercise stubbed processing and do not verify the replaced integrations.'
   );
   lines.push(
     '- **SKIP** names the external service or missing fixture that prevents a local run. Skipped pipelines are still validated.'
@@ -235,7 +246,7 @@ export function renderReport(
     lines.push('## Run substitutions');
     lines.push('');
     lines.push(
-      'Edges swapped by the fixture harness. Everything between input and output ran as committed.'
+      'Input, output, processor, and resource substitutions made by the fixture harness. Replaced processors and resources were not exercised as committed.'
     );
     lines.push('');
     lines.push('<details><summary>Show per-pipeline substitutions</summary>');

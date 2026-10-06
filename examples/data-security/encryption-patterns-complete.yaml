@@ -39,7 +39,8 @@ config:
           root = this
 
           let key = env("PAYMENT_ENCRYPTION_KEY").or(throw("PAYMENT_ENCRYPTION_KEY is not set"))
-          let iv = uuid_v4().hash("sha256").encode("hex").slice(0, 12)
+          let card_number_iv = uuid_v4().hash("sha256").slice(0, 12)
+          let cvv_iv = uuid_v4().hash("sha256").slice(0, 12)
           let card_num = this.payment.card_number.or("").string().re_replace_all("[^0-9]", "")
 
           root.payment.card_brand = if this.exists("payment.card_number") {
@@ -55,23 +56,28 @@ config:
           root.payment.card_last_four = if $card_num.length() >= 8 { $card_num.slice(-4) }
           root.payment.card_bin = if $card_num.length() >= 8 { $card_num.slice(0, 6) }
 
+          root.payment.card_number_nonce = if this.exists("payment.card_number") { $card_number_iv.encode("base64") }
+
           root.payment.card_number_encrypted = if this.exists("payment.card_number") {
-            this.payment.card_number.string().encrypt_aes("gcm", $key, $iv).encode("base64")
+            this.payment.card_number.string().encrypt_aes("gcm", $key, $card_number_iv).encode("base64")
           }
+
+          root.payment.cvv_nonce = if this.exists("payment.cvv") { $cvv_iv.encode("base64") }
 
           root.payment.cvv_encrypted = if this.exists("payment.cvv") {
-            this.payment.cvv.string().encrypt_aes("gcm", $key, $iv).encode("base64")
+            this.payment.cvv.string().encrypt_aes("gcm", $key, $cvv_iv).encode("base64")
           }
 
-          root.payment.nonce = if this.exists("payment") { $iv }
-          root.payment = this.payment.without("card_number", "cvv", "cardholder_name")
+          root.payment = root.payment.without("card_number", "cvv", "cardholder_name")
 
       # PATTERN 2: Personal Data Encryption (GDPR/CCPA)
       - mapping: |
           root = this
 
           let key = env("PII_ENCRYPTION_KEY").or(throw("PII_ENCRYPTION_KEY is not set"))
-          let iv = uuid_v4().hash("sha256").encode("hex").slice(0, 12)
+          let email_iv = uuid_v4().hash("sha256").slice(0, 12)
+          let phone_iv = uuid_v4().hash("sha256").slice(0, 12)
+          let ssn_iv = uuid_v4().hash("sha256").slice(0, 12)
           let email = this.customer.email.or("").string().lowercase()
           let ssn_normalized = this.customer.ssn.or("").string().re_replace_all("[^0-9]", "")
 
@@ -79,52 +85,61 @@ config:
             $email.split("@").index(1)
           }
 
+          root.customer.email_nonce = if this.exists("customer.email") { $email_iv.encode("base64") }
+
           root.customer.email_encrypted = if this.exists("customer.email") {
-            this.customer.email.string().encrypt_aes("gcm", $key, $iv).encode("base64")
+            this.customer.email.string().encrypt_aes("gcm", $key, $email_iv).encode("base64")
           }
 
+          root.customer.phone_nonce = if this.exists("customer.phone") { $phone_iv.encode("base64") }
+
           root.customer.phone_encrypted = if this.exists("customer.phone") {
-            this.customer.phone.string().encrypt_aes("gcm", $key, $iv).encode("base64")
+            this.customer.phone.string().encrypt_aes("gcm", $key, $phone_iv).encode("base64")
           }
 
           root.customer.ssn_last_four = if $ssn_normalized.length() == 9 {
             $ssn_normalized.slice(-4)
           }
 
+          root.customer.ssn_nonce = if this.exists("customer.ssn") { $ssn_iv.encode("base64") }
+
           root.customer.ssn_encrypted = if this.exists("customer.ssn") {
-            this.customer.ssn.string().encrypt_aes("gcm", $key, $iv).encode("base64")
+            this.customer.ssn.string().encrypt_aes("gcm", $key, $ssn_iv).encode("base64")
           }
 
-          root.customer.nonce = if this.exists("customer") { $iv }
-          root.customer = this.customer.without("email", "phone", "ssn", "first_name", "last_name")
+          root.customer = root.customer.without("email", "phone", "ssn", "first_name", "last_name")
 
       # PATTERN 3: Address Encryption
       - mapping: |
           root = this
 
           let key = env("ADDRESS_ENCRYPTION_KEY").or(throw("ADDRESS_ENCRYPTION_KEY is not set"))
-          let iv = uuid_v4().hash("sha256").encode("hex").slice(0, 12)
+          let street_iv = uuid_v4().hash("sha256").slice(0, 12)
+          let zip_iv = uuid_v4().hash("sha256").slice(0, 12)
           let zip_clean = this.billing_address.zip.or("").string().re_replace_all("[^0-9]", "")
 
           root.billing_address.zip_prefix = if $zip_clean.length() >= 3 { $zip_clean.slice(0, 3) }
 
+          root.billing_address.street_nonce = if this.exists("billing_address.street") { $street_iv.encode("base64") }
+
           root.billing_address.street_encrypted = if this.exists("billing_address.street") {
-            this.billing_address.street.string().encrypt_aes("gcm", $key, $iv).encode("base64")
+            this.billing_address.street.string().encrypt_aes("gcm", $key, $street_iv).encode("base64")
           }
+
+          root.billing_address.zip_nonce = if this.exists("billing_address.zip") { $zip_iv.encode("base64") }
 
           root.billing_address.zip_encrypted = if this.exists("billing_address.zip") {
-            this.billing_address.zip.string().encrypt_aes("gcm", $key, $iv).encode("base64")
+            this.billing_address.zip.string().encrypt_aes("gcm", $key, $zip_iv).encode("base64")
           }
 
-          root.billing_address.nonce = if this.exists("billing_address") { $iv }
-          root.billing_address = this.billing_address.without("street", "zip")
+          root.billing_address = root.billing_address.without("street", "zip")
 
       # PATTERN 4: Temporal Data Encryption (HIPAA)
       - mapping: |
           root = this
 
           let key = env("TEMPORAL_ENCRYPTION_KEY").or(throw("TEMPORAL_ENCRYPTION_KEY is not set"))
-          let iv = uuid_v4().hash("sha256").encode("hex").slice(0, 12)
+          let date_of_birth_iv = uuid_v4().hash("sha256").slice(0, 12)
           let has_dob = this.exists("customer.date_of_birth")
           let birth_year = if $has_dob {
             this.customer.date_of_birth.ts_parse("2006-01-02").ts_format("2006").number()
@@ -144,10 +159,12 @@ config:
             }
           }
 
+          root.customer.date_of_birth_nonce = if $has_dob { $date_of_birth_iv.encode("base64") }
+
           root.customer.date_of_birth_encrypted = if $has_dob {
-            this.customer.date_of_birth.string().encrypt_aes("gcm", $key, $iv).encode("base64")
+            this.customer.date_of_birth.string().encrypt_aes("gcm", $key, $date_of_birth_iv).encode("base64")
           }
-          root.customer.date_of_birth_nonce = if $has_dob { $iv }
+          root.customer.date_of_birth_nonce = if $has_dob { $date_of_birth_iv.encode("base64") }
 
           root.customer.date_of_birth = deleted()
 

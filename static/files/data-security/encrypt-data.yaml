@@ -58,10 +58,12 @@ config:
       - mapping: |
           root = this
           let key = env("CARD_ENCRYPTION_KEY").or(throw("CARD_ENCRYPTION_KEY is not set"))
-          let iv = uuid_v4().hash("sha256").encode("hex").slice(0, 12)
-          root.payment.nonce = if this.exists("payment") { $iv }
+          let card_number_iv = uuid_v4().hash("sha256").slice(0, 12)
+          let cvv_iv = uuid_v4().hash("sha256").slice(0, 12)
+          let cardholder_name_iv = uuid_v4().hash("sha256").slice(0, 12)
+          root.payment.card_number_nonce = if this.exists("payment.card_number") { $card_number_iv.encode("base64") }
           root.payment.card_number_encrypted = if this.exists("payment.card_number") {
-            this.payment.card_number.string().encrypt_aes("gcm", $key, $iv).encode("base64")
+            this.payment.card_number.string().encrypt_aes("gcm", $key, $card_number_iv).encode("base64")
           }
           root.payment.card_last_four = if this.exists("payment.card_number") {
             this.payment.card_number.re_replace_all("[^0-9]", "").slice(-4)
@@ -75,59 +77,69 @@ config:
               _ => "unknown"
             }
           }
+          root.payment.cvv_nonce = if this.exists("payment.cvv") { $cvv_iv.encode("base64") }
           root.payment.cvv_encrypted = if this.exists("payment.cvv") {
-            this.payment.cvv.string().encrypt_aes("gcm", $key, $iv).encode("base64")
+            this.payment.cvv.string().encrypt_aes("gcm", $key, $cvv_iv).encode("base64")
           }
+          root.payment.cardholder_name_nonce = if this.exists("payment.cardholder_name") { $cardholder_name_iv.encode("base64") }
           root.payment.cardholder_name_encrypted = if this.exists("payment.cardholder_name") {
-            this.payment.cardholder_name.string().encrypt_aes("gcm", $key, $iv).encode("base64")
+            this.payment.cardholder_name.string().encrypt_aes("gcm", $key, $cardholder_name_iv).encode("base64")
           }
-          root.payment = this.payment.without("card_number", "cvv", "cardholder_name")
+          root.payment = root.payment.without("card_number", "cvv", "cardholder_name")
 
       # Encrypt PII fields (see pattern guide)
       - mapping: |
           root = this
           let key = env("PII_ENCRYPTION_KEY").or(throw("PII_ENCRYPTION_KEY is not set"))
-          let iv = uuid_v4().hash("sha256").encode("hex").slice(0, 12)
-          root.customer.nonce = if this.exists("customer") { $iv }
+          let ssn_iv = uuid_v4().hash("sha256").slice(0, 12)
+          let email_iv = uuid_v4().hash("sha256").slice(0, 12)
+          let phone_iv = uuid_v4().hash("sha256").slice(0, 12)
+          let date_of_birth_iv = uuid_v4().hash("sha256").slice(0, 12)
+          root.customer.ssn_nonce = if this.exists("customer.ssn") { $ssn_iv.encode("base64") }
           root.customer.ssn_encrypted = if this.exists("customer.ssn") {
-            this.customer.ssn.string().encrypt_aes("gcm", $key, $iv).encode("base64")
+            this.customer.ssn.string().encrypt_aes("gcm", $key, $ssn_iv).encode("base64")
           }
           root.customer.ssn_last_four = if this.exists("customer.ssn") {
             this.customer.ssn.re_replace_all("[^0-9]", "").slice(-4)
           }
+          root.customer.email_nonce = if this.exists("customer.email") { $email_iv.encode("base64") }
           root.customer.email_encrypted = if this.exists("customer.email") {
-            this.customer.email.string().encrypt_aes("gcm", $key, $iv).encode("base64")
+            this.customer.email.string().encrypt_aes("gcm", $key, $email_iv).encode("base64")
           }
           root.customer.email_domain = if this.exists("customer.email") {
             this.customer.email.split("@").index(1).lowercase()
           }
+          root.customer.phone_nonce = if this.exists("customer.phone") { $phone_iv.encode("base64") }
           root.customer.phone_encrypted = if this.exists("customer.phone") {
-            this.customer.phone.string().encrypt_aes("gcm", $key, $iv).encode("base64")
+            this.customer.phone.string().encrypt_aes("gcm", $key, $phone_iv).encode("base64")
           }
           root.customer.phone_area_code = if this.exists("customer.phone") {
             this.customer.phone.re_replace_all("[^0-9]", "").slice(0, 3)
           }
+          root.customer.date_of_birth_nonce = if this.exists("customer.date_of_birth") { $date_of_birth_iv.encode("base64") }
           root.customer.date_of_birth_encrypted = if this.exists("customer.date_of_birth") {
-            this.customer.date_of_birth.string().encrypt_aes("gcm", $key, $iv).encode("base64")
+            this.customer.date_of_birth.string().encrypt_aes("gcm", $key, $date_of_birth_iv).encode("base64")
           }
           root.customer.birth_year = if this.exists("customer.date_of_birth") {
             this.customer.date_of_birth.split("-").index(0).number()
           }
-          root.customer = this.customer.without("ssn", "email", "phone", "date_of_birth")
+          root.customer = root.customer.without("ssn", "email", "phone", "date_of_birth")
 
       # Encrypt address fields (see pattern guide)
       - mapping: |
           root = this
           let key = env("ADDRESS_ENCRYPTION_KEY").or(throw("ADDRESS_ENCRYPTION_KEY is not set"))
-          let iv = uuid_v4().hash("sha256").encode("hex").slice(0, 12)
-          root.billing_address.nonce = if this.exists("billing_address") { $iv }
+          let street_iv = uuid_v4().hash("sha256").slice(0, 12)
+          let zip_iv = uuid_v4().hash("sha256").slice(0, 12)
+          root.billing_address.street_nonce = if this.exists("billing_address.street") { $street_iv.encode("base64") }
           root.billing_address.street_encrypted = if this.exists("billing_address.street") {
-            this.billing_address.street.string().encrypt_aes("gcm", $key, $iv).encode("base64")
+            this.billing_address.street.string().encrypt_aes("gcm", $key, $street_iv).encode("base64")
           }
+          root.billing_address.zip_nonce = if this.exists("billing_address.zip") { $zip_iv.encode("base64") }
           root.billing_address.zip_encrypted = if this.exists("billing_address.zip") {
-            this.billing_address.zip.string().encrypt_aes("gcm", $key, $iv).encode("base64")
+            this.billing_address.zip.string().encrypt_aes("gcm", $key, $zip_iv).encode("base64")
           }
-          root.billing_address = this.billing_address.without("street", "zip")
+          root.billing_address = root.billing_address.without("street", "zip")
 
       # Add encryption metadata
       - mapping: |

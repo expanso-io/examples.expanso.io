@@ -5,9 +5,6 @@
  *
  * Usage:
  *   npm run validate-examples                       # validate + run, write reports
- *   npm run validate-examples -- --no-run           # validate only
- *   npm run validate-examples -- --only remove-pii  # filter by path substring
- *   npm run validate-examples -- --no-report        # print results, write nothing
  *   npm run validate-examples -- --date 2026-10-05  # override the report date (UTC default)
  *
  * Exit code is 1 when any complete pipeline fails validation or execution, or
@@ -46,6 +43,10 @@ import {
   pipelineConfigOf,
 } from './validation/inventory';
 import { renderIndex, renderReport, summarize } from './validation/report';
+import {
+  verifyEncryption,
+  type EncryptionExpectation,
+} from './validation/expectations';
 import type {
   PipelineFile,
   PipelineReport,
@@ -61,6 +62,7 @@ const FIXTURE_ROOT = 'tests/fixtures/pipeline-inputs';
 const RUN_TIMEOUT_MS = 45_000;
 
 interface ManifestEntry {
+  expectation?: EncryptionExpectation;
   fixture?: string;
   minRecords?: number;
   pathStandIns?: Record<string, string>;
@@ -78,34 +80,21 @@ interface Manifest {
 }
 
 interface Options {
-  run: boolean;
-  report: boolean;
   install: boolean;
-  only: string | null;
   date: string;
-  reportDir: string;
 }
 
 function parseArgs(argv: readonly string[]): Options {
   const options: Options = {
-    run: true,
-    report: true,
     install: true,
-    only: null,
     date: new Date().toISOString().slice(0, 10),
-    reportDir: 'validation-reports',
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
 
-    if (arg === '--no-run') options.run = false;
-    else if (arg === '--no-report') options.report = false;
-    else if (arg === '--no-install') options.install = false;
-    else if (arg === '--only') options.only = argv[++index] ?? null;
+    if (arg === '--no-install') options.install = false;
     else if (arg === '--date') options.date = argv[++index] ?? options.date;
-    else if (arg === '--report-dir')
-      options.reportDir = argv[++index] ?? options.reportDir;
     else if (arg === '--help' || arg === '-h') {
       process.stdout.write(
         readFileSync(fileURLToPath(import.meta.url), 'utf8')
@@ -167,7 +156,10 @@ function resolveStandIns(entry: ManifestEntry): LocalStandIns {
     paths: Object.fromEntries(
       Object.entries(entry.pathStandIns ?? {}).map(([source, path]) => [
         source,
-        { absolute: pathToFileURL(join(repositoryRoot, path)).href, display: path },
+        {
+          absolute: pathToFileURL(join(repositoryRoot, path)).href,
+          display: path,
+        },
       ])
     ),
   };
@@ -288,7 +280,6 @@ async function runPipeline(
           break;
       }
 
-      if (countRecords(plan.outputFiles) >= (entry.minRecords ?? 1)) break;
       await new Promise((resolveSleep) => setTimeout(resolveSleep, 250));
     }
 
@@ -315,7 +306,7 @@ async function runPipeline(
       };
     }
 
-    if (finalState !== 'completed' && records < minRecords) {
+    if (finalState !== 'completed') {
       return {
         status: 'FAIL',
         ...base,
@@ -341,13 +332,38 @@ async function runPipeline(
       };
     }
 
-    const suffix =
-      finalState === 'completed' ? '' : ` while stream remained ${finalState}`;
+    if (!entry.expectation || !fixture) {
+      return {
+        status: 'FAIL',
+        ...base,
+        reason: 'semantic output expectation is not registered',
+      };
+    }
+    try {
+      const parseLines = (path: string): unknown[] =>
+        readFileSync(path, 'utf8')
+          .split('\n')
+          .filter((line) => line.trim())
+          .map((line) => JSON.parse(line));
+      verifyEncryption(
+        entry.expectation,
+        parseLines(fixture),
+        plan.outputFiles.filter(existsSync).flatMap(parseLines),
+        manifest.environment ?? {}
+      );
+    } catch (error) {
+      return {
+        status: 'FAIL',
+        ...base,
+        reason: 'semantic output verification failed',
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
 
     return {
       status: 'PASS',
       ...base,
-      reason: `${records} records written${suffix}`,
+      reason: `${records} records written and semantic output verified`,
     };
   } finally {
     await agent.deleteJob(deployed.jobId);
@@ -397,7 +413,7 @@ function writeReports(
     inventoryDigest: digest,
   });
 
-  const reportRoot = join(repositoryRoot, options.reportDir);
+  const reportRoot = join(repositoryRoot, 'validation-reports');
   const dated = join(reportRoot, options.date);
   const latest = join(reportRoot, 'latest');
 
@@ -427,7 +443,7 @@ function writeReports(
     'utf8'
   );
   log(
-    `report written to ${options.reportDir}/${options.date}/README.md and ${options.reportDir}/latest/README.md`
+    `report written to validation-reports/${options.date}/README.md and validation-reports/latest/README.md`
   );
 }
 
@@ -443,7 +459,7 @@ function stripDocument(
         records: undefined,
         reason:
           report.run.status === 'PASS'
-            ? 'expected output observed'
+            ? 'semantic output verified'
             : report.run.reason,
       }
     : undefined;
@@ -463,15 +479,12 @@ async function main(): Promise<void> {
 
   log(`expanso-edge ${edge.version} (${edge.path})`);
 
-  let files = discoverPipelineFiles(repositoryRoot).filter(
+  const files = discoverPipelineFiles(repositoryRoot).filter(
     (file) => file.kind !== 'manifest'
   );
 
   const digest = inventoryDigest(repositoryRoot, files);
 
-  const only = options.only;
-
-  if (only) files = files.filter((file) => file.path.includes(only));
   log(
     `inventory: ${files.length} files (${files.filter((file) => file.kind.startsWith('complete')).length} complete pipelines)`
   );
@@ -491,7 +504,7 @@ async function main(): Promise<void> {
     });
   }
 
-  if (options.run) {
+  {
     const workRoot = join(repositoryRoot, '.bin');
     mkdirSync(workRoot, { recursive: true });
     const workDir = mkdtempSync(join(workRoot, 'examples-validation-'));
@@ -537,10 +550,7 @@ async function main(): Promise<void> {
     );
   }
 
-  if (options.report && !options.only)
-    writeReports(reports, options, edge.version, digest);
-  else if (options.only)
-    log('report skipped because --only filters the inventory');
+  writeReports(reports, options, edge.version, digest);
 
   const summary = summarize(reports, {
     date: options.date,
@@ -556,6 +566,8 @@ async function main(): Promise<void> {
   if (
     summary.complete.validateFail > 0 ||
     summary.complete.runFail > 0 ||
+    summary.complete.runSkip > 0 ||
+    summary.complete.runNotAttempted > 0 ||
     summary.invalidYaml > 0
   ) {
     process.exitCode = 1;
