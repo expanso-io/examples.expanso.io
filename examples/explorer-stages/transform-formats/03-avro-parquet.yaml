@@ -1,7 +1,19 @@
 output:
   aws_s3:
-    bucket: sensor-data-lake
-    path: readings/${!timestamp_unix()}.parquet
-    codec: parquet
-    compression: snappy
-    # Columnar storage for fast analytics
+    bucket: ${S3_BUCKET}
+    path: readings/${!now().ts_unix()}.parquet
+    region: ${AWS_REGION}
+    server_side_encryption: aws:kms
+    kms_key_id: ${S3_KMS_KEY_ARN}
+  processors:
+    - parquet_encode:
+        schema:
+          - name: sensor_id
+            type: UTF8
+          - name: temperature
+            type: DOUBLE
+          - name: humidity
+            type: DOUBLE
+          - name: timestamp
+            type: UTF8
+        compression: snappy

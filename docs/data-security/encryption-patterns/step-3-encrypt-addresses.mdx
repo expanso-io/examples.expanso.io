@@ -29,13 +29,9 @@ For any object containing a physical address:
 
 ## Implementation
 
-You can add this logic to the same `mapping` processor you've been building in the previous steps.
+Append this as a separate item in `pipeline.processors` after the processor from Step 2. Each processor receives the previous processor's output, so `root = this` preserves earlier ciphertext and deletions. Keep the earlier processors in order.
 
-1.  **Start with your Pipeline:** Open the `encrypt-pii.yaml` file from Step 2.
-
-2.  **Add the Address Encryption Logic:** Add the logic for the `billing_address` object to the _bottom_ of the existing `mapping` processor.
-
-    ```yaml
+```yaml
 pipeline:
   processors:
     - mapping: |
@@ -94,8 +90,6 @@ pipeline:
         root.billing_address = root.billing_address.without("street", "zip")
         root.shipping_address = root.shipping_address.without("street", "zip")
 ```
-
-    _Note: This step uses a separate `ADDRESS_ENCRYPTION_KEY`. Ensure you have set it as an environment variable._
 
 ## Verification
 

@@ -9,20 +9,16 @@ config:
       address: 0.0.0.0:8080
       path: /logs
       timeout: 5s
-      rate_limit: "10000/s"
+      rate_limit: '10000/s'
 
   pipeline:
     processors:
-      # Step 1: Parse and validate
-      - json_documents:
-          parts: []
-
-      # Step 2: Classify priority based on severity
+      # Classify priority based on severity
       - mapping: |
-          root = this
-
-          if !this.severity.exists() {
+          root = if this.severity == null {
             throw("Missing required field: severity")
+          } else {
+            this
           }
 
           # Normalize severity to uppercase
@@ -63,8 +59,15 @@ config:
           output:
             label: critical_queue
             kafka:
-              addresses: ["${KAFKA_BROKERS}"]
+              addresses: ['${KAFKA_TLS_BROKERS}']
               topic: logs-critical
+              tls: &kafka_tls
+                enabled: true
+                root_cas_file: ${KAFKA_CA_FILE}
+              sasl: &kafka_sasl
+                mechanism: SCRAM-SHA-512
+                user: '${KAFKA_USERNAME}'
+                password: '${KAFKA_PASSWORD}'
 
               # No batching - send immediately
               batching:
@@ -87,8 +90,10 @@ config:
           output:
             label: high_priority_queue
             kafka:
-              addresses: ["${KAFKA_BROKERS}"]
+              addresses: ['${KAFKA_TLS_BROKERS}']
               topic: logs-high
+              tls: *kafka_tls
+              sasl: *kafka_sasl
 
               # Small batches for fast delivery
               batching:
@@ -112,8 +117,10 @@ config:
           output:
             label: normal_queue
             kafka:
-              addresses: ["${KAFKA_BROKERS}"]
+              addresses: ['${KAFKA_TLS_BROKERS}']
               topic: logs-normal
+              tls: *kafka_tls
+              sasl: *kafka_sasl
 
               # Standard batching for balanced throughput/latency
               batching:
@@ -136,8 +143,10 @@ config:
           output:
             label: low_priority_queue
             kafka:
-              addresses: ["${KAFKA_BROKERS}"]
+              addresses: ['${KAFKA_TLS_BROKERS}']
               topic: logs-low
+              tls: *kafka_tls
+              sasl: *kafka_sasl
 
               # Large batches to minimize overhead
               batching:
@@ -159,8 +168,10 @@ config:
         # Default: Treat unknown priorities as normal
         - output:
             kafka:
-              addresses: ["${KAFKA_BROKERS}"]
+              addresses: ['${KAFKA_TLS_BROKERS}']
               topic: logs-normal
+              tls: *kafka_tls
+              sasl: *kafka_sasl
               batching:
                 count: 100
                 period: 5s

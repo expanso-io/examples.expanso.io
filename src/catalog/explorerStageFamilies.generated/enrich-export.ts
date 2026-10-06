@@ -472,9 +472,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "04-configure-batching.yaml",
     yamlCode:
-      "output:\n  aws_s3:\n    bucket: expanso-demo-logs\n    path: logs/demo_${!timestamp_unix()}.jsonl\n    batching:\n      count: 10\n      period: 10s\n    credentials:\n      profile: expanso-demo\n",
+      "output:\n  aws_s3:\n    bucket: ${S3_BUCKET_NAME}\n    path: logs/demo_${!now().ts_unix()}.jsonl\n    batching:\n      count: 10\n      period: 10s\n    region: ${AWS_REGION}\n    server_side_encryption: aws:kms\n    kms_key_id: ${S3_KMS_KEY_ARN}\n",
     configSha256:
-      "sha256:2449454a97e16263c2700f5fdeeec56c2c3b19a264c616cd7cb182972aa7af28",
+      "sha256:7deaa7c8b7fbb617425fb5e0a1536efe8f595e3cfa81c4d323bd8cc4abb5484f",
   },
   {
     id: 5,
@@ -501,9 +501,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "05-configured-s3-object.yaml",
     yamlCode:
-      'output:\n  broker:\n    pattern: fan_out\n    outputs:\n      - aws_s3:\n          bucket: ${S3_BUCKET_NAME}\n          path: logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/logs_${!timestamp_unix()}.jsonl.gz\n          batching:\n            count: ${BATCH_COUNT:-200}\n            period: ${BATCH_PERIOD:-2m}\n            byte_size: ${BATCH_SIZE:-5242880}\n            processors:\n              - compress:\n                  algorithm: gzip\n                  level: 6\n          content_type: application/x-ndjson\n          content_encoding: gzip\n          storage_class: ${S3_STORAGE_CLASS:-STANDARD_IA}\n          credentials:\n            profile: ${AWS_PROFILE}\n          region: ${AWS_REGION}\n',
+      'output:\n  broker:\n    pattern: fan_out\n    outputs:\n      - aws_s3:\n          bucket: ${S3_BUCKET_NAME}\n          path: logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/logs_${!now().ts_unix()}.jsonl.gz\n          batching:\n            count: ${BATCH_COUNT:-200}\n            period: ${BATCH_PERIOD:-2m}\n            byte_size: ${BATCH_SIZE:-5242880}\n            processors:\n              - compress:\n                  algorithm: gzip\n                  level: 6\n          content_type: application/x-ndjson\n          content_encoding: gzip\n          storage_class: ${S3_STORAGE_CLASS:-STANDARD_IA}\n          region: ${AWS_REGION}\n          server_side_encryption: aws:kms\n          kms_key_id: ${S3_KMS_KEY_ARN}\n',
     configSha256:
-      "sha256:fba9fe3706f078eb3cc2b1b76f179a08a7232ea68c970e677fc57a0d3473a1a4",
+      "sha256:86038968fa45f05ab5f6e66cf724388282a76feb8d2cd660d74c2193abb4242c",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 

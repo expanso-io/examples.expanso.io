@@ -3,22 +3,36 @@ pipeline:
     - switch:
         - check: this.validate_json_schema(schema)
           processors:
-            - mapping: 'root = this.with("status", "valid")'
+            - mapping: root = this.with("status", "valid")
         - processors:
-            - mapping: 'root = this.with("status", "invalid")'
-            - mapping: 'root.error = error()'
-
+            - mapping: root = this.with("status", "invalid")
+            - mapping: root.error = error()
 output:
   switch:
     cases:
       - check: this.status == "valid"
         output:
           kafka:
-            addresses: [localhost:9092]
+            addresses:
+              - ${KAFKA_TLS_BROKERS}
             topic: sensor-data-valid
-
+            tls:
+              enabled: true
+              root_cas_file: ${KAFKA_CA_FILE}
+            sasl:
+              mechanism: SCRAM-SHA-512
+              user: ${KAFKA_USERNAME}
+              password: ${KAFKA_PASSWORD}
       - check: this.status == "invalid"
         output:
           kafka:
-            addresses: [localhost:9092]
+            addresses:
+              - ${KAFKA_TLS_BROKERS}
             topic: sensor-data-dlq
+            tls:
+              enabled: true
+              root_cas_file: ${KAFKA_CA_FILE}
+            sasl:
+              mechanism: SCRAM-SHA-512
+              user: ${KAFKA_USERNAME}
+              password: ${KAFKA_PASSWORD}

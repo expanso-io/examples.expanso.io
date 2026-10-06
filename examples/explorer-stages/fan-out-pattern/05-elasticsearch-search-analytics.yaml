@@ -1,12 +1,10 @@
 name: complete-fan-out
 type: pipeline
-
 config:
   input:
     http_server:
       address: 0.0.0.0:8080
       path: /events
-
   pipeline:
     processors:
       - mapping: |
@@ -14,24 +12,49 @@ config:
           root.edge_node_id = env("NODE_ID")
           root.processing_timestamp = now()
           root.analytics = {
-            "event_hour": this.timestamp.ts_hour(),
+            "event_hour": this.timestamp.ts_format("15").number(),
             "temp_status": if this.temperature > 35 { "high" } else { "normal" }
           }
-
   output:
     broker:
       pattern: fan_out
       outputs:
         - kafka:
-            addresses: [kafka-1.example.com:9092]
+            addresses:
+              - ${KAFKA_TLS_BROKERS}
             topic: sensor-events
-            batching: {count: 100, period: 2s}
+            batching:
+              count: 100
+              period: 2s
+            tls:
+              enabled: true
+              root_cas_file: ${KAFKA_CA_FILE}
+            sasl:
+              mechanism: SCRAM-SHA-512
+              user: ${KAFKA_USERNAME}
+              password: ${KAFKA_PASSWORD}
         - aws_s3:
-            bucket: sensor-data-archive
-            path: data/dt=${!timestamp_date("2006-01-02")}/events.jsonl.gz
-            batching: {count: 10000, period: 30m}
-        - elasticsearch:
-            urls: [https://es-1.example.com:9200]
-            index: sensor-events-${!timestamp_date("2006-01-02")}
-            id: ${!json("event_id")}
-            batching: {count: 250, period: 10s}
+            bucket: ${S3_BUCKET}
+            path: data/dt=${!now().ts_format("2006-01-02")}/events.jsonl.gz
+            batching:
+              count: 10000
+              period: 30m
+              processors:
+                - compress:
+                    algorithm: gzip
+            region: ${AWS_REGION}
+            server_side_encryption: aws:kms
+            kms_key_id: ${S3_KMS_KEY_ARN}
+            content_encoding: gzip
+        - http_client:
+            url: ${ELASTICSEARCH_HTTPS_URL}/sensor-events-${!now().ts_format("2006-01-02")}/_doc/${! this.event_id.or(uuid_v4()) }
+            verb: PUT
+            headers:
+              Authorization: ApiKey ${ELASTICSEARCH_API_KEY}
+              Content-Type: application/json
+            tls:
+              enabled: true
+              root_cas_file: ${ELASTICSEARCH_CA_FILE}
+            batching:
+              count: 250
+              period: 10s

@@ -1,19 +1,45 @@
 output:
   switch:
     cases:
-      # Critical alerts to PagerDuty
       - check: this.severity == "CRITICAL"
         output:
           http_client:
             url: https://events.pagerduty.com/v2/enqueue
-
-      # Warnings to Slack
+            verb: POST
+            headers:
+              Content-Type: application/json
+            retries: 5
+            retry_period: 500ms
+            max_retry_backoff: 5s
+          processors:
+            - mapping: |
+                root.routing_key = env("PAGERDUTY_ROUTING_KEY")
+                root.event_action = "trigger"
+                root.dedup_key = this.event_id.or(uuid_v4())
+                root.payload = {
+                  "summary": this.message.or("Critical error occurred"),
+                  "severity": "critical",
+                  "source": this.source.or("unknown"),
+                  "timestamp": this.timestamp,
+                  "custom_details": this
+                }
       - check: this.severity == "WARN"
         output:
           http_client:
-            url: https://hooks.slack.com/warning
-
-      # Default: Info to Elasticsearch
+            url: ${SLACK_HTTPS_WEBHOOK_URL}
+            verb: POST
+            headers:
+              Content-Type: application/json
+            retries: 3
+            tls:
+              enabled: true
       - output:
-          elasticsearch:
-            index: application-logs
+          http_client:
+            url: ${ELASTICSEARCH_HTTPS_URL}/application-logs/_doc/${! this.event_id.or(uuid_v4()) }
+            verb: PUT
+            headers:
+              Authorization: ApiKey ${ELASTICSEARCH_API_KEY}
+              Content-Type: application/json
+            tls:
+              enabled: true
+              root_cas_file: ${ELASTICSEARCH_CA_FILE}

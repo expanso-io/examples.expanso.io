@@ -1,22 +1,28 @@
-# Production multi-level aggregation with reliability
 input:
   kafka:
-    addresses: ["kafka-broker-1:9092", "kafka-broker-2:9092"]
-    topics: ["sensor-events"]
-    consumer_group: "aggregation-pipeline"
-
+    addresses:
+      - ${KAFKA_TLS_BROKERS}
+    topics:
+      - sensor-events
+    consumer_group: aggregation-pipeline
+    tls:
+      enabled: true
+      root_cas_file: ${KAFKA_CA_FILE}
+    sasl:
+      mechanism: SCRAM-SHA-512
+      user: ${KAFKA_USERNAME}
+      password: ${KAFKA_PASSWORD}
 resources:
   caches:
     production_cache:
       redis:
-        url: "redis://redis-cluster:6379"
+        url: redis://redis-cluster:6379
         sentinel:
-          master_name: "aggregation-cache"
+          master_name: aggregation-cache
   rate_limits:
     input_limit:
       count: 100000
-      per: "1s"
-
+      per: 1s
 pipeline:
   processors:
     - try:
@@ -31,9 +37,12 @@ pipeline:
               root.processing_instance = "aggregation-instance-1"
         catch:
           - http_client:
-              url: "https://errors.company.com/validation-errors"
-          - mapping: 'deleted()'
-
+              url: ${ERRORS_HTTPS_URL}/validation-errors
+              tls:
+                enabled: true
+              headers:
+                Authorization: Bearer ${ANALYTICS_API_TOKEN}
+          - mapping: deleted()
     - branch:
         request_map: |
           root = [
@@ -57,22 +66,24 @@ pipeline:
                 root.location_count = this.map_each(e -> e.location).unique().length()
                 root.temperature_avg = this.map_each(e -> e.temperature).mean().round(2)
               }
-
 output:
   circuit_breaker:
     failure_threshold: 5
     outputs:
       - http_client:
-          url: "https://analytics.company.com/aggregations"
+          url: ${ANALYTICS_HTTPS_URL}/aggregations
           batching:
             count: 500
-            period: "10s"
+            period: 10s
+          tls:
+            enabled: true
+          headers:
+            Authorization: Bearer ${ANALYTICS_API_TOKEN}
     fallback:
       - file:
-          path: "/var/buffer/aggregations.jsonl"
-
+          path: /var/buffer/aggregations.jsonl
 metrics:
   prometheus:
     use_histogram_timing: true
     static_labels:
-      service: "time-window-aggregation"
+      service: time-window-aggregation

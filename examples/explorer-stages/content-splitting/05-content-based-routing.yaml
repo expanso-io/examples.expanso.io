@@ -5,11 +5,9 @@ pipeline:
         meta timestamp = this.timestamp
         meta location = this.location
         root = this
-
     - unarchive:
         format: json_array
         field: readings
-
     - mapping: |
         root = this
         root.device_id = meta("device_id")
@@ -22,22 +20,35 @@ pipeline:
           this.value >= 75 => "warning"
           _ => "normal"
         }
-
-# Route based on individual temperature values
 output:
   switch:
     cases:
       - check: this.alert_level == "critical"
         output:
           http_client:
-            url: http://alerts.company.com/critical
+            url: ${ALERTS_HTTPS_URL}/critical
             verb: POST
+            tls:
+              enabled: true
+            headers:
+              Authorization: Bearer ${ALERT_SERVICE_TOKEN}
       - check: this.alert_level == "warning"
         output:
           kafka:
             topic: temperature-warnings
-            addresses: ["kafka:9092"]
+            addresses:
+              - ${KAFKA_TLS_BROKERS}
+            tls:
+              enabled: true
+              root_cas_file: ${KAFKA_CA_FILE}
+            sasl:
+              mechanism: SCRAM-SHA-512
+              user: ${KAFKA_USERNAME}
+              password: ${KAFKA_PASSWORD}
       - output:
-          s3:
-            bucket: temperature-storage
-            path: normal/${timestamp_date()}/
+          aws_s3:
+            bucket: ${S3_BUCKET}
+            region: ${AWS_REGION}
+            path: normal/${! now().ts_format("2006-01-02") }/${! uuid_v4() }.json
+            server_side_encryption: aws:kms
+            kms_key_id: ${S3_KMS_KEY_ARN}

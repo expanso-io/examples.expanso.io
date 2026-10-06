@@ -46,9 +46,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "01-no-circuit-breakers.yaml",
     yamlCode:
-      "output:\n  # No timeouts, no retries, no fallbacks\n  http_client:\n    url: https://api.external.com/process\n    # ❌ No timeout - waits forever\n    # ❌ No retry limit - infinite retries\n    # ❌ No fallback - total failure\n",
+      "output:\n  http_client:\n    url: ${DOWNSTREAM_HTTPS_URL}/endpoint\n    tls:\n      enabled: true\n    headers:\n      Authorization: Bearer ${DOWNSTREAM_API_TOKEN}\n",
     configSha256:
-      "sha256:87bcd8413c2e947579b2413d6c8746a4ad3f039044fb81c90aebdc137f5987c3",
+      "sha256:83fadd7a12b764bf1515eaa70cae1b36dab417338de5e7a2f04117b0bc59fd70",
   },
   {
     id: 2,
@@ -93,9 +93,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "02-http-circuit-breakers.yaml",
     yamlCode:
-      "output:\n  http_client:\n    url: https://api.external.com/process\n    timeout: 5s           # Fast timeout\n    retry_period: 1s      # Wait between retries\n    max_retries: 3        # Stop after 3 failures\n    backoff:\n      initial_interval: 1s\n      max_interval: 300s\n      max_elapsed_time: 0s  # Exponential backoff\n",
+      "output:\n  http_client:\n    url: ${DOWNSTREAM_HTTPS_URL}/endpoint\n    timeout: 5s\n    retry_period: 1s\n    tls:\n      enabled: true\n    headers:\n      Authorization: Bearer ${DOWNSTREAM_API_TOKEN}\n    retries: 3\n    max_retry_backoff: 300s\n",
     configSha256:
-      "sha256:bba04af2b5d80fe7a845c21d3362a9496294c5f24b02c37b0446a3bd5ed405da",
+      "sha256:4fac5ac98ae844d853e55303850b24267551a2816323f688907a2da096cbf7e9",
   },
   {
     id: 3,
@@ -190,9 +190,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "04-multi-level-fallback.yaml",
     yamlCode:
-      "output:\n  fallback:\n    # Level 1: Primary API\n    - http_client:\n        url: https://primary-api.com/process\n        timeout: 5s\n        max_retries: 2\n\n    # Level 2: Secondary API\n    - http_client:\n        url: https://secondary-api.com/process\n        timeout: 5s\n        max_retries: 1\n\n    # Level 3: Local buffer\n    - file:\n        path: /var/buffer/failed-requests.jsonl\n\n    # Level 4: Dead letter queue\n    - kafka:\n        addresses: [localhost:9092]\n        topic: dlq-circuit-breaker-failures\n",
+      "output:\n  fallback:\n    - http_client:\n        url: ${PRIMARY_HTTPS_URL}/process\n        timeout: 5s\n        tls:\n          enabled: true\n        headers:\n          Authorization: Bearer ${DOWNSTREAM_API_TOKEN}\n        retries: 2\n    - http_client:\n        url: ${SECONDARY_HTTPS_URL}/process\n        timeout: 5s\n        tls:\n          enabled: true\n        headers:\n          Authorization: Bearer ${DOWNSTREAM_API_TOKEN}\n        retries: 1\n    - file:\n        path: /var/buffer/failed-requests.jsonl\n    - kafka:\n        addresses:\n          - ${KAFKA_TLS_BROKERS}\n        topic: dlq-circuit-breaker-failures\n        tls:\n          enabled: true\n          root_cas_file: ${KAFKA_CA_FILE}\n        sasl:\n          mechanism: SCRAM-SHA-512\n          user: ${KAFKA_USERNAME}\n          password: ${KAFKA_PASSWORD}\n",
     configSha256:
-      "sha256:9d6e44e4a092b0e15f067fd99064abc615fe22341f370a9a09f2d16f78ef66fc",
+      "sha256:e93b93c9cfd39c37cd82cb8b2280fc2869141f2eccf1a4e771bb9eb16811d4de",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 

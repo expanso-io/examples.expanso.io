@@ -177,9 +177,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-validate-route.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - switch:\n        - check: this.validate_json_schema(schema)\n          processors:\n            - mapping: \'root = this.with("status", "valid")\'\n        - processors:\n            - mapping: \'root = this.with("status", "invalid")\'\n            - mapping: \'root.error = error()\'\n\noutput:\n  switch:\n    cases:\n      - check: this.status == "valid"\n        output:\n          kafka:\n            addresses: [localhost:9092]\n            topic: sensor-data-valid\n\n      - check: this.status == "invalid"\n        output:\n          kafka:\n            addresses: [localhost:9092]\n            topic: sensor-data-dlq\n',
+      'pipeline:\n  processors:\n    - switch:\n        - check: this.validate_json_schema(schema)\n          processors:\n            - mapping: root = this.with("status", "valid")\n        - processors:\n            - mapping: root = this.with("status", "invalid")\n            - mapping: root.error = error()\noutput:\n  switch:\n    cases:\n      - check: this.status == "valid"\n        output:\n          kafka:\n            addresses:\n              - ${KAFKA_TLS_BROKERS}\n            topic: sensor-data-valid\n            tls:\n              enabled: true\n              root_cas_file: ${KAFKA_CA_FILE}\n            sasl:\n              mechanism: SCRAM-SHA-512\n              user: ${KAFKA_USERNAME}\n              password: ${KAFKA_PASSWORD}\n      - check: this.status == "invalid"\n        output:\n          kafka:\n            addresses:\n              - ${KAFKA_TLS_BROKERS}\n            topic: sensor-data-dlq\n            tls:\n              enabled: true\n              root_cas_file: ${KAFKA_CA_FILE}\n            sasl:\n              mechanism: SCRAM-SHA-512\n              user: ${KAFKA_USERNAME}\n              password: ${KAFKA_PASSWORD}\n',
     configSha256:
-      "sha256:573e01076a6f7722d75a849d2c997e0a4dcb7ce49276220921b377bfcba41ebf",
+      "sha256:4814ac88fc9a662f111450bcecee9dcef2d3b0b0fb9af71dbf7ad5e852f8002d",
   },
   {
     id: 4,

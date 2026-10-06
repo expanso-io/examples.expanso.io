@@ -1,7 +1,6 @@
 output:
   switch:
     cases:
-      # Auth events to security systems
       - check: |
           this.event_type == "user.login" ||
           this.event_type == "user.logout"
@@ -10,22 +9,38 @@ output:
             pattern: fan_out
             outputs:
               - http_client:
-                  url: https://security-api.com/auth
+                  url: ${SECURITY_HTTPS_URL}/auth
+                  tls:
+                    enabled: true
+                  headers:
+                    Authorization: Bearer ${DOWNSTREAM_API_TOKEN}
               - aws_s3:
-                  bucket: security-audit-logs
-
-      # Payment events to fraud detection
+                  bucket: ${S3_BUCKET}
+                  region: ${AWS_REGION}
+                  server_side_encryption: aws:kms
+                  kms_key_id: ${S3_KMS_KEY_ARN}
       - check: this.event_type.has_prefix("payment.")
         output:
           broker:
             outputs:
               - kafka:
                   topic: payment-events
-                  idempotent_write: true
+                  addresses:
+                    - ${KAFKA_TLS_BROKERS}
+                  tls:
+                    enabled: true
+                    root_cas_file: ${KAFKA_CA_FILE}
+                  sasl:
+                    mechanism: SCRAM-SHA-512
+                    user: ${KAFKA_USERNAME}
+                    password: ${KAFKA_PASSWORD}
+                  ack_replicas: true
               - http_client:
-                  url: https://fraud-detection-api.com
-
-      # Telemetry to local storage
+                  url: ${FRAUD_HTTPS_URL}
+                  tls:
+                    enabled: true
+                  headers:
+                    Authorization: Bearer ${DOWNSTREAM_API_TOKEN}
       - check: this.event_type.has_prefix("telemetry.")
         output:
           file:

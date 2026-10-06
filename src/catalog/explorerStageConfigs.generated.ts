@@ -87,9 +87,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "01-no-circuit-breakers.yaml",
         yamlCode:
-          "output:\n  # No timeouts, no retries, no fallbacks\n  http_client:\n    url: https://api.external.com/process\n    # ❌ No timeout - waits forever\n    # ❌ No retry limit - infinite retries\n    # ❌ No fallback - total failure\n",
+          "output:\n  http_client:\n    url: ${DOWNSTREAM_HTTPS_URL}/endpoint\n    tls:\n      enabled: true\n    headers:\n      Authorization: Bearer ${DOWNSTREAM_API_TOKEN}\n",
         configSha256:
-          "sha256:87bcd8413c2e947579b2413d6c8746a4ad3f039044fb81c90aebdc137f5987c3",
+          "sha256:83fadd7a12b764bf1515eaa70cae1b36dab417338de5e7a2f04117b0bc59fd70",
       },
       {
         id: 2,
@@ -134,9 +134,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "02-http-circuit-breakers.yaml",
         yamlCode:
-          "output:\n  http_client:\n    url: https://api.external.com/process\n    timeout: 5s           # Fast timeout\n    retry_period: 1s      # Wait between retries\n    max_retries: 3        # Stop after 3 failures\n    backoff:\n      initial_interval: 1s\n      max_interval: 300s\n      max_elapsed_time: 0s  # Exponential backoff\n",
+          "output:\n  http_client:\n    url: ${DOWNSTREAM_HTTPS_URL}/endpoint\n    timeout: 5s\n    retry_period: 1s\n    tls:\n      enabled: true\n    headers:\n      Authorization: Bearer ${DOWNSTREAM_API_TOKEN}\n    retries: 3\n    max_retry_backoff: 300s\n",
         configSha256:
-          "sha256:bba04af2b5d80fe7a845c21d3362a9496294c5f24b02c37b0446a3bd5ed405da",
+          "sha256:4fac5ac98ae844d853e55303850b24267551a2816323f688907a2da096cbf7e9",
       },
       {
         id: 3,
@@ -231,9 +231,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "04-multi-level-fallback.yaml",
         yamlCode:
-          "output:\n  fallback:\n    # Level 1: Primary API\n    - http_client:\n        url: https://primary-api.com/process\n        timeout: 5s\n        max_retries: 2\n\n    # Level 2: Secondary API\n    - http_client:\n        url: https://secondary-api.com/process\n        timeout: 5s\n        max_retries: 1\n\n    # Level 3: Local buffer\n    - file:\n        path: /var/buffer/failed-requests.jsonl\n\n    # Level 4: Dead letter queue\n    - kafka:\n        addresses: [localhost:9092]\n        topic: dlq-circuit-breaker-failures\n",
+          "output:\n  fallback:\n    - http_client:\n        url: ${PRIMARY_HTTPS_URL}/process\n        timeout: 5s\n        tls:\n          enabled: true\n        headers:\n          Authorization: Bearer ${DOWNSTREAM_API_TOKEN}\n        retries: 2\n    - http_client:\n        url: ${SECONDARY_HTTPS_URL}/process\n        timeout: 5s\n        tls:\n          enabled: true\n        headers:\n          Authorization: Bearer ${DOWNSTREAM_API_TOKEN}\n        retries: 1\n    - file:\n        path: /var/buffer/failed-requests.jsonl\n    - kafka:\n        addresses:\n          - ${KAFKA_TLS_BROKERS}\n        topic: dlq-circuit-breaker-failures\n        tls:\n          enabled: true\n          root_cas_file: ${KAFKA_CA_FILE}\n        sasl:\n          mechanism: SCRAM-SHA-512\n          user: ${KAFKA_USERNAME}\n          password: ${KAFKA_PASSWORD}\n",
         configSha256:
-          "sha256:9d6e44e4a092b0e15f067fd99064abc615fe22341f370a9a09f2d16f78ef66fc",
+          "sha256:e93b93c9cfd39c37cd82cb8b2280fc2869141f2eccf1a4e771bb9eb16811d4de",
       },
     ],
   },
@@ -360,9 +360,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "01-original-input.yaml",
         yamlCode:
-          "input:\n  http_server:\n    address: 0.0.0.0:8080\n    path: /events\n\noutput:\n  kafka:\n    addresses: [localhost:9092]\n    topic: general-events\n",
+          "input:\n  http_server:\n    address: 0.0.0.0:8080\n    path: /events\noutput:\n  kafka:\n    addresses:\n      - ${KAFKA_TLS_BROKERS}\n    topic: general-events\n    tls:\n      enabled: true\n      root_cas_file: ${KAFKA_CA_FILE}\n    sasl:\n      mechanism: SCRAM-SHA-512\n      user: ${KAFKA_USERNAME}\n      password: ${KAFKA_PASSWORD}\n",
         configSha256:
-          "sha256:36b68efa7184097942c4b885ff2f0d397efce5e2b6f16e77ddfb70a763556ecc",
+          "sha256:8e3d28602e945da4b472dea79f5588d2542e0f7501a4cf63af2bf21445ebfd5e",
       },
       {
         id: 2,
@@ -483,9 +483,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "02-severity-based-routing.yaml",
         yamlCode:
-          'output:\n  switch:\n    cases:\n      # Critical alerts to PagerDuty\n      - check: this.severity == "CRITICAL"\n        output:\n          http_client:\n            url: https://events.pagerduty.com/v2/enqueue\n\n      # Warnings to Slack\n      - check: this.severity == "WARN"\n        output:\n          http_client:\n            url: https://hooks.slack.com/warning\n\n      # Default: Info to Elasticsearch\n      - output:\n          elasticsearch:\n            index: application-logs\n',
+          'output:\n  switch:\n    cases:\n      - check: this.severity == "CRITICAL"\n        output:\n          http_client:\n            url: https://events.pagerduty.com/v2/enqueue\n            verb: POST\n            headers:\n              Content-Type: application/json\n            retries: 5\n            retry_period: 500ms\n            max_retry_backoff: 5s\n          processors:\n            - mapping: |\n                root.routing_key = env("PAGERDUTY_ROUTING_KEY")\n                root.event_action = "trigger"\n                root.dedup_key = this.event_id.or(uuid_v4())\n                root.payload = {\n                  "summary": this.message.or("Critical error occurred"),\n                  "severity": "critical",\n                  "source": this.source.or("unknown"),\n                  "timestamp": this.timestamp,\n                  "custom_details": this\n                }\n      - check: this.severity == "WARN"\n        output:\n          http_client:\n            url: ${SLACK_HTTPS_WEBHOOK_URL}\n            verb: POST\n            headers:\n              Content-Type: application/json\n            retries: 3\n            tls:\n              enabled: true\n      - output:\n          http_client:\n            url: ${ELASTICSEARCH_HTTPS_URL}/application-logs/_doc/${! this.event_id.or(uuid_v4()) }\n            verb: PUT\n            headers:\n              Authorization: ApiKey ${ELASTICSEARCH_API_KEY}\n              Content-Type: application/json\n            tls:\n              enabled: true\n              root_cas_file: ${ELASTICSEARCH_CA_FILE}\n',
         configSha256:
-          "sha256:faa64982feee1bb3f14db03bbb93f38512aa85e0577face5e1eab0a3dd7d3cd2",
+          "sha256:dc375442e2491453baf72605f0de8fc79f1c89f6414cf83812cad9be6e728761",
       },
       {
         id: 3,
@@ -609,9 +609,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "03-geographic-routing.yaml",
         yamlCode:
-          'output:\n  switch:\n    cases:\n      # EU data to EU systems (GDPR)\n      - check: this.region == "eu-west"\n        output:\n          broker:\n            pattern: fan_out\n            outputs:\n              - kafka:\n                  addresses: [eu-kafka.example.com:9092]\n              - aws_s3:\n                  bucket: eu-data-archive\n                  region: eu-west-1\n\n      # US East to regional cluster\n      - check: this.region == "us-east"\n        output:\n          kafka:\n            addresses: [us-east-kafka.example.com:9092]\n',
+          'output:\n  switch:\n    cases:\n      - check: this.region == "eu-west"\n        output:\n          broker:\n            pattern: fan_out\n            outputs:\n              - kafka:\n                  addresses:\n                    - ${KAFKA_TLS_BROKERS_EU_WEST}\n                  tls:\n                    enabled: true\n                    root_cas_file: ${KAFKA_CA_FILE}\n                  sasl:\n                    mechanism: SCRAM-SHA-512\n                    user: ${KAFKA_USERNAME}\n                    password: ${KAFKA_PASSWORD}\n                  topic: ${KAFKA_TOPIC}\n              - aws_s3:\n                  bucket: ${S3_BUCKET_EU_WEST}\n                  region: ${AWS_REGION_EU_WEST}\n                  server_side_encryption: aws:kms\n                  kms_key_id: ${S3_KMS_KEY_ARN_EU_WEST}\n      - check: this.region == "us-east"\n        output:\n          kafka:\n            addresses:\n              - ${KAFKA_TLS_BROKERS_US_EAST}\n            tls:\n              enabled: true\n              root_cas_file: ${KAFKA_CA_FILE}\n            sasl:\n              mechanism: SCRAM-SHA-512\n              user: ${KAFKA_USERNAME}\n              password: ${KAFKA_PASSWORD}\n            topic: ${KAFKA_TOPIC}\n',
         configSha256:
-          "sha256:047ae77d943eb2a2be31bd82068084af0f38f4c7262f2a2039c87401daebf249",
+          "sha256:416a2d3191a2679f84f91439a6f8f49bddcf724fb95451e60903dd55b913a9e7",
       },
       {
         id: 4,
@@ -753,9 +753,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "04-event-type-routing.yaml",
         yamlCode:
-          'output:\n  switch:\n    cases:\n      # Auth events to security systems\n      - check: |\n          this.event_type == "user.login" ||\n          this.event_type == "user.logout"\n        output:\n          broker:\n            pattern: fan_out\n            outputs:\n              - http_client:\n                  url: https://security-api.com/auth\n              - aws_s3:\n                  bucket: security-audit-logs\n\n      # Payment events to fraud detection\n      - check: this.event_type.has_prefix("payment.")\n        output:\n          broker:\n            outputs:\n              - kafka:\n                  topic: payment-events\n                  idempotent_write: true\n              - http_client:\n                  url: https://fraud-detection-api.com\n\n      # Telemetry to local storage\n      - check: this.event_type.has_prefix("telemetry.")\n        output:\n          file:\n            path: /var/expanso/telemetry.jsonl\n',
+          'output:\n  switch:\n    cases:\n      - check: |\n          this.event_type == "user.login" ||\n          this.event_type == "user.logout"\n        output:\n          broker:\n            pattern: fan_out\n            outputs:\n              - http_client:\n                  url: ${SECURITY_HTTPS_URL}/auth\n                  tls:\n                    enabled: true\n                  headers:\n                    Authorization: Bearer ${DOWNSTREAM_API_TOKEN}\n              - aws_s3:\n                  bucket: ${S3_BUCKET}\n                  region: ${AWS_REGION}\n                  server_side_encryption: aws:kms\n                  kms_key_id: ${S3_KMS_KEY_ARN}\n      - check: this.event_type.has_prefix("payment.")\n        output:\n          broker:\n            outputs:\n              - kafka:\n                  topic: payment-events\n                  addresses:\n                    - ${KAFKA_TLS_BROKERS}\n                  tls:\n                    enabled: true\n                    root_cas_file: ${KAFKA_CA_FILE}\n                  sasl:\n                    mechanism: SCRAM-SHA-512\n                    user: ${KAFKA_USERNAME}\n                    password: ${KAFKA_PASSWORD}\n                  ack_replicas: true\n              - http_client:\n                  url: ${FRAUD_HTTPS_URL}\n                  tls:\n                    enabled: true\n                  headers:\n                    Authorization: Bearer ${DOWNSTREAM_API_TOKEN}\n      - check: this.event_type.has_prefix("telemetry.")\n        output:\n          file:\n            path: /var/expanso/telemetry.jsonl\n',
         configSha256:
-          "sha256:4e5d0dcef145f134127ef689d0c7dd38186a4ab078ba2d1cd6781abac722e111",
+          "sha256:cee449c84dd75e1268ad335c8d072af3abf5a525a54df15766de0a4f6219e047",
       },
       {
         id: 5,
@@ -884,9 +884,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "05-priority-queue-routing.yaml",
         yamlCode:
-          'pipeline:\n  processors:\n    - mapping: |\n        root = this\n        root.priority = if this.priority.exists() {\n          this.priority\n        } else if this.severity == "CRITICAL" {\n          "critical"\n        } else if this.user_tier == "premium" {\n          "high"\n        } else {\n          "normal"\n        }\n\noutput:\n  switch:\n    cases:\n      # Critical: immediate delivery\n      - check: this.priority == "critical"\n        output:\n          kafka:\n            topic: critical-queue\n            batching:\n              count: 1\n              period: 0s\n\n      # High: fast delivery\n      - check: this.priority == "high"\n        output:\n          kafka:\n            topic: high-priority-queue\n            batching:\n              count: 10\n              period: 1s\n\n      # Low: efficient batching\n      - check: this.priority == "low"\n        output:\n          kafka:\n            topic: low-priority-queue\n            batching:\n              count: 1000\n              period: 1m\n',
+          'pipeline:\n  processors:\n    - mapping: |\n        root = this\n        root.priority = if this.priority.exists() {\n          this.priority\n        } else if this.severity == "CRITICAL" {\n          "critical"\n        } else if this.user_tier == "premium" {\n          "high"\n        } else {\n          "normal"\n        }\noutput:\n  switch:\n    cases:\n      - check: this.priority == "critical"\n        output:\n          kafka:\n            topic: critical-queue\n            batching:\n              count: 1\n              period: 0s\n            addresses:\n              - ${KAFKA_TLS_BROKERS}\n            tls:\n              enabled: true\n              root_cas_file: ${KAFKA_CA_FILE}\n            sasl:\n              mechanism: SCRAM-SHA-512\n              user: ${KAFKA_USERNAME}\n              password: ${KAFKA_PASSWORD}\n      - check: this.priority == "high"\n        output:\n          kafka:\n            topic: high-priority-queue\n            batching:\n              count: 10\n              period: 1s\n            addresses:\n              - ${KAFKA_TLS_BROKERS}\n            tls:\n              enabled: true\n              root_cas_file: ${KAFKA_CA_FILE}\n            sasl:\n              mechanism: SCRAM-SHA-512\n              user: ${KAFKA_USERNAME}\n              password: ${KAFKA_PASSWORD}\n      - check: this.priority == "low"\n        output:\n          kafka:\n            topic: low-priority-queue\n            batching:\n              count: 1000\n              period: 1m\n            addresses:\n              - ${KAFKA_TLS_BROKERS}\n            tls:\n              enabled: true\n              root_cas_file: ${KAFKA_CA_FILE}\n            sasl:\n              mechanism: SCRAM-SHA-512\n              user: ${KAFKA_USERNAME}\n              password: ${KAFKA_PASSWORD}\n',
         configSha256:
-          "sha256:11a9f411cee49f5a875ff9bcbed16b0d6f8451175df40fe647855ad7cef83e85",
+          "sha256:fbca7dac219f536a5a56dd7a402e328f3ba826bd075daa535416b48268cd192d",
       },
     ],
   },
@@ -1315,9 +1315,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "05-content-based-routing.yaml",
         yamlCode:
-          'pipeline:\n  processors:\n    - mapping: |\n        meta device_id = this.device_id\n        meta timestamp = this.timestamp\n        meta location = this.location\n        root = this\n\n    - unarchive:\n        format: json_array\n        field: readings\n\n    - mapping: |\n        root = this\n        root.device_id = meta("device_id")\n        root.timestamp = meta("timestamp")\n        root.location = meta("location")\n\n        # Add alert classification\n        root.alert_level = match {\n          this.value >= 80 => "critical"\n          this.value >= 75 => "warning"\n          _ => "normal"\n        }\n\n# Route based on individual temperature values\noutput:\n  switch:\n    cases:\n      - check: this.alert_level == "critical"\n        output:\n          http_client:\n            url: http://alerts.company.com/critical\n            verb: POST\n      - check: this.alert_level == "warning"\n        output:\n          kafka:\n            topic: temperature-warnings\n            addresses: ["kafka:9092"]\n      - output:\n          s3:\n            bucket: temperature-storage\n            path: normal/${timestamp_date()}/\n',
+          'pipeline:\n  processors:\n    - mapping: |\n        meta device_id = this.device_id\n        meta timestamp = this.timestamp\n        meta location = this.location\n        root = this\n    - unarchive:\n        format: json_array\n        field: readings\n    - mapping: |\n        root = this\n        root.device_id = meta("device_id")\n        root.timestamp = meta("timestamp")\n        root.location = meta("location")\n\n        # Add alert classification\n        root.alert_level = match {\n          this.value >= 80 => "critical"\n          this.value >= 75 => "warning"\n          _ => "normal"\n        }\noutput:\n  switch:\n    cases:\n      - check: this.alert_level == "critical"\n        output:\n          http_client:\n            url: ${ALERTS_HTTPS_URL}/critical\n            verb: POST\n            tls:\n              enabled: true\n            headers:\n              Authorization: Bearer ${ALERT_SERVICE_TOKEN}\n      - check: this.alert_level == "warning"\n        output:\n          kafka:\n            topic: temperature-warnings\n            addresses:\n              - ${KAFKA_TLS_BROKERS}\n            tls:\n              enabled: true\n              root_cas_file: ${KAFKA_CA_FILE}\n            sasl:\n              mechanism: SCRAM-SHA-512\n              user: ${KAFKA_USERNAME}\n              password: ${KAFKA_PASSWORD}\n      - output:\n          aws_s3:\n            bucket: ${S3_BUCKET}\n            region: ${AWS_REGION}\n            path: normal/${! now().ts_format("2006-01-02") }/${! uuid_v4() }.json\n            server_side_encryption: aws:kms\n            kms_key_id: ${S3_KMS_KEY_ARN}\n',
         configSha256:
-          "sha256:aca45819b13d349f7ce9bc09d012537a77d677460a02719d31f4312d1bcad4ca",
+          "sha256:c9790194e0ae3799eacfaf2f70a916810356f520d7f51e58689c291b64bda153",
       },
     ],
   },
@@ -1390,9 +1390,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "01-single-destination.yaml",
         yamlCode:
-          "name: single-destination-pipeline\ntype: pipeline\n\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n\n  output:\n    file:\n      path: /var/data/events.jsonl\n      codec: lines\n",
+          "name: single-destination-pipeline\ntype: pipeline\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n  output:\n    file:\n      path: /var/data/events.jsonl\n      codec: lines\n",
         configSha256:
-          "sha256:16427fdbeef3193d8adb9585fd99cf6cd00ae2118b7d810e0bc11441e7a4c571",
+          "sha256:32fb86446323d6862c430126475a0130da3ed8cf0c2baa32a7025e22ecd1ec90",
       },
       {
         id: 2,
@@ -1445,9 +1445,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "02-broker-fan-out-foundation.yaml",
         yamlCode:
-          "name: fan-out-foundation\ntype: pipeline\n\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - file:\n            path: /var/data/realtime.jsonl\n            batching: {count: 100, period: 5s}\n        - file:\n            path: /var/data/archive.jsonl\n            batching: {count: 1000, period: 30s}\n",
+          "name: fan-out-foundation\ntype: pipeline\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - broker:\n            outputs:\n              - file:\n                  path: /var/data/realtime.jsonl\n            batching:\n              count: 100\n              period: 5s\n        - broker:\n            outputs:\n              - file:\n                  path: /var/data/archive.jsonl\n            batching:\n              count: 1000\n              period: 30s\n",
         configSha256:
-          "sha256:dd15d5c7c4b6ace7035759458f088cd2dd5f621694cacbcd93844406e07edc9f",
+          "sha256:b2259847ce3e9da34ea567186bb9d9419a14abd8b4b1d09b97201157e7d50db8",
       },
       {
         id: 3,
@@ -1502,9 +1502,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "03-kafka-real-time-streaming.yaml",
         yamlCode:
-          'name: kafka-fan-out\ntype: pipeline\n\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n\n  pipeline:\n    processors:\n      - mapping: |\n          root = this\n          root.edge_node_id = env("NODE_ID")\n          root.processing_timestamp = now()\n\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - kafka:\n            addresses: [kafka-1.example.com:9092]\n            topic: sensor-events\n            key: ${!json("sensor_id")}\n            batching: {count: 100, period: 2s}\n            compression: snappy\n        - file:\n            path: /var/data/archive.jsonl\n            batching: {count: 1000, period: 30s}\n',
+          'name: kafka-fan-out\ntype: pipeline\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n  pipeline:\n    processors:\n      - mapping: |\n          root = this\n          root.edge_node_id = env("NODE_ID")\n          root.processing_timestamp = now()\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - kafka:\n            addresses:\n              - ${KAFKA_TLS_BROKERS}\n            topic: sensor-events\n            key: ${!json("sensor_id")}\n            batching:\n              count: 100\n              period: 2s\n            compression: snappy\n            tls:\n              enabled: true\n              root_cas_file: ${KAFKA_CA_FILE}\n            sasl:\n              mechanism: SCRAM-SHA-512\n              user: ${KAFKA_USERNAME}\n              password: ${KAFKA_PASSWORD}\n        - broker:\n            outputs:\n              - file:\n                  path: /var/data/archive.jsonl\n            batching:\n              count: 1000\n              period: 30s\n',
         configSha256:
-          "sha256:3abc67b257bb1cf3beeb060e0086286c2a666310bee016a5d8e9688e9f0209ad",
+          "sha256:d5018d69411029f16ca879c9feabbac165fa96a00a81041e481701e66e452155",
       },
       {
         id: 4,
@@ -1567,9 +1567,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "04-s3-long-term-archive.yaml",
         yamlCode:
-          'name: s3-fan-out\ntype: pipeline\n\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n\n  pipeline:\n    processors:\n      - mapping: |\n          root = this\n          root.edge_node_id = env("NODE_ID")\n          root.processing_timestamp = now()\n\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - kafka:\n            addresses: [kafka-1.example.com:9092]\n            topic: sensor-events\n            batching: {count: 100, period: 2s}\n        - aws_s3:\n            bucket: sensor-data-archive\n            path: data/dt=${!timestamp_date("2006-01-02")}/events.jsonl.gz\n            batching: {count: 10000, period: 30m}\n            content_encoding: gzip\n            storage_class: INTELLIGENT_TIERING\n',
+          'name: s3-fan-out\ntype: pipeline\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n  pipeline:\n    processors:\n      - mapping: |\n          root = this\n          root.edge_node_id = env("NODE_ID")\n          root.processing_timestamp = now()\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - kafka:\n            addresses:\n              - ${KAFKA_TLS_BROKERS}\n            topic: sensor-events\n            batching:\n              count: 100\n              period: 2s\n            tls:\n              enabled: true\n              root_cas_file: ${KAFKA_CA_FILE}\n            sasl:\n              mechanism: SCRAM-SHA-512\n              user: ${KAFKA_USERNAME}\n              password: ${KAFKA_PASSWORD}\n        - aws_s3:\n            bucket: ${S3_BUCKET}\n            path: data/dt=${!now().ts_format("2006-01-02")}/events.jsonl.gz\n            batching:\n              count: 10000\n              period: 30m\n            content_encoding: gzip\n            storage_class: INTELLIGENT_TIERING\n            region: ${AWS_REGION}\n            server_side_encryption: aws:kms\n            kms_key_id: ${S3_KMS_KEY_ARN}\n',
         configSha256:
-          "sha256:5f479f926373080079460a4f68513f16e3d286af1ed59151b5fb78f468c3a627",
+          "sha256:809edeb1878c1e41ebe0a9f0377261d4cbb710bbc200bc190ad8436c0563a0a1",
       },
       {
         id: 5,
@@ -1640,9 +1640,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "05-elasticsearch-search-analytics.yaml",
         yamlCode:
-          'name: complete-fan-out\ntype: pipeline\n\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n\n  pipeline:\n    processors:\n      - mapping: |\n          root = this\n          root.edge_node_id = env("NODE_ID")\n          root.processing_timestamp = now()\n          root.analytics = {\n            "event_hour": this.timestamp.ts_hour(),\n            "temp_status": if this.temperature > 35 { "high" } else { "normal" }\n          }\n\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - kafka:\n            addresses: [kafka-1.example.com:9092]\n            topic: sensor-events\n            batching: {count: 100, period: 2s}\n        - aws_s3:\n            bucket: sensor-data-archive\n            path: data/dt=${!timestamp_date("2006-01-02")}/events.jsonl.gz\n            batching: {count: 10000, period: 30m}\n        - elasticsearch:\n            urls: [https://es-1.example.com:9200]\n            index: sensor-events-${!timestamp_date("2006-01-02")}\n            id: ${!json("event_id")}\n            batching: {count: 250, period: 10s}\n',
+          'name: complete-fan-out\ntype: pipeline\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n  pipeline:\n    processors:\n      - mapping: |\n          root = this\n          root.edge_node_id = env("NODE_ID")\n          root.processing_timestamp = now()\n          root.analytics = {\n            "event_hour": this.timestamp.ts_format("15").number(),\n            "temp_status": if this.temperature > 35 { "high" } else { "normal" }\n          }\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - kafka:\n            addresses:\n              - ${KAFKA_TLS_BROKERS}\n            topic: sensor-events\n            batching:\n              count: 100\n              period: 2s\n            tls:\n              enabled: true\n              root_cas_file: ${KAFKA_CA_FILE}\n            sasl:\n              mechanism: SCRAM-SHA-512\n              user: ${KAFKA_USERNAME}\n              password: ${KAFKA_PASSWORD}\n        - aws_s3:\n            bucket: ${S3_BUCKET}\n            path: data/dt=${!now().ts_format("2006-01-02")}/events.jsonl.gz\n            batching:\n              count: 10000\n              period: 30m\n              processors:\n                - compress:\n                    algorithm: gzip\n            region: ${AWS_REGION}\n            server_side_encryption: aws:kms\n            kms_key_id: ${S3_KMS_KEY_ARN}\n            content_encoding: gzip\n        - http_client:\n            url: ${ELASTICSEARCH_HTTPS_URL}/sensor-events-${!now().ts_format("2006-01-02")}/_doc/${! this.event_id.or(uuid_v4()) }\n            verb: PUT\n            headers:\n              Authorization: ApiKey ${ELASTICSEARCH_API_KEY}\n              Content-Type: application/json\n            tls:\n              enabled: true\n              root_cas_file: ${ELASTICSEARCH_CA_FILE}\n            batching:\n              count: 250\n              period: 10s\n',
         configSha256:
-          "sha256:efa454dcf201fd5045e5c9b616c51ca2a1e58ad77ec5522936e57e2d7f88c8df",
+          "sha256:2d4e4d12c18e20babe59f304eac17527456f7a956ce24c75feee34b810de3dda",
       },
     ],
   },
@@ -1781,9 +1781,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "01-original-input.yaml",
         yamlCode:
-          '# No priority routing - all messages treated equally\noutput:\n  kafka:\n    addresses: ["kafka-broker-1:9092","kafka-broker-2:9092"]\n    topic: all-events\n    batching:\n      count: 100      # Same batching for all\n      period: 30s     # Same delay for all\n    max_retries: 3    # Same reliability for all\n',
+          "output:\n  kafka:\n    addresses:\n      - ${KAFKA_TLS_BROKERS}\n    topic: all-events\n    batching:\n      count: 100\n      period: 30s\n    max_retries: 3\n    tls:\n      enabled: true\n      root_cas_file: ${KAFKA_CA_FILE}\n    sasl:\n      mechanism: SCRAM-SHA-512\n      user: ${KAFKA_USERNAME}\n      password: ${KAFKA_PASSWORD}\n",
         configSha256:
-          "sha256:047d94b630260cd66ccbd2b393fae6c44a2ba7598c8bca8ac7f55112c64171d8",
+          "sha256:4d003feaa77e2698c420a5cd0ad81472db125405d2e63aeaf420ca6da1a28a36",
       },
       {
         id: 2,
@@ -1894,9 +1894,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "02-severity-based-routing.yaml",
         yamlCode:
-          '# Severity-based priority classification\npipeline:\n  processors:\n    - mapping: |\n        root = this\n\n        # Map severity to priority\n        root.priority = match root.severity {\n          "CRITICAL" => "critical"\n          "FATAL" => "critical"\n          "ERROR" => "high"\n          "WARNING" => "normal"\n          "INFO" => "low"\n          _ => "normal"\n        }\n\n        root.priority_score = match root.priority {\n          "critical" => 85\n          "high" => 60\n          "normal" => 35\n          "low" => 15\n          _ => 0\n        }\n\noutput:\n  switch:\n    cases:\n      - check: this.priority == "critical"\n        output:\n          kafka:\n            topic: logs-critical\n            batching:\n              count: 1        # Immediate delivery\n              period: 0s      # No batching delay\n            max_retries: 10   # Maximum reliability\n\n      - check: this.priority == "high"\n        output:\n          kafka:\n            topic: logs-high\n            batching:\n              count: 10       # Small batches\n              period: 1s      # Fast delivery\n',
+          'pipeline:\n  processors:\n    - mapping: |\n        root = this\n\n        # Map severity to priority\n        root.priority = match root.severity {\n          "CRITICAL" => "critical"\n          "FATAL" => "critical"\n          "ERROR" => "high"\n          "WARNING" => "normal"\n          "INFO" => "low"\n          _ => "normal"\n        }\n\n        root.priority_score = match root.priority {\n          "critical" => 85\n          "high" => 60\n          "normal" => 35\n          "low" => 15\n          _ => 0\n        }\noutput:\n  switch:\n    cases:\n      - check: this.priority == "critical"\n        output:\n          kafka:\n            topic: logs-critical\n            batching:\n              count: 1\n              period: 0s\n            max_retries: 10\n            addresses:\n              - ${KAFKA_TLS_BROKERS}\n            tls:\n              enabled: true\n              root_cas_file: ${KAFKA_CA_FILE}\n            sasl:\n              mechanism: SCRAM-SHA-512\n              user: ${KAFKA_USERNAME}\n              password: ${KAFKA_PASSWORD}\n      - check: this.priority == "high"\n        output:\n          kafka:\n            topic: logs-high\n            batching:\n              count: 10\n              period: 1s\n            addresses:\n              - ${KAFKA_TLS_BROKERS}\n            tls:\n              enabled: true\n              root_cas_file: ${KAFKA_CA_FILE}\n            sasl:\n              mechanism: SCRAM-SHA-512\n              user: ${KAFKA_USERNAME}\n              password: ${KAFKA_PASSWORD}\n',
         configSha256:
-          "sha256:ab17edb11aaf59f7f1a35994f7aa3fc93b5ef7be76cd707982615393daa18671",
+          "sha256:73facca721ad3dc27bf22dc4d23a84f8933f9557f8c9f94f116d14ee5b39d3a4",
       },
       {
         id: 3,
@@ -2002,9 +2002,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "03-customer-tier-enhancement.yaml",
         yamlCode:
-          '# Enhanced priority with customer tier consideration\npipeline:\n  processors:\n    - mapping: |\n        root = this\n\n        # Calculate base severity score\n        let severity_score = match root.severity {\n          "CRITICAL" => 85\n          "ERROR" => 60\n          "WARNING" => 35\n          "INFO" => 15\n          _ => 20\n        }\n\n        # Customer tier multiplier\n        let tier_multiplier = match root.customer_tier {\n          "enterprise" => 4.0   # 4x boost\n          "premium" => 3.0      # 3x boost\n          "standard" => 2.0     # 2x boost\n          "free" => 1.0         # No boost\n          _ => 1.0\n        }\n\n        # Calculate final score\n        root.priority_score = severity_score * tier_multiplier\n\n        # Map to priority tier\n        root.priority = match {\n          root.priority_score >= 200 => "critical"\n          root.priority_score >= 120 => "high"\n          root.priority_score >= 60 => "normal"\n          _ => "low"\n        }\n\n        # SLA targets by tier\n        root.sla_target_ms = match root.customer_tier {\n          "enterprise" => 100   # 100ms SLA\n          "premium" => 500      # 500ms SLA\n          "standard" => 2000    # 2s SLA\n          _ => 5000            # 5s default\n        }\n\noutput:\n  switch:\n    cases:\n      - check: this.customer_tier == "enterprise" && this.priority == "critical"\n        output:\n          kafka:\n            addresses: ["enterprise-kafka-1:9092","enterprise-kafka-2:9092"]\n            topic: enterprise-critical-events\n            batching:\n              count: 1\n              period: 0s\n            max_retries: 15     # Extra retries for enterprise\n',
+          'pipeline:\n  processors:\n    - mapping: |\n        root = this\n\n        # Calculate base severity score\n        let severity_score = match root.severity {\n          "CRITICAL" => 85\n          "ERROR" => 60\n          "WARNING" => 35\n          "INFO" => 15\n          _ => 20\n        }\n\n        # Customer tier multiplier\n        let tier_multiplier = match root.customer_tier {\n          "enterprise" => 4.0   # 4x boost\n          "premium" => 3.0      # 3x boost\n          "standard" => 2.0     # 2x boost\n          "free" => 1.0         # No boost\n          _ => 1.0\n        }\n\n        # Calculate final score\n        root.priority_score = severity_score * tier_multiplier\n\n        # Map to priority tier\n        root.priority = match {\n          root.priority_score >= 200 => "critical"\n          root.priority_score >= 120 => "high"\n          root.priority_score >= 60 => "normal"\n          _ => "low"\n        }\n\n        # SLA targets by tier\n        root.sla_target_ms = match root.customer_tier {\n          "enterprise" => 100   # 100ms SLA\n          "premium" => 500      # 500ms SLA\n          "standard" => 2000    # 2s SLA\n          _ => 5000            # 5s default\n        }\noutput:\n  switch:\n    cases:\n      - check: this.customer_tier == "enterprise" && this.priority == "critical"\n        output:\n          kafka:\n            addresses:\n              - ${KAFKA_TLS_BROKERS}\n            topic: enterprise-critical-events\n            batching:\n              count: 1\n              period: 0s\n            max_retries: 15\n            tls:\n              enabled: true\n              root_cas_file: ${KAFKA_CA_FILE}\n            sasl:\n              mechanism: SCRAM-SHA-512\n              user: ${KAFKA_USERNAME}\n              password: ${KAFKA_PASSWORD}\n',
         configSha256:
-          "sha256:38d6bc2f7a5f5e2b07b58109886888b9c3756680f4e15dd54f1afcf83e19f106",
+          "sha256:e155cb8a9715f30fdb0b5b0e035b3d82b642c9321c3bad3833e45b5226562a0a",
       },
       {
         id: 4,
@@ -2281,9 +2281,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "01-original-input.yaml",
         yamlCode:
-          "# No priority buffering - all messages treated equally\nbuffer:\n  memory:\n    limit: 50000\n    batch_policy:\n      count: 100      # FIFO ordering\n      period: 1s      # Same delay for all\n\noutput:\n  http_client:\n    url: ${DESTINATION_URL}\n    verb: POST\n    timeout: 30s\n",
+          "buffer:\n  memory:\n    limit: 50000\n    batch_policy:\n      count: 100\n      period: 1s\noutput:\n  http_client:\n    url: ${DESTINATION_HTTPS_URL}\n    verb: POST\n    timeout: 30s\n    tls:\n      enabled: true\n    headers:\n      Authorization: Bearer ${DESTINATION_API_TOKEN}\n",
         configSha256:
-          "sha256:6073d1714683e0a856a12abd27d7b257ed20a960353135151b0a33f4ef651680",
+          "sha256:472160f35af62c9a892dd0da9ca8afffa2218bca76c7b85b7a0a46e4b2deeed6",
       },
       {
         id: 2,
@@ -2551,9 +2551,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "03-priority-output-routing.yaml",
         yamlCode:
-          "# Route to separate outputs with tier-specific batching\noutput:\n  switch:\n    cases:\n      # IMPORTANT: No batching - ship immediately\n      - check: this.priority_tier == 1\n        output:\n          http_client:\n            url: ${DESTINATION_URL}\n            batching:\n              count: 1      # Immediate!\n              period: 0s\n            max_retries: 10\n\n      # REGULAR: Moderate batching\n      - check: this.priority_tier == 2\n        output:\n          http_client:\n            url: ${DESTINATION_URL}\n            batching:\n              count: 50\n              period: 5s\n\n      # ARCHIVE: Heavy batching\n      - check: this.priority_tier == 3\n        output:\n          http_client:\n            url: ${DESTINATION_URL}\n            batching:\n              count: 200\n              period: 30s\n",
+          "output:\n  switch:\n    cases:\n      - check: this.priority_tier == 1\n        output:\n          http_client:\n            url: ${DESTINATION_HTTPS_URL}\n            batching:\n              count: 1\n              period: 0s\n            tls:\n              enabled: true\n            headers:\n              Authorization: Bearer ${DESTINATION_API_TOKEN}\n            retries: 10\n      - check: this.priority_tier == 2\n        output:\n          http_client:\n            url: ${DESTINATION_HTTPS_URL}\n            batching:\n              count: 50\n              period: 5s\n            tls:\n              enabled: true\n            headers:\n              Authorization: Bearer ${DESTINATION_API_TOKEN}\n      - check: this.priority_tier == 3\n        output:\n          http_client:\n            url: ${DESTINATION_HTTPS_URL}\n            batching:\n              count: 200\n              period: 30s\n            tls:\n              enabled: true\n            headers:\n              Authorization: Bearer ${DESTINATION_API_TOKEN}\n",
         configSha256:
-          "sha256:69f6b3ed761822364530d7fd557339b42d34596d28fc6e375f85173499c37fb0",
+          "sha256:2222ddbe6bed3b103a187abe0de6efff48fe053baecf8fce7a0755e5debf5b5d",
       },
       {
         id: 4,
@@ -5127,9 +5127,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "03-validate-route.yaml",
         yamlCode:
-          'pipeline:\n  processors:\n    - switch:\n        - check: this.validate_json_schema(schema)\n          processors:\n            - mapping: \'root = this.with("status", "valid")\'\n        - processors:\n            - mapping: \'root = this.with("status", "invalid")\'\n            - mapping: \'root.error = error()\'\n\noutput:\n  switch:\n    cases:\n      - check: this.status == "valid"\n        output:\n          kafka:\n            addresses: [localhost:9092]\n            topic: sensor-data-valid\n\n      - check: this.status == "invalid"\n        output:\n          kafka:\n            addresses: [localhost:9092]\n            topic: sensor-data-dlq\n',
+          'pipeline:\n  processors:\n    - switch:\n        - check: this.validate_json_schema(schema)\n          processors:\n            - mapping: root = this.with("status", "valid")\n        - processors:\n            - mapping: root = this.with("status", "invalid")\n            - mapping: root.error = error()\noutput:\n  switch:\n    cases:\n      - check: this.status == "valid"\n        output:\n          kafka:\n            addresses:\n              - ${KAFKA_TLS_BROKERS}\n            topic: sensor-data-valid\n            tls:\n              enabled: true\n              root_cas_file: ${KAFKA_CA_FILE}\n            sasl:\n              mechanism: SCRAM-SHA-512\n              user: ${KAFKA_USERNAME}\n              password: ${KAFKA_PASSWORD}\n      - check: this.status == "invalid"\n        output:\n          kafka:\n            addresses:\n              - ${KAFKA_TLS_BROKERS}\n            topic: sensor-data-dlq\n            tls:\n              enabled: true\n              root_cas_file: ${KAFKA_CA_FILE}\n            sasl:\n              mechanism: SCRAM-SHA-512\n              user: ${KAFKA_USERNAME}\n              password: ${KAFKA_PASSWORD}\n',
         configSha256:
-          "sha256:573e01076a6f7722d75a849d2c997e0a4dcb7ce49276220921b377bfcba41ebf",
+          "sha256:4814ac88fc9a662f111450bcecee9dcef2d3b0b0fb9af71dbf7ad5e852f8002d",
       },
       {
         id: 4,
@@ -6424,9 +6424,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "05-multi-level-configuration.yaml",
         yamlCode:
-          '# Production multi-level aggregation with reliability\ninput:\n  kafka:\n    addresses: ["kafka-broker-1:9092", "kafka-broker-2:9092"]\n    topics: ["sensor-events"]\n    consumer_group: "aggregation-pipeline"\n\nresources:\n  caches:\n    production_cache:\n      redis:\n        url: "redis://redis-cluster:6379"\n        sentinel:\n          master_name: "aggregation-cache"\n  rate_limits:\n    input_limit:\n      count: 100000\n      per: "1s"\n\npipeline:\n  processors:\n    - try:\n        processors:\n          - json: {}\n          - mapping: |\n              if !this.exists("sensor_id") { error("Missing sensor_id") }\n              if this.temperature < -50 || this.temperature > 100 {\n                error("Temperature out of range")\n              }\n              root = this\n              root.processing_instance = "aggregation-instance-1"\n        catch:\n          - http_client:\n              url: "https://errors.company.com/validation-errors"\n          - mapping: \'deleted()\'\n\n    - branch:\n        request_map: |\n          root = [\n            this.merge({"aggregation_level": "sensor", "group_key": this.sensor_id}),\n            this.merge({"aggregation_level": "location", "group_key": this.location}),\n            this.merge({"aggregation_level": "global", "group_key": "global"})\n          ]\n        processors:\n          - cache:\n              resource: production_cache\n              key: ${! this.group_key + "|" + this.aggregation_level }\n              value: ${! this }\n          - group_by:\n              - key: ${! this.group_key }\n                value: ${! this }\n          - mapping: |\n              let level = this[0].aggregation_level\n              if level == "global" {\n                root.aggregation_level = "global"\n                root.sensor_count = this.map_each(e -> e.sensor_id).unique().length()\n                root.location_count = this.map_each(e -> e.location).unique().length()\n                root.temperature_avg = this.map_each(e -> e.temperature).mean().round(2)\n              }\n\noutput:\n  circuit_breaker:\n    failure_threshold: 5\n    outputs:\n      - http_client:\n          url: "https://analytics.company.com/aggregations"\n          batching:\n            count: 500\n            period: "10s"\n    fallback:\n      - file:\n          path: "/var/buffer/aggregations.jsonl"\n\nmetrics:\n  prometheus:\n    use_histogram_timing: true\n    static_labels:\n      service: "time-window-aggregation"\n',
+          'input:\n  kafka:\n    addresses:\n      - ${KAFKA_TLS_BROKERS}\n    topics:\n      - sensor-events\n    consumer_group: aggregation-pipeline\n    tls:\n      enabled: true\n      root_cas_file: ${KAFKA_CA_FILE}\n    sasl:\n      mechanism: SCRAM-SHA-512\n      user: ${KAFKA_USERNAME}\n      password: ${KAFKA_PASSWORD}\nresources:\n  caches:\n    production_cache:\n      redis:\n        url: redis://redis-cluster:6379\n        sentinel:\n          master_name: aggregation-cache\n  rate_limits:\n    input_limit:\n      count: 100000\n      per: 1s\npipeline:\n  processors:\n    - try:\n        processors:\n          - json: {}\n          - mapping: |\n              if !this.exists("sensor_id") { error("Missing sensor_id") }\n              if this.temperature < -50 || this.temperature > 100 {\n                error("Temperature out of range")\n              }\n              root = this\n              root.processing_instance = "aggregation-instance-1"\n        catch:\n          - http_client:\n              url: ${ERRORS_HTTPS_URL}/validation-errors\n              tls:\n                enabled: true\n              headers:\n                Authorization: Bearer ${ANALYTICS_API_TOKEN}\n          - mapping: deleted()\n    - branch:\n        request_map: |\n          root = [\n            this.merge({"aggregation_level": "sensor", "group_key": this.sensor_id}),\n            this.merge({"aggregation_level": "location", "group_key": this.location}),\n            this.merge({"aggregation_level": "global", "group_key": "global"})\n          ]\n        processors:\n          - cache:\n              resource: production_cache\n              key: ${! this.group_key + "|" + this.aggregation_level }\n              value: ${! this }\n          - group_by:\n              - key: ${! this.group_key }\n                value: ${! this }\n          - mapping: |\n              let level = this[0].aggregation_level\n              if level == "global" {\n                root.aggregation_level = "global"\n                root.sensor_count = this.map_each(e -> e.sensor_id).unique().length()\n                root.location_count = this.map_each(e -> e.location).unique().length()\n                root.temperature_avg = this.map_each(e -> e.temperature).mean().round(2)\n              }\noutput:\n  circuit_breaker:\n    failure_threshold: 5\n    outputs:\n      - http_client:\n          url: ${ANALYTICS_HTTPS_URL}/aggregations\n          batching:\n            count: 500\n            period: 10s\n          tls:\n            enabled: true\n          headers:\n            Authorization: Bearer ${ANALYTICS_API_TOKEN}\n    fallback:\n      - file:\n          path: /var/buffer/aggregations.jsonl\nmetrics:\n  prometheus:\n    use_histogram_timing: true\n    static_labels:\n      service: time-window-aggregation\n',
         configSha256:
-          "sha256:16d7056d087ff735673bedce14c69b570ba9e9bde5ef73d659fb60806bcf8668",
+          "sha256:98f3b4760cbaa01b56e6de78315655a809ed8962493eca676539cc754d97d6af",
       },
     ],
   },
@@ -7713,9 +7713,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "03-avro-parquet.yaml",
         yamlCode:
-          "output:\n  aws_s3:\n    bucket: sensor-data-lake\n    path: readings/${!timestamp_unix()}.parquet\n    codec: parquet\n    compression: snappy\n    # Columnar storage for fast analytics\n",
+          "output:\n  aws_s3:\n    bucket: ${S3_BUCKET}\n    path: readings/${!now().ts_unix()}.parquet\n    region: ${AWS_REGION}\n    server_side_encryption: aws:kms\n    kms_key_id: ${S3_KMS_KEY_ARN}\n  processors:\n    - parquet_encode:\n        schema:\n          - name: sensor_id\n            type: UTF8\n          - name: temperature\n            type: DOUBLE\n          - name: humidity\n            type: DOUBLE\n          - name: timestamp\n            type: UTF8\n        compression: snappy\n",
         configSha256:
-          "sha256:268ec86ef676344f3e9306d95e133fa3fa2591dc132b0c4cf73b6288179f903e",
+          "sha256:ecd9bd89b9560ec9a0e1c7b9f7872f8d7007487b3aa95d14f52dcf81b0cd81cb",
       },
       {
         id: 4,
@@ -8755,9 +8755,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "05-route-to-splunk-hec.yaml",
         yamlCode:
-          'output:\n  http:\n    url: "https://splunk.company.com:8088/services/collector/event"\n    verb: POST\n    headers:\n      Authorization: "Splunk ${SPLUNK_HEC_TOKEN}"\n      Content-Type: "application/json"\n    batching:\n      count: 100\n      period: 10s\n',
+          "output:\n  http_client:\n    url: https://${SPLUNK_HOST}:${SPLUNK_PORT}/services/collector/event\n    verb: POST\n    headers:\n      Authorization: Splunk ${SPLUNK_HEC_TOKEN}\n      Content-Type: application/json\n    batching:\n      count: 100\n      period: 10s\n    tls:\n      enabled: true\n      root_cas_file: ${SPLUNK_CA_FILE}\n",
         configSha256:
-          "sha256:f761db2fc9794a573b82f1cd486f1de6153a10dc6da31ed4ce8e7d5ad6f3f1bc",
+          "sha256:ed5233456338033dd251802fe305ac08e398c0bb7eb7227caa0434d2e1cd77ad",
       },
     ],
   },
@@ -9249,9 +9249,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "04-configure-batching.yaml",
         yamlCode:
-          "output:\n  aws_s3:\n    bucket: expanso-demo-logs\n    path: logs/demo_${!timestamp_unix()}.jsonl\n    batching:\n      count: 10\n      period: 10s\n    credentials:\n      profile: expanso-demo\n",
+          "output:\n  aws_s3:\n    bucket: ${S3_BUCKET_NAME}\n    path: logs/demo_${!now().ts_unix()}.jsonl\n    batching:\n      count: 10\n      period: 10s\n    region: ${AWS_REGION}\n    server_side_encryption: aws:kms\n    kms_key_id: ${S3_KMS_KEY_ARN}\n",
         configSha256:
-          "sha256:2449454a97e16263c2700f5fdeeec56c2c3b19a264c616cd7cb182972aa7af28",
+          "sha256:7deaa7c8b7fbb617425fb5e0a1536efe8f595e3cfa81c4d323bd8cc4abb5484f",
       },
       {
         id: 5,
@@ -9282,9 +9282,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "05-configured-s3-object.yaml",
         yamlCode:
-          'output:\n  broker:\n    pattern: fan_out\n    outputs:\n      - aws_s3:\n          bucket: ${S3_BUCKET_NAME}\n          path: logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/logs_${!timestamp_unix()}.jsonl.gz\n          batching:\n            count: ${BATCH_COUNT:-200}\n            period: ${BATCH_PERIOD:-2m}\n            byte_size: ${BATCH_SIZE:-5242880}\n            processors:\n              - compress:\n                  algorithm: gzip\n                  level: 6\n          content_type: application/x-ndjson\n          content_encoding: gzip\n          storage_class: ${S3_STORAGE_CLASS:-STANDARD_IA}\n          credentials:\n            profile: ${AWS_PROFILE}\n          region: ${AWS_REGION}\n',
+          'output:\n  broker:\n    pattern: fan_out\n    outputs:\n      - aws_s3:\n          bucket: ${S3_BUCKET_NAME}\n          path: logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/logs_${!now().ts_unix()}.jsonl.gz\n          batching:\n            count: ${BATCH_COUNT:-200}\n            period: ${BATCH_PERIOD:-2m}\n            byte_size: ${BATCH_SIZE:-5242880}\n            processors:\n              - compress:\n                  algorithm: gzip\n                  level: 6\n          content_type: application/x-ndjson\n          content_encoding: gzip\n          storage_class: ${S3_STORAGE_CLASS:-STANDARD_IA}\n          region: ${AWS_REGION}\n          server_side_encryption: aws:kms\n          kms_key_id: ${S3_KMS_KEY_ARN}\n',
         configSha256:
-          "sha256:fba9fe3706f078eb3cc2b1b76f179a08a7232ea68c970e677fc57a0d3473a1a4",
+          "sha256:86038968fa45f05ab5f6e66cf724388282a76feb8d2cd660d74c2193abb4242c",
       },
     ],
   },
@@ -9497,9 +9497,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "03-filter-route.yaml",
         yamlCode:
-          'pipeline:\n  processors:\n    - mapping: |\n        root = this.parse_json()\n        root.severity = this.level.uppercase()\n        root.priority = match this.severity {\n          "DEBUG" | "TRACE" => "low"\n          "INFO" => "medium"\n          "WARN" | "WARNING" => "high"\n          "ERROR" | "CRITICAL" | "FATAL" => "critical"\n          _ => "unknown"\n        }\n\noutput:\n  switch:\n    cases:\n      # Drop DEBUG/TRACE logs for this example\n      - check: this.priority == "low"\n        output:\n          drop: {}\n\n      # ERROR/WARN → Elasticsearch (real-time alerts)\n      - check: this.priority == "critical" || this.priority == "high"\n        output:\n          elasticsearch:\n            urls: [http://localhost:9200]\n            index: logs-critical\n\n      # INFO → S3 (archival storage)\n      - check: this.priority == "medium"\n        output:\n          aws_s3:\n            bucket: logs-archive\n            path: info/${!timestamp_unix()}.json\n',
+          'pipeline:\n  processors:\n    - mapping: |\n        root = this.parse_json()\n        root.severity = this.level.uppercase()\n        root.priority = match this.severity {\n          "DEBUG" | "TRACE" => "low"\n          "INFO" => "medium"\n          "WARN" | "WARNING" => "high"\n          "ERROR" | "CRITICAL" | "FATAL" => "critical"\n          _ => "unknown"\n        }\noutput:\n  switch:\n    cases:\n      - check: this.priority == "low"\n        output:\n          drop: {}\n      - check: this.priority == "critical" || this.priority == "high"\n        output:\n          http_client:\n            url: ${ELASTICSEARCH_HTTPS_URL}/logs-critical/_doc/${! this.event_id.or(uuid_v4()) }\n            verb: PUT\n            headers:\n              Authorization: ApiKey ${ELASTICSEARCH_API_KEY}\n              Content-Type: application/json\n            tls:\n              enabled: true\n              root_cas_file: ${ELASTICSEARCH_CA_FILE}\n      - check: this.priority == "medium"\n        output:\n          aws_s3:\n            bucket: ${S3_BUCKET}\n            path: info/${!now().ts_unix()}.json\n            region: ${AWS_REGION}\n            server_side_encryption: aws:kms\n            kms_key_id: ${S3_KMS_KEY_ARN}\n',
         configSha256:
-          "sha256:de774126ae45c7137054a38a2f2813c6158445c2fd866989a9c52cf1c77bd4f7",
+          "sha256:73ba586f4f992a3c7497e329db28e377182ce7704d4f0cca4c2c0b6e43ea7097",
       },
     ],
   },
@@ -9686,9 +9686,9 @@ export const GENERATED_EXPLORER_STAGE_CONFIGS: Readonly<
         ],
         yamlFilename: "06-fan-out.yaml",
         yamlCode:
-          "output:\n  broker:\n    pattern: fan_out\n    outputs:\n      # 1. Real-time alerts (high priority)\n      - switch:\n          - check: this.priority >= 7\n            output:\n              elasticsearch:\n                urls: [http://localhost:9200]\n                index: logs-critical\n\n      # 2. Stream processing (all logs)\n      - kafka:\n          addresses: [localhost:9092]\n          topic: logs-stream\n\n      # 3. Long-term archival (S3)\n      - aws_s3:\n          bucket: logs-archive\n          path: ${!timestamp_unix()}.json\n",
+          "output:\n  broker:\n    pattern: fan_out\n    outputs:\n      - switch:\n          - check: this.priority >= 7\n            output:\n              http_client:\n                url: ${ELASTICSEARCH_HTTPS_URL}/logs-critical/_doc/${! this.event_id.or(uuid_v4()) }\n                verb: PUT\n                headers:\n                  Authorization: ApiKey ${ELASTICSEARCH_API_KEY}\n                  Content-Type: application/json\n                tls:\n                  enabled: true\n                  root_cas_file: ${ELASTICSEARCH_CA_FILE}\n      - kafka:\n          addresses:\n            - ${KAFKA_TLS_BROKERS}\n          topic: logs-stream\n          tls:\n            enabled: true\n            root_cas_file: ${KAFKA_CA_FILE}\n          sasl:\n            mechanism: SCRAM-SHA-512\n            user: ${KAFKA_USERNAME}\n            password: ${KAFKA_PASSWORD}\n      - aws_s3:\n          bucket: ${S3_BUCKET}\n          path: ${!now().ts_unix()}.json\n          region: ${AWS_REGION}\n          server_side_encryption: aws:kms\n          kms_key_id: ${S3_KMS_KEY_ARN}\n",
         configSha256:
-          "sha256:f899c456eb7dbb9a8cda48f7289e42c09ce15b9abe75c3199c918ba0ec91128e",
+          "sha256:a80da07c050db7af714a8cbb69e2ea64be9180551238b1aafa181776847664ba",
       },
     ],
   },

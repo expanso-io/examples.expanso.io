@@ -57,9 +57,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "01-single-destination.yaml",
     yamlCode:
-      "name: single-destination-pipeline\ntype: pipeline\n\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n\n  output:\n    file:\n      path: /var/data/events.jsonl\n      codec: lines\n",
+      "name: single-destination-pipeline\ntype: pipeline\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n  output:\n    file:\n      path: /var/data/events.jsonl\n      codec: lines\n",
     configSha256:
-      "sha256:16427fdbeef3193d8adb9585fd99cf6cd00ae2118b7d810e0bc11441e7a4c571",
+      "sha256:32fb86446323d6862c430126475a0130da3ed8cf0c2baa32a7025e22ecd1ec90",
   },
   {
     id: 2,
@@ -112,9 +112,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "02-broker-fan-out-foundation.yaml",
     yamlCode:
-      "name: fan-out-foundation\ntype: pipeline\n\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - file:\n            path: /var/data/realtime.jsonl\n            batching: {count: 100, period: 5s}\n        - file:\n            path: /var/data/archive.jsonl\n            batching: {count: 1000, period: 30s}\n",
+      "name: fan-out-foundation\ntype: pipeline\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - broker:\n            outputs:\n              - file:\n                  path: /var/data/realtime.jsonl\n            batching:\n              count: 100\n              period: 5s\n        - broker:\n            outputs:\n              - file:\n                  path: /var/data/archive.jsonl\n            batching:\n              count: 1000\n              period: 30s\n",
     configSha256:
-      "sha256:dd15d5c7c4b6ace7035759458f088cd2dd5f621694cacbcd93844406e07edc9f",
+      "sha256:b2259847ce3e9da34ea567186bb9d9419a14abd8b4b1d09b97201157e7d50db8",
   },
   {
     id: 3,
@@ -169,9 +169,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-kafka-real-time-streaming.yaml",
     yamlCode:
-      'name: kafka-fan-out\ntype: pipeline\n\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n\n  pipeline:\n    processors:\n      - mapping: |\n          root = this\n          root.edge_node_id = env("NODE_ID")\n          root.processing_timestamp = now()\n\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - kafka:\n            addresses: [kafka-1.example.com:9092]\n            topic: sensor-events\n            key: ${!json("sensor_id")}\n            batching: {count: 100, period: 2s}\n            compression: snappy\n        - file:\n            path: /var/data/archive.jsonl\n            batching: {count: 1000, period: 30s}\n',
+      'name: kafka-fan-out\ntype: pipeline\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n  pipeline:\n    processors:\n      - mapping: |\n          root = this\n          root.edge_node_id = env("NODE_ID")\n          root.processing_timestamp = now()\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - kafka:\n            addresses:\n              - ${KAFKA_TLS_BROKERS}\n            topic: sensor-events\n            key: ${!json("sensor_id")}\n            batching:\n              count: 100\n              period: 2s\n            compression: snappy\n            tls:\n              enabled: true\n              root_cas_file: ${KAFKA_CA_FILE}\n            sasl:\n              mechanism: SCRAM-SHA-512\n              user: ${KAFKA_USERNAME}\n              password: ${KAFKA_PASSWORD}\n        - broker:\n            outputs:\n              - file:\n                  path: /var/data/archive.jsonl\n            batching:\n              count: 1000\n              period: 30s\n',
     configSha256:
-      "sha256:3abc67b257bb1cf3beeb060e0086286c2a666310bee016a5d8e9688e9f0209ad",
+      "sha256:d5018d69411029f16ca879c9feabbac165fa96a00a81041e481701e66e452155",
   },
   {
     id: 4,
@@ -227,9 +227,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "04-s3-long-term-archive.yaml",
     yamlCode:
-      'name: s3-fan-out\ntype: pipeline\n\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n\n  pipeline:\n    processors:\n      - mapping: |\n          root = this\n          root.edge_node_id = env("NODE_ID")\n          root.processing_timestamp = now()\n\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - kafka:\n            addresses: [kafka-1.example.com:9092]\n            topic: sensor-events\n            batching: {count: 100, period: 2s}\n        - aws_s3:\n            bucket: sensor-data-archive\n            path: data/dt=${!timestamp_date("2006-01-02")}/events.jsonl.gz\n            batching: {count: 10000, period: 30m}\n            content_encoding: gzip\n            storage_class: INTELLIGENT_TIERING\n',
+      'name: s3-fan-out\ntype: pipeline\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n  pipeline:\n    processors:\n      - mapping: |\n          root = this\n          root.edge_node_id = env("NODE_ID")\n          root.processing_timestamp = now()\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - kafka:\n            addresses:\n              - ${KAFKA_TLS_BROKERS}\n            topic: sensor-events\n            batching:\n              count: 100\n              period: 2s\n            tls:\n              enabled: true\n              root_cas_file: ${KAFKA_CA_FILE}\n            sasl:\n              mechanism: SCRAM-SHA-512\n              user: ${KAFKA_USERNAME}\n              password: ${KAFKA_PASSWORD}\n        - aws_s3:\n            bucket: ${S3_BUCKET}\n            path: data/dt=${!now().ts_format("2006-01-02")}/events.jsonl.gz\n            batching:\n              count: 10000\n              period: 30m\n            content_encoding: gzip\n            storage_class: INTELLIGENT_TIERING\n            region: ${AWS_REGION}\n            server_side_encryption: aws:kms\n            kms_key_id: ${S3_KMS_KEY_ARN}\n',
     configSha256:
-      "sha256:5f479f926373080079460a4f68513f16e3d286af1ed59151b5fb78f468c3a627",
+      "sha256:809edeb1878c1e41ebe0a9f0377261d4cbb710bbc200bc190ad8436c0563a0a1",
   },
   {
     id: 5,
@@ -295,9 +295,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "05-elasticsearch-search-analytics.yaml",
     yamlCode:
-      'name: complete-fan-out\ntype: pipeline\n\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n\n  pipeline:\n    processors:\n      - mapping: |\n          root = this\n          root.edge_node_id = env("NODE_ID")\n          root.processing_timestamp = now()\n          root.analytics = {\n            "event_hour": this.timestamp.ts_hour(),\n            "temp_status": if this.temperature > 35 { "high" } else { "normal" }\n          }\n\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - kafka:\n            addresses: [kafka-1.example.com:9092]\n            topic: sensor-events\n            batching: {count: 100, period: 2s}\n        - aws_s3:\n            bucket: sensor-data-archive\n            path: data/dt=${!timestamp_date("2006-01-02")}/events.jsonl.gz\n            batching: {count: 10000, period: 30m}\n        - elasticsearch:\n            urls: [https://es-1.example.com:9200]\n            index: sensor-events-${!timestamp_date("2006-01-02")}\n            id: ${!json("event_id")}\n            batching: {count: 250, period: 10s}\n',
+      'name: complete-fan-out\ntype: pipeline\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /events\n  pipeline:\n    processors:\n      - mapping: |\n          root = this\n          root.edge_node_id = env("NODE_ID")\n          root.processing_timestamp = now()\n          root.analytics = {\n            "event_hour": this.timestamp.ts_format("15").number(),\n            "temp_status": if this.temperature > 35 { "high" } else { "normal" }\n          }\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        - kafka:\n            addresses:\n              - ${KAFKA_TLS_BROKERS}\n            topic: sensor-events\n            batching:\n              count: 100\n              period: 2s\n            tls:\n              enabled: true\n              root_cas_file: ${KAFKA_CA_FILE}\n            sasl:\n              mechanism: SCRAM-SHA-512\n              user: ${KAFKA_USERNAME}\n              password: ${KAFKA_PASSWORD}\n        - aws_s3:\n            bucket: ${S3_BUCKET}\n            path: data/dt=${!now().ts_format("2006-01-02")}/events.jsonl.gz\n            batching:\n              count: 10000\n              period: 30m\n              processors:\n                - compress:\n                    algorithm: gzip\n            region: ${AWS_REGION}\n            server_side_encryption: aws:kms\n            kms_key_id: ${S3_KMS_KEY_ARN}\n            content_encoding: gzip\n        - http_client:\n            url: ${ELASTICSEARCH_HTTPS_URL}/sensor-events-${!now().ts_format("2006-01-02")}/_doc/${! this.event_id.or(uuid_v4()) }\n            verb: PUT\n            headers:\n              Authorization: ApiKey ${ELASTICSEARCH_API_KEY}\n              Content-Type: application/json\n            tls:\n              enabled: true\n              root_cas_file: ${ELASTICSEARCH_CA_FILE}\n            batching:\n              count: 250\n              period: 10s\n',
     configSha256:
-      "sha256:efa454dcf201fd5045e5c9b616c51ca2a1e58ad77ec5522936e57e2d7f88c8df",
+      "sha256:2d4e4d12c18e20babe59f304eac17527456f7a956ce24c75feee34b810de3dda",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 

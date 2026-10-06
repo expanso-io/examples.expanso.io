@@ -111,9 +111,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "01-original-input.yaml",
     yamlCode:
-      "# No priority buffering - all messages treated equally\nbuffer:\n  memory:\n    limit: 50000\n    batch_policy:\n      count: 100      # FIFO ordering\n      period: 1s      # Same delay for all\n\noutput:\n  http_client:\n    url: ${DESTINATION_URL}\n    verb: POST\n    timeout: 30s\n",
+      "buffer:\n  memory:\n    limit: 50000\n    batch_policy:\n      count: 100\n      period: 1s\noutput:\n  http_client:\n    url: ${DESTINATION_HTTPS_URL}\n    verb: POST\n    timeout: 30s\n    tls:\n      enabled: true\n    headers:\n      Authorization: Bearer ${DESTINATION_API_TOKEN}\n",
     configSha256:
-      "sha256:6073d1714683e0a856a12abd27d7b257ed20a960353135151b0a33f4ef651680",
+      "sha256:472160f35af62c9a892dd0da9ca8afffa2218bca76c7b85b7a0a46e4b2deeed6",
   },
   {
     id: 2,
@@ -381,9 +381,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-priority-output-routing.yaml",
     yamlCode:
-      "# Route to separate outputs with tier-specific batching\noutput:\n  switch:\n    cases:\n      # IMPORTANT: No batching - ship immediately\n      - check: this.priority_tier == 1\n        output:\n          http_client:\n            url: ${DESTINATION_URL}\n            batching:\n              count: 1      # Immediate!\n              period: 0s\n            max_retries: 10\n\n      # REGULAR: Moderate batching\n      - check: this.priority_tier == 2\n        output:\n          http_client:\n            url: ${DESTINATION_URL}\n            batching:\n              count: 50\n              period: 5s\n\n      # ARCHIVE: Heavy batching\n      - check: this.priority_tier == 3\n        output:\n          http_client:\n            url: ${DESTINATION_URL}\n            batching:\n              count: 200\n              period: 30s\n",
+      "output:\n  switch:\n    cases:\n      - check: this.priority_tier == 1\n        output:\n          http_client:\n            url: ${DESTINATION_HTTPS_URL}\n            batching:\n              count: 1\n              period: 0s\n            tls:\n              enabled: true\n            headers:\n              Authorization: Bearer ${DESTINATION_API_TOKEN}\n            retries: 10\n      - check: this.priority_tier == 2\n        output:\n          http_client:\n            url: ${DESTINATION_HTTPS_URL}\n            batching:\n              count: 50\n              period: 5s\n            tls:\n              enabled: true\n            headers:\n              Authorization: Bearer ${DESTINATION_API_TOKEN}\n      - check: this.priority_tier == 3\n        output:\n          http_client:\n            url: ${DESTINATION_HTTPS_URL}\n            batching:\n              count: 200\n              period: 30s\n            tls:\n              enabled: true\n            headers:\n              Authorization: Bearer ${DESTINATION_API_TOKEN}\n",
     configSha256:
-      "sha256:69f6b3ed761822364530d7fd557339b42d34596d28fc6e375f85173499c37fb0",
+      "sha256:2222ddbe6bed3b103a187abe0de6efff48fe053baecf8fce7a0755e5debf5b5d",
   },
   {
     id: 4,

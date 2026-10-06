@@ -20,15 +20,15 @@ config:
 
       # Step 2: Validate structure
       - mapping: |
-          if !this.readings.exists() || this.readings.type() != "array" {
+          root = if this.readings == null || this.readings.type() != "array" {
             throw("Missing or invalid readings array")
+          } else {
+            this.readings
           }
-          root = this
 
       # Step 3: Split array into individual messages
       - unarchive:
           format: json_array
-          field: readings
 
       # Step 4: Enrich each split message with parent context
       - mapping: |
@@ -45,18 +45,28 @@ config:
         - check: this.value > 80.0 && this.unit == "F"
           output:
             http_client:
-              url: ${ALERT_SERVICE_URL}/critical-temp
+              url: ${ALERT_SERVICE_HTTPS_URL}/critical-temp
               verb: POST
               headers:
                 Content-Type: application/json
-              max_retries: 5
+                Authorization: 'Bearer ${ALERT_SERVICE_TOKEN}'
+              retries: 5
+              tls:
+                enabled: true
 
         # Warning: Elevated temperature
         - check: this.value > 70.0 && this.value <= 80.0 && this.unit == "F"
           output:
             kafka:
-              addresses: ["${KAFKA_BROKERS}"]
+              addresses: [ '${KAFKA_TLS_BROKERS}' ]
               topic: elevated-temp-warnings
+              tls:
+                enabled: true
+                root_cas_file: ${KAFKA_CA_FILE}
+              sasl:
+                mechanism: SCRAM-SHA-512
+                user: '${KAFKA_USERNAME}'
+                password: '${KAFKA_PASSWORD}'
               batching:
                 count: 50
                 period: 30s
@@ -64,8 +74,5 @@ config:
         # Normal: Archive for analytics
         - output:
             file:
-              path: /var/expanso/sensor-data/normal-${!timestamp_unix_date("2006-01-02")}.jsonl
+              path: ${SENSOR_ARCHIVE_PATH}/normal-${!timestamp_unix_date("2006-01-02")}.jsonl
               codec: lines
-              batching:
-                count: 1000
-                period: 5m

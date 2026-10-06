@@ -354,9 +354,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "05-route-to-splunk-hec.yaml",
     yamlCode:
-      'output:\n  http:\n    url: "https://splunk.company.com:8088/services/collector/event"\n    verb: POST\n    headers:\n      Authorization: "Splunk ${SPLUNK_HEC_TOKEN}"\n      Content-Type: "application/json"\n    batching:\n      count: 100\n      period: 10s\n',
+      "output:\n  http_client:\n    url: https://${SPLUNK_HOST}:${SPLUNK_PORT}/services/collector/event\n    verb: POST\n    headers:\n      Authorization: Splunk ${SPLUNK_HEC_TOKEN}\n      Content-Type: application/json\n    batching:\n      count: 100\n      period: 10s\n    tls:\n      enabled: true\n      root_cas_file: ${SPLUNK_CA_FILE}\n",
     configSha256:
-      "sha256:f761db2fc9794a573b82f1cd486f1de6153a10dc6da31ed4ce8e7d5ad6f3f1bc",
+      "sha256:ed5233456338033dd251802fe305ac08e398c0bb7eb7227caa0434d2e1cd77ad",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 

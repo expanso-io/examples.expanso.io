@@ -44,6 +44,24 @@ test('encryption patterns preserve stage behavior and decrypt every encrypted fi
  const audit=run([...pipeline.pipeline.processors,...pipeline.output.broker.outputs[1].processors],sample,env)[0];
  assert.equal(audit.selected_field_count,12);
 });
+test('public encryption walkthrough processors preserve earlier ciphertext and deletions',()=>{
+ const sample=JSON.parse(fs.readFileSync(path.join(root,'examples/data-security/encryption-patterns/sample-input.json')));
+ const env=JSON.parse(fs.readFileSync(path.join(root,'examples/data-security/encryption-patterns/fixture-environment.json')));
+ const canonical=read('static/files/data-security/encryption-patterns.yaml').config.pipeline.processors;
+ const pages=['step-1-encrypt-payment-data.mdx','step-2-encrypt-pii-fields.mdx','step-3-encrypt-addresses.mdx','step-4-encrypt-dates.mdx'];
+ const processors=[];
+ for(const [index,page]of pages.entries()){
+  const published=fs.readFileSync(path.join(root,'docs/data-security/encryption-patterns',page),'utf8');
+  const block=published.match(/```yaml\n([\s\S]*?)```/)[1];
+  processors.push(...YAML.parse(block).pipeline.processors);
+  const [actual]=run(processors,sample,env);
+  const [expected]=run(canonical.slice(0,index+1),sample,env);
+  assert.deepEqual(normalize(actual),normalize(expected));
+  assert.equal(actual.payment.card_number,undefined);
+  assert.equal(actual.payment.cvv,undefined);
+  assert.ok(actual.payment.card_number_encrypted);
+ }
+});
 test('GDPR error boundary rejects global output and retains the EU archive',()=>{
  const pipeline=read('examples/data-security/cross-border-gdpr/cross-border-gdpr.yaml');
  const sample={transaction_id:'fixture',customer_id:'fixture-person',customer_name:'Synthetic',customer_email:'fixture@example.org',customer_dob:'invalid-date',customer_address:'synthetic-address',iban:'DE123456',transaction_amount:100,transaction_currency:'EUR',merchant_country:'DE',transaction_timestamp:'2026-10-05T00:00:00Z',ip_address:'10.1.2.3'};
@@ -55,16 +73,19 @@ test('GDPR error boundary rejects global output and retains the EU archive',()=>
 test('Splunk preserves regional routing and critical delivery policy',()=>{
  const pipeline=read('static/pipelines/splunk-production-pipeline.yaml');
  const cases=pipeline.output.broker.outputs[0].fallback[0].switch.cases;
- assert.equal(cases[0].check,'this.final_priority == "critical"');
- assert.deepEqual(cases[0].output.http_client.batching,{count:20,period:'2s',byte_size:524288});
- assert.deepEqual(cases[1].output.http_client.batching,{count:100,period:'10s',byte_size:2097152});
- const archive=pipeline.output.broker.outputs[1].switch.cases[0].output;
+ function select(cases,input){
+  for(const item of cases){
+   if(!item.check||run([{mapping:'root = '+item.check}],input)[0]===true)return item.output;
+  }
+  assert.fail('No destination selected');
+ }
+ assert.deepEqual(select(cases,{final_priority:'critical'}).http_client.batching,{count:20,period:'2s',byte_size:524288});
+ assert.deepEqual(select(cases,{final_priority:'normal'}).http_client.batching,{count:100,period:'10s',byte_size:2097152});
+ const archive=select(pipeline.output.broker.outputs[1].switch.cases,{data_classification:'pii'});
  const regions=archive.switch.cases;
  assert.equal(regions.length,5);
  for(const residency of ['eu_west','us_west','us_east','asia_pacific']){
-  const region=regions.find(x=>x.check==='this.data_residency == "'+residency+'"');
-  assert.ok(region);
-  const output=region.output;
+  const output=select(regions,{data_residency:residency});
   const upper=residency.toUpperCase();
   assert.equal(output.aws_s3.bucket,'${S3_BUCKET_PREFIX}-'+residency.replaceAll('_','-'));
   assert.equal(output.aws_s3.region,'${AWS_REGION_'+upper+'}');
@@ -73,6 +94,8 @@ test('Splunk preserves regional routing and critical delivery policy',()=>{
   const value=run([...output.processors,{mapping:'root = {"event": this, "metadata": meta()}'}],{data_residency:residency,s3_event:event});
   assert.deepEqual(value,[{event,metadata:{'data-classification':'pii','retention-years':'7','pipeline-version':'1.0.0'}}]);
  }
+ assert.deepEqual(select(regions,{data_residency:'unknown'}),{drop:{}});
+ assert.deepEqual(select(pipeline.output.broker.outputs[1].switch.cases,{data_classification:'general'}),{drop:{}});
  const elapsed=pipeline.processors.find(x=>x.mapping?.includes('root.processing_duration_ms ='));
  const result=run([pipeline.processors[0],elapsed],{host:'fixture'})[0];
  assert.equal(typeof result.processing_duration_ms,'number');assert.ok(result.processing_duration_ms>=0);assert.ok(result.metric_event_id);

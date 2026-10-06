@@ -29,13 +29,9 @@ For a sensitive date field:
 
 ## Implementation
 
-You will add this final piece of logic to your existing `mapping` processor.
+Append this as a separate item in `pipeline.processors` after the processor from Step 3. Each processor receives the previous processor's output, so `root = this` preserves earlier ciphertext and deletions. Keep the earlier processors in order.
 
-1.  **Start with your Pipeline:** Open the `encrypt-pii.yaml` file from Step 2. (Note: for simplicity, we are skipping the address step for this example).
-
-2.  **Add the Date Encryption Logic:** Add the logic for the `date_of_birth` field to the _bottom_ of the existing `mapping` processor.
-
-    ```yaml
+```yaml
 pipeline:
   processors:
     - mapping: |
@@ -88,8 +84,6 @@ pipeline:
         # Remove plaintext birth date
         root.customer.date_of_birth = deleted()
 ```
-
-    _Note: This step uses a separate `TEMPORAL_ENCRYPTION_KEY`. Ensure you have set it as an environment variable._
 
 ## Verification
 

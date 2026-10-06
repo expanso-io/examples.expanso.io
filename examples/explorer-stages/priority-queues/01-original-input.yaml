@@ -1,9 +1,16 @@
-# No priority routing - all messages treated equally
 output:
   kafka:
-    addresses: ["kafka-broker-1:9092","kafka-broker-2:9092"]
+    addresses:
+      - ${KAFKA_TLS_BROKERS}
     topic: all-events
     batching:
-      count: 100      # Same batching for all
-      period: 30s     # Same delay for all
-    max_retries: 3    # Same reliability for all
+      count: 100
+      period: 30s
+    max_retries: 3
+    tls:
+      enabled: true
+      root_cas_file: ${KAFKA_CA_FILE}
+    sasl:
+      mechanism: SCRAM-SHA-512
+      user: ${KAFKA_USERNAME}
+      password: ${KAFKA_PASSWORD}

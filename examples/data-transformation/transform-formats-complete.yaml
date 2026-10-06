@@ -1,108 +1,54 @@
-name: transform-formats-complete
-type: pipeline
-description: Complete Format Transformation Pipeline - Transforms between JSON, CSV, and XML formats with auto-detection.
-namespace: production
-labels:
-  category: data-transformation
-  pattern: format-transformation
-
 config:
   input:
     http_server:
-      address: "0.0.0.0:8080"
-      path: /transform
-      allowed_verbs: ["POST"]
+      address: '0.0.0.0:8080'
+      path: /sensors/ingest
 
   pipeline:
     processors:
-      # Step 1: Detect input format from Content-Type or structure
+      # Parse JSON
+      - json_documents:
+          parts: []
+
+      # Validate and flatten
       - mapping: |
-          root = this
-          let content = this.string()
+          root.sensor_id = this.sensor_id
+          root.location = this.location
+          root.temperature = this.temperature
+          root.humidity = this.humidity
+          root.timestamp = this.timestamp
+          root.device_type = this.metadata.device_type
+          root.firmware_version = this.metadata.firmware_version
 
-          root.source_format = if content.has_prefix("{") || content.has_prefix("[") {
-            "json"
-          } else if content.has_prefix("<?xml") || content.has_prefix("<") {
-            "xml"
-          } else if content.count(",") >= 1 {
-            "csv"
-          } else {
-            "text"
-          }
-
-          root.raw = content
-          meta source_format = root.source_format
-
-      # Step 2: Parse to normalized structure
-      - switch:
-          - check: 'meta("source_format") == "json"'
-            processors:
-              - json_documents:
-                  parts: []
-
-          - check: 'meta("source_format") == "xml"'
-            processors:
-              - xml:
-                  operator: to_json
-
-          - check: 'meta("source_format") == "csv"'
-            processors:
-              - csv:
-                  parse_header_row: true
-
-      # Step 3: Transform to target format (based on Accept header or default)
-      - mapping: |
-          root = this
-          let target = meta("http_accept").or("application/json")
-
-          root.target_format = if target.contains("xml") {
-            "xml"
-          } else if target.contains("csv") {
-            "csv"
-          } else {
-            "json"
-          }
-
-          meta target_format = root.target_format
-
-      # Step 4: Encode to target format
-      - switch:
-          - check: 'meta("target_format") == "xml"'
-            processors:
-              - xml:
-                  operator: from_json
-
-          - check: 'meta("target_format") == "csv"'
-            processors:
-              - mapping: |
-                  root = if this.type() == "array" {
-                    this
-                  } else {
-                    [this]
-                  }
-              - unarchive:
-                  format: csv_lines
-
-      # Step 5: Add transformation metadata
-      - mapping: |
-          root.data = this
-          root.transformation = {
-            "source_format": meta("source_format"),
-            "target_format": meta("target_format"),
-            "transformed_at": now()
-          }
+      # Convert to Avro
+      - avro:
+          operator: to_json
+          encoding: binary
+          schema: |
+            {
+              "type": "record",
+              "name": "SensorReading",
+              "namespace": "com.example.sensors",
+              "fields": [
+                {"name": "sensor_id", "type": "string"},
+                {"name": "location", "type": "string"},
+                {"name": "temperature", "type": "double"},
+                {"name": "humidity", "type": "double"},
+                {"name": "timestamp", "type": "string"},
+                {"name": "device_type", "type": "string"},
+                {"name": "firmware_version", "type": "string"}
+              ]
+            }
 
   output:
-    http_server:
-      sync_response:
-        status: 200
-        headers:
-          Content-Type: "${!meta(\"target_format\")}"
-
-logger:
-  level: INFO
-  format: json
-
-metrics:
-  prometheus:
-    path: /metrics
+    kafka:
+      addresses: ['${KAFKA_TLS_BROKERS}']
+      topic: sensor-readings-avro
+      tls:
+        enabled: true
+        root_cas_file: ${KAFKA_CA_FILE}
+      sasl:
+        mechanism: SCRAM-SHA-512
+        user: '${KAFKA_USERNAME}'
+        password: '${KAFKA_PASSWORD}'
+      compression: snappy

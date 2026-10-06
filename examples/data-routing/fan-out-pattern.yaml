@@ -1,9 +1,9 @@
-name: fan-out-pattern
-description: Multi-destination fan-out pipeline for sensor data
+name: multi-destination-sensor-data
+description: Send sensor data to authenticated Kafka, encrypted S3, and authenticated Elasticsearch
 type: pipeline
-namespace: default
+namespace: production
 labels:
-  pattern: fan-out
+  environment: production
   data-type: sensor-metrics
 
 config:
@@ -11,36 +11,53 @@ config:
     http_server:
       address: 0.0.0.0:8080
       path: /events
+      allowed_verbs: [POST]
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+          root.processed_at = now()
+          root.node_id = env("NODE_ID").or("unknown")
 
   output:
     broker:
       pattern: fan_out
       outputs:
-        # Local file for debugging
-        - file:
-            path: /tmp/events.jsonl
-            codec: lines
-
-        # Kafka for real-time streaming
         - kafka:
-            addresses: ["${KAFKA_BROKERS}"]
+            addresses: ['${KAFKA_TLS_BROKERS}']
             topic: sensor-events
-            key: "${!this.sensor_id}"
+            key: '${! this.sensor_id }'
+            tls:
+              enabled: true
+              root_cas_file: ${KAFKA_CA_FILE}
+            sasl:
+              mechanism: SCRAM-SHA-512
+              user: '${KAFKA_USERNAME}'
+              password: '${KAFKA_PASSWORD}'
+            ack_replicas: true
+            batching:
+              count: 100
+              period: 5s
 
-        # S3 for long-term archival
         - aws_s3:
-            bucket: "${S3_BUCKET}"
-            region: "${AWS_REGION}"
-            path: "events/${!timestamp_unix()}/${!uuid_v4()}.json"
+            bucket: '${S3_BUCKET}'
+            region: '${AWS_REGION}'
+            path: 'events/date=${! now().ts_format("2006-01-02") }/${! uuid_v4() }.json'
+            content_type: application/json
+            storage_class: INTELLIGENT_TIERING
+            server_side_encryption: aws:kms
+            kms_key_id: '${S3_KMS_KEY_ARN}'
             batching:
-              count: 10
-              period: 10s
+              count: 100
+              period: 30s
 
-        # Elasticsearch for search and analytics
-        - elasticsearch:
-            urls: ["${ES_ENDPOINT}"]
-            index: "sensor-events-${!timestamp_unix()}"
-            id: "${!this.event_id.or(uuid_v4())}"
-            batching:
-              count: 10
-              period: 10s
+        - http_client:
+            url: '${ELASTICSEARCH_HTTPS_URL}/sensor-events-${! now().ts_format("2006-01-02") }/_doc/${! this.event_id.or(uuid_v4()) }'
+            verb: PUT
+            headers:
+              Authorization: 'ApiKey ${ELASTICSEARCH_API_KEY}'
+              Content-Type: application/json
+            tls:
+              enabled: true
+              root_cas_file: ${ELASTICSEARCH_CA_FILE}

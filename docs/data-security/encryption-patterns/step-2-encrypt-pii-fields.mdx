@@ -29,13 +29,9 @@ For any PII field:
 
 ## Implementation
 
-Add this logic to the same `mapping` processor used for payment data.
+Append this as a separate item in `pipeline.processors` after the processor from Step 1. Each processor receives the previous processor's output, so `root = this` preserves earlier ciphertext and deletions. Keep the earlier processors in order.
 
-1.  **Start with your Pipeline:** Open the `encrypt-card.yaml` file from Step 1.
-
-2.  **Add the PII Encryption Logic:** Add the logic for `email` and `ssn` to the _bottom_ of the existing `mapping` processor.
-
-    ```yaml
+```yaml
 pipeline:
   processors:
     - mapping: |
@@ -89,8 +85,6 @@ pipeline:
         # Remove plaintext PII
         root.customer = root.customer.without("email", "phone", "ssn", "first_name", "last_name")
 ```
-
-    _Note: This step uses a separate `PII_ENCRYPTION_KEY_HEX`. Ensure you have set it as an environment variable._
 
 ## Verification
 

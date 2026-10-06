@@ -77,9 +77,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-avro-parquet.yaml",
     yamlCode:
-      "output:\n  aws_s3:\n    bucket: sensor-data-lake\n    path: readings/${!timestamp_unix()}.parquet\n    codec: parquet\n    compression: snappy\n    # Columnar storage for fast analytics\n",
+      "output:\n  aws_s3:\n    bucket: ${S3_BUCKET}\n    path: readings/${!now().ts_unix()}.parquet\n    region: ${AWS_REGION}\n    server_side_encryption: aws:kms\n    kms_key_id: ${S3_KMS_KEY_ARN}\n  processors:\n    - parquet_encode:\n        schema:\n          - name: sensor_id\n            type: UTF8\n          - name: temperature\n            type: DOUBLE\n          - name: humidity\n            type: DOUBLE\n          - name: timestamp\n            type: UTF8\n        compression: snappy\n",
     configSha256:
-      "sha256:268ec86ef676344f3e9306d95e133fa3fa2591dc132b0c4cf73b6288179f903e",
+      "sha256:ecd9bd89b9560ec9a0e1c7b9f7872f8d7007487b3aa95d14f52dcf81b0cd81cb",
   },
   {
     id: 4,

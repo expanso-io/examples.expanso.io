@@ -1,199 +1,287 @@
-name: encryption-patterns-complete
+name: field-encryption-patterns
 type: pipeline
-description: Field-level encryption example with configurable patterns relevant to security and privacy programs; applicability and compliance require independent review.
-namespace: production
-labels:
-  category: data-security
-  pattern: encryption
-  compliance: pci-gdpr-hipaa
-
 config:
   input:
     http_server:
-      address: "0.0.0.0:8080"
-      path: "/encrypt"
-      allowed_verbs: ["POST"]
-      timeout: "30s"
-
+      address: 127.0.0.1:8080
+      path: /encrypt
   pipeline:
     processors:
-      # Input validation
-      - mapping: |
-          let required_fields = ["payment.card_number", "customer.email"]
-          let missing_fields = required_fields.filter(field -> this.get(field) == null)
-
-          root = if missing_fields.length() > 0 {
-            throw("Missing required fields: " + missing_fields.join(", "))
-          } else {
-            this
-          }
-
-          root.processing_metadata = {
-            "pipeline_version": env("PIPELINE_VERSION").or("2.1.0"),
-            "node_id": env("NODE_ID").or("unknown"),
-            "processing_start": now()
-          }
-
-      # PATTERN 1: Payment Card Encryption (PCI-DSS)
       - mapping: |
           root = this
+          let key = env("CARD_ENCRYPTION_KEY_HEX").decode("hex")
+          let key = if $key.length() != 32 { throw("Expected a 32-byte AES key") } else { $key }
 
-          root.payment.card_brand = if this.payment.card_number.exists() {
-            let card_num = this.payment.card_number.re_replace_all("[^0-9]", "")
+          # AES-GCM requires a unique nonce for each field encryption. Store the
+          # nonce next to the ciphertext so an authorized consumer can decrypt it.
+          let card_number_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+          root.payment.card_number_encrypted = if this.payment.card_number != null {
+            this.payment.card_number.encrypt_aes(
+              "gcm",
+              $key,
+              $card_number_nonce.decode("hex")
+            ).encode("base64")
+          }
+          root.payment.card_number_nonce = if this.payment.card_number != null {
+            $card_number_nonce
+          } else {
+            deleted()
+          }
+
+          # Keep last 4 digits only if the reviewed output contract needs them.
+          root.payment.card_last_four = if this.payment.card_number != null {
+            this.payment.card_number.re_replace_all("[^0-9]", "").slice(-4)
+          }
+
+          # Detect the card brand without retaining the account number.
+          root.payment.card_bin = if this.payment.card_number != null {
+            this.payment.card_number.re_replace_all("[^0-9]", "").slice(0, 6)
+          }
+          root.payment.card_brand = if this.payment.card_number != null {
             match {
-              card_num.re_match("^4[0-9]{12,18}$") => "visa"
-              card_num.re_match("^5[1-5][0-9]{14}$") => "mastercard"
-              card_num.re_match("^3[47][0-9]{13}$") => "american_express"
-              card_num.re_match("^6011[0-9]{12}$") => "discover"
+              this.payment.card_number.re_match("^4") => "visa"
+              this.payment.card_number.re_match("^5[1-5]") => "mastercard"
+              this.payment.card_number.re_match("^3[47]") => "amex"
+              this.payment.card_number.re_match("^6(?:011|5)") => "discover"
               _ => "unknown"
             }
           }
 
-          let card_num = this.payment.card_number.re_replace_all("[^0-9]", "")
-          root.payment.card_last_four = if card_num.length() >= 8 { card_num.slice(-4) }
-          root.payment.card_bin = if card_num.length() >= 8 { card_num.slice(0, 6) }
-
-          root.payment.card_number_encrypted = if this.payment.card_number.exists() {
-            this.payment.card_number.encrypt_aes("gcm", env("PAYMENT_ENCRYPTION_KEY"))
+          let cardholder_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+          root.payment.cardholder_name_encrypted = if this.payment.cardholder_name != null {
+            this.payment.cardholder_name.encrypt_aes(
+              "gcm",
+              $key,
+              $cardholder_nonce.decode("hex")
+            ).encode("base64")
           }
-
-          root.payment.cvv_encrypted = if this.payment.cvv.exists() {
-            this.payment.cvv.encrypt_aes("gcm", env("PAYMENT_ENCRYPTION_KEY"))
-          }
-
-          root.payment = this.payment.without("card_number", "cvv", "cardholder_name")
-
-      # PATTERN 2: Personal Data Encryption (GDPR/CCPA)
-      - mapping: |
-          root = this
-
-          root.customer.email_domain = if this.customer.email.exists() {
-            let email = this.customer.email.lowercase()
-            if email.re_match("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$") {
-              email.split("@").index(1)
-            }
-          }
-
-          root.customer.email_encrypted = if this.customer.email.exists() {
-            this.customer.email.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
-          }
-
-          root.customer.phone_encrypted = if this.customer.phone.exists() {
-            this.customer.phone.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
-          }
-
-          let ssn_normalized = if this.customer.ssn.exists() {
-            this.customer.ssn.re_replace_all("[^0-9]", "")
-          }
-
-          root.customer.ssn_last_four = if ssn_normalized.exists() && ssn_normalized.length() == 9 {
-            ssn_normalized.slice(-4)
-          }
-
-          root.customer.ssn_encrypted = if this.customer.ssn.exists() {
-            this.customer.ssn.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
-          }
-
-          root.customer = this.customer.without("email", "phone", "ssn", "first_name", "last_name")
-
-      # PATTERN 3: Address Encryption
-      - mapping: |
-          root = this
-
-          root.billing_address.zip_prefix = if this.billing_address.zip.exists() {
-            let zip_clean = this.billing_address.zip.re_replace_all("[^0-9]", "")
-            if zip_clean.length() >= 3 { zip_clean.slice(0, 3) }
-          }
-
-          root.billing_address.street_encrypted = if this.billing_address.street.exists() {
-            this.billing_address.street.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
-          }
-
-          root.billing_address.zip_encrypted = if this.billing_address.zip.exists() {
-            this.billing_address.zip.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
-          }
-
-          root.billing_address = this.billing_address.without("street", "zip")
-
-      # PATTERN 4: Temporal Data Encryption (HIPAA)
-      - mapping: |
-          root = this
-
-          let birth_date_parsed = if this.customer.date_of_birth.exists() {
-            this.customer.date_of_birth.parse_timestamp("2006-01-02")
-          }
-
-          root.customer.birth_year = if birth_date_parsed.exists() {
-            birth_date_parsed.ts_format("2006").number()
-          }
-
-          root.customer.age_range = if root.customer.birth_year.exists() {
-            let current_year = now().ts_format("2006").number()
-            let age = current_year - root.customer.birth_year
-            match {
-              age < 18 => "under_18"
-              age < 35 => "18_to_34"
-              age < 55 => "35_to_54"
-              age < 65 => "55_to_64"
-              _ => "65_plus"
-            }
-          }
-
-          root.customer.date_of_birth_encrypted = if this.customer.date_of_birth.exists() {
-            this.customer.date_of_birth.encrypt_aes("gcm", env("TEMPORAL_ENCRYPTION_KEY"))
-          }
-
-          root.customer.date_of_birth = deleted()
-
-      # Final validation
-      - mapping: |
-          root = this
-
-          let validation_errors = [
-            if this.payment.card_number.exists() { "payment.card_number still in plaintext" },
-            if this.customer.email.exists() { "customer.email still in plaintext" },
-            if this.customer.ssn.exists() { "customer.ssn still in plaintext" }
-          ].filter(v -> v != null)
-
-          root = if validation_errors.length() > 0 {
-            throw("Encryption validation failed: " + validation_errors.join(", "))
+          root.payment.cardholder_name_nonce = if this.payment.cardholder_name != null {
+            $cardholder_nonce
           } else {
-            this
+            deleted()
           }
 
-          root.processing_metadata.processing_complete = now()
-          root.processing_metadata.encryption_status = "success"
+          # CVV is deleted rather than retained in any form.
+          root.payment = root.payment.without(
+            "card_number",
+            "cvv",
+            "cardholder_name"
+          )
+      - mapping: |
+          let key = env("PII_ENCRYPTION_KEY_HEX").decode("hex")
+          let key = if $key.length() != 32 { throw("Expected a 32-byte AES key") } else { $key }
+          root = this
 
+          # Extract email domain for B2B analytics
+          root.customer.email_domain = this.customer.email.split("@").index(1)
+          root.customer.email_domain_type = match {
+            root.customer.email_domain.re_match("(gmail|yahoo|hotmail).*") => "consumer"
+            _ => "business"
+          }
+
+          # Phone encryption with area code preservation
+          let phone_clean = this.customer.phone.re_replace_all("[^0-9+]", "")
+          root.customer.phone_country_code = if $phone_clean.has_prefix("+1") { "+1" } else { "international" }
+          root.customer.phone_area_code = if $phone_clean.length() == 12 { $phone_clean.slice(2, 5) }
+
+          # SSN encryption with last 4 preservation
+          let ssn_clean = this.customer.ssn.re_replace_all("[^0-9]", "")
+          root.customer.ssn_last_four = $ssn_clean.slice(-4)
+
+          # Encrypt all PII fields
+          let customer_email_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+          root.customer.email_encrypted = if this.customer.email != null {
+            this.customer.email.encrypt_aes("gcm", $key, $customer_email_nonce.decode("hex")).encode("base64")
+          }
+          root.customer.email_nonce = if this.customer.email != null { $customer_email_nonce } else { deleted() }
+          let customer_phone_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+          root.customer.phone_encrypted = if this.customer.phone != null {
+            this.customer.phone.encrypt_aes("gcm", $key, $customer_phone_nonce.decode("hex")).encode("base64")
+          }
+          root.customer.phone_nonce = if this.customer.phone != null { $customer_phone_nonce } else { deleted() }
+          let customer_ssn_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+          root.customer.ssn_encrypted = if this.customer.ssn != null {
+            this.customer.ssn.encrypt_aes("gcm", $key, $customer_ssn_nonce.decode("hex")).encode("base64")
+          }
+          root.customer.ssn_nonce = if this.customer.ssn != null { $customer_ssn_nonce } else { deleted() }
+          let customer_first_name_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+          root.customer.first_name_encrypted = if this.customer.first_name != null {
+            this.customer.first_name.encrypt_aes("gcm", $key, $customer_first_name_nonce.decode("hex")).encode("base64")
+          }
+          root.customer.first_name_nonce = if this.customer.first_name != null { $customer_first_name_nonce } else { deleted() }
+          let customer_last_name_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+          root.customer.last_name_encrypted = if this.customer.last_name != null {
+            this.customer.last_name.encrypt_aes("gcm", $key, $customer_last_name_nonce.decode("hex")).encode("base64")
+          }
+          root.customer.last_name_nonce = if this.customer.last_name != null { $customer_last_name_nonce } else { deleted() }
+
+          # Remove plaintext PII
+          root.customer = root.customer.without("email", "phone", "ssn", "first_name", "last_name")
+      - mapping: |
+          let key = env("ADDRESS_ENCRYPTION_KEY_HEX").decode("hex")
+          let key = if $key.length() != 32 { throw("Expected a 32-byte AES key") } else { $key }
+          root = this
+
+          # Extract ZIP prefixes for demographic clustering
+          root.billing_address.zip_prefix = this.billing_address.zip.re_replace_all("[^0-9]", "").slice(0, 3)
+          root.shipping_address.zip_prefix = this.shipping_address.zip.re_replace_all("[^0-9]", "").slice(0, 3)
+
+          # Determine metro areas for regional analytics
+          let billing_metro = match {
+            this.billing_address.city.lowercase().re_match(".*(san francisco|sf).*") => "sf_bay_area"
+            this.billing_address.city.lowercase().re_match(".*(los angeles|la).*") => "la_metro"
+            _ => "other_urban"
+          }
+
+          # Encrypt precise location data
+          let billing_address_street_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+          root.billing_address.street_encrypted = if this.billing_address.street != null {
+            this.billing_address.street.encrypt_aes("gcm", $key, $billing_address_street_nonce.decode("hex")).encode("base64")
+          }
+          root.billing_address.street_nonce = if this.billing_address.street != null { $billing_address_street_nonce } else { deleted() }
+          let billing_address_zip_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+          root.billing_address.zip_encrypted = if this.billing_address.zip != null {
+            this.billing_address.zip.encrypt_aes("gcm", $key, $billing_address_zip_nonce.decode("hex")).encode("base64")
+          }
+          root.billing_address.zip_nonce = if this.billing_address.zip != null { $billing_address_zip_nonce } else { deleted() }
+          let shipping_address_street_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+          root.shipping_address.street_encrypted = if this.shipping_address.street != null {
+            this.shipping_address.street.encrypt_aes("gcm", $key, $shipping_address_street_nonce.decode("hex")).encode("base64")
+          }
+          root.shipping_address.street_nonce = if this.shipping_address.street != null { $shipping_address_street_nonce } else { deleted() }
+          let shipping_address_zip_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+          root.shipping_address.zip_encrypted = if this.shipping_address.zip != null {
+            this.shipping_address.zip.encrypt_aes("gcm", $key, $shipping_address_zip_nonce.decode("hex")).encode("base64")
+          }
+          root.shipping_address.zip_nonce = if this.shipping_address.zip != null { $shipping_address_zip_nonce } else { deleted() }
+
+          # Address relationship analysis
+          let shipping_metro = match {
+            this.shipping_address.city.lowercase().re_match(".*(san francisco|sf).*") => "sf_bay_area"
+            this.shipping_address.city.lowercase().re_match(".*(los angeles|la).*") => "la_metro"
+            _ => "other_urban"
+          }
+          root.billing_address.metro_area = $billing_metro
+          root.shipping_address.metro_area = $shipping_metro
+          root.address_analysis = {
+            "same_city": this.billing_address.city == this.shipping_address.city,
+            "same_state": this.billing_address.state == this.shipping_address.state,
+            "same_metro": $billing_metro == $shipping_metro
+          }
+
+          # Remove plaintext addresses
+          root.billing_address = root.billing_address.without("street", "zip")
+          root.shipping_address = root.shipping_address.without("street", "zip")
+      - mapping: |
+          let key = env("TEMPORAL_ENCRYPTION_KEY_HEX").decode("hex")
+          let key = if $key.length() != 32 { throw("Expected a 32-byte AES key") } else { $key }
+          root = this
+
+          # Parse birth date for analytics extraction
+          let birth_date = this.customer.date_of_birth.ts_parse("2006-01-02")
+
+          # Extract temporal analytics before encryption
+          root.customer.birth_year = $birth_date.ts_format("2006").number()
+          root.customer.current_age = now().ts_format("2006").number() - root.customer.birth_year
+
+          # Generate age range for demographic analytics
+          root.customer.age_range = match {
+            root.customer.current_age < 18 => "under_18"
+            root.customer.current_age < 25 => "18_to_24"
+            root.customer.current_age < 35 => "25_to_34"
+            root.customer.current_age < 45 => "35_to_44"
+            root.customer.current_age < 55 => "45_to_54"
+            root.customer.current_age < 65 => "55_to_64"
+            _ => "65_plus"
+          }
+
+          # Generate generational cohort
+          root.customer.birth_decade = match {
+            root.customer.birth_year >= 1980 && root.customer.birth_year < 1990 => "1980s"
+            root.customer.birth_year >= 1990 && root.customer.birth_year < 2000 => "1990s"
+            root.customer.birth_year >= 2000 => "2000s"
+            _ => "pre_1980"
+          }
+
+          # Extract birth season
+          let month = $birth_date.ts_format("01").number()
+          root.customer.birth_season = match {
+            $month >= 3 && $month <= 5 => "spring"
+            $month >= 6 && $month <= 8 => "summer"
+            $month >= 9 && $month <= 11 => "autumn"
+            _ => "winter"
+          }
+
+          # Encrypt exact birth date (HIPAA requirement)
+          let customer_date_of_birth_nonce = uuid_v4().replace_all("-", "").slice(0, 24)
+          root.customer.date_of_birth_encrypted = if this.customer.date_of_birth != null {
+            this.customer.date_of_birth.encrypt_aes("gcm", $key, $customer_date_of_birth_nonce.decode("hex")).encode("base64")
+          }
+          root.customer.date_of_birth_nonce = if this.customer.date_of_birth != null { $customer_date_of_birth_nonce } else { deleted() }
+
+          # Remove plaintext birth date
+          root.customer.date_of_birth = deleted()
+      - mapping: |
+          root = this
+
+          # Multi-key security metadata
+          root.multi_key_metadata = {
+            "encryption_architecture": "multi_tier_risk_based",
+            "key_tiers_used": {
+              "payment_critical": {
+                "rotation_schedule_days": 90,
+                "compliance_standards": ["PCI-DSS"],
+                "access_control": "payment_processor_only"
+              },
+              "pii_high": {
+                "rotation_schedule_days": 180,
+                "compliance_standards": ["GDPR", "CCPA"],
+                "access_control": "customer_service_analytics"
+              },
+              "location_medium": {
+                "rotation_schedule_days": 365,
+                "compliance_standards": ["location_privacy"]
+              },
+              "temporal_medium": {
+                "rotation_schedule_days": 365,
+                "compliance_standards": ["HIPAA"]
+              }
+            }
+          }
+
+          # Authored example metadata; values are not measurements
+          root.operational_metrics = {
+            "pipeline_health": "optimal",
+            "selected_field_count": 12,
+            "key_version": env("KEY_VERSION").or("unknown"),
+            "fixture_status": "illustrative"
+          }
+
+          # Comprehensive audit trail
+          meta audit_trail = {
+            "audit_id": "enc_" + uuid_v4(),
+            "timestamp": now(),
+            "encryption_operations": [
+              {"field": "payment.card_number", "algorithm": "AES-256-GCM", "field_group": "payment"},
+              {"field": "customer.email", "algorithm": "AES-256-GCM", "field_group": "identity"},
+              {"field": "customer.date_of_birth", "algorithm": "AES-256-GCM", "field_group": "temporal"},
+              {"field": "billing_address.street", "algorithm": "AES-256-GCM", "field_group": "location"}
+            ],
+            "selected_field_count": 12
+          }
+      - catch:
+          - mapping: root = deleted()
   output:
     broker:
       pattern: fan_out
       outputs:
-        # Primary encrypted data
-        - file:
-            path: "./encrypted-data-${!timestamp_unix()}.jsonl"
-            codec: "lines"
-
-        # Audit trail
-        - file:
-            path: "./audit-trail-${!timestamp_unix()}.jsonl"
-            codec: "lines"
-            processors:
-              - mapping: |
-                  root = {
-                    "audit_id": "enc_" + uuid_v4(),
-                    "timestamp": now(),
-                    "event_type": "field_level_encryption_complete",
-                    "node_id": env("NODE_ID").or("unknown"),
-                    "encryption_summary": {
-                      "fields_encrypted": 8,
-                      "compliance_standards_met": ["PCI-DSS", "GDPR", "CCPA", "HIPAA"]
-                    }
-                  }
-
-logger:
-  level: "INFO"
-  format: json
-
-metrics:
-  prometheus:
-    path: "/metrics"
+        - label: encrypted_data
+          file:
+            path: ${ENCRYPTED_DATA_PATH}/encrypted-${! uuid_v4() }.jsonl
+            codec: lines
+        - label: audit_trail
+          processors:
+            - mapping: root = metadata("audit_trail")
+          file:
+            path: ${ENCRYPTION_AUDIT_PATH}/audit-${! uuid_v4() }.jsonl
+            codec: lines

@@ -1,22 +1,31 @@
 output:
   fallback:
-    # Level 1: Primary API
     - http_client:
-        url: https://primary-api.com/process
+        url: ${PRIMARY_HTTPS_URL}/process
         timeout: 5s
-        max_retries: 2
-
-    # Level 2: Secondary API
+        tls:
+          enabled: true
+        headers:
+          Authorization: Bearer ${DOWNSTREAM_API_TOKEN}
+        retries: 2
     - http_client:
-        url: https://secondary-api.com/process
+        url: ${SECONDARY_HTTPS_URL}/process
         timeout: 5s
-        max_retries: 1
-
-    # Level 3: Local buffer
+        tls:
+          enabled: true
+        headers:
+          Authorization: Bearer ${DOWNSTREAM_API_TOKEN}
+        retries: 1
     - file:
         path: /var/buffer/failed-requests.jsonl
-
-    # Level 4: Dead letter queue
     - kafka:
-        addresses: [localhost:9092]
+        addresses:
+          - ${KAFKA_TLS_BROKERS}
         topic: dlq-circuit-breaker-failures
+        tls:
+          enabled: true
+          root_cas_file: ${KAFKA_CA_FILE}
+        sasl:
+          mechanism: SCRAM-SHA-512
+          user: ${KAFKA_USERNAME}
+          password: ${KAFKA_PASSWORD}

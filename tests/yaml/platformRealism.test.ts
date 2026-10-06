@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import {
   validateDeploymentManifestSource,
@@ -225,6 +227,8 @@ spec:
   it('sweeps every published catalog entry', async () => {
     const result = await validatePublishedPlatformExamples();
     assert.equal(result.examplesChecked, 26);
+    assert.equal(result.stagesChecked, 100);
+    assert.ok(result.copiesChecked >= 20);
     assert.equal(
       result.status,
       'PASS',
@@ -235,5 +239,27 @@ spec:
         )
         .join('\n')
     );
+  });
+  it('rejects insecure published stage configurations and complete copies', async () => {
+    const scratch = mkdtempSync(resolve('.nm-review-policy-'));
+    try {
+      mkdirSync(resolve(scratch, 'content'));
+      mkdirSync(resolve(scratch, 'static/files/data-security'), { recursive: true });
+      writeFileSync(resolve(scratch, 'content/explorer-stage-bindings-v1.json'), JSON.stringify({
+        explorers: [{ exampleId: 'encrypt-data', stages: [{ id: 1, configPath: 'stage.yaml' }] }],
+      }));
+      writeFileSync(resolve(scratch, 'content/public-pipeline-copies.json'), JSON.stringify([
+        { exampleId: 'encrypt-data', copyPath: 'copy.yaml' },
+      ]));
+      writeFileSync(resolve(scratch, 'static/files/data-security/encrypt-data.yaml'), 'output:\n  stdout: {}\n');
+      writeFileSync(resolve(scratch, 'copy.yaml'), 'output:\n  http_client:\n    url: http://external.invalid/events\n');
+      writeFileSync(resolve(scratch, 'stage.yaml'), 'output:\n  kafka:\n    addresses: [broker:9092]\n    topic: events\n');
+      const result = await validatePublishedPlatformExamples(scratch);
+      assert.ok(result.findings.some((item) => item.file === 'stage.yaml' && item.rule === 'kafka-tls'));
+      assert.ok(result.findings.some((item) => item.file === 'copy.yaml' && item.rule === 'https-for-external-http'));
+      assert.ok(result.findings.some((item) => item.file === 'copy.yaml' && item.rule === 'canonical-copy'));
+    } finally {
+      rmSync(scratch, { recursive: true });
+    }
   });
 });

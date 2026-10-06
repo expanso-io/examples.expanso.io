@@ -11,11 +11,9 @@ pipeline:
         } else {
           "normal"
         }
-
 output:
   switch:
     cases:
-      # Critical: immediate delivery
       - check: this.priority == "critical"
         output:
           kafka:
@@ -23,8 +21,15 @@ output:
             batching:
               count: 1
               period: 0s
-
-      # High: fast delivery
+            addresses:
+              - ${KAFKA_TLS_BROKERS}
+            tls:
+              enabled: true
+              root_cas_file: ${KAFKA_CA_FILE}
+            sasl:
+              mechanism: SCRAM-SHA-512
+              user: ${KAFKA_USERNAME}
+              password: ${KAFKA_PASSWORD}
       - check: this.priority == "high"
         output:
           kafka:
@@ -32,8 +37,15 @@ output:
             batching:
               count: 10
               period: 1s
-
-      # Low: efficient batching
+            addresses:
+              - ${KAFKA_TLS_BROKERS}
+            tls:
+              enabled: true
+              root_cas_file: ${KAFKA_CA_FILE}
+            sasl:
+              mechanism: SCRAM-SHA-512
+              user: ${KAFKA_USERNAME}
+              password: ${KAFKA_PASSWORD}
       - check: this.priority == "low"
         output:
           kafka:
@@ -41,3 +53,12 @@ output:
             batching:
               count: 1000
               period: 1m
+            addresses:
+              - ${KAFKA_TLS_BROKERS}
+            tls:
+              enabled: true
+              root_cas_file: ${KAFKA_CA_FILE}
+            sasl:
+              mechanism: SCRAM-SHA-512
+              user: ${KAFKA_USERNAME}
+              password: ${KAFKA_PASSWORD}

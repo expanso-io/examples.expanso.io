@@ -1,113 +1,77 @@
-name: deduplicate-events-complete
-type: pipeline
-description: Complete Event Deduplication Pipeline - Detects and filters duplicate events using cache-based deduplication.
-namespace: production
-labels:
-  category: data-transformation
-  pattern: deduplication
-
-cache_resources:
-  - label: dedup_cache
-    memory:
-      default_ttl: 1h
-      cap: 100000
-
 config:
+  cache_resources:
+    - label: dedup_cache
+      memory:
+        default_ttl: 1h
+        cap: 100000
+        eviction_policy: lru
+
   input:
     http_server:
-      address: "0.0.0.0:8080"
-      path: /events
-      allowed_verbs: ["POST"]
+      address: '0.0.0.0:8080'
+      path: /webhooks/signup
 
   pipeline:
     processors:
-      # Step 1: Parse and validate
+      # Parse JSON
       - json_documents:
           parts: []
 
+      # Generate content hash
       - mapping: |
           root = this
-          root.received_at = now()
+          # json_format() ensures stable key ordering
+          let event_json = this.json_format()
+          root.dedup_hash = event_json.hash("sha256")
+          root.dedup_timestamp = now()
 
-          # Validate required fields
-          root = if !this.event_id.exists() {
-            throw("Missing required field: event_id")
+      # Check cache for hash
+      - cache:
+          resource: dedup_cache
+          operator: get
+          key: ${! this.dedup_hash }
+
+      # Handle duplicates
+      - mapping: |
+          root = this
+          let is_duplicate = meta("cache").exists()
+
+          # If duplicate, mark for rejection
+          root = if is_duplicate {
+            root.is_duplicate = true
+            meta is_duplicate = true
+            this
+          } else {
+            # New event, add to cache
+            _ = cache_set("dedup_cache", this.dedup_hash, this.dedup_timestamp, "1h")
+            this
+          }
+
+      # Archive duplicates
+      - branch:
+          request_map: root = if meta("is_duplicate") == true { this }
+          processors:
+            - mapping: |
+                root.duplicate_metadata = {
+                  "detected_at": now(),
+                  "original_hash": this.dedup_hash,
+                  "strategy": "hash-based"
+                }
+          result_map: root = deleted() # Don't merge back
+
+      # Drop duplicates
+      - mapping: |
+          root = if meta("is_duplicate") == true {
+            deleted()
           } else {
             this
           }
 
-      # Step 2: Generate deduplication key
-      - mapping: |
-          root = this
-
-          # Create composite key for deduplication
-          # Options: event_id only, or event_id + type + timestamp window
-          root.dedup_key = if this.dedup_strategy.or("event_id") == "composite" {
-            # Composite: event_type + source + 1-minute window
-            let window = (this.timestamp.or(now()).ts_unix() / 60).floor()
-            this.event_type.or("unknown") + ":" + this.source.or("unknown") + ":" + window.string()
-          } else {
-            # Simple: just event_id
-            this.event_id
-          }
-
-          meta dedup_key = root.dedup_key
-
-      # Step 3: Check cache for existing entry
-      - cache:
-          resource: dedup_cache
-          operator: get
-          key: '${!meta("dedup_key")}'
-
-      - mapping: |
-          root = this
-          root.is_duplicate = meta("cache_result").exists() && meta("cache_result") != ""
-          meta is_duplicate = root.is_duplicate
-
-      # Step 4: Store new events in cache
-      - switch:
-          - check: '!meta("is_duplicate")'
-            processors:
-              - cache:
-                  resource: dedup_cache
-                  operator: set
-                  key: '${!meta("dedup_key")}'
-                  value: '${!json("received_at")}'
-
-      # Step 5: Add dedup metadata
-      - mapping: |
-          root = this
-          root.dedup_result = {
-            "is_duplicate": this.is_duplicate,
-            "dedup_key": meta("dedup_key"),
-            "checked_at": now()
-          }
-
   output:
-    switch:
-      # New events → downstream processing
-      - check: '!meta("is_duplicate")'
-        output:
-          kafka:
-            addresses: ["${KAFKA_BROKERS:localhost:9092}"]
-            topic: unique-events
-            batching:
-              count: 100
-              period: 5s
-
-      # Duplicates → metrics/logging only
-      - output:
-          file:
-            path: "/var/expanso/duplicates/${!timestamp_unix_date('2006-01-02')}/dupes.jsonl"
-            codec: lines
-            batching:
-              count: 500
-              period: 60s
-
-logger:
-  level: INFO
-  format: json
-
-metrics:
-  prometheus:
-    path: /metrics
+    http_client:
+      url: '${ANALYTICS_HTTPS_URL}/events'
+      verb: POST
+      headers:
+        Authorization: 'Bearer ${ANALYTICS_API_TOKEN}'
+      tls:
+        enabled: true

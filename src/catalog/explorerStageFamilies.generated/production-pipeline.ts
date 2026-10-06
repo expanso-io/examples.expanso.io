@@ -149,9 +149,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "06-fan-out.yaml",
     yamlCode:
-      "output:\n  broker:\n    pattern: fan_out\n    outputs:\n      # 1. Real-time alerts (high priority)\n      - switch:\n          - check: this.priority >= 7\n            output:\n              elasticsearch:\n                urls: [http://localhost:9200]\n                index: logs-critical\n\n      # 2. Stream processing (all logs)\n      - kafka:\n          addresses: [localhost:9092]\n          topic: logs-stream\n\n      # 3. Long-term archival (S3)\n      - aws_s3:\n          bucket: logs-archive\n          path: ${!timestamp_unix()}.json\n",
+      "output:\n  broker:\n    pattern: fan_out\n    outputs:\n      - switch:\n          - check: this.priority >= 7\n            output:\n              http_client:\n                url: ${ELASTICSEARCH_HTTPS_URL}/logs-critical/_doc/${! this.event_id.or(uuid_v4()) }\n                verb: PUT\n                headers:\n                  Authorization: ApiKey ${ELASTICSEARCH_API_KEY}\n                  Content-Type: application/json\n                tls:\n                  enabled: true\n                  root_cas_file: ${ELASTICSEARCH_CA_FILE}\n      - kafka:\n          addresses:\n            - ${KAFKA_TLS_BROKERS}\n          topic: logs-stream\n          tls:\n            enabled: true\n            root_cas_file: ${KAFKA_CA_FILE}\n          sasl:\n            mechanism: SCRAM-SHA-512\n            user: ${KAFKA_USERNAME}\n            password: ${KAFKA_PASSWORD}\n      - aws_s3:\n          bucket: ${S3_BUCKET}\n          path: ${!now().ts_unix()}.json\n          region: ${AWS_REGION}\n          server_side_encryption: aws:kms\n          kms_key_id: ${S3_KMS_KEY_ARN}\n",
     configSha256:
-      "sha256:f899c456eb7dbb9a8cda48f7289e42c09ce15b9abe75c3199c918ba0ec91128e",
+      "sha256:a80da07c050db7af714a8cbb69e2ea64be9180551238b1aafa181776847664ba",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 

@@ -1,20 +1,37 @@
 output:
   switch:
     cases:
-      # EU data to EU systems (GDPR)
       - check: this.region == "eu-west"
         output:
           broker:
             pattern: fan_out
             outputs:
               - kafka:
-                  addresses: [eu-kafka.example.com:9092]
+                  addresses:
+                    - ${KAFKA_TLS_BROKERS_EU_WEST}
+                  tls:
+                    enabled: true
+                    root_cas_file: ${KAFKA_CA_FILE}
+                  sasl:
+                    mechanism: SCRAM-SHA-512
+                    user: ${KAFKA_USERNAME}
+                    password: ${KAFKA_PASSWORD}
+                  topic: ${KAFKA_TOPIC}
               - aws_s3:
-                  bucket: eu-data-archive
-                  region: eu-west-1
-
-      # US East to regional cluster
+                  bucket: ${S3_BUCKET_EU_WEST}
+                  region: ${AWS_REGION_EU_WEST}
+                  server_side_encryption: aws:kms
+                  kms_key_id: ${S3_KMS_KEY_ARN_EU_WEST}
       - check: this.region == "us-east"
         output:
           kafka:
-            addresses: [us-east-kafka.example.com:9092]
+            addresses:
+              - ${KAFKA_TLS_BROKERS_US_EAST}
+            tls:
+              enabled: true
+              root_cas_file: ${KAFKA_CA_FILE}
+            sasl:
+              mechanism: SCRAM-SHA-512
+              user: ${KAFKA_USERNAME}
+              password: ${KAFKA_PASSWORD}
+            topic: ${KAFKA_TOPIC}

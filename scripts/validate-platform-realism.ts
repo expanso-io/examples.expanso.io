@@ -1,11 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 
 import { glob } from 'glob';
 import { parseAllDocuments } from 'yaml';
 
 import { PUBLIC_CATALOG } from '../src/catalog/registry';
+import { GENERATED_EXPLORER_STAGE_CONFIGS } from '../src/catalog/explorerStageConfigs.generated';
 
 export interface PlatformRealismFinding {
   exampleId: string;
@@ -18,6 +20,8 @@ export interface PlatformRealismFinding {
 export interface PlatformRealismResult {
   examplesChecked: number;
   manifestsChecked: number;
+  stagesChecked: number;
+  copiesChecked: number;
   findings: PlatformRealismFinding[];
   status: 'PASS' | 'FAIL';
 }
@@ -821,6 +825,15 @@ export async function validatePublishedPlatformExamples(
 
   const findings: PlatformRealismFinding[] = [];
 
+  let stagesChecked = 0;
+  let copiesChecked = 0;
+  const stageManifest = JSON.parse(
+    await readFile(resolve(root, 'content/explorer-stage-bindings-v1.json'), 'utf8')
+  ) as { explorers: { exampleId: string; stages: { id: number; configPath: string }[] }[] };
+  const publicCopies = JSON.parse(
+    await readFile(resolve(root, 'content/public-pipeline-copies.json'), 'utf8')
+  ) as { exampleId: string; copyPath?: string }[];
+
   for (const record of published) {
     if (!record.completePipelinePath) {
       findings.push(
@@ -846,6 +859,31 @@ export async function validatePublishedPlatformExamples(
           requiredComponents: requiredComponents[record.id],
         })
       );
+      for (const copy of publicCopies.filter((item) => item.exampleId === record.id && item.copyPath)) {
+        const copySource = await readFile(resolve(root, copy.copyPath!), 'utf8');
+        copiesChecked += 1;
+        findings.push(...validatePlatformYamlSource(copySource, {
+          exampleId: record.id,
+          file: copy.copyPath!,
+          requiredComponents: requiredComponents[record.id],
+        }));
+        const normalized = (yaml: string) => parseAllDocuments(yaml.replace(/[\t ]+$/gm, '')).map((document) => document.toJS());
+        if (!isDeepStrictEqual(normalized(copySource), normalized(source))) {
+          findings.push(finding(record.id, copy.copyPath!, '$', 'canonical-copy',
+            'public pipeline copy differs from its canonical configuration'));
+        }
+      }
+      const family = stageManifest.explorers.find((item) => item.exampleId === record.id);
+      for (const stage of family?.stages ?? []) {
+        const stageSource = stage.configPath.includes('#')
+          ? GENERATED_EXPLORER_STAGE_CONFIGS[record.id].stages.find((item) => item.id === stage.id)!.yamlCode
+          : await readFile(resolve(root, stage.configPath), 'utf8');
+        stagesChecked += 1;
+        findings.push(...validatePlatformYamlSource(stageSource, {
+          exampleId: record.id,
+          file: stage.configPath,
+        }));
+      }
     } catch (error) {
       findings.push(
         finding(
@@ -893,6 +931,8 @@ export async function validatePublishedPlatformExamples(
   return {
     examplesChecked: published.length,
     manifestsChecked,
+    stagesChecked,
+    copiesChecked,
     findings,
     status: findings.length === 0 ? 'PASS' : 'FAIL',
   };

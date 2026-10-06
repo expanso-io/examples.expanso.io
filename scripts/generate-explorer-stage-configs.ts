@@ -906,6 +906,22 @@ async function main(): Promise<void> {
 
   const manifest = readManifest();
   const result = await validateAndRender(manifest);
+  const publicCopies = JSON.parse(
+    readFileSync('content/public-pipeline-copies.json', 'utf8')
+  ) as { exampleId: string; copyPath?: string }[];
+  for (const copy of publicCopies) {
+    if (!copy.copyPath) continue;
+    const record = EXAMPLE_RECORDS.find((item) => item.id === copy.exampleId);
+    if (!record?.completePipelinePath) {
+      throw new Error(`No canonical pipeline for ${copy.exampleId}`);
+    }
+    const canonical = readFileSync(record.completePipelinePath, 'utf8').replace(/[\t ]+$/gm, '');
+    if (writeMode) {
+      writeFileSync(copy.copyPath, canonical);
+    } else if (readFileSync(copy.copyPath, 'utf8') !== canonical) {
+      throw new Error(`${copy.copyPath} is stale; run npm run stages:canonical:write`);
+    }
+  }
   if (result.stageCount !== 100) {
     throw new Error(`Expected 100 bound stages, received ${result.stageCount}`);
   }
