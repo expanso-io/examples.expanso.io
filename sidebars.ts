@@ -20,11 +20,16 @@ function overviewDocumentId(route: string): string {
 // sidebar_position values, which collide inside several examples.
 function surfaceRank(name: string): number {
   if (name === 'explorer') return 1;
+
   if (name === 'setup') return 2;
   const step = /^step-(\d+)/.exec(name);
+
   if (step) return 10 + Number(step[1]);
+
   if (name.startsWith('complete-')) return 100;
+
   if (name === 'troubleshooting') return 110;
+
   return 120;
 }
 
@@ -34,16 +39,19 @@ function surfaceRank(name: string): number {
 function familyPages(route: string): SidebarDoc[] {
   const directory = routeDirectory(route);
   let entries: string[];
+
   try {
     entries = readdirSync(join('docs', directory));
   } catch {
     return [];
   }
+
   return entries
     .filter((entry) => entry.endsWith('.mdx') || entry.endsWith('.md'))
     .map((entry) => {
       const name = basename(entry).replace(/\.mdx?$/, '');
       const { data } = matter(readFileSync(join('docs', directory, entry)));
+
       return { name, data };
     })
     .filter(
@@ -77,9 +85,11 @@ const outcomeGroups = GOAL_FACETS.map((goal) => ({
     .map((record) => {
       const overview = overviewDocumentId(record.routes.overview);
       const pages = familyPages(record.routes.overview);
+
       if (pages.length === 0) {
         return { type: 'doc' as const, id: overview, label: record.title };
       }
+
       return {
         type: 'category' as const,
         label: record.title,
