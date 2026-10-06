@@ -12,7 +12,7 @@ Update these sources together:
 - `examples/**`: canonical pipeline and deterministic fixture files.
 - `docs/**`: the public projection of those records.
 
-The sidebar is generated from the catalog. Do not hand-add family trees to `sidebars.ts`.
+The sidebar is generated from the catalog: each published family unfolds into the pages in its `docs/<route>/` directory (explorer, setup, steps, complete pipeline, troubleshooting), skipping `draft` and `unlisted` pages. Do not hand-add family trees to `sidebars.ts`.
 
 ## Readiness is two-dimensional
 

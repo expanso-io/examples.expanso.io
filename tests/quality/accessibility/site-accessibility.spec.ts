@@ -16,9 +16,13 @@ import {
 } from '../../../scripts/quality/accessibility-lib';
 
 const contract = loadAccessibilityContract();
+
 const routes = parseAccessibilityRoutes(contract);
+
 const observationAttachment = 'accessibility-observation-v1';
+
 const wcagTags = ['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'];
+
 const explorerProofRoute = '/__explorer-runtime-proof/';
 
 test.setTimeout(180_000);
@@ -41,12 +45,14 @@ async function recordObservation(
   const startedAt = Date.now();
   let status: AccessibilityObservation['status'] = 'PASS';
   const reasons: string[] = [];
+
   try {
     await run();
   } catch (error) {
     status = 'FAIL';
     reasons.push(error instanceof Error ? error.message : String(error));
   }
+
   const observation: AccessibilityObservation = {
     observationVersion: ACCESSIBILITY_OBSERVATION_VERSION,
     oracleId,
@@ -61,10 +67,12 @@ async function recordObservation(
     durationMs: Date.now() - startedAt,
     reasons,
   };
+
   await testInfo.attach(observationAttachment, {
     body: Buffer.from(JSON.stringify(observation)),
     contentType: 'application/json',
   });
+
   return reasons[0] ?? null;
 }
 
@@ -89,6 +97,7 @@ async function recordUnavailableObservation(
     durationMs: 0,
     reasons: [reason],
   };
+
   await testInfo.attach(observationAttachment, {
     body: Buffer.from(JSON.stringify(observation)),
     contentType: 'application/json',
@@ -116,17 +125,20 @@ async function visit(
     reducedMotion: options.reducedMotion ?? 'no-preference',
     forcedColors: options.forcedColors ?? 'none',
   });
+
   if (page.url() === 'about:blank' && theme !== 'dark') {
     throw new Error(
       'The first accessibility visit must establish the dark origin'
     );
   }
+
   if (page.url() !== 'about:blank') {
     await page.evaluate(
       (nextTheme) => window.localStorage.setItem('theme', nextTheme),
       theme
     );
   }
+
   await page.goto(routePath, { waitUntil: 'networkidle' });
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
   await expect(page.locator('main')).toBeVisible();
@@ -138,6 +150,7 @@ async function expectNoPageOverflow(page: Page): Promise<void> {
       document.documentElement.scrollWidth -
       document.documentElement.clientWidth
   );
+
   expect(overflow).toBeLessThanOrEqual(0);
 }
 
@@ -184,6 +197,7 @@ test.describe('accessibility-v1 inventory matrix', () => {
               ? []
               : [route.capabilities.interactionMode]),
         };
+
         const failure = await recordObservation(
           testInfo,
           browser,
@@ -192,6 +206,7 @@ test.describe('accessibility-v1 inventory matrix', () => {
           resolvedScope,
           run
         );
+
         if (failure) failures.push(`${oracleId}: ${failure}`);
       };
 
@@ -231,18 +246,23 @@ test.describe('accessibility-v1 inventory matrix', () => {
           const explorer = page.locator(
             '[data-explorer-version="2"]:not([data-explorer-mode="runtime"])'
           );
+
           if ((await explorer.count()) > 0) {
             const currentStage = explorer.locator('[aria-current="step"]');
             const initialStage = await currentStage.getAttribute('aria-label');
+
             const stageCount = await explorer
               .locator('button[aria-label^="Stage "]')
               .count();
+
             const outsideControl = page.locator('nav a, header a').first();
             await outsideControl.focus();
             await page.keyboard.press('ArrowRight');
+
             if (stageCount > 1) {
               await expect(currentStage).toHaveAccessibleName(/Stage 2 of/);
             }
+
             await page.keyboard.press('ArrowLeft');
             await expect(currentStage).toHaveAttribute(
               'aria-label',
@@ -253,6 +273,7 @@ test.describe('accessibility-v1 inventory matrix', () => {
               .first()
               .focus();
             await page.keyboard.press('ArrowRight');
+
             if (stageCount > 1) {
               await expect(
                 explorer.locator('[aria-current="step"]')
@@ -273,13 +294,17 @@ test.describe('accessibility-v1 inventory matrix', () => {
         async () => {
           for (const theme of ['dark', 'light'] as const) {
             await visit(page, route.path, { theme, forcedColors: 'active' });
+
             const controls = page.locator(
               'button:visible, a:visible, input:visible, select:visible'
             );
+
             const count = await controls.count();
+
             for (let index = 0; index < Math.min(count, 25); index += 1) {
               await expect(controls.nth(index)).toBeVisible();
             }
+
             if (count > 0) {
               await controls.first().focus();
               await expect(controls.first()).toBeFocused();
@@ -362,9 +387,11 @@ test.describe('accessibility-v1 inventory matrix', () => {
         async () => {
           await visit(page, route.path, { reducedMotion: 'reduce' });
           await expect(page.locator('main')).toBeVisible();
+
           const explorer = page.locator(
             '[data-explorer-version="2"]:not([data-explorer-mode="runtime"])'
           );
+
           if ((await explorer.count()) > 0) {
             await expect(explorer.locator('[aria-current="step"]')).toHaveCount(
               1
@@ -380,9 +407,11 @@ test.describe('accessibility-v1 inventory matrix', () => {
       );
 
       await visit(page, route.path);
+
       const explorerV2 = page.locator(
         '[data-explorer-version="2"]:not([data-explorer-mode="runtime"])'
       );
+
       if (route.path === explorerProofRoute) {
         await expect(
           page.locator('[data-explorer-mode="runtime"]')
@@ -406,10 +435,13 @@ test.describe('accessibility-v1 inventory matrix', () => {
         const comparisonMode = await explorerV2.getAttribute(
           'data-comparison-mode'
         );
+
         const filteredViewLabel =
           comparisonMode === 'highlights' ? 'Highlights only' : 'Changes only';
+
         const filteredViewState =
           comparisonMode === 'highlights' ? 'highlights-only' : 'changes-only';
+
         await observe(
           'accessibility-tree',
           {
@@ -438,28 +470,35 @@ test.describe('accessibility-v1 inventory matrix', () => {
           },
           async () => {
             const stages = explorerV2.locator('button[aria-label^="Stage "]');
+
             if ((await stages.count()) > 1) {
               await stages.nth(1).click();
               await expect(
                 explorerV2.locator('[aria-current="step"]')
               ).toHaveAccessibleName(/Stage 2 of/);
             }
+
             const filteredViewOnly = explorerV2.getByRole('checkbox', {
               name: filteredViewLabel,
             });
+
             await filteredViewOnly.check();
             await expect(filteredViewOnly).toBeChecked();
           }
         );
+
         const actionMenu = explorerV2.locator('details').filter({
           hasText: 'Copy & download',
         });
+
         const openActionMenu = async () => {
           const isOpen = await actionMenu.evaluate(
-            (element) => (element as HTMLDetailsElement).open
+            (element: HTMLDetailsElement) => element.open
           );
+
           if (!isOpen) await actionMenu.locator('summary').click();
         };
+
         await observe(
           'clipboard-denial',
           {
@@ -479,14 +518,18 @@ test.describe('accessibility-v1 inventory matrix', () => {
         );
 
         await openActionMenu();
+
         const fullDownload = explorerV2.getByRole('button', {
           name: 'Download full YAML',
         });
+
         const stageDownload = explorerV2.getByRole('button', {
           name: 'Download stage YAML',
         });
+
         const download =
           (await fullDownload.count()) > 0 ? fullDownload : stageDownload;
+
         await observe(
           'download-failure',
           {
@@ -517,35 +560,43 @@ test.describe('accessibility-v1 inventory matrix', () => {
             { width: 390, height: 844 },
           ]) {
             await visit(page, route.path, viewport);
+
             const undersized = await page
               .locator(ACCESSIBILITY_INTERACTIVE_TARGET_SELECTOR)
               .evaluateAll((controls) =>
                 controls
                   .map((control) => {
                     let target = control;
+
                     if (control instanceof HTMLInputElement) {
                       const usesCompositeTarget = [
                         'checkbox',
                         'radio',
                         'search',
                       ].includes(control.type);
+
                       if (usesCompositeTarget) {
                         const explicitLabel = control.id
                           ? document.querySelector(
                               `label[for="${CSS.escape(control.id)}"]`
                             )
                           : null;
+
                         const label = control.closest('label') ?? explicitLabel;
+
                         const searchWrapper =
                           control.type === 'search'
                             ? control.closest(
                                 '[class*="searchControl"], [class*="navbar__search"], [role="search"]'
                               )
                             : null;
+
                         target = searchWrapper ?? label ?? control;
                       }
                     }
+
                     const bounds = target.getBoundingClientRect();
+
                     return {
                       name:
                         control.getAttribute('aria-label') ||
@@ -557,6 +608,7 @@ test.describe('accessibility-v1 inventory matrix', () => {
                   })
                   .filter(({ width, height }) => width < 44 || height < 44)
               );
+
             expect(undersized, JSON.stringify(undersized, null, 2)).toEqual([]);
           }
         }
@@ -612,6 +664,7 @@ test('Explorer proof route emits recoverable edge-state evidence', async ({
   ).toBe(true);
 
   const failures: string[] = [];
+
   const observeFixture = async (
     fixtureCase: string,
     stateIds: string[],
@@ -638,6 +691,7 @@ test('Explorer proof route emits recoverable edge-state evidence', async ({
         await expectAxeClean(page);
       }
     );
+
     if (failure) failures.push(`${fixtureCase}: ${failure}`);
   };
 
