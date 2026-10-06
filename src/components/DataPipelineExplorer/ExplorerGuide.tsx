@@ -22,9 +22,15 @@ interface ExplorerGuideProps {
  */
 export default function ExplorerGuide({ stages }: ExplorerGuideProps) {
   const headingId = useId();
-  const { pathname, hash } = useLocation();
+  const { pathname, search, hash } = useLocation();
 
   if (stages.length === 0) return null;
+
+  function stageHref(slug: string): string {
+    const params = new URLSearchParams(search);
+    params.set('stage', slug);
+    return `${pathname}?${params.toString()}${hash}`;
+  }
 
   return (
     <section
@@ -35,11 +41,11 @@ export default function ExplorerGuide({ stages }: ExplorerGuideProps) {
       <div className={styles.howTo}>
         <h2 id={headingId}>How to use this explorer</h2>
         <p>
-          Move between stages with the arrows, the numbered stage list, or the ←
-          and → keys. Each stage shows the input it receives on the left and the
-          output it produces on the right, with the lines that changed marked.
-          The configuration that makes the change sits below the comparison, and
-          the final stage shows the complete pipeline.
+          Move between stages with the arrows or the numbered stage list. Each
+          stage shows the input it receives on the left and the output it
+          produces on the right, with the lines that changed marked. The
+          configuration that makes the change sits below the comparison, and the
+          final stage shows the complete pipeline.
         </p>
       </div>
       <div className={styles.outline}>
@@ -51,9 +57,7 @@ export default function ExplorerGuide({ stages }: ExplorerGuideProps) {
         <ol>
           {stages.map((stage) => (
             <li key={stage.slug}>
-              <Link to={`${pathname}?stage=${stage.slug}${hash}`}>
-                {stage.title}
-              </Link>
+              <Link to={stageHref(stage.slug)}>{stage.title}</Link>
               <span>{stage.description}</span>
             </li>
           ))}
