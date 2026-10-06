@@ -3,7 +3,7 @@ resources:
   caches:
     session_cache:
       memory:
-        default_ttl: "3600s"
+        default_ttl: '3600s'
         max_items: 10000
 
 pipeline:
@@ -28,7 +28,7 @@ pipeline:
         let last_event_time = null
 
         sorted_events.map_each(event -> {
-          let event_time = event.timestamp.parse_timestamp("2006-01-02T15:04:05Z").timestamp_unix()
+          let event_time = event.timestamp.parse_timestamp("2006-01-02T15:04:05Z").ts_unix()
           let gap_minutes = if last_event_time != null {
             (event_time - last_event_time) / 60.0
           } else {
@@ -67,8 +67,8 @@ pipeline:
         root.session_end = last_event.timestamp
         root.total_events = session_events.length()
 
-        let duration_seconds = last_event.timestamp.parse_timestamp("2006-01-02T15:04:05Z").timestamp_unix() -
-                              first_event.timestamp.parse_timestamp("2006-01-02T15:04:05Z").timestamp_unix()
+        let duration_seconds = last_event.timestamp.parse_timestamp("2006-01-02T15:04:05Z").ts_unix() -
+                              first_event.timestamp.parse_timestamp("2006-01-02T15:04:05Z").ts_unix()
         root.session_duration_minutes = (duration_seconds / 60.0).round(2)
 
         root.activity_intensity = match {

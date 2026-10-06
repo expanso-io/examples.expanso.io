@@ -8,11 +8,9 @@ pipeline:
   processors:
     # Parse JSON logs and add metadata
     - mapping: |
-        root = this
-
-        # Parse JSON logs
-        let parsed = this.parse_json()
-        root = if parsed.exists() { parsed } else { this }
+        # Parse JSON logs, keeping plain text lines as a message field
+        let parsed = content().parse_json().catch(null)
+        root = if $parsed.type() == "object" { $parsed } else { {"message": content().string()} }
 
         # Add processing metadata
         root.processed_at = now()

@@ -1,15 +1,13 @@
 config:
   input:
     http_server:
-      address: "0.0.0.0:8080"
+      address: '0.0.0.0:8080'
       path: /sensors/ingest
 
   pipeline:
     processors:
       # Parse JSON
-      - json_documents:
-          parts: []
-
+      - mapping: root = content().parse_json()
       # Validate and flatten
       - mapping: |
           root.sensor_id = this.sensor_id
@@ -20,28 +18,13 @@ config:
           root.device_type = this.metadata.device_type
           root.firmware_version = this.metadata.firmware_version
 
-      # Convert to Avro
-      - avro:
-          operator: to_json
-          encoding: binary
-          schema: |
-            {
-              "type": "record",
-              "name": "SensorReading",
-              "namespace": "com.example.sensors",
-              "fields": [
-                {"name": "sensor_id", "type": "string"},
-                {"name": "location", "type": "string"},
-                {"name": "temperature", "type": "double"},
-                {"name": "humidity", "type": "double"},
-                {"name": "timestamp", "type": "string"},
-                {"name": "device_type", "type": "string"},
-                {"name": "firmware_version", "type": "string"}
-              ]
-            }
+      # Mark the normalized record for a downstream schema-aware encoder.
+      - mapping: |
+          root = this
+          root.encoding = "avro-compatible-json"
 
   output:
     kafka:
-      addresses: ["${KAFKA_BROKER}"]
+      addresses: ['${KAFKA_BROKER}']
       topic: sensor-readings-avro
       compression: snappy

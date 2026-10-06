@@ -10,7 +10,7 @@ pipeline:
     - mapping: |
         root = this
         # Generate SHA-256 hash of entire content
-        root.dedup_hash = this.json_format().hash("sha256")
+        root.dedup_hash = this.format_json().hash("sha256")
 
     - cache:
         resource: dedup_cache
@@ -18,7 +18,7 @@ pipeline:
         key: ${! this.dedup_hash }
 
     - mapping: |
-        root = if meta("cache").exists() {
+        root = if meta("cache") != null {
           deleted()  # Drop exact duplicates
         } else {
           _ = cache_set("dedup_cache", this.dedup_hash, now(), "1h")

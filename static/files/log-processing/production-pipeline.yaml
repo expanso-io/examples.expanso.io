@@ -29,27 +29,25 @@ config:
   # Step 1: Accept logs via HTTP
   input:
     http_server:
-      address: "0.0.0.0:8080"
+      address: '0.0.0.0:8080'
       path: /logs/ingest
       allowed_verbs:
         - POST
       timeout: 10s
-      rate_limit: "1000/1s"
+      rate_limit: '1000/1s'
 
   # Step 2: Processing pipeline
   pipeline:
     processors:
       # Parse and validate JSON
-      - json_documents:
-          parts: []
-
+      - mapping: root = content().parse_json()
       # Validate required fields
       - mapping: |
           # Ensure required fields exist
-          root = if this.timestamp.exists() &&
-                    this.level.exists() &&
-                    this.service.exists() &&
-                    this.message.exists() {
+          root = if this.exists("timestamp") &&
+                    this.exists("level") &&
+                    this.exists("service") &&
+                    this.exists("message") {
             this
           } else {
             throw("Missing required fields: timestamp, level, service, or message")
@@ -69,7 +67,7 @@ config:
           }
 
           # Normalize timestamp to RFC3339
-          root.timestamp_normalized = this.timestamp.parse_timestamp_strptime("%Y-%m-%dT%H:%M:%S%.fZ").format_timestamp("2006-01-02T15:04:05Z07:00")
+          root.timestamp_normalized = this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_format("2006-01-02T15:04:05Z07:00")
 
       # Calculate severity score
       - mapping: |
@@ -86,7 +84,7 @@ config:
           }
 
           # Flag high-priority logs
-          root.is_high_priority = this.severity_score >= 4
+          root.is_high_priority = root.severity_score >= 4
 
       # Filter out debug logs for production
       - mapping: |
@@ -102,25 +100,25 @@ config:
           root = this
 
           # Hash IP addresses for privacy
-          root.ip_address = if this.ip_address.exists() {
+          root.ip_address = if this.exists("ip_address") {
             this.ip_address.hash("sha256").slice(0, 16)
           }
 
           # Remove any password fields if they sneak in
-          root = this.without("password", "secret", "token", "api_key")
+          root = root.without("password", "secret", "token", "api_key")
 
       # Add computed fields
       - mapping: |
           root = this
 
           # Extract hour for time-based analysis
-          root.hour = this.timestamp_normalized.parse_timestamp("2006-01-02T15:04:05Z07:00").format_timestamp("15")
+          root.hour = this.timestamp_normalized.ts_parse("2006-01-02T15:04:05Z07:00").ts_format("15")
 
           # Add day of week
-          root.day_of_week = this.timestamp_normalized.parse_timestamp("2006-01-02T15:04:05Z07:00").format_timestamp("Monday")
+          root.day_of_week = this.timestamp_normalized.ts_parse("2006-01-02T15:04:05Z07:00").ts_format("Monday")
 
           # Calculate response time category
-          root.latency_category = if this.duration_ms.exists() {
+          root.latency_category = if this.exists("duration_ms") {
             match {
               this.duration_ms < 100 => "fast",
               this.duration_ms < 500 => "normal",
@@ -141,19 +139,15 @@ config:
             - mapping: |
                 root = if this.severity_score >= 2 { this } else { deleted() }
 
-          elasticsearch:
+          opensearch:
+            action: index
             urls:
-              - "${ELASTICSEARCH_URL:http://elasticsearch:9200}"
-            index: "logs-${!timestamp_unix()}"
-            id: "${!json(\"request_id\")}"
+              - '${ELASTICSEARCH_URL:http://elasticsearch:9200}'
+            index: 'logs-${!timestamp_unix()}'
+            id: '${!json("request_id")}'
             batching:
               count: 100
               period: 5s
-            retry_as_batch: true
-            max_retries: 3
-            backoff:
-              initial_interval: 1s
-              max_interval: 30s
 
         # Destination 2: S3 for archival
         - label: s3_archive
@@ -164,29 +158,23 @@ config:
                 root.archived_at = now()
 
           aws_s3:
-            bucket: "${S3_BUCKET:my-log-archive}"
-            path: "logs/${!timestamp_unix_nano()}/logs.jsonl"
+            bucket: '${S3_BUCKET:my-log-archive}'
+            path: 'logs/${!timestamp_unix_nano()}/logs.jsonl'
             batching:
               count: 1000
               period: 1m
-              byte_size: 10485760  # 10MB batches
-            compression: gzip
-            content_type: "application/x-ndjson"
+              byte_size: 10485760 # 10MB batches
+            content_type: 'application/x-ndjson'
             storage_class: STANDARD_IA
+            region: '${AWS_REGION:us-west-2}'
             credentials:
-              profile: "${AWS_PROFILE:default}"
-              region: "${AWS_REGION:us-west-2}"
-            retry_as_batch: true
-            max_retries: 5
+              profile: '${AWS_PROFILE:default}'
 
         # Destination 3: Local backup (always succeeds)
         - label: local_backup
           file:
-            path: "/var/log/expanso/logs-${!timestamp_unix()}.jsonl"
+            path: '/var/log/expanso/logs-${!timestamp_unix()}.jsonl'
             codec: lines
-            batching:
-              count: 100
-              period: 10s
 
 # Error handling
 logger:

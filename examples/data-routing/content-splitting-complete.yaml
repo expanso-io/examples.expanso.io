@@ -9,9 +9,9 @@ labels:
 config:
   input:
     http_server:
-      address: "0.0.0.0:8080"
+      address: '0.0.0.0:8080'
       path: /batch
-      allowed_verbs: ["POST"]
+      allowed_verbs: ['POST']
 
   pipeline:
     processors:
@@ -22,30 +22,39 @@ config:
           root.received_at = now()
 
           # Determine data type
-          root.data_type = if this.items.exists() && this.items.type() == "array" {
+          let data_type = if this.exists("items") && this.items.type() == "array" {
             "json_array"
-          } else if this.records.exists() {
+          } else if this.exists("records") {
             "records"
           } else if this.type() == "array" {
             "raw_array"
           } else {
             "single"
           }
-
-          meta data_type = root.data_type
+          root.data_type = $data_type
+          meta data_type = $data_type
           meta batch_id = root.batch_id
 
       # Step 2: Extract items to split
       - mapping: |
-          root = match meta("data_type") {
-            "json_array" => this.items,
-            "records" => this.records,
-            "raw_array" => this,
-            _ => [this]
+          meta item_count = if this.items.type() == "array" {
+            this.items.length()
+          } else if this.records.type() == "array" {
+            this.records.length()
+          } else if this.type() == "array" {
+            this.length()
+          } else {
+            1
           }
-
-          # Preserve batch context
-          meta item_count = root.length()
+          root = if this.items.type() == "array" {
+            this.items
+          } else if this.records.type() == "array" {
+            this.records
+          } else if this.type() == "array" {
+            this
+          } else {
+            [this]
+          }
 
       # Step 3: Split array into individual messages
       - unarchive:
@@ -63,33 +72,34 @@ config:
 
       # Step 5: Validate individual items
       - mapping: |
-          root = if this.type() == "object" && this.keys().length() > 0 {
+          let is_valid = this.type() == "object" && this.keys().length() > 0
+
+          root = if $is_valid {
             this
           } else {
-            root.invalid = true
-            root.original = this
-            this
+            {"invalid": true, "original": this}
           }
 
-          meta is_valid = !this.invalid.or(false)
+          meta is_valid = $is_valid
 
   output:
     switch:
-      # Valid items → processing queue
-      - check: 'meta("is_valid") == true'
-        output:
-          kafka:
-            addresses: ["${KAFKA_BROKERS:localhost:9092}"]
-            topic: processed-items
-            batching:
-              count: 100
-              period: 5s
+      cases:
+        # Valid items → processing queue
+        - check: 'meta("is_valid") == true'
+          output:
+            kafka:
+              addresses: ['${KAFKA_BROKERS:localhost:9092}']
+              topic: processed-items
+              batching:
+                count: 100
+                period: 5s
 
-      # Invalid items → DLQ
-      - output:
-          file:
-            path: "/var/expanso/dlq/${!timestamp_unix_date('2006-01-02')}/invalid-items.jsonl"
-            codec: lines
+        # Invalid items → DLQ
+        - output:
+            file:
+              path: "/var/expanso/dlq/${!timestamp_unix_date('2006-01-02')}/invalid-items.jsonl"
+              codec: lines
 
 logger:
   level: INFO

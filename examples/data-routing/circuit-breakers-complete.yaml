@@ -9,9 +9,9 @@ labels:
 config:
   input:
     http_server:
-      address: "0.0.0.0:8080"
+      address: '0.0.0.0:8080'
       path: /events
-      allowed_verbs: ["POST"]
+      allowed_verbs: ['POST']
 
   pipeline:
     processors:
@@ -22,36 +22,40 @@ config:
           root.received_at = now()
 
       # Enrich from API with circuit breaker protection
-      - try:
-          - http:
-              url: "${PRIMARY_API:http://api:8080}/enrich/${!this.event_id}"
-              verb: GET
-              timeout: 3s
-              retries: 2
-              retry_period: 1s
-          - mapping: |
-              root = this
-              root.enrichment = content().parse_json()
-              root.enrichment_source = "primary_api"
-        catch:
-          # Primary failed, try secondary
-          - try:
-              - http:
-                  url: "${SECONDARY_API:http://backup-api:8080}/enrich/${!this.event_id}"
-                  verb: GET
-                  timeout: 5s
-                  retries: 1
-              - mapping: |
-                  root = this
-                  root.enrichment = content().parse_json()
-                  root.enrichment_source = "secondary_api"
-            catch:
-              # Both APIs failed, continue without enrichment
-              - mapping: |
-                  root = this
-                  root.enrichment = null
-                  root.enrichment_source = "none"
-                  root.enrichment_failed = true
+      - branch:
+          request_map: root = this
+          processors:
+            - try:
+                - http:
+                    url: '${PRIMARY_API:http://api:8080}/enrich/${!this.event_id}'
+                    verb: GET
+                    timeout: 3s
+                    retries: 2
+                    retry_period: 1s
+                - mapping: |
+                    root.enrichment = this
+                    root.enrichment_source = "primary_api"
+            # Primary failed, try secondary
+            - catch:
+                - try:
+                    - http:
+                        url: '${SECONDARY_API:http://backup-api:8080}/enrich/${!this.event_id}'
+                        verb: GET
+                        timeout: 5s
+                        retries: 1
+                    - mapping: |
+                        root.enrichment = this
+                        root.enrichment_source = "secondary_api"
+                # Both APIs failed, continue without enrichment
+                - catch:
+                    - mapping: |
+                        root.enrichment = null
+                        root.enrichment_source = "none"
+                        root.enrichment_failed = true
+          result_map: |
+            root.enrichment = this.enrichment
+            root.enrichment_source = this.enrichment_source
+            root.enrichment_failed = this.enrichment_failed
 
       # Add processing metadata
       - mapping: |
@@ -63,16 +67,16 @@ config:
     fallback:
       # Level 1: Primary destination (Elasticsearch)
       - http_client:
-          url: "${ELASTICSEARCH:http://es:9200}/events/_doc"
+          url: '${ELASTICSEARCH:http://es:9200}/events/_doc'
           verb: POST
           timeout: 5s
-          max_retries: 2
+          retries: 2
           headers:
             Content-Type: application/json
 
       # Level 2: Secondary destination (Kafka)
       - kafka:
-          addresses: ["${KAFKA_BROKERS:localhost:9092}"]
+          addresses: ['${KAFKA_BROKERS:localhost:9092}']
           topic: events-fallback
           max_retries: 3
 
@@ -85,11 +89,11 @@ config:
       - file:
           path: "/var/expanso/dlq/${!timestamp_unix_date('2006-01-02')}/failed.jsonl"
           codec: lines
-          processors:
-            - mapping: |
-                root = this
-                root.dlq_reason = "all_destinations_failed"
-                root.dlq_time = now()
+        processors:
+          - mapping: |
+              root = this
+              root.dlq_reason = "all_destinations_failed"
+              root.dlq_time = now()
 
 logger:
   level: INFO

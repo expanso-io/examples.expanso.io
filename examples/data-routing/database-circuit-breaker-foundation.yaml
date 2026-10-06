@@ -11,13 +11,16 @@ config:
 
   pipeline:
     processors:
-      - sql_select:
-          driver: postgres
-          data_source_name: ${DB_CONNECTION_STRING}
-          query: |
-            SELECT user_name, user_tier FROM users WHERE user_id = $1
-          args_mapping: |
-            root = [ this.user_id ]
+      - branch:
+          processors:
+            - sql_raw:
+                driver: postgres
+                dsn: ${DB_CONNECTION_STRING}
+                query: SELECT user_name, user_tier FROM users WHERE user_id = $1
+                args_mapping: root = [ this.user_id ]
+          result_map: |
+            root.user_name = this.index(0).user_name
+            root.user_tier = this.index(0).user_tier
 
       - mapping: |
           root = this

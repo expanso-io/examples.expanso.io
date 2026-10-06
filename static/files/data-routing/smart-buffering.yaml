@@ -14,9 +14,7 @@ config:
   pipeline:
     processors:
       # Step 1: Parse and validate
-      - json_documents:
-          parts: []
-
+      - mapping: root = content().parse_json()
       # Step 2: Classify priority level and calculate score
       - mapping: |
           root = this
@@ -28,32 +26,32 @@ config:
 
           # Classify as important (priority 1)
           let is_important = match {
-            category == "important" => true,
-            category == "critical" => true,
-            severity == "critical" => true,
-            severity == "fatal" => true,
-            event_type.has_prefix("payment.failed") => true,
-            event_type.has_prefix("security.breach") => true,
-            event_type.has_prefix("system.down") => true,
+            $category == "important" => true,
+            $category == "critical" => true,
+            $severity == "critical" => true,
+            $severity == "fatal" => true,
+            $event_type.has_prefix("payment.failed") => true,
+            $event_type.has_prefix("security.breach") => true,
+            $event_type.has_prefix("system.down") => true,
             _ => false
           }
 
           # Classify as archive/generic (priority 3)
           let is_archive = match {
-            category == "archive" => true,
-            category == "generic" => true,
-            category == "bulk" => true,
-            severity == "debug" => true,
-            severity == "trace" => true,
-            event_type.has_prefix("analytics.") => true,
-            event_type.has_prefix("audit.") => true,
+            $category == "archive" => true,
+            $category == "generic" => true,
+            $category == "bulk" => true,
+            $severity == "debug" => true,
+            $severity == "trace" => true,
+            $event_type.has_prefix("analytics.") => true,
+            $event_type.has_prefix("audit.") => true,
             _ => false
           }
 
           # Assign priority tier (1=highest, 3=lowest)
           root.priority_tier = match {
-            is_important => 1,
-            is_archive => 3,
+            $is_important => 1,
+            $is_archive => 3,
             _ => 2  # Regular (default)
           }
 
@@ -71,21 +69,21 @@ config:
           }
 
           # Age-based starvation prevention
-          let message_ts = this.timestamp.or(now().format_timestamp()).parse_timestamp()
-          let age_seconds = (now().unix() - message_ts.unix()).round()
-          root.age_seconds = age_seconds
+          let message_ts = this.timestamp.or(now().ts_format("2006-01-02T15:04:05Z07:00")).ts_parse("2006-01-02T15:04:05Z07:00")
+          let age_seconds = (now().ts_unix() - $message_ts.ts_unix()).round()
+          root.age_seconds = $age_seconds
 
           # Age boost prevents starvation of low-priority messages
           let age_boost = match {
-            age_seconds > 7200 => 900,   # > 2 hours: escalate to important
-            age_seconds > 1800 => 400,   # > 30 min: escalate to regular
-            age_seconds > 300 => 100,    # > 5 min: small boost
+            $age_seconds > 7200 => 900,   # > 2 hours: escalate to important
+            $age_seconds > 1800 => 400,   # > 30 min: escalate to regular
+            $age_seconds > 300 => 100,    # > 5 min: small boost
             _ => 0
           }
 
-          root.age_boost = age_boost
-          root.priority_score = base_score + age_boost
-          root.age_escalated = age_boost > 0
+          root.age_boost = $age_boost
+          root.priority_score = $base_score + $age_boost
+          root.age_escalated = $age_boost > 0
 
           # Add processing metadata
           root.classified_at = now()
@@ -114,10 +112,9 @@ config:
                 period: 0s
               timeout: 10s
               # Maximum reliability for important messages
-              max_retries: 10
-              backoff:
-                initial_interval: 100ms
-                max_interval: 5s
+              retries: 10
+              retry_period: 100ms
+              max_retry_backoff: 5s
 
         # REGULAR (tier 2): Moderate batching
         # Waits for important to clear, then ships in reasonable batches
@@ -134,10 +131,9 @@ config:
                 count: 50
                 period: 5s
               timeout: 30s
-              max_retries: 5
-              backoff:
-                initial_interval: 500ms
-                max_interval: 10s
+              retries: 5
+              retry_period: 500ms
+              max_retry_backoff: 10s
 
         # ARCHIVE (tier 3): Heavy batching - optimize for throughput
         # Ships last, in large batches to minimize overhead
@@ -154,10 +150,9 @@ config:
                 count: 200
                 period: 30s
               timeout: 60s
-              max_retries: 3
-              backoff:
-                initial_interval: 1s
-                max_interval: 30s
+              retries: 3
+              retry_period: 1s
+              max_retry_backoff: 30s
 
         # Fallback for unclassified messages
         - output:

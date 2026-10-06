@@ -1,0 +1,161 @@
+{
+  "$comment": "Fixture bindings for scripts/validate-examples.ts. A family entry applies to every pipeline whose family matches; a pipelines entry overrides one file. Fixture paths are repository-relative JSON Lines files. By default a pipeline uses tests/fixtures/pipeline-inputs/<family>.jsonl when it exists.",
+  "environment": {
+    "CARD_KEY": "0123456789abcdef0123456789abcdef",
+    "PII_KEY": "123456789abcdef0123456789abcdef0",
+    "ADDR_KEY": "23456789abcdef0123456789abcdef01",
+    "CARD_ENCRYPTION_KEY": "3456789abcdef0123456789abcdef012",
+    "PII_ENCRYPTION_KEY": "456789abcdef0123456789abcdef0123",
+    "ADDRESS_ENCRYPTION_KEY": "56789abcdef0123456789abcdef01234",
+    "PAYMENT_ENCRYPTION_KEY": "6789abcdef0123456789abcdef012345",
+    "TEMPORAL_ENCRYPTION_KEY": "789abcdef0123456789abcdef0123456",
+    "IP_SALT": "validation-fixture-ip-salt",
+    "EMAIL_SALT": "validation-fixture-email-salt",
+    "USER_SALT": "validation-fixture-user-salt",
+    "KEY_VERSION": "validation-v1"
+  },
+  "categories": {
+    "data-routing": {
+      "fixture": "tests/fixtures/pipeline-inputs/data-routing.jsonl",
+      "timeoutMs": 10000
+    },
+    "data-security": {
+      "fixture": "tests/fixtures/pipeline-inputs/data-security.jsonl",
+      "timeoutMs": 10000
+    },
+    "data-transformation": {
+      "fixture": "tests/fixtures/pipeline-inputs/data-transformation.jsonl",
+      "timeoutMs": 10000
+    },
+    "enterprise-migration": {
+      "fixture": "tests/fixtures/pipeline-inputs/enterprise-migration.jsonl",
+      "timeoutMs": 10000
+    },
+    "log-processing": {
+      "fixture": "tests/fixtures/pipeline-inputs/log-processing.jsonl",
+      "timeoutMs": 10000
+    }
+  },
+  "families": {
+    "splunk-edge-processing": {
+      "fixture": "tests/fixtures/pipeline-inputs/splunk-edge-processing.log",
+      "minRecords": 2
+    },
+    "aggregate-time-windows": {
+      "fixture": "tests/fixtures/pipeline-inputs/aggregate-time-windows.jsonl"
+    },
+    "circuit-breakers": {
+      "fixture": "tests/fixtures/pipeline-inputs/data-routing.jsonl"
+    },
+    "content-routing": {
+      "fixture": "tests/fixtures/pipeline-inputs/data-routing.jsonl"
+    },
+    "content-splitting": {
+      "fixture": "tests/fixtures/pipeline-inputs/data-routing.jsonl"
+    },
+    "database-circuit-breaker": {
+      "fixture": "tests/fixtures/pipeline-inputs/data-routing.jsonl"
+    },
+    "encrypt-data": {
+      "fixture": "tests/fixtures/pipeline-inputs/encryption.jsonl"
+    },
+    "encryption-patterns": {
+      "fixture": "tests/fixtures/pipeline-inputs/encryption.jsonl"
+    },
+    "enforce-schema": {
+      "fixture": "tests/fixtures/pipeline-inputs/sensor-schema-input.jsonl"
+    },
+    "enrich-export": {
+      "timeoutMs": 5000
+    },
+    "enrichment": {
+      "timeoutMs": 5000
+    },
+    "filter-severity": {
+      "fixture": "tests/fixtures/pipeline-inputs/filter-severity.jsonl",
+      "minRecords": 2
+    },
+    "fan-out-pattern": {
+      "fixture": "tests/fixtures/pipeline-inputs/data-routing.jsonl"
+    },
+    "medical-device-intelligence": {
+      "fixture": "tests/fixtures/pipeline-inputs/medical-device-intelligence.jsonl"
+    },
+    "oran-telco-pipeline": {
+      "fixture": "tests/fixtures/pipeline-inputs/oran-telco-pipeline.jsonl"
+    },
+    "parse-logs": {
+      "fixture": "tests/fixtures/pipeline-inputs/parse-logs.jsonl",
+      "minRecords": 2
+    },
+    "quickstart": {
+      "fixture": "tests/fixtures/pipeline-inputs/quickstart.jsonl"
+    },
+    "remove-pii": {
+      "fixture": "tests/fixtures/pipeline-inputs/remove-pii.jsonl"
+    },
+    "scada-energy-edge": {
+      "fixture": "tests/fixtures/pipeline-inputs/scada-energy-edge.log"
+    }
+  },
+  "pipelines": {
+    "docs/integrations/medical-device-intelligence/pipeline.yaml": {
+      "processorStandIns": {
+        "command": {
+          "command": {
+            "name": "printf",
+            "args_mapping": "root = [\"{\\\"review_candidates\\\":[],\\\"source\\\":\\\"local-validation-stub\\\"}\"]"
+          }
+        }
+      }
+    },
+    "examples/data-routing/circuit-breakers-complete.yaml": {
+      "processorStandIns": {
+        "http": {
+          "mapping": "root = {\"stub\": true, \"source\": \"local-validation-api\"}"
+        }
+      }
+    },
+    "examples/data-routing/circuit-breakers-foundation.yaml": {
+      "processorStandIns": {
+        "http": {
+          "mapping": "root = {\"metadata\": {\"source\": \"local-validation-api\"}}"
+        }
+      }
+    },
+    "examples/data-routing/database-circuit-breaker-foundation.yaml": {
+      "processorStandIns": {
+        "sql_raw": {
+          "mapping": "root = [{\"user_name\": \"local-validation-user\", \"user_tier\": \"standard\"}]"
+        }
+      }
+    },
+    "examples/data-security/enforce-schema-complete.yaml": {
+      "pathStandIns": {
+        "file:///etc/expanso/schemas/sensor-schema.json": "tests/fixtures/pipeline-inputs/sensor-schema.json"
+      }
+    },
+    "examples/data-security/enforce-schema.yaml": {
+      "pathStandIns": {
+        "file:///etc/expanso/schemas/sensor-schema-v1.0.0.json": "tests/fixtures/pipeline-inputs/sensor-schema.json"
+      }
+    },
+    "examples/integrations/scada-energy-edge/step-1-parse-registers.yaml": {
+      "fixture": "tests/fixtures/pipeline-inputs/scada-energy-edge.log"
+    },
+    "examples/integrations/scada-energy-edge/step-2-filter-nominal.yaml": {
+      "fixture": "tests/fixtures/pipeline-inputs/scada-energy-edge.log"
+    },
+    "examples/integrations/scada-energy-edge/step-3-classify-faults.yaml": {
+      "fixture": "tests/fixtures/pipeline-inputs/scada-energy-edge.log"
+    },
+    "examples/integrations/scada-energy-edge/step-4-route-destinations.yaml": {
+      "fixture": "tests/fixtures/pipeline-inputs/scada-energy-edge.log"
+    },
+    "static/files/data-security/enforce-schema.yaml": {
+      "pathStandIns": {
+        "file:///etc/expanso/schemas/sensor-schema-v1.0.0.json": "tests/fixtures/pipeline-inputs/sensor-schema.json"
+      }
+    }
+  }
+}

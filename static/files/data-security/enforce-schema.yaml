@@ -6,7 +6,7 @@ labels:
   environment: production
   data-type: sensor-readings
   validation: enabled
-priority: 100  # High priority for data quality
+priority: 100 # High priority for data quality
 
 # Deploy to edge nodes that collect sensor data
 selector:
@@ -29,20 +29,18 @@ config:
   # Accept sensor readings via HTTP
   input:
     http_server:
-      address: "0.0.0.0:8080"
+      address: '0.0.0.0:8080'
       path: /sensor/readings
       allowed_verbs:
         - POST
       timeout: 5s
-      rate_limit: "1000/1s"
+      rate_limit: '1000/1s'
 
   # Processing pipeline with validation
   pipeline:
     processors:
       # Step 1: Parse JSON input
-      - json_documents:
-          parts: []
-
+      - mapping: root = content().parse_json()
       # Step 2: Add processing metadata
       - mapping: |
           root = this
@@ -58,7 +56,7 @@ config:
       - try:
           # Attempt schema validation
           - json_schema:
-              schema_path: "file:///etc/expanso/schemas/sensor-schema-v1.0.0.json"
+              schema_path: 'file:///etc/expanso/schemas/sensor-schema-v1.0.0.json'
 
           # If validation succeeds, add success metadata
           - mapping: |
@@ -72,8 +70,8 @@ config:
               # Set metadata for routing
               meta validation_status = "passed"
 
-        # If validation fails, capture error
-        catch:
+      # If validation fails, capture error
+      - catch:
           - mapping: |
               root = this
 
@@ -109,42 +107,40 @@ config:
         # Destination 1: Valid messages to analytics
         - label: analytics
           switch:
-            # Only send messages that passed validation
-            - check: 'meta("validation_status") == "passed"'
-              output:
-                http_client:
-                  url: "${ANALYTICS_ENDPOINT:http://analytics-api:8080}/ingest"
-                  verb: POST
-                  headers:
-                    Content-Type: application/json
-                  batching:
-                    count: 100
-                    period: 5s
-                  max_retries: 3
-                  backoff:
-                    initial_interval: 1s
-                    max_interval: 30s
+            cases:
+              # Only send messages that passed validation
+              - check: 'meta("validation_status") == "passed"'
+                output:
+                  http_client:
+                    url: '${ANALYTICS_ENDPOINT:http://analytics-api:8080}/ingest'
+                    verb: POST
+                    headers:
+                      Content-Type: application/json
+                    batching:
+                      count: 100
+                      period: 5s
+                    retries: 3
+                    retry_period: 1s
+                    max_retry_backoff: 30s
 
-            # Drop messages that failed validation (they go to DLQ instead)
-            - output:
-                drop: {}
+              # Drop messages that failed validation (they go to DLQ instead)
+              - output:
+                  drop: {}
 
         # Destination 2: Failed messages to Dead Letter Queue
         - label: dead_letter_queue
           switch:
-            # Only send messages that failed validation
-            - check: 'meta("validation_status") == "failed"'
-              output:
-                file:
-                  path: "/var/log/expanso/schema-validation-dlq-${!timestamp_unix()}.jsonl"
-                  codec: lines
-                  batching:
-                    count: 50
-                    period: 10s
+            cases:
+              # Only send messages that failed validation
+              - check: 'meta("validation_status") == "failed"'
+                output:
+                  file:
+                    path: '/var/log/expanso/schema-validation-dlq-${!timestamp_unix()}.jsonl'
+                    codec: lines
 
-            # Drop messages that passed validation (they go to analytics)
-            - output:
-                drop: {}
+              # Drop messages that passed validation (they go to analytics)
+              - output:
+                  drop: {}
 
         # Destination 3: Validation metrics to monitoring
         - label: metrics
@@ -157,12 +153,12 @@ config:
                   "validation_status": meta("validation_status"),
                   "sensor_id": this.sensor_id.or("unknown"),
                   "error": if meta("validation_status") == "failed" {
-                    meta("validation_error")
+                    metadata("validation_error")
                   }
                 }
 
           http_client:
-            url: "${METRICS_ENDPOINT:http://metrics-collector:8080}/validation"
+            url: '${METRICS_ENDPOINT:http://metrics-collector:8080}/validation'
             verb: POST
             headers:
               Content-Type: application/json
@@ -170,7 +166,7 @@ config:
               count: 100
               period: 10s
             # Don't retry metrics - fire and forget
-            max_retries: 0
+            retries: 0
 
 # Logging configuration
 logger:
