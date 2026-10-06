@@ -76,11 +76,10 @@ Pipeline changes also require the
 [example validation workflow](scripts/README.md#example-pipeline-validation)
 and its generated reports.
 
-The Husky pre-commit hook runs `lint-staged`, which validates each staged
-pipeline YAML file with the installed `expanso-edge` release on `PATH`.
-Fragments are wrapped in their canonical pipeline context before validation.
-Install the latest `expanso-edge` and `expanso-cli` releases from their official
-installers before committing; local validation never downloads or caches tools.
+The Husky pre-commit hook runs `lint-staged`, which validates staged pipeline
+YAML files and inline YAML in staged `docs/**/*.mdx` pages without executing
+pipelines or writing reports. Tool prerequisites and fragment handling are
+documented in the [example validation workflow](scripts/README.md#example-pipeline-validation).
 Do not bypass the hook; run `npm run validate-staged-pipelines -- <paths...>` to
 reproduce a staged-file failure directly.
 

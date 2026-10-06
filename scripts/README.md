@@ -35,10 +35,14 @@ The harness uses the installed `expanso-edge` and `expanso-cli` releases on
 `PATH`. Local validation never resolves, downloads, pins, or caches binaries;
 install the latest releases through the official Expanso installers first.
 It inventories pipeline YAML under `examples/`, `static/files/`,
-`static/pipelines/`, `docs/**/pipeline.yaml`, and catalog pipeline paths.
+`static/pipelines/`, `docs/**/pipeline.yaml`, and catalog pipeline paths,
+plus YAML code blocks in non-draft MDX pages, including indented fences.
 Documents with both input and output are complete pipelines; other snippets
 are validated with synthetic wrappers but never executed. Kubernetes manifests
-are excluded from validation reports.
+are excluded from validation reports, as are recognized Docker Compose and
+Prometheus configurations. Unclassified YAML code blocks fail validation with
+their page path and source line. Rendered pipeline blocks show a Complete or
+Fragment badge from the shared classifier in `src/lib/pipelineCode.ts`.
 
 Complete pipelines are validated with their original inputs and resources before
 fixture substitution. An isolated local agent then runs deterministic inputs and
@@ -54,12 +58,20 @@ date replaces its report. Executor failures also produce failure reports.
 The [report index](../validation-reports/README.md) is generated; do not edit
 reports by hand.
 
-The command fails for invalid inventory YAML, failed complete-pipeline validation
-or execution, skipped complete pipelines, or failed output assertions. Fragment
-diagnostics remain visible without failing the complete-pipeline gate.
+The command fails for invalid or unclassified inventory YAML, failed pipeline
+or fragment validation, skipped complete pipelines, failed execution, or failed
+output assertions.
 The workflow in `.github/workflows/validate-examples.yml` reruns the committed
 report date and rejects report drift. Regenerate and commit reports after source
-changes before that CI check.
+changes before that CI check. It runs on every pull request and main push;
+only changes entirely covered by its explicit inert-file list take a fast no-op.
+
+The nightly workflow installs the latest Edge and CLI releases and validates
+and runs the inventory without writing reports. Installation or validation
+failures open or update one `edge-latest-drift` issue; a green run closes it.
+There is no pinned-release lane or automatic pin bump. Production URL checks
+run separately in `.github/workflows/live-pipeline-links.yml` on main and nightly,
+so production availability does not block local or pull-request report generation.
 
 `npm run test-pipelines` remains the narrower catalog offline-runnable gate;
 it does not replace the complete-pipeline inventory check.

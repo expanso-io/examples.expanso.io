@@ -160,19 +160,16 @@ function rateLimitErrors(source: string): ValidationError[] {
     if (!isYamlObject(node)) return;
 
     for (const [key, value] of Object.entries(node)) {
-      const reference = key === 'rate_limit'
-        ? isStringValue(value)
-          ? value
-          : isYamlObject(value) && isStringValue(value.resource)
-            ? value.resource
-            : undefined
-        : undefined;
+      const reference =
+        key === 'rate_limit'
+          ? isStringValue(value)
+            ? value
+            : isYamlObject(value) && isStringValue(value.resource)
+              ? value.resource
+              : undefined
+          : undefined;
 
-      if (
-        reference !== undefined &&
-        reference !== '' &&
-        !labels.has(reference)
-      )
+      if (reference !== undefined && reference !== '' && !labels.has(reference))
         errors.push({
           path: `${path}.${key}`,
           message: `rate limit resource '${reference}' is not declared`,
