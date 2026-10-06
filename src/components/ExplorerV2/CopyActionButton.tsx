@@ -1,12 +1,11 @@
 import type { ReactNode } from 'react';
-import clsx from 'clsx';
 
 import {
   copyButtonLabel,
   feedbackFor,
   type CopyFeedback,
 } from './copyFeedback';
-import styles from './copyFeedback.module.css';
+import styles from './styles.module.css';
 
 interface CopyToastProps {
   feedback: CopyFeedback;
@@ -18,7 +17,7 @@ interface CopyToastProps {
 export function CopyToast({ feedback, inline = false }: CopyToastProps) {
   return (
     <span
-      className={clsx(styles.toast, inline && styles.inlineToast)}
+      className={inline ? styles.actionNote : styles.toast}
       data-copy-toast=""
       data-kind={feedback.kind}
       role={feedback.kind === 'error' ? 'alert' : 'status'}
@@ -57,7 +56,6 @@ interface CopyActionButtonProps {
   /** Menu items show success on the menu trigger instead, so they opt out. */
   toast?: 'always' | 'error-only';
   toastPlacement?: 'floating' | 'inline';
-  anchorClassName?: string;
   'aria-label'?: string;
 }
 
@@ -72,7 +70,6 @@ export default function CopyActionButton({
   children,
   toast = 'always',
   toastPlacement = 'floating',
-  anchorClassName,
   'aria-label': ariaLabel,
 }: CopyActionButtonProps) {
   const active = feedbackFor(feedback, feedbackKey);
@@ -82,10 +79,10 @@ export default function CopyActionButton({
     active !== null && (toast === 'always' || active.kind === 'error');
 
   return (
-    <span className={clsx(styles.anchor, anchorClassName)}>
+    <span className={styles.copyAnchor}>
       <button
         type="button"
-        className={styles.button}
+        className={styles.toggle}
         data-copy-state={active?.kind ?? 'idle'}
         aria-label={ariaLabel}
         onClick={onCopy}

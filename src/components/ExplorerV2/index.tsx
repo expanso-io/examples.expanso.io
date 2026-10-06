@@ -672,7 +672,7 @@ export default function ExplorerV2({
               : 'Changes only'}
           </span>
         </label>
-        <span className={styles.actionMenuAnchor}>
+        <span className={styles.copyAnchor}>
           <details className={styles.actionMenu} ref={actionMenuRef}>
             <summary>Copy &amp; download</summary>
             <div>
@@ -681,7 +681,6 @@ export default function ExplorerV2({
                 feedback={copyFeedback}
                 toast="error-only"
                 toastPlacement="inline"
-                anchorClassName={styles.menuItem}
                 onCopy={copyShareLink}
               >
                 Copy share link
@@ -691,7 +690,6 @@ export default function ExplorerV2({
                 feedback={copyFeedback}
                 toast="error-only"
                 toastPlacement="inline"
-                anchorClassName={styles.menuItem}
                 onCopy={() =>
                   void copyText(
                     currentStage.yamlCode,
@@ -722,7 +720,6 @@ export default function ExplorerV2({
                     feedback={copyFeedback}
                     toast="error-only"
                     toastPlacement="inline"
-                    anchorClassName={styles.menuItem}
                     onCopy={() =>
                       void copyText(fullYaml, 'Full YAML', 'full', 'menu-full')
                     }
