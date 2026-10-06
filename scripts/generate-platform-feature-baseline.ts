@@ -136,6 +136,27 @@ function exceptionReason(
   ) {
     return 'Unvalidated encryption-key variable replaced by a fail-closed 64-character hexadecimal secret that Expanso Edge decodes and checks as a 32-byte AES key.';
   }
+  if (
+    exampleId === 'encrypt-data' &&
+    (feature === 'ENCRYPTION_KEY' || feature === 'KEY')
+  ) {
+    return 'Legacy generic encryption-key names replaced by CARD_ENCRYPTION_KEY_HEX, whose hexadecimal value is decoded and checked as a 32-byte AES key.';
+  }
+  if (
+    exampleId === 'encryption-patterns' &&
+    (feature === 'KEY' || feature === 'NEW_KEY')
+  ) {
+    return `Legacy ${feature} renamed to descriptive CARD_ENCRYPTION_KEY_V2, whose hexadecimal value is decoded and checked as a 32-byte AES key.`;
+  }
+  if (exampleId === 'encryption-patterns' && feature === 'OLD_KEY') {
+    return 'Legacy OLD_KEY renamed to descriptive CARD_ENCRYPTION_KEY_V1, whose hexadecimal value is decoded and checked as a 32-byte AES key.';
+  }
+  if (exampleId === 'encryption-patterns' && feature === 'PAYMENT_KEY') {
+    return 'Legacy PAYMENT_KEY renamed to descriptive CARD_ENCRYPTION_KEY_HEX, whose hexadecimal value is decoded and checked as a 32-byte AES key.';
+  }
+  if (exampleId === 'encryption-patterns' && feature === 'KEY_ID') {
+    return 'Legacy KEY_ID renamed to KEY_VERSION so ciphertext metadata selects the validated active or previous key.';
+  }
   if (feature === 'ANONYMIZATION_SALT') {
     return 'Unkeyed anonymization salt replaced by required GDPR_CUSTOMER_HMAC_KEY secret material for stable HMAC-SHA-256 pseudonyms.';
   }

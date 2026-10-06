@@ -248,9 +248,9 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-json-log-parsing.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    # Parse JSON documents\n    - json_documents:\n        parts: []\n\n    # Normalize timestamp and add metadata\n    - mapping: |\n        root = this\n        root.timestamp_unix = this.timestamp.parse_timestamp("2006-01-02T15:04:05.999Z07:00").ts_unix()\n        root.level = this.level.or("INFO").uppercase()\n        root.metadata = {\n          "parsed_by": "json-parser",\n          "parsed_at": now().ts_unix(),\n          "source_format": "json"\n        }\n',
+      'pipeline:\n  processors:\n    # Parse JSON documents\n    - mapping: root = content().parse_json()\n    # Normalize timestamp and add metadata\n    - mapping: |\n        root = this\n        root.timestamp_unix = this.timestamp.parse_timestamp("2006-01-02T15:04:05.999Z07:00").ts_unix()\n        root.level = this.level.or("INFO").uppercase()\n        root.metadata = {\n          "parsed_by": "json-parser",\n          "parsed_at": now().ts_unix(),\n          "source_format": "json"\n        }\n',
     configSha256:
-      "sha256:e03eee34bb5b3066a15fbcf5f06c0abfd7e69037d697ab843d988acf3b19af3f",
+      "sha256:feb666c79eda18b53afe4698faaf11bb26edeca628caf5ba6b3646e4dd0195b5",
   },
   {
     id: 4,

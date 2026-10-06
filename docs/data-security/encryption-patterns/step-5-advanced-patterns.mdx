@@ -25,10 +25,10 @@ For a more detailed guide on these topics, please see the **[Advanced Encryption
 
 Using a single encryption key for all data is risky. A better pattern is to use separate keys for different data types based on their risk level. This is known as **risk-based encryption**.
 
-- **`CARD_ENCRYPTION_KEY`**: For PCI-DSS data. Highest security, most frequent rotation.
-- **`PII_ENCRYPTION_KEY`**: For GDPR/CCPA/HIPAA data (SSN, email). High security.
-- **`ADDRESS_ENCRYPTION_KEY`**: For location data.
-- **`TEMPORAL_ENCRYPTION_KEY`**: For sensitive dates.
+- **`CARD_ENCRYPTION_KEY_HEX`**: For PCI-DSS data. Highest security, most frequent rotation.
+- **`PII_ENCRYPTION_KEY_HEX`**: For GDPR/CCPA/HIPAA data (SSN, email). High security.
+- **`ADDRESS_ENCRYPTION_KEY_HEX`**: For location data.
+- **`TEMPORAL_ENCRYPTION_KEY_HEX`**: For sensitive dates.
 
 This strategy limits the "blast radius" if a single key is ever compromised. You implement this by simply calling the `encrypt_aes` function with the appropriate key environment variable for each field, as demonstrated in the previous steps.
 
@@ -62,14 +62,29 @@ The following processor emits authored metadata about which transformation ran a
 
 ## Pattern 3: Key Versioning & Decryption
 
-To handle key rotation, the version of the key used for encryption should be stored alongside the encrypted data.
+To handle key rotation, store the key version and nonce alongside the ciphertext.
+The rotated key below remains deployment-managed, must contain 64 hexadecimal
+characters, and fails closed unless it decodes to exactly 32 bytes.
 
-```yaml title="Storing the Key Version"
+```yaml title="Validated rotated card key"
 - mapping: |
-    root.payment.card_number_encrypted = "%s:%s".format(
-      env("KEY_VERSION"), // e.g., "v2"
-      this.payment.card_number.encrypt_aes("gcm", env("CARD_ENCRYPTION_KEY_V2"))
-    )
+    root = this
+    let key = env("CARD_ENCRYPTION_KEY_V2").decode("hex")
+    let key = if $key.length() != 32 {
+      throw("Expected CARD_ENCRYPTION_KEY_V2 to decode to 32 bytes")
+    } else { $key }
+    let previous_key = env("CARD_ENCRYPTION_KEY_V1").decode("hex")
+    let previous_key = if $previous_key.length() != 32 {
+      throw("Expected CARD_ENCRYPTION_KEY_V1 to decode to 32 bytes")
+    } else { $previous_key }
+    let nonce = uuid_v4().hash("sha256").slice(0, 12)
+    root.payment.card_number_nonce = $nonce.encode("base64")
+    root.payment.card_number_encrypted = this.payment.card_number.string().encrypt_aes("gcm", $key, $nonce).encode("base64")
+    root.encryption_metadata.card_key_version = env("KEY_VERSION").or(throw("KEY_VERSION is required"))
+    root.payment = root.payment.without("card_number", "cvv")
 ```
 
-A corresponding decryption service would parse the version and retrieve the referenced key. Historical decryption still depends on retained keys, authorization, metadata integrity, and tested recovery procedures.
+A corresponding decryption service would parse the version and select the
+validated active or previous key. Historical decryption still depends on
+retained keys, authorization, metadata integrity, and tested recovery
+procedures.

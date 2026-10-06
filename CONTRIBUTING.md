@@ -12,7 +12,7 @@ Update these sources together:
 - `examples/**`: canonical pipeline and deterministic fixture files.
 - `docs/**`: the public projection of those records.
 
-The sidebar is generated from the catalog. Do not hand-add family trees to `sidebars.ts`.
+The sidebar is generated from the catalog: each published family unfolds into the pages in its `docs/<route>/` directory (explorer, setup, steps, complete pipeline, troubleshooting), skipping `draft` and `unlisted` pages. Do not hand-add family trees to `sidebars.ts`.
 
 ## Readiness is two-dimensional
 
@@ -68,6 +68,10 @@ Use Explorer V2 only when the interaction teaches a distinct task. It requires:
 ## Required local gates
 
 Run the gates relevant to the change, then the full foundation set:
+
+Pipeline changes also require the
+[example validation workflow](scripts/README.md#example-pipeline-validation)
+and its generated reports.
 
 ```bash
 npm run typecheck -- --noEmit

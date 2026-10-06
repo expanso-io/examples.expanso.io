@@ -54,7 +54,7 @@ CI compares every example family with baseline commit
 canonical pipeline, public copy, explorer stages, and tutorial configurations,
 so a safe refactor may move a capability without appearing to delete it.
 
-The 26 family contracts contain 67 explicit secure substitutions and no generic
+The 26 family contracts contain 76 explicit secure substitutions and no generic
 exceptions. They identify the exact legacy control that changed and why:
 
 - ambiguous Kafka brokers became TLS broker lists with mounted trust and SCRAM;

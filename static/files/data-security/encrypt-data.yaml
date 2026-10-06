@@ -1,5 +1,5 @@
 name: payment-field-encryption
-description: Encrypt sensitive payment and PII data with AES-256-GCM
+description: Encrypt sensitive payment and PII data with AES-256-GCM; requires PAYMENTS_INGEST_TOKEN bearer authentication over TLS.
 type: pipeline
 namespace: production
 labels:
@@ -31,7 +31,7 @@ config:
       path: /payments/transactions
       allowed_verbs: [POST]
       timeout: 10s
-      rate_limit: '500/1s'
+      rate_limit: payments_ingest
 
   pipeline:
     processors:
@@ -46,6 +46,7 @@ config:
           }
 
       # Encrypt credit card fields (see pattern guide)
+      # Keys come from the environment; a per-message nonce travels with the ciphertext.
       - mapping: |
           root = this
           let key = env("CARD_ENCRYPTION_KEY_HEX").decode("hex")
@@ -242,6 +243,8 @@ config:
           } else {
             this
           }
+      - catch:
+          - mapping: root = deleted()
 
       - catch:
           - mapping: root = deleted()
@@ -304,6 +307,12 @@ config:
 
         - label: diagnostic_stdout
           stdout: {}
+
+  rate_limit_resources:
+    - label: payments_ingest
+      local:
+        count: 500
+        interval: 1s
 
 logger:
   level: INFO

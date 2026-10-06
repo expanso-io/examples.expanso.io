@@ -67,7 +67,7 @@ config:
       inputs:
         # PTP timing data
         - file:
-            paths: ['/mnt/du-telemetry/ptp4l/offset.log']
+            paths: ['/data/du-telemetry/ptp4l/offset.log']
             scanner:
               lines: {}
             processors:
@@ -85,7 +85,7 @@ config:
 
         # PRB utilization data
         - file:
-            paths: ['/mnt/du-telemetry/scheduler/prb_*.log']
+            paths: ['/data/du-telemetry/scheduler/prb_*.log']
             scanner:
               lines: {}
             processors:
@@ -105,7 +105,7 @@ config:
 
         # System performance data
         - file:
-            paths: ['/mnt/du-telemetry/system/*.log']
+            paths: ['/data/du-telemetry/system/*.log']
             scanner:
               lines: {}
             processors:
@@ -145,16 +145,27 @@ GET /api/v1/metrics/rf           # RF measurements
 ```yaml
 name: oran-api-collector
 config:
+  rate_limit_resources:
+    - label: du_api_polling
+      local:
+        count: 1
+        interval: 1s
+    - label: du_system_polling
+      local:
+        count: 1
+        interval: 10s
+
   input:
     broker:
       inputs:
+        # PTP metrics via API polling
         - http_client:
-            url: ${DU_ENDPOINT}/api/v1/metrics/ptp
+            url: '${DU_ENDPOINT:http://oran-du.oran-du.svc:8080}/api/v1/metrics/ptp'
             verb: GET
             headers:
-              Authorization: Bearer ${DU_API_KEY}
-              Accept: application/json
-            rate_limit: 1/s
+              Authorization: 'Bearer ${DU_API_KEY}'
+              Accept: 'application/json'
+            rate_limit: du_api_polling
             processors:
               - mapping: |
                   root.timestamp = now()
@@ -167,14 +178,15 @@ config:
                   root.ptp4l_offset_ns = this.ptp.offset_nanoseconds
                   root.ptp_status = this.ptp.status
                   root.sync_source = this.ptp.master_id
-            tls:
-              enabled: true
+
+        # PRB metrics via API
         - http_client:
-            url: ${DU_ENDPOINT}/api/v1/metrics/prb
+            url: '${DU_ENDPOINT:http://oran-du.oran-du.svc:8080}/api/v1/metrics/prb'
             verb: GET
             headers:
-              Authorization: Bearer ${DU_API_KEY}
-            rate_limit: 1/s
+              Authorization: 'Bearer ${DU_API_KEY}'
+              Accept: 'application/json'
+            rate_limit: du_api_polling
             processors:
               - mapping: |
                   root.timestamp = now()
@@ -187,14 +199,15 @@ config:
                   root.prb_ul_pct = this.scheduler.prb_ul_utilization_percent
                   root.prb_total_available = this.scheduler.prb_total
                   root.active_ue_count = this.scheduler.active_ue_count
-            tls:
-              enabled: true
+
+        # System metrics via API
         - http_client:
-            url: ${DU_ENDPOINT}/api/v1/metrics/system
+            url: '${DU_ENDPOINT:http://oran-du.oran-du.svc:8080}/api/v1/metrics/system'
             verb: GET
             headers:
-              Authorization: Bearer ${DU_API_KEY}
-            rate_limit: 10s
+              Authorization: 'Bearer ${DU_API_KEY}'
+              Accept: 'application/json'
+            rate_limit: du_system_polling
             processors:
               - mapping: |
                   root.timestamp = now()
@@ -209,8 +222,8 @@ config:
                   root.disk_pct = this.system.disk_utilization_percent
                   root.network_rx_mbps = this.system.network_rx_bytes_per_sec / 1000000
                   root.network_tx_mbps = this.system.network_tx_bytes_per_sec / 1000000
-            tls:
-              enabled: true
+
+  # Continue to transformation step...
 ```
 
 ## Collection Method 3: Hybrid Approach
@@ -220,28 +233,37 @@ Combine file and API collection for comprehensive telemetry:
 ```yaml
 name: oran-hybrid-collector
 config:
+  rate_limit_resources:
+    - label: du_api_polling
+      local:
+        count: 1
+        interval: 1s
+
   input:
     broker:
       inputs:
+        # Real-time metrics via API (high frequency)
         - http_client:
-            url: ${DU_ENDPOINT}/api/v1/metrics/realtime
+            url: '${DU_ENDPOINT:http://oran-du.oran-du.svc:8080}/api/v1/metrics/realtime'
             verb: GET
-            rate_limit: 1/s
-            processors:
-              - mapping: root.source = "api_realtime"
             headers:
-              Authorization: Bearer ${TUTORIAL_HTTP_TOKEN}
-            tls:
-              enabled: true
+              Authorization: 'Bearer ${DU_API_KEY}'
+              Accept: 'application/json'
+            rate_limit: du_api_polling
+            processors:
+              - mapping: 'root.source = "api_realtime"'
+
+        # Historical/batch data via files (lower frequency)
         - file:
-            paths:
-              - /mnt/du-telemetry/batch/*.json
+            paths: ['/data/du-telemetry/batch/*.json']
             scanner:
               lines: {}
             processors:
-              - mapping: root.source = "file_batch"
+              - mapping: 'root.source = "file_batch"'
+
+        # Performance data via SNMP polling
         - generate:
-            interval: 30s
+            interval: '30s'
             mapping: |
               # Trigger SNMP collection
               root = {}
@@ -261,7 +283,7 @@ pipeline:
         # Validate required fields
         root = if [
           this.timestamp.type() == "string",
-          this.du_id.type() == "string",
+          this.du_id.type() == "string", 
           this.metric_type.type() == "string"
         ].all() {
           this
@@ -291,11 +313,12 @@ Verify metrics are being collected correctly:
 
 ```bash
 # Test file-based collection
-echo '{"ptp_offset": -42, "timestamp": "2024-02-10T17:23:45Z"}' >> /mnt/du-telemetry/test.log
+echo '{"ptp_offset": -42, "timestamp": "2024-02-10T17:23:45Z"}' \
+  >> /data/du-telemetry/test.log
 
 # Test API endpoint
 curl -H "Authorization: Bearer ${DU_API_KEY}" \
-     "${DU_ENDPOINT}/api/v1/metrics/ptp"
+  "${DU_ENDPOINT:http://oran-du.oran-du.svc:8080}/api/v1/metrics/ptp"
 
 # Monitor pipeline logs
 oc -n oran-telemetry logs -f deployment/expanso-edge
@@ -304,5 +327,3 @@ oc -n oran-telemetry logs -f deployment/expanso-edge
 ## Next Steps
 
 With O-RAN metrics flowing into your pipeline, proceed to [transform and enrich the data](/integrations/oran-telco-pipeline/step-2-transform-and-enrich.mdx) with Bloblang processing.
-
-Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

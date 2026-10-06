@@ -7,14 +7,14 @@ type: pipeline
 namespace: default
 labels:
   pattern: fan-out
-  version: "1.0"
+  version: '1.0'
 
 config:
   input:
     http_server:
       address: 0.0.0.0:8080
       path: /events
-      allowed_verbs: ["POST"]
+      allowed_verbs: ['POST']
 
   pipeline:
     processors:
@@ -36,9 +36,9 @@ config:
         # Kafka for real-time streaming (with fallback)
         - fallback:
             - kafka:
-                addresses: ["${KAFKA_BROKERS}"]
+                addresses: ['${KAFKA_BROKERS}']
                 topic: sensor-events
-                key: "${!this.sensor_id}"
+                key: '${!this.sensor_id}'
                 batching:
                   count: 100
                   period: 5s
@@ -49,9 +49,9 @@ config:
         # S3 for long-term archival (with fallback)
         - fallback:
             - aws_s3:
-                bucket: "${S3_BUCKET}"
-                region: "${AWS_REGION}"
-                path: "events/${!timestamp_unix()}/${!uuid_v4()}.json"
+                bucket: '${S3_BUCKET}'
+                region: '${AWS_REGION}'
+                path: 'events/${!timestamp_unix()}/${!uuid_v4()}.json'
                 batching:
                   count: 100
                   period: 30s
@@ -61,10 +61,11 @@ config:
 
         # Elasticsearch for search (with fallback)
         - fallback:
-            - elasticsearch:
-                urls: ["${ES_ENDPOINT}"]
-                index: "sensor-events-${!timestamp_unix()}"
-                id: "${!this.event_id.or(uuid_v4())}"
+            - opensearch:
+                action: index
+                urls: ['${ES_ENDPOINT}']
+                index: 'sensor-events-${!timestamp_unix()}'
+                id: '${!this.event_id.or(uuid_v4())}'
                 batching:
                   count: 50
                   period: 10s

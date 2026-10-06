@@ -21,29 +21,11 @@ While tumbling windows are great for discrete summaries, **sliding windows** are
 
 ## The Goal
 
-You will modify your pipeline to calculate a **30-second moving average, updated every 10 seconds**.
-
-- The **Window Size** is 30 seconds.
-- The **Slide Interval** is 10 seconds.
-
-This means an event that occurs at `10:00:15` will be included in three different windows:
-
-1.  The `10:00:00 - 10:00:30` window.
-2.  The `10:00:10 - 10:00:40` window.
-3.  The `10:00:20 - 10:00:50` window.
-
-## The "Generate Keys -> Unarchive -> Aggregate" Pattern
-
-The implementation is very similar to tumbling windows, with two key differences:
-
-1.  **Generate Keys:** Instead of one `group_key`, you will generate an _array_ of keys for each message, one for each overlapping window it belongs to.
-2.  **Unarchive:** You will use the `unarchive` processor to create a copy of the message for each key in the array.
-
-From there, the `cache`, `group_by`, and `aggregate` steps work exactly as they did for tumbling windows.
+Compute summaries over overlapping windows so consecutive results share events.
 
 ## Implementation
 
-1.  **Start with the Tumbling Window Pipeline:** Copy `tumbling-windows.yaml` to a new file named `sliding-windows.yaml`.
+The [complete configuration](/data-transformation/aggregate-time-windows/complete-aggregation-pipeline) owns the maintained sliding-window implementation. Its `system_window` buffer retains five minutes of events and emits every minute. Mappings select records for each aggregation type before grouping and calculating batch statistics.
 
     ```bash
     cp tumbling-windows.yaml sliding-windows.yaml

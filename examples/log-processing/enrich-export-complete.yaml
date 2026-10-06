@@ -35,24 +35,24 @@ config:
         ]
         root.service = $services.index(random_int() % 6).name
 
-        root.user_id = "user_" + (random_int() % 10000)
-        root.session_id = "session_" + (random_int() % 1000)
+        root.user_id = "user_" + (random_int() % 10000).string()
+        root.session_id = "session_" + (random_int() % 1000).string()
         root.request_id = uuid_v4()
         root.trace_id = uuid_v4()
 
         root.duration_ms = random_int() % 5000 + 50
         root.status_code = match {
-          this.level == "INFO" => [200, 201, 202, 204].index(random_int() % 4)
-          this.level == "WARN" => [400, 401, 403, 404, 429].index(random_int() % 5)
-          this.level == "ERROR" => [500, 502, 503, 504].index(random_int() % 4)
+          root.level == "INFO" => [200, 201, 202, 204].index(random_int() % 4)
+          root.level == "WARN" => [400, 401, 403, 404, 429].index(random_int() % 5)
+          root.level == "ERROR" => [500, 502, 503, 504].index(random_int() % 4)
           _ => 200
         }
 
         root.message = match {
-          this.service == "api-gateway" => "Request processed: " + this.status_code + " in " + this.duration_ms + "ms"
-          this.service == "auth-service" => if this.level == "ERROR" { "Authentication failed" } else { "User authenticated successfully" }
-          this.service == "payment-service" => if this.level == "ERROR" { "Payment processing failed" } else { "Payment processed" }
-          _ => "Service operation completed with status " + this.status_code
+          root.service == "api-gateway" => "Request processed: " + root.status_code.string() + " in " + root.duration_ms.string() + "ms"
+          root.service == "auth-service" => if root.level == "ERROR" { "Authentication failed" } else { "User authenticated successfully" }
+          root.service == "payment-service" => if root.level == "ERROR" { "Payment processing failed" } else { "Payment processed" }
+          _ => "Service operation completed with status " + root.status_code.string()
         }
   pipeline:
     processors:

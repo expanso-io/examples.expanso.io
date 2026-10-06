@@ -9,10 +9,12 @@ config:
       address: 0.0.0.0:8080
       path: /logs
       timeout: 5s
-      rate_limit: '10000/s'
+      rate_limit: http_ingest
 
   pipeline:
     processors:
+      - mapping: root = content().parse_json()
+
       # Classify priority based on severity
       - mapping: |
           root = if this.severity == null {
@@ -175,3 +177,8 @@ config:
               batching:
                 count: 100
                 period: 5s
+  rate_limit_resources:
+    - label: http_ingest
+      local:
+        count: 10000
+        interval: 1s

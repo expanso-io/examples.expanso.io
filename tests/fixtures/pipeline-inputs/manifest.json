@@ -1,0 +1,391 @@
+{
+  "$comment": "Fixture bindings for scripts/validate-examples.ts. A family entry applies to every pipeline whose family matches; a pipelines entry overrides one file. Fixture paths are repository-relative JSON Lines files. By default a pipeline uses tests/fixtures/pipeline-inputs/<family>.jsonl when it exists.",
+  "environment": {
+    "CARD_KEY": "0123456789abcdef0123456789abcdef",
+    "PII_KEY": "123456789abcdef0123456789abcdef0",
+    "ADDR_KEY": "23456789abcdef0123456789abcdef01",
+    "CARD_ENCRYPTION_KEY": "3456789abcdef0123456789abcdef012",
+    "PII_ENCRYPTION_KEY": "456789abcdef0123456789abcdef0123",
+    "ADDRESS_ENCRYPTION_KEY": "56789abcdef0123456789abcdef01234",
+    "PAYMENT_ENCRYPTION_KEY": "6789abcdef0123456789abcdef012345",
+    "TEMPORAL_ENCRYPTION_KEY": "789abcdef0123456789abcdef0123456",
+    "CARD_ENCRYPTION_KEY_HEX": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+    "PII_ENCRYPTION_KEY_HEX": "112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00",
+    "ADDRESS_ENCRYPTION_KEY_HEX": "2233445566778899aabbccddeeff00112233445566778899aabbccddeeff0011",
+    "TEMPORAL_ENCRYPTION_KEY_HEX": "33445566778899aabbccddeeff00112233445566778899aabbccddeeff001122",
+    "GDPR_CUSTOMER_HMAC_KEY": "local-validation-gdpr-customer-hmac-key",
+    "ACCOUNT_HASH_KEY": "local-validation-account-hmac-key",
+    "IP_SALT": "validation-fixture-ip-salt",
+    "EMAIL_SALT": "validation-fixture-email-salt",
+    "USER_SALT": "validation-fixture-user-salt",
+    "KEY_VERSION": "validation-v1",
+    "PAYMENTS_INGEST_TOKEN": "local-validation-payment-ingest-token"
+  },
+  "categories": {
+    "data-routing": {
+      "fixture": "tests/fixtures/pipeline-inputs/data-routing.jsonl",
+      "timeoutMs": 10000
+    },
+    "data-security": {
+      "fixture": "tests/fixtures/pipeline-inputs/data-security.jsonl",
+      "timeoutMs": 10000
+    },
+    "data-transformation": {
+      "fixture": "tests/fixtures/pipeline-inputs/data-transformation.jsonl",
+      "timeoutMs": 10000
+    },
+    "enterprise-migration": {
+      "fixture": "tests/fixtures/pipeline-inputs/enterprise-migration.jsonl",
+      "timeoutMs": 10000
+    },
+    "log-processing": {
+      "fixture": "tests/fixtures/pipeline-inputs/log-processing.jsonl",
+      "timeoutMs": 10000
+    }
+  },
+  "families": {
+    "splunk-edge-processing": {
+      "fixture": "tests/fixtures/pipeline-inputs/splunk-edge-processing.log",
+      "minRecords": 2
+    },
+    "aggregate-time-windows": {
+      "fixture": "tests/fixtures/pipeline-inputs/aggregate-time-windows.jsonl"
+    },
+    "circuit-breakers": {
+      "fixture": "tests/fixtures/pipeline-inputs/data-routing.jsonl"
+    },
+    "content-routing": {
+      "fixture": "tests/fixtures/pipeline-inputs/data-routing.jsonl"
+    },
+    "content-splitting": {
+      "fixture": "tests/fixtures/pipeline-inputs/data-routing.jsonl"
+    },
+    "database-circuit-breaker": {
+      "fixture": "tests/fixtures/pipeline-inputs/data-routing.jsonl"
+    },
+    "encrypt-data": {
+      "fixture": "tests/fixtures/pipeline-inputs/encryption.jsonl",
+      "expectation": {
+        "kind": "encryption",
+        "fields": [
+          {
+            "source": "payment.card_number",
+            "ciphertext": "payment.card_number_encrypted",
+            "nonce": "payment.card_number_nonce",
+            "key": "CARD_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "payment.cardholder_name",
+            "ciphertext": "payment.cardholder_name_encrypted",
+            "nonce": "payment.cardholder_name_nonce",
+            "key": "CARD_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "customer.ssn",
+            "ciphertext": "customer.ssn_encrypted",
+            "nonce": "customer.ssn_nonce",
+            "key": "PII_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "customer.email",
+            "ciphertext": "customer.email_encrypted",
+            "nonce": "customer.email_nonce",
+            "key": "PII_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "customer.phone",
+            "ciphertext": "customer.phone_encrypted",
+            "nonce": "customer.phone_nonce",
+            "key": "PII_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "customer.date_of_birth",
+            "ciphertext": "customer.date_of_birth_encrypted",
+            "nonce": "customer.date_of_birth_nonce",
+            "key": "PII_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "billing_address.street",
+            "ciphertext": "billing_address.street_encrypted",
+            "nonce": "billing_address.street_nonce",
+            "key": "ADDRESS_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "billing_address.zip",
+            "ciphertext": "billing_address.zip_encrypted",
+            "nonce": "billing_address.zip_nonce",
+            "key": "ADDRESS_ENCRYPTION_KEY_HEX"
+          }
+        ],
+        "removed": [
+          "payment.card_number",
+          "payment.cvv",
+          "payment.cardholder_name",
+          "customer.ssn",
+          "customer.email",
+          "customer.phone",
+          "customer.date_of_birth",
+          "billing_address.street",
+          "billing_address.zip",
+          "payment.cardholder_name"
+        ]
+      },
+      "inputMetadata": {
+        "Authorization": "Bearer local-validation-payment-ingest-token"
+      }
+    },
+    "encryption-patterns": {
+      "fixture": "tests/fixtures/pipeline-inputs/encryption.jsonl",
+      "expectation": {
+        "kind": "encryption",
+        "fields": [
+          {
+            "source": "payment.card_number",
+            "ciphertext": "payment.card_number_encrypted",
+            "nonce": "payment.card_number_nonce",
+            "key": "CARD_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "customer.ssn",
+            "ciphertext": "customer.ssn_encrypted",
+            "nonce": "customer.ssn_nonce",
+            "key": "PII_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "customer.email",
+            "ciphertext": "customer.email_encrypted",
+            "nonce": "customer.email_nonce",
+            "key": "PII_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "customer.phone",
+            "ciphertext": "customer.phone_encrypted",
+            "nonce": "customer.phone_nonce",
+            "key": "PII_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "customer.date_of_birth",
+            "ciphertext": "customer.date_of_birth_encrypted",
+            "nonce": "customer.date_of_birth_nonce",
+            "key": "TEMPORAL_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "billing_address.street",
+            "ciphertext": "billing_address.street_encrypted",
+            "nonce": "billing_address.street_nonce",
+            "key": "ADDRESS_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "billing_address.zip",
+            "ciphertext": "billing_address.zip_encrypted",
+            "nonce": "billing_address.zip_nonce",
+            "key": "ADDRESS_ENCRYPTION_KEY_HEX"
+          }
+        ],
+        "removed": [
+          "payment.card_number",
+          "payment.cvv",
+          "customer.ssn",
+          "customer.email",
+          "customer.phone",
+          "customer.date_of_birth",
+          "billing_address.street",
+          "billing_address.zip",
+          "payment.cardholder_name"
+        ]
+      }
+    },
+    "enforce-schema": {
+      "fixture": "tests/fixtures/pipeline-inputs/sensor-schema-input.jsonl"
+    },
+    "enrich-export": {
+      "timeoutMs": 5000
+    },
+    "enrichment": {
+      "timeoutMs": 5000
+    },
+    "filter-severity": {
+      "fixture": "tests/fixtures/pipeline-inputs/filter-severity.jsonl",
+      "minRecords": 2
+    },
+    "fan-out-pattern": {
+      "fixture": "tests/fixtures/pipeline-inputs/data-routing.jsonl"
+    },
+    "medical-device-intelligence": {
+      "fixture": "tests/fixtures/pipeline-inputs/medical-device-intelligence.jsonl"
+    },
+    "oran-telco-pipeline": {
+      "fixture": "tests/fixtures/pipeline-inputs/oran-telco-pipeline.jsonl"
+    },
+    "parse-logs": {
+      "fixture": "tests/fixtures/pipeline-inputs/parse-logs.jsonl",
+      "minRecords": 2,
+      "localRecordCodecs": true
+    },
+    "transform-formats": {
+      "localRecordCodecs": true
+    },
+    "quickstart": {
+      "fixture": "tests/fixtures/pipeline-inputs/quickstart.jsonl"
+    },
+    "remove-pii": {
+      "fixture": "tests/fixtures/pipeline-inputs/remove-pii.jsonl"
+    },
+    "scada-energy-edge": {
+      "fixture": "tests/fixtures/pipeline-inputs/scada-energy-edge.log"
+    },
+    "cross-border-gdpr": {
+      "fixture": "tests/fixtures/pipeline-inputs/cross-border-gdpr.jsonl"
+    },
+    "nightly-backup": {
+      "fixture": "tests/fixtures/pipeline-inputs/nightly-backup.jsonl"
+    },
+    "step-4-production": {
+      "fixture": "tests/fixtures/pipeline-inputs/data-transformation.jsonl"
+    },
+    "normalize-timestamps": {
+      "recentTimestamps": true
+    }
+  },
+  "pipelines": {
+    "docs/integrations/medical-device-intelligence/pipeline.yaml": {
+      "processorStandIns": {
+        "command": {
+          "command": {
+            "name": "printf",
+            "args_mapping": "root = [\"{\\\"review_candidates\\\":[],\\\"source\\\":\\\"local-validation-stub\\\"}\"]"
+          }
+        }
+      }
+    },
+    "examples/data-routing/circuit-breakers-complete.yaml": {
+      "processorStandIns": {
+        "http": {
+          "mapping": "root = {\"stub\": true, \"source\": \"local-validation-api\"}"
+        }
+      }
+    },
+    "examples/data-routing/circuit-breakers-foundation.yaml": {
+      "processorStandIns": {
+        "http": {
+          "mapping": "root = {\"metadata\": {\"source\": \"local-validation-api\"}}"
+        }
+      }
+    },
+    "examples/data-routing/database-circuit-breaker-foundation.yaml": {
+      "processorStandIns": {
+        "sql_raw": {
+          "mapping": "root = [{\"user_name\": \"local-validation-user\", \"user_tier\": \"standard\"}]"
+        }
+      }
+    },
+    "examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml": {
+      "processorStandIns": {
+        "sql_select": {
+          "mapping": "root = [{\"USD_RATE\": 1}]"
+        }
+      }
+    },
+    "static/files/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml": {
+      "processorStandIns": {
+        "sql_select": {
+          "mapping": "root = [{\"USD_RATE\": 1}]"
+        }
+      }
+    },
+    "static/pipelines/splunk-production-pipeline.yaml": {
+      "processorStandIns": {
+        "command": {
+          "mapping": "root = deleted()"
+        }
+      }
+    },
+    "examples/data-security/enforce-schema-complete.yaml": {
+      "pathStandIns": {
+        "file:///etc/expanso/schemas/sensor-schema-v1.0.0.json": "tests/fixtures/pipeline-inputs/sensor-schema.json"
+      }
+    },
+    "examples/data-security/enforce-schema.yaml": {
+      "pathStandIns": {
+        "file:///etc/expanso/schemas/sensor-schema-v1.0.0.json": "tests/fixtures/pipeline-inputs/sensor-schema.json"
+      }
+    },
+    "examples/integrations/scada-energy-edge/step-1-parse-registers.yaml": {
+      "fixture": "tests/fixtures/pipeline-inputs/scada-energy-edge.log"
+    },
+    "examples/integrations/scada-energy-edge/step-2-filter-nominal.yaml": {
+      "fixture": "tests/fixtures/pipeline-inputs/scada-energy-edge.log"
+    },
+    "examples/integrations/scada-energy-edge/step-3-classify-faults.yaml": {
+      "fixture": "tests/fixtures/pipeline-inputs/scada-energy-edge.log"
+    },
+    "examples/integrations/scada-energy-edge/step-4-route-destinations.yaml": {
+      "fixture": "tests/fixtures/pipeline-inputs/scada-energy-edge.log"
+    },
+    "static/files/data-security/enforce-schema.yaml": {
+      "pathStandIns": {
+        "file:///etc/expanso/schemas/sensor-schema-v1.0.0.json": "tests/fixtures/pipeline-inputs/sensor-schema.json"
+      }
+    },
+    "examples/data-security/encrypt-data-complete.yaml": {
+      "expectation": {
+        "kind": "encryption",
+        "fields": [
+          {
+            "source": "payment.card_number",
+            "ciphertext": "payment.card_number_encrypted",
+            "nonce": "payment.card_number_nonce",
+            "key": "CARD_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "payment.cardholder_name",
+            "ciphertext": "payment.cardholder_name_encrypted",
+            "nonce": "payment.cardholder_name_nonce",
+            "key": "CARD_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "customer.ssn",
+            "ciphertext": "customer.ssn_encrypted",
+            "nonce": "customer.ssn_nonce",
+            "key": "PII_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "customer.email",
+            "ciphertext": "customer.email_encrypted",
+            "nonce": "customer.email_nonce",
+            "key": "PII_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "customer.phone",
+            "ciphertext": "customer.phone_encrypted",
+            "nonce": "customer.phone_nonce",
+            "key": "PII_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "address.street",
+            "ciphertext": "address.street_encrypted",
+            "nonce": "address.street_nonce",
+            "key": "ADDRESS_ENCRYPTION_KEY_HEX"
+          },
+          {
+            "source": "address.zip",
+            "ciphertext": "address.zip_encrypted",
+            "nonce": "address.zip_nonce",
+            "key": "ADDRESS_ENCRYPTION_KEY_HEX"
+          }
+        ],
+        "removed": [
+          "payment.card_number",
+          "payment.cvv",
+          "payment.cardholder_name",
+          "customer.ssn",
+          "customer.email",
+          "customer.phone",
+          "address.street",
+          "address.zip",
+          "payment.cardholder_name"
+        ]
+      }
+    }
+  }
+}

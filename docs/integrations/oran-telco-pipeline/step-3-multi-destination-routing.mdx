@@ -83,19 +83,16 @@ OpenShift runs no Prometheus Pushgateway, and a Pushgateway would not accept JSO
         }
   fallback:
     - http_client:
-        url: ${OTEL_ENDPOINT:http://oran-collector.oran-telemetry.svc:4318}/v1/metrics
+        url: '${OTEL_ENDPOINT:http://oran-collector.oran-telemetry.svc:4318}/v1/metrics'
         verb: POST
         headers:
           Content-Type: application/json
-          Authorization: Bearer ${TUTORIAL_HTTP_TOKEN}
         timeout: 30s
         retries: 3
         retry_period: 1s
         max_retry_backoff: 30s
-        tls:
-          enabled: true
     - file:
-        path: /data/dead-letter/otel-${! now().ts_format("2006-01-02") }.jsonl
+        path: '/data/dead-letter/otel-${! now().ts_format("2006-01-02") }.jsonl'
         codec: lines
       processors:
         - mapping: |
@@ -183,17 +180,19 @@ The `Kafka` resource exposes one listener: TLS on 9093 with SCRAM-SHA-512. The o
   fallback:
     - kafka:
         addresses:
-          - ${KAFKA_TLS_BROKERS}
+          [
+            '${KAFKA_BOOTSTRAP_SERVERS:oran-kafka-kafka-bootstrap.oran-telemetry.svc:9093}',
+          ]
         topic: oran-telemetry-structured
-        key: ${! this.network.site_id }-${! this.network.cell_id }
+        key: '${! this.network.site_id }-${! this.network.cell_id }'
         client_id: expanso-oran-pipeline
         tls:
           enabled: true
-          root_cas_file: ${KAFKA_CA_FILE}
+          root_cas_file: /etc/expanso/kafka-ca/ca.crt
         sasl:
           mechanism: SCRAM-SHA-512
-          user: ${KAFKA_USERNAME}
-          password: ${KAFKA_PASSWORD}
+          user: '${KAFKA_USERNAME}'
+          password: '${KAFKA_PASSWORD}'
         compression: lz4
         idempotent_write: false
         ack_replicas: true
@@ -202,7 +201,7 @@ The `Kafka` resource exposes one listener: TLS on 9093 with SCRAM-SHA-512. The o
           count: 500
           period: 5s
     - file:
-        path: /data/dead-letter/kafka-${! now().ts_format("2006-01-02") }.jsonl
+        path: '/data/dead-letter/kafka-${! now().ts_format("2006-01-02") }.jsonl'
         codec: lines
 ```
 
@@ -239,5 +238,3 @@ Three `metric` processors count records, time processing latency, and gauge the 
 - [Step 4: Grafana dashboards](/integrations/oran-telco-pipeline/step-4-grafana-dashboards) against the user-workload Prometheus
 - [Step 5: Parquet and Cloudera](/integrations/oran-telco-pipeline/step-5-parquet-and-cloudera) for the schema, read-back, and the Cloudera consumer
 - [Run path](/integrations/oran-telco-pipeline/setup) to apply the manifests and deploy the job
-
-Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

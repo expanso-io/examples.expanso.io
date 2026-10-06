@@ -15,6 +15,7 @@ config:
   pipeline:
     threads: 1
     processors:
+      - mapping: root = content().parse_json()
       - mapping: |-
           root = this
           let strategy = this.dedup_strategy.or(if this.event_id != null { "event_id" } else { "hash" })
@@ -42,7 +43,9 @@ config:
           key: ${! this.dedup_key }
           value: ${! this.dedup_timestamp }
           ttl: 1h
-      - mapping: root.is_duplicate = false
+      - mapping: |-
+          root = this
+          root.is_duplicate = false
       - catch:
           - mapping: |-
               root = this

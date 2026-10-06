@@ -225,7 +225,7 @@ export const contentRoutingStages: Stage[] = [
       { content: 'url: https://events.pagerduty.com/v2/enqueue', indent: 1 },
       { content: '✅ Critical alert escalation', indent: 1 },
       { content: '', indent: 0 },
-      { content: '→ elasticsearch:', indent: 0, type: 'highlighted' },
+      { content: '→ opensearch:', indent: 0, type: 'highlighted' },
       { content: 'index: application-logs', indent: 1 },
       { content: '✅ Searchable info logs', indent: 1 },
       { content: '', indent: 0 },

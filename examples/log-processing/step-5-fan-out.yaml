@@ -4,11 +4,13 @@ output:
     outputs:
       # 1. Real-time alerts (high priority)
       - switch:
-          - check: this.priority >= 7
-            output:
-              elasticsearch:
-                urls: [http://localhost:9200]
-                index: logs-critical
+          cases:
+            - check: this.priority >= 7
+              output:
+                opensearch:
+                  action: index
+                  urls: [http://localhost:9200]
+                  index: logs-critical
 
       # 2. Stream processing (all logs)
       - kafka:

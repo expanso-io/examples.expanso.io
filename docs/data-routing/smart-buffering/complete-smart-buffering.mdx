@@ -26,8 +26,8 @@ import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
 This pipeline combines all smart buffering techniques from this tutorial:
 
 - **Priority classification** - Messages categorized as important, regular, or archive
-- **Numeric scoring** - Precise ordering with base scores (1000/500/100) plus bonuses
-- **Buffer sorting** - Batches sorted by priority_score before delivery
+- **Numeric scoring** - Base scores (1000/500/100) plus age bonuses
+- **Tier-specific delivery** - Important records use unbatched output; regular and archive routes batch independently
 - **Age adjustment** - Authored score boost for older records
 
 ## Full Configuration
@@ -39,17 +39,17 @@ This pipeline combines all smart buffering techniques from this tutorial:
 ## Quick Test
 
 ```bash
-# Send important event (score: 1000, delivered first)
+# Send an important event (base score: 1000)
 curl -X POST http://localhost:8080/events \
   -H "Content-Type: application/json" \
   -d '{"category": "important", "message": "Critical alert"}'
 
-# Send regular event (score: 500, delivered second)
+# Send a regular event (base score: 500)
 curl -X POST http://localhost:8080/events \
   -H "Content-Type: application/json" \
   -d '{"severity": "info", "message": "User action"}'
 
-# Send archive event (score: 100, delivered last)
+# Send an archive event (base score: 100)
 curl -X POST http://localhost:8080/events \
   -H "Content-Type: application/json" \
   -d '{"severity": "debug", "message": "Debug log"}'

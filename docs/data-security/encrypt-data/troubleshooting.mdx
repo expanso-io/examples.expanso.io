@@ -39,15 +39,16 @@ curl -X POST http://localhost:8080/transactions \
 **Cause:** Key not set or wrong format
 
 ```bash
-# Check if key environment variable is set
-echo ${ENCRYPTION_KEY:0:10}...
+# A valid AES-256 key is exactly 64 hexadecimal characters
+test "${#CARD_ENCRYPTION_KEY_HEX}" -eq 64
+printf '%s' "$CARD_ENCRYPTION_KEY_HEX" | grep -Eq '^[0-9a-fA-F]{64}$'
 ```
 
 **Fix:** Ensure key is proper length and format:
 
 ```bash
-# Generate a valid 256-bit key
-export ENCRYPTION_KEY=$(openssl rand -base64 32)
+# Generate a valid 256-bit key encoded as hexadecimal
+export CARD_ENCRYPTION_KEY_HEX=$(openssl rand -hex 32)
 ```
 
 ---
@@ -63,10 +64,7 @@ docker logs encrypt-data --tail 20 2>&1 | grep -E "(card|email|ssn)"
 
 **Fix:** Handle nested fields explicitly:
 
-```yaml
-- mapping: |
-    root.payment.card_number = this.payment.card_number.encrypt_aes("${ENCRYPTION_KEY}")
-```
+See the [complete configuration](/data-security/encrypt-data/complete-pipeline) for the maintained encryption mapping and its ciphertext fields.
 
 ---
 
@@ -76,12 +74,7 @@ docker logs encrypt-data --tail 20 2>&1 | grep -E "(card|email|ssn)"
 
 **Fix:** Store the key version with encrypted data and test the lookup path:
 
-```yaml
-root.card_encrypted = {
-  "ciphertext": this.card_number.encrypt_aes("${KEY}"),
-  "key_version": env("KEY_VERSION")
-}
-```
+See the [complete configuration](/data-security/encrypt-data/complete-pipeline) for the maintained encryption mapping and its ciphertext fields.
 
 ---
 

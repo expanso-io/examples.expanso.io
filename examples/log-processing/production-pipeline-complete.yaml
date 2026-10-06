@@ -16,18 +16,31 @@ config:
   pipeline:
     processors:
       - mapping: |-
+          let normalized_timestamp = this.timestamp.or(now())
+          let normalized_level = this.level.or("INFO").uppercase()
+          let severity_score = if $normalized_level == "FATAL" || $normalized_level == "CRITICAL" {
+            5
+          } else if $normalized_level == "ERROR" {
+            4
+          } else if $normalized_level == "WARN" || $normalized_level == "WARNING" {
+            3
+          } else if $normalized_level == "INFO" {
+            2
+          } else {
+            1
+          }
           root = this
-          root.timestamp = this.timestamp.or(now())
-          root.level = this.level.or("INFO").uppercase()
+          root.timestamp = $normalized_timestamp
+          root.level = $normalized_level
           root.service = this.service.or("unknown")
           root.message = this.message.or("")
           root.metadata = {"node_id": env("NODE_ID").or("unknown"), "region": env("REGION").or("unknown"), "node_region": env("NODE_REGION").or("unknown"), "received_at": now(), "processed_at": now(), "request_id": uuid_v4(), "pipeline_name": "log-processing-pipeline", "pipeline_version": "1.0"}
-          root.timestamp_normalized = root.timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_format("2006-01-02T15:04:05Z07:00")
+          root.timestamp_normalized = $normalized_timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_format("2006-01-02T15:04:05Z07:00")
           root.hour = root.timestamp_normalized.ts_parse("2006-01-02T15:04:05Z07:00").ts_format("15")
           root.day_of_week = root.timestamp_normalized.ts_parse("2006-01-02T15:04:05Z07:00").ts_format("Monday")
-          root.severity_score = match root.level { "FATAL" | "CRITICAL" => 5, "ERROR" => 4, "WARN" | "WARNING" => 3, "INFO" => 2, _ => 1 }
-          root.is_high_priority = root.severity_score >= 4
-          root.priority = if root.severity_score >= 4 { "high" } else if root.severity_score >= 3 { "medium" } else { "low" }
+          root.severity_score = $severity_score
+          root.is_high_priority = $severity_score >= 4
+          root.priority = if $severity_score >= 4 { "high" } else if $severity_score >= 3 { "medium" } else { "low" }
           meta priority = root.priority
           root.latency_category = if this.duration_ms != null { if this.duration_ms < 100 { "fast" } else if this.duration_ms < 500 { "normal" } else if this.duration_ms < 2000 { "slow" } else { "very_slow" } } else { deleted() }
       - mapping: |-
@@ -44,6 +57,8 @@ config:
     broker:
       pattern: fan_out
       outputs:
+        - stdout:
+            codec: lines
         - switch:
             cases:
               - check: this.severity_score >= 2

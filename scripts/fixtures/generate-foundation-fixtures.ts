@@ -41,6 +41,51 @@ output:
 `,
   ],
   [
+    'examples/data-security/encryption-patterns/fixture-environment.json',
+    String.raw`{
+  "CARD_ENCRYPTION_KEY_HEX": "0101010101010101010101010101010101010101010101010101010101010101",
+  "PII_ENCRYPTION_KEY_HEX": "0101010101010101010101010101010101010101010101010101010101010101",
+  "ADDRESS_ENCRYPTION_KEY_HEX": "0101010101010101010101010101010101010101010101010101010101010101",
+  "TEMPORAL_ENCRYPTION_KEY_HEX": "0101010101010101010101010101010101010101010101010101010101010101",
+  "KEY_VERSION": "fixture-v1"
+}
+`,
+  ],
+  [
+    'examples/data-security/encryption-patterns/sample-input.json',
+    String.raw`{
+  "transaction_id": "txn-12345",
+  "payment": {
+    "card_number": "4532-1234-5678-9010",
+    "cvv": "123",
+    "cardholder_name": "Sarah Johnson"
+  },
+  "customer": {
+    "first_name": "Sarah",
+    "last_name": "Johnson",
+    "email": "sarah.johnson@example.com",
+    "phone": "+1-415-555-0123",
+    "ssn": "123-45-6789",
+    "date_of_birth": "1985-03-15"
+  },
+  "billing_address": {
+    "street": "123 Main St",
+    "zip": "94103",
+    "city": "San Francisco",
+    "state": "CA",
+    "country": "US"
+  },
+  "shipping_address": {
+    "street": "456 Market St",
+    "zip": "94105",
+    "city": "San Francisco",
+    "state": "CA",
+    "country": "US"
+  }
+}
+`,
+  ],
+  [
     'examples/data-transformation/input.json',
     String.raw`# Original input - no deduplication yet
 input:
@@ -147,20 +192,19 @@ output:
     'examples/integrations/splunk-input.yaml',
     String.raw`input:
   file:
-    paths: [ "/var/log/app/*.log" ]
-    multiline:
-      pattern: '^\\d{4}-\\d{2}-\\d{2}'
-      negate: true
-      match: after
+    paths:
+      - /var/log/app/*.log
 `,
   ],
 ]);
 
 const write = process.argv.slice(2).includes('--write');
+
 const drift: string[] = [];
 
 for (const [path, bytes] of generated) {
   const absolutePath = resolve(path);
+
   if (write) {
     writeFileSync(absolutePath, bytes);
   } else if (readFileSync(absolutePath, 'utf8') !== bytes) {

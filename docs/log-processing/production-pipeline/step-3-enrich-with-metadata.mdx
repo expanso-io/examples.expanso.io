@@ -51,42 +51,7 @@ We'll add a `metadata` object to keep things organized.
 
 ## Complete Step 3 Configuration
 
-```yaml title="production-pipeline-step-3.yaml"
-input:
-  http_server:
-    address: '0.0.0.0:8080'
-    path: /logs/ingest
-    rate_limit: '1000/1s'
-    auth:
-      type: header
-      header: 'X-API-Key'
-      required_value: '${LOG_API_KEY}'
-
-pipeline:
-  processors:
-    # 1. Parse & Validate (from Step 2)
-    - mapping: |
-        root = this.parse_json().catch({"message": content()})
-        if !root.exists("timestamp") { root.timestamp = now() }
-        if !root.exists("level") { root.level = "INFO" }
-
-    # 2. Enrich
-    - mapping: |
-        root = this
-        root.metadata = {
-          "ingest_time": now(),
-          "processing_node": env("NODE_ID").or("local"),
-          "pipeline_version": "1.0.0"
-        }
-
-        # Example: Add 'urgent' flag for high severity
-        if root.level == "ERROR" || root.level == "FATAL" {
-           root.metadata.urgent = true
-        }
-
-output:
-  stdout: {}
-```
+See the [complete reference](/log-processing/production-pipeline/complete-production-pipeline) for the maintained input, named rate-limit resource, processors, and failure boundary.
 
 ## Deployment & Verification
 

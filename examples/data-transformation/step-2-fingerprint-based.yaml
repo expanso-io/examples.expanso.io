@@ -9,7 +9,7 @@ processors:
         "signup_plan": this.signup_details.plan
       }
 
-      root.business_fingerprint = business_fields.json_format().hash("sha256")
+      root.business_fingerprint = business_fields.format_json().hash("sha256")
 
   - cache:
       resource: dedup_cache
@@ -17,7 +17,7 @@ processors:
       key: \${! this.business_fingerprint }
 
   - mapping: |
-      root = if meta("cache").exists() {
+      root = if meta("cache") != null {
         deleted()  # Drop semantic duplicates
       } else {
         _ = cache_set("dedup_cache", this.business_fingerprint, now(), "6h")

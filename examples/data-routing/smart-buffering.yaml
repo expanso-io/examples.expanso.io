@@ -9,10 +9,12 @@ config:
       address: 0.0.0.0:8080
       path: /events
       timeout: 5s
-      rate_limit: '10000/s'
+      rate_limit: http_ingest
 
   pipeline:
     processors:
+      - mapping: root = content().parse_json()
+
       # Classify priority level and calculate score
       - mapping: |
           root = this
@@ -67,8 +69,8 @@ config:
           }
 
           # Age-based starvation prevention
-          let message_ts = this.timestamp.or(now()).ts_unix()
-          let age_seconds = (now().ts_unix() - $message_ts).floor()
+          let message_ts = this.timestamp.or(now().ts_format("2006-01-02T15:04:05Z07:00")).ts_parse("2006-01-02T15:04:05Z07:00")
+          let age_seconds = (now().ts_unix() - $message_ts.ts_unix()).round()
           root.age_seconds = $age_seconds
 
           # Age boost prevents starvation of low-priority messages
@@ -175,6 +177,12 @@ config:
                 period: 5s
               tls:
                 enabled: true
+
+  rate_limit_resources:
+    - label: http_ingest
+      local:
+        count: 10000
+        interval: 1s
 
 logger:
   level: INFO

@@ -578,8 +578,7 @@ function offlineSummaryActual(
       'examples/data-security/remove-pii/fixture-environment.json' &&
     record.expectedOutputPath ===
       'examples/data-security/remove-pii/expected-output.jsonl' &&
-    record.executorImage ===
-      'jeffail/benthos:4.13.0@sha256:ec9b635d10bf267eb5b5c4c348b36752af1a5444ba768aefc6ca2c92ae2e22dd' &&
+    record.executor === 'expanso-edge v2.1.22' &&
     record.executed === true &&
     record.assertedOutput === true &&
     record.status === 'PASS';

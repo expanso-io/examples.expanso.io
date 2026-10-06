@@ -68,54 +68,13 @@ cors:
 
 Finally, we add rate limiting and size constraints to protect the pipeline.
 
-```yaml
-# Rate Limiting
-rate_limit: '1000/1s'
-
-# Resource Protection
-max_request_size: 1048576 # 1MB
-max_connections: 1000
-keepalive: true
-```
+See the [complete reference](/log-processing/production-pipeline/complete-production-pipeline) for the maintained input, named rate-limit resource, processors, and failure boundary.
 
 ## Complete Step 1 Configuration
 
 Combine these into a single configuration file.
 
-```yaml title="production-pipeline-step-1.yaml"
-# Step 1: Authenticated HTTP Input
-input:
-  http_server:
-    address: '0.0.0.0:8080'
-    path: /logs/ingest
-    timeout: 10s
-    rate_limit: '1000/1s'
-
-    # Request authentication
-    auth:
-      type: header
-      header: 'X-API-Key'
-      required_value: '${LOG_API_KEY}'
-
-    cors:
-      enabled: true
-      allowed_origins: ['*']
-      allowed_methods: ['POST']
-
-    # Protection
-    max_request_size: 1048576
-    max_connections: 1000
-
-pipeline:
-  processors:
-    # Temporary passthrough for testing
-    - log:
-        level: INFO
-        message: 'Received log event'
-
-output:
-  stdout: {}
-```
+See the [complete reference](/log-processing/production-pipeline/complete-production-pipeline) for the maintained input, named rate-limit resource, processors, and failure boundary.
 
 ## Deployment & Verification
 

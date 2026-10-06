@@ -2,8 +2,24 @@ pipeline:
   processors:
     - mapping: |
         # Parse syslog timestamp and message structure
-        root.timestamp = this.match("^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})").string()
-        root.level = this.match(" (INFO|WARN|ERROR|DEBUG) ").string()
-        root.thread = this.match("\\[([^\\]]+)\\]").string()
-        root.message = this.match("\\] (.+)$").string()
-        root.raw = content()
+        let raw = content().string()
+        let parts = $raw.re_find_all_submatch(
+          "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}) \\[(INFO|WARN|ERROR|DEBUG)\\] \\[([^\\]]+)\\] (.+)$"
+        )
+        root = if $parts.length() > 0 {
+          {
+            "timestamp": $parts.index(0).index(1),
+            "level": $parts.index(0).index(2),
+            "thread": $parts.index(0).index(3),
+            "message": $parts.index(0).index(4),
+            "raw": $raw
+          }
+        } else {
+          {
+            "timestamp": now(),
+            "level": "INFO",
+            "thread": "unknown",
+            "message": $raw,
+            "raw": $raw
+          }
+        }

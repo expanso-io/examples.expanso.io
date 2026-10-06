@@ -2,7 +2,7 @@
 processors:
   - mapping: |
       # Validate and extract unique ID
-      root = if !this.event_id.exists() || this.event_id == "" {
+      root = if !this.exists("event_id") || this.event_id == "" {
         throw("Missing event_id for ID-based deduplication")
       } else {
         this
@@ -15,7 +15,7 @@ processors:
       key: ${! this.unique_id }
 
   - mapping: |
-      root = if meta("cache").exists() {
+      root = if meta("cache") != null {
         deleted()  # Drop ID duplicates
       } else {
         _ = cache_set("dedup_cache", this.unique_id, now(), "30m")

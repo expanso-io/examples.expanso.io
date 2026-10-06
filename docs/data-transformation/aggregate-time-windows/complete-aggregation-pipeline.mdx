@@ -25,9 +25,8 @@ import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
 
 This pipeline combines all time-windowed aggregation techniques from this tutorial:
 
-- **Tumbling windows** - Fixed, non-overlapping time buckets (e.g., 5-minute windows)
-- **Sliding windows** - Overlapping windows for smoother trends
-- **Session windows** - Activity-based grouping with timeouts
+- **Tumbling windows** - One-minute summaries from the newest interval
+- **Sliding windows** - Five-minute windows emitted every minute
 - **Multi-level aggregation** - Combine window types for different use cases
 
 ## Full Configuration
@@ -36,23 +35,16 @@ This pipeline combines all time-windowed aggregation techniques from this tutori
   {pipelineYaml}
 </CodeBlock>
 
-## Quick Test
+## Input and window boundary
 
-```bash
-# Send sensor readings over time
-for i in {1..10}; do
-  curl -X POST http://localhost:8080/sensors \
-    -H "Content-Type: application/json" \
-    -d "{
-      \"sensor_id\": \"temp-001\",
-      \"temperature\": $((70 + RANDOM % 10)),
-      \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
-    }"
-  sleep 1
-done
+The displayed configuration consumes the `sensor-events` Kafka topic. Each
+record needs `sensor_id`, `timestamp`, and numeric `temperature`; optional
+`location` and `facility` fields support rollups. The `system_window` buffer
+accumulates events before grouping by value and computing batch statistics.
+It does not implement inactivity-based session windows.
 
-# Wait for window to close, then check aggregated output
-```
+The download below is the simpler one-minute HTTP aggregation variant at
+`/sensors/readings`, rather than the Kafka configuration displayed here.
 
 ## Deploy
 
