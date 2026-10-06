@@ -1,59 +1,107 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { extractCodeBlocks } from '../../src/lib/pipelineCode';
+import {
+  extractCodeBlocks,
+  isPipelineCodeLanguage,
+} from '../../src/lib/pipelineCode';
 
 export interface FenceLanguageChange {
   path: string;
   line: number;
+  snippet: string;
+  replacement?: string;
   from: string;
   to: string;
   reason?: string;
+}
+
+export function snippetDigest(source: string): string {
+  const normalized = source
+    .split('\n')
+    .map((line) => line.trim())
+    .join('\n')
+    .trim();
+  return createHash('sha256').update(normalized).digest('hex');
+}
+
+function approvedChange(
+  change: FenceLanguageChange,
+  approved: readonly FenceLanguageChange[]
+): boolean {
+  return approved.some(
+    (entry) =>
+      entry.path === change.path &&
+      entry.line === change.line &&
+      entry.snippet === change.snippet &&
+      entry.from === change.from &&
+      entry.to === change.to
+  );
 }
 
 export function changedFenceLanguages(
   path: string,
   before: string,
   after: string,
-  diff: string
+  approved: readonly FenceLanguageChange[] = []
 ): FenceLanguageChange[] {
-  const oldFences = extractCodeBlocks(before, false);
-  const newFences = extractCodeBlocks(after, false);
+  const oldFences = extractCodeBlocks(before, false).filter((fence) =>
+    isPipelineCodeLanguage(fence.language)
+  );
+  const available = extractCodeBlocks(after, false).map((fence) => ({
+    ...fence,
+    snippet: snippetDigest(fence.source),
+  }));
   const changes: FenceLanguageChange[] = [];
-  for (const hunk of diff.matchAll(
-    /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm
-  )) {
-    const oldStart = Number(hunk[1]);
-    const oldCount = Number(hunk[2] ?? 1);
-    const newStart = Number(hunk[3]);
-    const newCount = Number(hunk[4] ?? 1);
-    const removed = oldFences.filter(
-      (fence) =>
-        fence.line - 1 >= oldStart && fence.line - 1 < oldStart + oldCount
+  const unmatched: FenceLanguageChange[] = [];
+  const pending: FenceLanguageChange[] = [];
+  for (const fence of oldFences) {
+    const snippet = snippetDigest(fence.source);
+    const index = available.findIndex(
+      (next) => next.snippet === snippet && next.language === fence.language
     );
-    const added = newFences.filter(
-      (fence) =>
-        fence.line - 1 >= newStart && fence.line - 1 < newStart + newCount
-    );
-    if (!removed.length || !added.length) continue;
-    if (removed.length !== added.length) {
-      changes.push({
+    if (index >= 0) available.splice(index, 1);
+    else
+      pending.push({
         path,
-        line: removed[0].line - 1,
-        from: removed.map((fence) => fence.language).join(','),
-        to: added.map((fence) => fence.language).join(','),
+        line: fence.line - 1,
+        snippet,
+        from: fence.language,
+        to: 'deleted',
       });
+  }
+  for (const change of pending) {
+    const index = available.findIndex(
+      (next) => next.snippet === change.snippet
+    );
+    if (index >= 0) {
+      const [next] = available.splice(index, 1);
+      changes.push({ ...change, to: next.language });
       continue;
     }
-    for (const [index, fence] of removed.entries()) {
-      if (fence.language !== added[index].language)
-        changes.push({
-          path,
-          line: fence.line - 1,
-          from: fence.language,
-          to: added[index].language,
-        });
-    }
+    const listed = approved.find(
+      (entry) =>
+        entry.path === change.path &&
+        entry.line === change.line &&
+        entry.snippet === change.snippet &&
+        entry.from === change.from
+    );
+    const replacement = listed?.replacement
+      ? available.findIndex(
+          (next) =>
+            next.snippet === listed.replacement && next.language === listed.to
+        )
+      : -1;
+    if (listed && replacement >= 0) {
+      available.splice(replacement, 1);
+      changes.push({ ...change, to: listed.to });
+    } else if (approvedChange(change, approved)) changes.push(change);
+    else unmatched.push(change);
   }
+  const remainingExecutable = available.filter((fence) =>
+    isPipelineCodeLanguage(fence.language)
+  ).length;
+  if (unmatched.length > remainingExecutable) changes.push(...unmatched);
   return changes;
 }
 
@@ -73,38 +121,23 @@ export function unapprovedFenceLanguageChanges(
     '--',
     'docs/**/*.mdx',
   ]).split('\0');
-  const paths: Array<{ before: string; after: string }> = [];
+  const paths: Array<{ before: string; after?: string }> = [];
   for (let index = 0; index < status.length - 1; ) {
     const kind = status[index++];
     const before = status[index++];
     const after =
       kind.startsWith('R') || kind.startsWith('C') ? status[index++] : before;
     if (kind === 'M' || kind.startsWith('R')) paths.push({ before, after });
+    else if (kind === 'D') paths.push({ before });
   }
   return paths
-    .flatMap((path) => {
-      const before = git(['show', `${base}:${path.before}`]);
-      const after = readFileSync(`${root}/${path.after}`, 'utf8');
-      const diff = git([
-        'diff',
-        '--no-ext-diff',
-        '--find-renames',
-        '--unified=0',
-        base,
-        '--',
-        path.before,
-        path.after,
-      ]);
-      return changedFenceLanguages(path.after, before, after, diff);
-    })
-    .filter(
-      (change) =>
-        !approved.some(
-          (entry) =>
-            entry.path === change.path &&
-            entry.line === change.line &&
-            entry.from === change.from &&
-            entry.to === change.to
-        )
-    );
+    .flatMap((path) =>
+      changedFenceLanguages(
+        path.after ?? path.before,
+        git(['show', `${base}:${path.before}`]),
+        path.after ? readFileSync(`${root}/${path.after}`, 'utf8') : '',
+        approved
+      )
+    )
+    .filter((change) => !approvedChange(change, approved));
 }

@@ -28,6 +28,7 @@ import {
 } from '../../scripts/validation/edge';
 import { wrapFragment } from '../../scripts/validation/harness';
 import { verifyOutputs } from '../../scripts/validation/expectations';
+import { snippetDigest } from '../../scripts/validation/fence-languages';
 
 const root = process.cwd();
 
@@ -2180,10 +2181,48 @@ test('selected fence-language CI command rejects changes unless explicitly liste
     assert.equal(result.status, 1, result.stderr);
     assert.match(result.stderr, /docs\/test\/step.mdx:3/);
   }
+  writeFileSync(
+    join(fixtureRoot, path),
+    '# Example\n\nNew introductory prose.\n' +
+      '\n'.repeat(20) +
+      '# Moved snippet\n\n' +
+      page('text')
+  );
+  assert.equal(run().status, 1);
+  writeFileSync(
+    join(fixtureRoot, path),
+    page('yaml').replace('root = this', 'root = this\nroot.checked = true')
+  );
+  assert.equal(run().status, 0);
+  writeFileSync(join(fixtureRoot, path), '# Example\n');
+  assert.equal(run().status, 1);
+  writeFileSync(
+    join(fixtureRoot, 'content', 'fence-language-changes.json'),
+    JSON.stringify([
+      {
+        path,
+        line: 3,
+        snippet: snippetDigest('root = this'),
+        from: 'yaml',
+        to: 'deleted',
+      },
+    ])
+  );
+  assert.equal(run().status, 0);
+  writeFileSync(join(fixtureRoot, path), page('text'));
+  assert.equal(run().status, 1);
   writeFileSync(join(fixtureRoot, path), page('coffee'));
   writeFileSync(
     join(fixtureRoot, 'content', 'fence-language-changes.json'),
-    JSON.stringify([{ path, line: 3, from: 'yaml', to: 'coffee' }])
+    JSON.stringify([
+      {
+        path,
+        line: 3,
+        snippet: snippetDigest('root = this'),
+        from: 'yaml',
+        to: 'coffee',
+      },
+    ])
   );
   assert.equal(run().status, 0);
   writeFileSync(join(fixtureRoot, path), page('bloblang'));

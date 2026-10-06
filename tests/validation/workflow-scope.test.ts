@@ -66,7 +66,15 @@ function runScope(
       },
     }
   );
-  return { ...result, output: readFileSync(output, 'utf8') };
+  const entries = readFileSync(output, 'utf8')
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const separator = line.indexOf('=');
+      return [line.slice(0, separator), line.slice(separator + 1)];
+    });
+  return { ...result, output: Object.fromEntries(entries) };
 }
 
 for (const path of [
@@ -86,7 +94,8 @@ for (const path of [
   test(`validation runs for a PR changing only ${path}`, () => {
     const result = runScope([path]);
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.output, 'run=true\n');
+    assert.equal(result.output.run, 'true');
+    assert.equal(result.output.base, 'fixture-base');
   });
 }
 
@@ -97,20 +106,24 @@ test('validation skips only an entirely explicit no-op change set', () => {
     'static/img/logo.svg',
   ]);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.output, 'run=false\n');
+  assert.equal(result.output.run, 'false');
+  assert.equal(result.output.base, 'fixture-base');
   const mixed = runScope([
     'static/img/example.png',
     'scripts/setup-binaries.ts',
   ]);
   assert.equal(mixed.status, 0, mixed.stderr);
-  assert.equal(mixed.output, 'run=true\n');
+  assert.equal(mixed.output.run, 'true');
+  assert.equal(mixed.output.base, 'fixture-base');
 });
 
 test('manual validation always runs and diff failure cannot produce a passing no-op', () => {
   const manual = runScope([], 'workflow_dispatch');
   assert.equal(manual.status, 0, manual.stderr);
-  assert.equal(manual.output, 'run=true\n');
+  assert.equal(manual.output.run, 'true');
+  assert.equal(manual.output.base, undefined);
   const failed = runScope([], 'pull_request', true);
   assert.notEqual(failed.status, 0);
-  assert.equal(failed.output, '');
+  assert.equal(failed.output.run, undefined);
+  assert.equal(failed.output.base, 'fixture-base');
 });

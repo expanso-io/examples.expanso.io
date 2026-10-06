@@ -19,6 +19,11 @@ if (
     (entry) =>
       typeof entry.path !== 'string' ||
       !Number.isInteger(entry.line) ||
+      typeof entry.snippet !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(entry.snippet) ||
+      (entry.replacement !== undefined &&
+        (typeof entry.replacement !== 'string' ||
+          !/^[a-f0-9]{64}$/.test(entry.replacement))) ||
       typeof entry.from !== 'string' ||
       typeof entry.to !== 'string'
   )
