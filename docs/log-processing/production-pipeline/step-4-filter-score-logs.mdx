@@ -77,53 +77,7 @@ We drop logs that fall below a certain priority, or filter out specific noisy pa
 
 ## Complete Step 4 Configuration
 
-```yaml title="production-pipeline-step-4.yaml"
-input:
-  http_server:
-    address: '0.0.0.0:8080'
-    path: /logs/ingest
-    rate_limit: '1000/1s'
-    auth:
-      type: header
-      header: 'X-API-Key'
-      required_value: '${LOG_API_KEY}'
-
-pipeline:
-  processors:
-    - mapping: |
-        root = this.parse_json().catch({"message": content()})
-        if !root.exists("level") { root.level = "INFO" }
-        root.level = root.level.uppercase()
-
-    # Score & Filter
-    - mapping: |
-        root = this
-
-        # 1. Scoring
-        let score = match root.level {
-          "FATAL" => 10,
-          "ERROR" => 8,
-          "WARN" => 5,
-          "INFO" => 3,
-          "DEBUG" => 1,
-          _ => 0
-        }
-        root.score = $score
-
-        # 2. Filtering
-        # Drop low value logs
-        if $score < 3 { # Drop DEBUG
-           deleted()
-        }
-
-        # Drop noisy health checks
-        if root.message.contains("HealthCheck") && $score < 5 {
-           deleted()
-        }
-
-output:
-  stdout: {}
-```
+See the [complete reference](/log-processing/production-pipeline/complete-production-pipeline) for the maintained input, named rate-limit resource, processors, and failure boundary.
 
 ## Deployment & Verification
 

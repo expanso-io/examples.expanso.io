@@ -63,10 +63,7 @@ export function classify(document: YamlValue): PipelineKind {
   if (document.input !== undefined && document.output !== undefined)
     return 'complete-bare';
 
-  if (
-    isStringValue(document.apiVersion) &&
-    isStringValue(document.kind)
-  )
+  if (isStringValue(document.apiVersion) && isStringValue(document.kind))
     return 'manifest';
 
   return 'fragment';

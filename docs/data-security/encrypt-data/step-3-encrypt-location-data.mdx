@@ -35,38 +35,11 @@ You will enhance your processor to handle the `billing_address` object by:
    cp encrypt-pii.yaml encrypt-location.yaml
    ```
 
-2. **Enhance the Encryption Processor:** Open `encrypt-location.yaml` and add the new location logic to the bottom of the existing `mapping` processor.
+2. **Inspect the maintained mapping:** Review the selected fields, key lookup, and plaintext removal in the linked reference before adapting the processor.
 
-   ```yaml title="Add this to the 'mapping' processor in encrypt-location.yaml"
-   # --- Logic from Step 1 & 2 (Card & PII Encryption) ---
-   # (The existing logic for card numbers, ssn, and email remains here)
+   See the [complete configuration](/data-security/encrypt-data/complete-pipeline) for the maintained encryption mapping and its ciphertext fields.
 
-   # --- START: New additions for Location Data ---
-
-   # 5. Encrypt Billing Address (if it exists)
-   if this.billing_address.exists() {
-     # Encrypt the street address
-     if this.billing_address.street.exists() {
-       root.billing_address.street_encrypted = this.billing_address.street.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
-     }
-
-     # Encrypt the zip code and extract the prefix
-     if this.billing_address.zip.exists() {
-       let clean_zip = this.billing_address.zip.re_replace_all("[^0-9]", "")
-       root.billing_address.zip_encrypted = clean_zip.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
-       if clean_zip.length() >= 3 {
-         root.billing_address.zip_prefix = clean_zip.slice(0, 3)
-       }
-     }
-
-     # Remove the original plaintext fields
-     root.billing_address = this.billing_address.without("street", "zip")
-   }
-
-   # --- END: New additions ---
-   ```
-
-   _Note: This step uses a separate `ADDRESS_ENCRYPTION_KEY`. Ensure you have set it as an environment variable._
+   _Note: Use the key variable names from the configuration you are adapting._
 
 3. **Deploy and Test:**
 

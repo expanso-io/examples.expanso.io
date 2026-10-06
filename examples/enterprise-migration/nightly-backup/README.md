@@ -5,6 +5,7 @@ Simple, reliable replication of database tables to cloud cold storage for disast
 ## Use Case
 
 Your organization needs:
+
 - Nightly backups of critical tables (orders, inventory)
 - Cloud storage for DR (not on-premise tape)
 - Cost-efficient storage (Nearline/Glacier class)
@@ -20,10 +21,10 @@ Your organization needs:
 
 ## Tables Backed Up
 
-| Table | Backup Type | Frequency |
-|-------|-------------|-----------|
-| orders | Incremental | Daily (last 24h) |
-| inventory | Full | Daily (complete) |
+| Table       | Backup Type | Frequency        |
+| ----------- | ----------- | ---------------- |
+| orders      | Incremental | Daily (last 24h) |
+| inventory   | Full        | Daily (complete) |
 | order_items | Incremental | Daily (last 24h) |
 
 ## Storage Layout
@@ -33,13 +34,13 @@ gs://backup-bucket/
 ├── backups/
 │   ├── orders/
 │   │   └── 2024-01-15/
-│   │       └── orders-1705363200.parquet
+│   │       └── orders-<batch-id>.parquet
 │   ├── inventory/
 │   │   └── 2024-01-15/
 │   │       └── inventory-full-<batch-id>.parquet
 │   └── order_items/
 │       └── 2024-01-15/
-│           └── items-1705363200.parquet
+│           └── items-<batch-id>.parquet
 ```
 
 ## Environment Variables

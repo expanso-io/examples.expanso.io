@@ -29,7 +29,7 @@ You will create a pipeline that takes a JSON message, validates it against a Pro
 
 1.  **Define Schema:** Protobuf requires a schema in a `.proto` file that describes the message structure.
 2.  **Prepare:** The incoming JSON must be structured to match the `.proto` definition.
-3.  **Convert:** Use the `to_protobuf` processor to perform the conversion.
+3.  **Convert:** Supply an encoder compatible with the message schema and consumer framing.
 
 ## Implementation
 
@@ -45,49 +45,8 @@ You will create a pipeline that takes a JSON message, validates it against a Pro
     }
     ```
 
-2.  **Create the Conversion Pipeline:** Copy the following configuration into a file named `json-to-protobuf.yaml`.
-
-    ```yaml title="json-to-protobuf.yaml"
-    name: json-to-protobuf-converter
-    description: A pipeline that converts JSON to Protobuf.
-
-    config:
-      input:
-        generate:
-          interval: 1s
-          mapping: |
-            root = {
-              "sensor_id": "sensor-1",
-              "temperature": 25.5,
-              "timestamp": now().ts_format_iso8601()
-            }
-
-      pipeline:
-        processors:
-          # 1. PREPARE: Ensure the data matches the Protobuf schema.
-          # The field names must match exactly, and we need to convert the
-          # timestamp to the format expected by the schema (unix milliseconds).
-          - mapping: |
-              root = {
-                "sensor_id": this.sensor_id,
-                "temperature": this.temperature,
-                "timestamp_unix_ms": this.timestamp.parse_timestamp().unix_milli()
-              }
-
-          # 2. CONVERT: Convert the prepared JSON object to Protobuf binary format.
-          - to_protobuf:
-              proto_path: 'file://./sensor.proto'
-              message: 'SensorReading'
-
-      output:
-        stdout:
-          codec: lines
-    ```
-
-3.  **Deploy and Observe:** Watch the logs. The output will be a stream of binary Protobuf data, just like with Avro.
+2.  **Implementation boundary:** The schema above illustrates the desired record shape. The maintained [complete configuration](/data-transformation/transform-formats/complete-pipeline) converts JSON, CSV, and XML; it does not include this Protobuf encoder. Supply and validate that integration separately.
 
 ## Verification
 
-The unreadable binary text in your console confirms the successful conversion. A gRPC service or any other microservice with access to the `sensor.proto` file would be able to deserialize this binary data into a type-safe object in its native programming language.
-
-You have now learned how to convert JSON to another popular and powerful binary format.
+Decode the output with the matching Protobuf schema and compare fields and types. Binary console output alone does not establish correct encoding or gRPC interoperability. This page has no current executed Protobuf result.

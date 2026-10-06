@@ -1,10 +1,10 @@
 # Example pipeline validation: 2026-10-06
 
-Overall: **FAIL**
+Overall: **PASS**
 
 - expanso-edge: `v2.1.22` (pinned: `v2.1.22`)
-- Inventory digest: `sha256:01576c6768cd19c7683adb2e4714c37aee40cb4dcbf00f60002c8167dae07016`
-- Complete pipelines: 106. Validate: 106 pass, 0 fail. Run: 96 pass, 10 fail, 0 skipped.
+- Inventory digest: `sha256:258e5138ac4024352999a33eeb56af2216bef256ce90305271333473a8fc73f9`
+- Complete pipelines: 106. Validate: 106 pass, 0 fail. Run: 106 pass, 0 fail, 0 skipped.
 - Fragments (partial snippets, validated inside a synthetic pipeline, never run): 168. 101 pass, 67 fail.
 
 How to read this report:
@@ -22,7 +22,7 @@ How to read this report:
 | Pipeline | Source | Validate | Run | expanso-edge |
 |---|---|---|---|---|
 | circuit-breakers | [examples/data-routing/circuit-breakers-complete.yaml](../../examples/data-routing/circuit-breakers-complete.yaml) | PASS | PASS (stubbed fixture harness) | v2.1.22 |
-| circuit-breakers | [examples/data-routing/circuit-breakers-foundation.yaml](../../examples/data-routing/circuit-breakers-foundation.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
+| circuit-breakers | [examples/data-routing/circuit-breakers-foundation.yaml](../../examples/data-routing/circuit-breakers-foundation.yaml) | PASS | PASS (stubbed fixture harness) | v2.1.22 |
 | content-routing | [examples/data-routing/complete-content-routing.yaml](../../examples/data-routing/complete-content-routing.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | fan-out | [examples/data-routing/complete-fan-out.yaml](../../examples/data-routing/complete-fan-out.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | content-routing | [examples/data-routing/content-routing.yaml](../../examples/data-routing/content-routing.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
@@ -38,15 +38,15 @@ How to read this report:
 | fan-out-s3 | [examples/data-routing/fan-out-s3.yaml](../../examples/data-routing/fan-out-s3.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | kafka-fan-out | [examples/data-routing/kafka-fan-out.yaml](../../examples/data-routing/kafka-fan-out.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | order-processing | [examples/data-routing/order-processing-foundation.yaml](../../examples/data-routing/order-processing-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| priority-queues | [examples/data-routing/priority-queues-complete.yaml](../../examples/data-routing/priority-queues-complete.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
+| priority-queues | [examples/data-routing/priority-queues-complete.yaml](../../examples/data-routing/priority-queues-complete.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | priority-queues | [examples/data-routing/priority-queues-foundation.yaml](../../examples/data-routing/priority-queues-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | priority-queues | [examples/data-routing/priority-queues.yaml](../../examples/data-routing/priority-queues.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | s3-fan-out | [examples/data-routing/s3-fan-out.yaml](../../examples/data-routing/s3-fan-out.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | single-destination | [examples/data-routing/single-destination.yaml](../../examples/data-routing/single-destination.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | smart-buffering | [examples/data-routing/smart-buffering-foundation.yaml](../../examples/data-routing/smart-buffering-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| smart-buffering | [examples/data-routing/smart-buffering-step-1.yaml](../../examples/data-routing/smart-buffering-step-1.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
+| smart-buffering | [examples/data-routing/smart-buffering-step-1.yaml](../../examples/data-routing/smart-buffering-step-1.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | smart-buffering | [examples/data-routing/smart-buffering-step-2.yaml](../../examples/data-routing/smart-buffering-step-2.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| smart-buffering | [examples/data-routing/smart-buffering-step-3.yaml](../../examples/data-routing/smart-buffering-step-3.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
+| smart-buffering | [examples/data-routing/smart-buffering-step-3.yaml](../../examples/data-routing/smart-buffering-step-3.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | smart-buffering | [examples/data-routing/smart-buffering-step-4.yaml](../../examples/data-routing/smart-buffering-step-4.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | smart-buffering | [examples/data-routing/smart-buffering.yaml](../../examples/data-routing/smart-buffering.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | step-0-original | [examples/data-routing/step-0-original.yaml](../../examples/data-routing/step-0-original.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
@@ -104,9 +104,9 @@ How to read this report:
 
 | Pipeline | Source | Validate | Run | expanso-edge |
 |---|---|---|---|---|
-| db2-to-bigquery | [examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml](../../examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
+| db2-to-bigquery | [examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml](../../examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | nightly-backup | [examples/enterprise-migration/nightly-backup/nightly-backup.yaml](../../examples/enterprise-migration/nightly-backup/nightly-backup.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| db2-to-bigquery | [static/files/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml](../../static/files/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
+| db2-to-bigquery | [static/files/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml](../../static/files/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | nightly-backup | [static/files/enterprise-migration/nightly-backup/nightly-backup.yaml](../../static/files/enterprise-migration/nightly-backup/nightly-backup.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 
 ### explorer-stages
@@ -143,11 +143,11 @@ How to read this report:
 | Pipeline | Source | Validate | Run | expanso-edge |
 |---|---|---|---|---|
 | medical-device-intelligence | [docs/integrations/medical-device-intelligence/pipeline.yaml](../../docs/integrations/medical-device-intelligence/pipeline.yaml) | PASS | PASS (stubbed fixture harness) | v2.1.22 |
-| scada-energy-edge | [examples/integrations/scada-energy-edge/scada-edge-complete.yaml](../../examples/integrations/scada-energy-edge/scada-edge-complete.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
+| scada-energy-edge | [examples/integrations/scada-energy-edge/scada-edge-complete.yaml](../../examples/integrations/scada-energy-edge/scada-edge-complete.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | step-1-parse-registers | [examples/integrations/scada-energy-edge/step-1-parse-registers.yaml](../../examples/integrations/scada-energy-edge/step-1-parse-registers.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | step-2-filter-nominal | [examples/integrations/scada-energy-edge/step-2-filter-nominal.yaml](../../examples/integrations/scada-energy-edge/step-2-filter-nominal.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| step-3-classify-faults | [examples/integrations/scada-energy-edge/step-3-classify-faults.yaml](../../examples/integrations/scada-energy-edge/step-3-classify-faults.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
-| step-4-route-destinations | [examples/integrations/scada-energy-edge/step-4-route-destinations.yaml](../../examples/integrations/scada-energy-edge/step-4-route-destinations.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
+| step-3-classify-faults | [examples/integrations/scada-energy-edge/step-3-classify-faults.yaml](../../examples/integrations/scada-energy-edge/step-3-classify-faults.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
+| step-4-route-destinations | [examples/integrations/scada-energy-edge/step-4-route-destinations.yaml](../../examples/integrations/scada-energy-edge/step-4-route-destinations.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | motherduck-retail-analytics | [static/pipelines/motherduck-retail-pipeline.yaml](../../static/pipelines/motherduck-retail-pipeline.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | oran-telco-pipeline | [static/pipelines/oran-telco-pipeline.yaml](../../static/pipelines/oran-telco-pipeline.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | splunk-edge-processing | [static/pipelines/splunk-production-pipeline.yaml](../../static/pipelines/splunk-production-pipeline.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
@@ -158,7 +158,7 @@ How to read this report:
 |---|---|---|---|---|
 | enrich-export | [examples/log-processing/enrich-export-complete.yaml](../../examples/log-processing/enrich-export-complete.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | enrich-export | [examples/log-processing/enrich-export.yaml](../../examples/log-processing/enrich-export.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-| enrichment | [examples/log-processing/enrichment-foundation.yaml](../../examples/log-processing/enrichment-foundation.yaml) | PASS | FAIL: semantic output verification failed | v2.1.22 |
+| enrichment | [examples/log-processing/enrichment-foundation.yaml](../../examples/log-processing/enrichment-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | filter-severity | [examples/log-processing/filter-severity-complete.yaml](../../examples/log-processing/filter-severity-complete.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | filter-severity | [examples/log-processing/filter-severity.yaml](../../examples/log-processing/filter-severity.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | filtering | [examples/log-processing/filtering-foundation.yaml](../../examples/log-processing/filtering-foundation.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
@@ -167,90 +167,6 @@ How to read this report:
 | enrich-export | [static/files/log-processing/enrich-export.yaml](../../static/files/log-processing/enrich-export.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | filter-severity | [static/files/log-processing/filter-severity.yaml](../../static/files/log-processing/filter-severity.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
 | production-pipeline | [static/files/log-processing/production-pipeline.yaml](../../static/files/log-processing/production-pipeline.yaml) | PASS | PASS (fixture harness) | v2.1.22 |
-
-## Failure details
-
-### examples/data-routing/circuit-breakers-foundation.yaml
-
-Run failure: semantic output verification failed
-
-```text
-missing expected record at output undefined
-```
-
-### examples/data-routing/priority-queues-complete.yaml
-
-Run failure: semantic output verification failed
-
-```text
-record count at output 0
-
-0 !== 1
-```
-
-### examples/data-routing/smart-buffering-step-1.yaml
-
-Run failure: semantic output verification failed
-
-```text
-unexpected priority_tier: 2
-```
-
-### examples/data-routing/smart-buffering-step-3.yaml
-
-Run failure: semantic output verification failed
-
-```text
-unexpected priority_score: 500
-```
-
-### examples/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml
-
-Run failure: semantic output verification failed
-
-```text
-unexpected amount_usd: 135.54000000000002
-```
-
-### examples/integrations/scada-energy-edge/scada-edge-complete.yaml
-
-Run failure: semantic output verification failed
-
-```text
-missing expected record at output undefined
-```
-
-### examples/integrations/scada-energy-edge/step-3-classify-faults.yaml
-
-Run failure: semantic output verification failed
-
-```text
-missing expected record at output undefined
-```
-
-### examples/integrations/scada-energy-edge/step-4-route-destinations.yaml
-
-Run failure: semantic output verification failed
-
-```text
-missing expected record at output undefined
-```
-
-### examples/log-processing/enrichment-foundation.yaml
-
-Run failure: semantic output verification failed
-
-```text
-missing id
-```
-
-### static/files/enterprise-migration/db2-to-bigquery/db2-to-bigquery.yaml
-
-Run failure: semantic output verification failed
-
-```text
-unexpected amount_usd: 135.54000000000002
-```
 
 ## Run substitutions
 

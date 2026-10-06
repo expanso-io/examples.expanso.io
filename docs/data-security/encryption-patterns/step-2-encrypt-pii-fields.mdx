@@ -33,35 +33,11 @@ Add this logic to the same `mapping` processor used for payment data.
 
 1.  **Start with your Pipeline:** Open the `encrypt-card.yaml` file from Step 1.
 
-2.  **Add the PII Encryption Logic:** Add the logic for `email` and `ssn` to the _bottom_ of the existing `mapping` processor.
+2.  **Inspect the maintained mapping:** Review the selected fields, key lookup, and plaintext removal in the linked reference before adapting the processor.
 
-    ```yaml title="Add this to your 'mapping' processor"
-    # --- Logic from Step 1 (Card Encryption) ---
-    # (The existing logic for card numbers should be here)
+    See the [complete configuration](/data-security/encryption-patterns/complete-encryption-pipeline) for the maintained encryption mapping and its ciphertext fields.
 
-    # --- START: New additions for Customer PII ---
-
-    # Encrypt SSN (if it exists)
-    if this.customer.ssn.exists() {
-      let clean_ssn = this.customer.ssn.re_replace_all("[^0-9]", "")
-      root.customer.ssn_encrypted = clean_ssn.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
-      root.customer.ssn_last_four = clean_ssn.slice(-4)
-    }
-
-    # Encrypt Email (if it exists)
-    if this.customer.email.exists() {
-      let email_parts = this.customer.email.split("@")
-      root.customer.email_encrypted = this.customer.email.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
-      if email_parts.length() == 2 {
-        root.customer.email_domain = email_parts[1]
-      }
-    }
-
-    # Remove the original plaintext PII fields
-    root.customer = this.customer.without("ssn", "email")
-    ```
-
-    _Note: This step uses a separate `PII_ENCRYPTION_KEY`. Ensure you have set it as an environment variable._
+    _Note: Use the key variable names from the configuration you are adapting._
 
 ## Verification
 

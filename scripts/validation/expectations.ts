@@ -158,8 +158,14 @@ function invariant(row: unknown, name: string): void {
       ['INFO', 'WARN', 'ERROR', 'FATAL'].includes(String(valueAt(row, 'level')))
     );
     assert.ok(
-      ['auth', 'payment', 'user', 'auth-service', 'payment-service', 'user-service']
-        .includes(String(valueAt(row, 'service')))
+      [
+        'auth',
+        'payment',
+        'user',
+        'auth-service',
+        'payment-service',
+        'user-service',
+      ].includes(String(valueAt(row, 'service')))
     );
     assert.ok(
       numberAt(row, 'duration_ms') >= 50 && numberAt(row, 'duration_ms') <= 5049

@@ -52,7 +52,7 @@ Your data schemas will change over time. Schema-based formats like Avro and Prot
 
 A consumer with the v2 schema can still read old v1 data (the `humidity` field will be `null`). A consumer with the v1 schema can read new v2 data (it will simply ignore the extra `humidity` field).
 
-Managing this typically involves a **Schema Registry**, a central service that stores and versions your schemas. Processors like `to_avro` and `from_avro` can integrate with a schema registry to automatically handle these conversions.
+A schema registry can store and version schemas. The maintained Node.js encoder uses an embedded schema and does not implement registry lookup or schema evolution. Review producer and consumer compatibility before adapting it.
 
 ## Pattern 2: Multi-Format Output
 
@@ -60,27 +60,6 @@ Sometimes you need to convert a single input into multiple different output form
 
 **Use Case:** An incoming JSON event needs to be sent to a Kafka topic as Avro (for streaming) and archived to S3 as Parquet (for analytics).
 
-```yaml title="Multi-Format Output"
-output:
-  broker:
-    pattern: fan_out
-    outputs:
-      # --- Output 1: Convert to Avro and send to Kafka ---
-      - processors:
-          - to_avro:
-              schema_path: "file://./sensor.avsc"
-        kafka:
-          addresses: [ ${KAFKA_BROKERS} ]
-          topic: "sensor-readings-avro"
-
-      # --- Output 2: Convert to Parquet and send to S3 ---
-      - processors:
-          - to_parquet:
-              schema_path: "file://./sensor.avsc"
-              default_compression: snappy
-        aws_s3:
-          bucket: "my-analytics-bucket"
-          path: "readings/${!timestamp_unix_date()}/${!uuid_v4()}.parquet"
-```
+See the maintained [Avro integration source](https://github.com/expanso-io/examples.expanso.io/blob/main/examples/data-transformation/transform-formats.yaml) and [Parquet reference](/integrations/motherduck-retail-analytics/complete-pipeline) for their separate encoder boundaries. Combining them requires explicit fan-out, schema agreement, and per-destination verification.
 
 This pattern uses a `broker` output to fan the message out. Each branch of the fan-out has its own `processors` block to perform the format-specific conversion before sending the data to its final destination.
