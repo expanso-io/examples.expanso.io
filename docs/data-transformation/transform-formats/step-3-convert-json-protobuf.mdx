@@ -50,7 +50,6 @@ You will create a pipeline that takes a JSON message, validates it against a Pro
     ```yaml title="json-to-protobuf.yaml"
     name: json-to-protobuf-converter
     description: A pipeline that converts JSON to Protobuf.
-
     config:
       input:
         generate:
@@ -61,24 +60,17 @@ You will create a pipeline that takes a JSON message, validates it against a Pro
               "temperature": 25.5,
               "timestamp": now().ts_format_iso8601()
             }
-
       pipeline:
         processors:
-          # 1. PREPARE: Ensure the data matches the Protobuf schema.
-          # The field names must match exactly, and we need to convert the
-          # timestamp to the format expected by the schema (unix milliseconds).
           - mapping: |
               root = {
                 "sensor_id": this.sensor_id,
                 "temperature": this.temperature,
                 "timestamp_unix_ms": this.timestamp.parse_timestamp().unix_milli()
               }
-
-          # 2. CONVERT: Convert the prepared JSON object to Protobuf binary format.
           - to_protobuf:
-              proto_path: 'file://./sensor.proto'
-              message: 'SensorReading'
-
+              proto_path: file://./sensor.proto
+              message: SensorReading
       output:
         stdout:
           codec: lines
@@ -91,3 +83,5 @@ You will create a pipeline that takes a JSON message, validates it against a Pro
 The unreadable binary text in your console confirms the successful conversion. A gRPC service or any other microservice with access to the `sensor.proto` file would be able to deserialize this binary data into a type-safe object in its native programming language.
 
 You have now learned how to convert JSON to another popular and powerful binary format.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

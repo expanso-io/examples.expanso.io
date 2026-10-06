@@ -121,7 +121,7 @@ Common MCC prefixes and their meanings:
 
 For precise MCC codes instead of prefixes:
 
-```yaml
+```bloblang
 let mcc_map = {
   "5411": "GROCERY_SUPERMARKET",
   "5412": "GROCERY_CONVENIENCE",
@@ -137,22 +137,27 @@ root.transaction_category = $mcc_map.get(this.MERCHANT_CATEGORY_CODE.string()).o
 Load categories from a file or API:
 
 ```yaml
-# Load MCC mappings from file at startup
 input:
   file:
-    paths: ["mcc-categories.json"]
-
-# Or fetch from API
-- http:
-    url: "https://api.internal/mcc-categories"
-    verb: GET
+    paths:
+      - mcc-categories.json
+---
+pipeline:
+  processors:
+    - http:
+        url: ${MCC_HTTPS_URL}/mcc-categories
+        verb: GET
+        headers:
+          Authorization: Bearer ${MCC_API_TOKEN}
+        tls:
+          enabled: true
 ```
 
 ### Subcategories
 
 Add hierarchical categorization:
 
-```yaml
+```bloblang
 root.category_level1 = match mcc {
 this.has_prefix("5") => "RETAIL",
 this.has_prefix("4") => "TRAVEL",
@@ -171,7 +176,7 @@ _ => root.category_level1
 
 Add fraud indicators:
 
-```yaml
+```bloblang
 root.high_risk = match mcc {
   this.has_prefix("59") => true,   # Misc retail
   this.has_prefix("79") => true,   # Recreation
@@ -192,3 +197,5 @@ root.high_risk = match mcc {
     📖 Step 5: Standardize Schema →
   </a>
 </div>
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

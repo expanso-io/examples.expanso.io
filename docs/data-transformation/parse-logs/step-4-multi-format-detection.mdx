@@ -35,16 +35,13 @@ You will build a single pipeline that can correctly parse JSON, CSV, and Access 
     ```yaml title="unified-parser.yaml"
     name: unified-log-parser
     description: A pipeline that detects and parses multiple log formats.
-
     config:
       input:
         http_server:
           address: 0.0.0.0:8080
           path: /ingest
-
       pipeline:
         processors:
-          # 1. DETECT: Guess the format based on the content
           - mapping: |
               root = this
               let content = this.raw_log.string()
@@ -59,32 +56,31 @@ You will build a single pipeline that can correctly parse JSON, CSV, and Access 
               } else {
                 "unknown"
               }
-
-          # 2. ROUTE: Use a switch to send to the correct parser
           - switch:
               - check: meta("detected_format") == "json"
                 processors:
-                  - mapping: `root = this.raw_log.parse_json()`
-                  - mapping: `root.parsed_by = "json_parser"`
-
+                  - mapping: root = this.raw_log.parse_json()
+                  - mapping: root.parsed_by = "json_parser"
               - check: meta("detected_format") == "csv"
                 processors:
                   - csv:
                       target_field: root.raw_log
-                      columns: [ "f1", "f2", "f3", "f4", "f5" ]
-                  - mapping: `root.parsed_by = "csv_parser"`
-
+                      columns:
+                        - f1
+                        - f2
+                        - f3
+                        - f4
+                        - f5
+                  - mapping: root.parsed_by = "csv_parser"
               - check: meta("detected_format") == "access_log"
                 processors:
                   - grok:
                       target_field: root.raw_log
-                      expressions: [ '%{COMMONAPACHELOG}' ]
-                  - mapping: `root.parsed_by = "access_log_parser"`
-
-              # Fallback for unknown formats
+                      expressions:
+                        - "%{COMMONAPACHELOG}"
+                  - mapping: root.parsed_by = "access_log_parser"
               - processors:
-                  - mapping: `root.parsed_by = "unknown"`
-
+                  - mapping: root.parsed_by = "unknown"
       output:
         stdout:
           codec: lines
@@ -103,3 +99,5 @@ You will build a single pipeline that can correctly parse JSON, CSV, and Access 
     Check your logs. You will see three structured messages. Each one will have a `parsed_by` field indicating that it was correctly routed to and processed by the right set of processors.
 
 You have now built a parser for the three configured log formats.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

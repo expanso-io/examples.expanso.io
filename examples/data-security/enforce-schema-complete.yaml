@@ -21,21 +21,13 @@ deployment:
   auto_rollback: true
 config:
   input:
-    broker:
-      inputs:
-        - http_server:
-            address: ""
-            path: /sensor/readings
-            allowed_verbs: &a1
-              - POST
-            timeout: 5s
-            rate_limit: sensor_ingest
-        - http_server:
-            address: ""
-            path: /sensors
-            allowed_verbs: *a1
-            timeout: 5s
-            rate_limit: sensor_ingest
+    http_server:
+      address: 127.0.0.1:8080
+      path: /{endpoint:sensor/readings|sensors}
+      allowed_verbs:
+        - POST
+      timeout: 5s
+      rate_limit: sensor_ingest
   pipeline:
     processors:
       - mapping: root = content().parse_json()
@@ -146,11 +138,6 @@ config:
             tls:
               enabled: true
             retries: 0
-  http:
-    enabled: true
-    address: 0.0.0.0:8080
-    root_path: /runtime
-    debug_endpoints: false
   rate_limit_resources:
     - label: sensor_ingest
       local:

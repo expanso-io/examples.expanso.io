@@ -52,19 +52,14 @@ This transformation is done with the `csv` processor, where you define the names
     ```yaml title="csv-parser.yaml"
     name: csv-log-parser
     description: A pipeline that parses a string field containing CSV data.
-
     config:
       input:
         generate:
           interval: 1s
           mapping: |
             root.raw_log = "2025-10-20T14:23:45Z,temperature,temp-sensor-01,35.5,celsius"
-
       pipeline:
         processors:
-          # This processor parses the 'raw_log' field.
-          # Because we don't specify a target field, the result
-          # becomes the new root of the message.
           - csv:
               target_field: root.raw_log
               columns:
@@ -73,8 +68,7 @@ This transformation is done with the `csv` processor, where you define the names
                 - sensor_id
                 - value
                 - unit
-              lazy_quotes: true # Handles cases with unclosed quotes
-
+              lazy_quotes: true
       output:
         stdout:
           codec: lines
@@ -99,3 +93,5 @@ The output will be a stream of structured JSON objects.
 ```
 
 You have successfully parsed a CSV log. Notice that all the values are still strings. Subsequent processing steps would be needed to convert `value` to a number and `timestamp` to a time object.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

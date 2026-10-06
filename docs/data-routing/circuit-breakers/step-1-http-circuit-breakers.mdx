@@ -56,32 +56,31 @@ To fix this, you'll wrap the `http` processor in a `try` block and add a `catch`
 2.  **Modify the Pipeline:** Open `http-circuit-breaker.yaml` and replace the entire `pipeline` section with the one below. The key changes are the `try` and `catch` blocks.
 
         ```yaml title="Insert this into http-circuit-breaker.yaml"
-
-    pipeline:
-    processors: # Wrap the fallible processors in a 'try' block. - try: # This is the same HTTP call from the foundation, # but now with retries and a timeout defined. - http:
-    url: $\{MOCK_API_URL\}/metadata/$\{!this.sensor_id\}
-    verb: GET
-    timeout: 3s
-    retries: 2
-    retry_period: 1s
-    headers:
-    Authorization: Bearer $\{!env("API_TOKEN")\}
-
-            # This mapping runs after a successful HTTP call.
-            - mapping: |
-                root = this
-                let api_response = content().parse_json()
-                root.metadata = api_response.metadata
-                root.enriched = true
-                root.api_status = "success"
-
-          # The 'catch' block executes when a processor in the 'try' block fails.
-          catch:
-            - mapping: |
-                root = this
-                root.enriched = false
-                root.api_status = "failed"
-                root.fallback_reason = "api_circuit_breaker_open"
+        pipeline:
+          processors:
+            - try:
+                - http:
+                    url: ${MOCK_API_HTTPS_URL}/metadata/${! this.sensor_id }
+                    verb: GET
+                    timeout: 3s
+                    retries: 2
+                    retry_period: 1s
+                    headers:
+                      Authorization: Bearer ${API_TOKEN}
+                    tls:
+                      enabled: true
+                - mapping: |-
+                    root = this
+                    let api_response = content().parse_json()
+                    root.metadata = $api_response.metadata
+                    root.enriched = true
+                    root.api_status = "success"
+            - catch:
+                - mapping: |-
+                    root = this
+                    root.enriched = false
+                    root.api_status = "failed"
+                    root.fallback_reason = "api_circuit_breaker_open"
         ```
 
 ## 4. Deploy and Test Again
@@ -102,3 +101,5 @@ You have now implemented a basic circuit breaker.
 ```
 
 ```
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

@@ -40,41 +40,35 @@ You will modify your pipeline to:
 2.  **Catch Validation Failures:** Open `dlq-router.yaml` and modify the `pipeline` section. You will wrap the `json_schema` processor in a `try/catch` block.
 
         ```yaml title="Modify the 'pipeline' section in dlq-router.yaml"
-
-    pipeline:
-    processors: # Use a try/catch block to prevent the pipeline from failing - try: # This is the same processor from Step 1 - json_schema:
-    schema_path: "file://./sensor-schema.json"
-
-            # If it succeeds, we add a 'passed' status
-            - mapping: |
-                root = this
-                meta validation_status = "passed"
-
-          # If the json_schema processor fails, this block is executed
-          catch:
-            - mapping: |
-                root = this
-                meta validation_status = "failed"
-                # Add the error message for debugging
-                root.validation_error = error()
+        pipeline:
+          processors:
+            - try:
+                - json_schema:
+                    schema_path: file://./sensor-schema.json
+                - mapping: |-
+                    root = this
+                    meta validation_status = "passed"
+            - catch:
+                - mapping: |-
+                    root = this
+                    meta validation_status = "failed"
+                    root.validation_error = error()
         ```
 
 3.  **Add the Routing Output:** Now, replace the entire `output` section with the `switch` block below. This will route the message based on the `validation_status` set in the previous step.
 
         ```yaml title="Replace the 'output' section in dlq-router.yaml"
-
-    output:
-    switch:
-    cases: # If validation passed, send to stdout - check: 'meta("validation_status") == "passed"'
-    output:
-    stdout:
-    codec: lines
-
-          # Otherwise, send to a DLQ file
-          - output:
-              file:
-                path: ./validation_dlq.jsonl
-                codec: lines
+        output:
+          switch:
+            cases:
+              - check: meta("validation_status") == "passed"
+                output:
+                  stdout:
+                    codec: lines
+              - output:
+                  file:
+                    path: ${EXAMPLE_OUTPUT_PATH}/validation_dlq.jsonl
+                    codec: lines
         ```
 
 4.  **Deploy and Test:**
@@ -96,3 +90,5 @@ You will modify your pipeline to:
     - The **invalid** message will _not_ be rejected. Instead, it will be written to the `validation_dlq.jsonl` file, along with a `validation_error` field that explains why it failed.
 
 You have now built a resilient validation pipeline that separates good data from bad data without losing any messages.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

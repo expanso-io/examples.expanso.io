@@ -43,19 +43,16 @@ Important messages bypass the buffer entirely and ship immediately.
 ```yaml title="smart-buffer-priority-output.yaml"
 name: smart-buffer-priority-output
 description: Priority-based output routing with tier-specific batching
-
 config:
   input:
     http_server:
       address: 0.0.0.0:8080
       path: /events
       timeout: 5s
-
   pipeline:
     processors:
       - json_documents:
           parts: []
-
       - mapping: |
           root = this
 
@@ -90,12 +87,10 @@ config:
           }
 
           root.classified_at = now()
-
   output:
     switch:
       retry_until_success: true
       cases:
-        # IMPORTANT: No batching - ship immediately
         - check: this.priority_tier == 1
           output:
             http_client:
@@ -104,7 +99,7 @@ config:
               headers:
                 Content-Type: application/json
                 X-Priority: important
-              # No batching - each message sent immediately
+                Authorization: Bearer ${TUTORIAL_HTTP_TOKEN}
               batching:
                 count: 1
                 period: 0s
@@ -113,8 +108,8 @@ config:
               backoff:
                 initial_interval: 100ms
                 max_interval: 5s
-
-        # REGULAR: Moderate batching
+              tls:
+                enabled: true
         - check: this.priority_tier == 2
           output:
             http_client:
@@ -123,13 +118,14 @@ config:
               headers:
                 Content-Type: application/json
                 X-Priority: regular
+                Authorization: Bearer ${TUTORIAL_HTTP_TOKEN}
               batching:
                 count: 50
                 period: 5s
               timeout: 30s
               max_retries: 5
-
-        # ARCHIVE: Example larger-batch policy
+              tls:
+                enabled: true
         - check: this.priority_tier == 3
           output:
             http_client:
@@ -138,11 +134,14 @@ config:
               headers:
                 Content-Type: application/json
                 X-Priority: archive
+                Authorization: Bearer ${TUTORIAL_HTTP_TOKEN}
               batching:
                 count: 200
                 period: 30s
               timeout: 60s
               max_retries: 3
+              tls:
+                enabled: true
 ```
 
 ## How Preemption Works
@@ -220,3 +219,5 @@ Check your destination—the important message arrives before the regular batch 
     Step 4: Prevent Starvation
   </a>
 </div>
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

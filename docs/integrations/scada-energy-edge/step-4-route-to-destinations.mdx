@@ -26,10 +26,18 @@ output:
   broker:
     outputs:
       - kafka:
-          addresses: ['${KAFKA_BROKERS:localhost:9092}']
-          topic: '${KAFKA_TOPIC:scada-review-events}'
+          addresses:
+            - ${KAFKA_TLS_BROKERS}
+          topic: ${KAFKA_TOPIC:scada-review-events}
+          tls:
+            enabled: true
+            root_cas_file: ${KAFKA_CA_FILE}
+          sasl:
+            mechanism: SCRAM-SHA-512
+            user: ${KAFKA_USERNAME}
+            password: ${KAFKA_PASSWORD}
       - file:
-          path: '${LOCAL_ARCHIVE_PATH:/tmp/scada-review-events.jsonl}'
+          path: ${LOCAL_ARCHIVE_PATH:/tmp/scada-review-events.jsonl}
           codec: lines
 ```
 
@@ -47,3 +55,5 @@ The source artifact is `examples/integrations/scada-energy-edge/step-4-route-des
 Neither destination has been exercised by repository evidence. Delivery behavior and failure recovery remain not assessed.
 
 **Next:** [Review the combined reference](/integrations/scada-energy-edge/complete-scada-integration).
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

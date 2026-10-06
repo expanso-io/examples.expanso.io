@@ -24,6 +24,7 @@ export interface PlatformRealismResult {
   manifestsChecked: number;
   stagesChecked: number;
   copiesChecked: number;
+  tutorialsChecked: number;
   findings: PlatformRealismFinding[];
   status: 'PASS' | 'FAIL';
 }
@@ -818,6 +819,16 @@ export function validatePlatformYamlSource(
   return findings;
 }
 
+export function tutorialYamlConfigurations(markdown: string): string[] {
+  const results: string[] = [];
+  const fence = /^([ \t]*)\x60{3}(?:yaml|yml)(?:[ \t][^\n]*)?\n([\s\S]*?)^\1\x60{3}[ \t]*$/gm;
+  for (const match of markdown.matchAll(fence)) {
+    const indent = Math.min(...match[2].split('\n').filter(line => line.trim()).map(line => line.match(/^[ \t]*/)[0].length));
+    results.push(match[2].split('\n').map(line => line.slice(0, indent).trim() === '' ? line.slice(indent) : line).join('\n'));
+  }
+  return results;
+}
+
 export async function validatePublishedPlatformExamples(
   root = repositoryRoot
 ): Promise<PlatformRealismResult> {
@@ -829,6 +840,7 @@ export async function validatePublishedPlatformExamples(
 
   let stagesChecked = 0;
   let copiesChecked = 0;
+  let tutorialsChecked = 0;
   const stageManifest = JSON.parse(
     await readFile(resolve(root, 'content/explorer-stage-bindings-v1.json'), 'utf8')
   ) as { explorers: { exampleId: string; stages: { id: number; configPath: string }[] }[] };
@@ -879,6 +891,18 @@ export async function validatePublishedPlatformExamples(
         if (!isDeepStrictEqual(normalized(copySource), normalized(source))) {
           findings.push(finding(record.id, copy.copyPath!, '$', 'canonical-copy',
             'public pipeline copy differs from its canonical configuration'));
+        }
+      }
+      const tutorialPaths = await glob('docs' + record.routes.overview + '**/*.mdx', { cwd: root, nodir: true });
+      for (const tutorialPath of tutorialPaths.sort()) {
+        const markdown = await readFile(resolve(root, tutorialPath), 'utf8');
+        if (!/^contentArchetype: step$/m.test(markdown)) continue;
+        for (const [index, configuration] of tutorialYamlConfigurations(markdown).entries()) {
+          tutorialsChecked += 1;
+          const options = { exampleId: record.id, file: tutorialPath + '#yaml-' + (index + 1), root };
+          findings.push(...validatePlatformYamlSource(configuration, options));
+          findings.push(...await validatePlatformPayloadContracts(configuration, options));
+          findings.push(...validateDeploymentManifestSource(configuration, options));
         }
       }
       const family = stageManifest.explorers.find((item) => item.exampleId === record.id);
@@ -944,6 +968,7 @@ export async function validatePublishedPlatformExamples(
     manifestsChecked,
     stagesChecked,
     copiesChecked,
+    tutorialsChecked,
     findings,
     status: findings.length === 0 ? 'PASS' : 'FAIL',
   };
@@ -974,7 +999,7 @@ export async function validatePlatformPayloadContracts(
         pipeline: { processors: output.processors ?? [] },
         output: { stdout: { codec: 'lines' } }, logger: { level: 'ERROR' },
       }));
-      const result = spawnSync('benthos', ['run', file], {
+      const result = spawnSync(process.execPath, [resolve(repositoryRoot, 'scripts/edge-contract-runtime.mjs'), file], {
         input: JSON.stringify({ severity: 'WARN', source: 'fixture', message: 'Synthetic warning', timestamp: '2026-10-05T00:00:00Z' }) + '\n',
         encoding: 'utf8', timeout: 10000,
       });
@@ -1002,7 +1027,7 @@ async function main() {
   }
 
   console.log(
-    `Platform realism ${result.status}: ${result.examplesChecked} published examples / ${result.manifestsChecked} deployment manifests / ${result.findings.length} findings.`
+    `Platform realism ${result.status}: ${result.examplesChecked} published examples / ${result.manifestsChecked} deployment manifests / ${result.stagesChecked} stages / ${result.copiesChecked} copies / ${result.tutorialsChecked} tutorial configurations / ${result.findings.length} findings.`
   );
 
   if (result.status === 'FAIL') process.exitCode = 1;

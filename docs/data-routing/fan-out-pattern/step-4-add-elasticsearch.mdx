@@ -27,7 +27,7 @@ You will modify your `fan-out.yaml` file to send messages to a local file, a Kaf
 
 1.  **Start with the Previous Pipeline:** Open the `fan-out.yaml` file you have been building in the previous steps.
 
-2.  **Add the Elasticsearch Output:** Add an `elasticsearch` block to the `outputs` array in your `broker` configuration.
+2.  **Add the Elasticsearch Output:** Add an authenticated `http_client` block to the `outputs` array in your `broker` configuration.
 
     ```yaml title="Modify the output in fan-out.yaml"
     output:
@@ -35,28 +35,38 @@ You will modify your `fan-out.yaml` file to send messages to a local file, a Kaf
         pattern: fan_out
         outputs:
           - file:
-              path: /tmp/events.jsonl
+              path: ${FAN_OUT_DIAGNOSTIC_PATH}/events.jsonl
               codec: lines
-          -kafka:
-              addresses: [ ${KAFKA_BROKERS} ]
-              topic: "sensor-events"
+          - kafka:
+              addresses:
+                - ${KAFKA_TLS_BROKERS}
+              tls:
+                enabled: true
+                root_cas_file: ${KAFKA_CA_FILE}
+              sasl:
+                mechanism: SCRAM-SHA-512
+                user: ${KAFKA_USERNAME}
+                password: ${KAFKA_PASSWORD}
+              topic: sensor-events
               key: ${!this.sensor_id}
           - aws_s3:
               bucket: ${S3_BUCKET}
               region: ${AWS_REGION}
-              path: "events/${!timestamp_unix_date()}/${!uuid_v4()}.json"
+              server_side_encryption: aws:kms
+              kms_key_id: ${S3_KMS_KEY_ARN}
+              path: events/${!timestamp_unix_date()}/${!uuid_v4()}.json
               batching:
                 count: 10
                 period: 10s
-
-          # Add this block for Elasticsearch
-          - elasticsearch:
-              urls: [ ${ES_ENDPOINT} ] # e.g., http://localhost:9200
-              index: "sensor-events-${!timestamp_unix_date('2006-01-02')}"
-              id: ${!this.event_id.or(uuid_v4())}
-              batching:
-                count: 10
-                period: 10s
+          - http_client:
+              url: ${ELASTICSEARCH_HTTPS_URL}/sensor-events-${! now().ts_format("2006-01-02") }/_doc/${! this.event_id.or(uuid_v4()) }
+              verb: PUT
+              headers:
+                Authorization: ApiKey ${ELASTICSEARCH_API_KEY}
+                Content-Type: application/json
+              tls:
+                enabled: true
+                root_cas_file: ${ELASTICSEARCH_CA_FILE}
     ```
 
     The example uses a daily index name (`sensor-events-YYYY-MM-DD`). The `id` field is derived from the event ID; verify update and duplicate behavior against the target service.
@@ -64,7 +74,7 @@ You will modify your `fan-out.yaml` file to send messages to a local file, a Kaf
 3.  **Configure Elasticsearch:** Ensure you have an Elasticsearch instance running and the required environment variables are set.
 
     ```bash
-    export ES_ENDPOINT="http://localhost:9200"
+    export ELASTICSEARCH_HTTPS_URL="https://search.internal:9200"
     ```
 
 4.  **Deploy and Test:**
@@ -83,3 +93,7 @@ You will modify your `fan-out.yaml` file to send messages to a local file, a Kaf
     You should also see the data in your local file, Kafka topic, and S3 bucket.
 
 You have now built a complete, multi-destination fan-out pipeline that concurrently routes data to four different systems, each serving a distinct purpose: local debugging, real-time streaming, long-term archival, and search/analytics.
+
+Use the canonical setup contract for trusted CAs, Kafka SCRAM credentials, Elasticsearch API-key authorization, S3 workload identity and KMS. Set `FAN_OUT_DIAGNOSTIC_PATH` to persistent writable storage before deployment.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

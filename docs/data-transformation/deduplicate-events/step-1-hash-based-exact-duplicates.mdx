@@ -37,35 +37,25 @@ You will build a pipeline that generates a unique "fingerprint" (a hash) for eac
     ```yaml title="deduplicator.yaml"
     name: hash-deduplicator
     description: A pipeline that removes exact duplicate messages.
-
     config:
-      # 1. Define a cache resource to remember the hashes we've seen.
       cache_resources:
         - label: dedup_cache
           memory:
-            default_ttl: 60s # Remember hashes for 60 seconds
-
+            default_ttl: 60s
       input:
         http_server:
           address: 0.0.0.0:8080
           path: /ingest
-
       pipeline:
         processors:
-          # 2. HASH: Create a hash of the message content.
           - mapping: |
               root = this
               # json_format() ensures keys are sorted, creating a consistent hash
               root.dedup_hash = this.json_format().hash("sha256")
-
-          # 3. CACHE: Check if we've seen this hash before.
-          # The result will be available in `meta("cache")`.
           - cache:
               resource: dedup_cache
               operator: get
               key: ${! this.dedup_hash }
-
-          # 4. CHECK & DROP: Decide whether to keep or drop the message.
           - mapping: |
               let is_duplicate = meta("cache").exists()
               root = this
@@ -79,7 +69,6 @@ You will build a pipeline that generates a unique "fingerprint" (a hash) for eac
                 _ = cache_set("dedup_cache", this.dedup_hash, "seen")
                 root.status = "processed_new"
               }
-
       output:
         stdout:
           codec: lines
@@ -102,3 +91,5 @@ You will build a pipeline that generates a unique "fingerprint" (a hash) for eac
     The intended result retains the first message and drops the repeated hash. This page does not record an executed result.
 
 Review serialization order, cache lifetime, and restart behavior before adapting this pattern.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

@@ -33,19 +33,29 @@ Separate infrastructure is one possible isolation boundary. It adds operational 
 output:
   switch:
     cases:
-      # Enterprise customers go to a completely separate Kafka cluster
       - check: this.customer_tier == "enterprise"
         output:
           kafka:
-            addresses: [ ${ENTERPRISE_KAFKA_BROKERS} ]
+            addresses:
+              - ${KAFKA_TLS_BROKERS}
             topic: enterprise-events
-            # ... include strict reliability and security settings
-
-      # All other customers go to the standard, shared Kafka cluster
+            tls: &a1
+              enabled: true
+              root_cas_file: ${KAFKA_CA_FILE}
+            sasl:
+              mechanism: SCRAM-SHA-512
+              user: ${KAFKA_USERNAME}
+              password: ${KAFKA_PASSWORD}
       - output:
           kafka:
-            addresses: [ ${KAFKA_BROKERS} ]
+            addresses:
+              - ${KAFKA_TLS_BROKERS}
             topic: standard-events
+            tls: *a1
+            sasl:
+              mechanism: SCRAM-SHA-512
+              user: ${KAFKA_USERNAME}
+              password: ${KAFKA_PASSWORD}
 ```
 
 ## Pattern 2: Dynamic Scoring Based on System Load
@@ -112,12 +122,12 @@ The following settings are adaptation sketches. Choose acknowledgements, batchin
 - check: this.priority == "critical"
   output:
     kafka:
-      addresses: ['${KAFKA_BROKERS}']
+      addresses:
+        - ${KAFKA_TLS_BROKERS}
       topic: logs-critical
       batching:
-        count: 1 # No batching for speed
+        count: 1
         period: 0s
-      # Reliability settings
       max_in_flight: 1
       ack_replicas: true
       idempotent_write: true
@@ -125,25 +135,40 @@ The following settings are adaptation sketches. Choose acknowledgements, batchin
       backoff:
         initial_interval: 100ms
         max_interval: 2s
-      compression: none # No compression for speed
+      compression: none
+      tls:
+        enabled: true
+        root_cas_file: ${KAFKA_CA_FILE}
+      sasl:
+        mechanism: SCRAM-SHA-512
+        user: ${KAFKA_USERNAME}
+        password: ${KAFKA_PASSWORD}
 ```
 
 ```yaml title="Illustrative bulk branch"
 - check: this.priority == "bulk"
   output:
     kafka:
-      addresses: ['${KAFKA_BROKERS}']
+      addresses:
+        - ${KAFKA_TLS_BROKERS}
       topic: logs-bulk
       batching:
-        count: 5000 # Massive batches for throughput
+        count: 5000
         period: 5m
         byte_size: 10MB
-      # Performance settings
       max_in_flight: 20
-compression: gzip # Compression choice; benchmark with representative payloads
-      # Reliability is less important
+      compression: gzip
       ack_replicas: false
       max_retries: 1
+      tls:
+        enabled: true
+        root_cas_file: ${KAFKA_CA_FILE}
+      sasl:
+        mechanism: SCRAM-SHA-512
+        user: ${KAFKA_USERNAME}
+        password: ${KAFKA_PASSWORD}
 ```
 
 These variants add configurable routing inputs. Validate their semantics, failure paths, operating limits, and organizational policy in the target environment.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

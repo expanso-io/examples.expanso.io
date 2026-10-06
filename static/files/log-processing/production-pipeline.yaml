@@ -29,6 +29,7 @@ config:
           root.is_high_priority = root.severity_score >= 4
           root.priority = if root.severity_score >= 4 { "high" } else if root.severity_score >= 3 { "medium" } else { "low" }
           meta priority = root.priority
+          root.latency_category = if this.duration_ms != null { if this.duration_ms < 100 { "fast" } else if this.duration_ms < 500 { "normal" } else if this.duration_ms < 2000 { "slow" } else { "very_slow" } } else { deleted() }
       - mapping: |-
           let msg = this.message.lowercase()
           root = if $msg.contains("health check") || $msg.contains("heartbeat") || (this.level == "DEBUG" && env("DEBUG_ENABLED").or("false") != "true") { deleted() } else { this }
@@ -73,6 +74,10 @@ config:
             kms_key_id: ${S3_KMS_KEY_ARN}
             region: ${AWS_REGION}
             content_encoding: gzip
+          processors:
+            - mapping: |-
+                root = this
+                root.archived_at = now()
         - switch:
             cases:
               - check: meta("priority") == "high"
@@ -101,8 +106,24 @@ config:
               mechanism: SCRAM-SHA-512
               user: ${KAFKA_USERNAME}
               password: ${KAFKA_PASSWORD}
+        - label: local_backup
+          file:
+            path: ${LOCAL_BACKUP_PATH}/logs-${! timestamp_unix() }.jsonl
+            codec: lines
   rate_limit_resources:
     - label: ingress_limit
       local:
         count: 1000
         interval: 1s
+selector:
+  match_labels:
+    region: us-west
+    role: log-collector
+deployment:
+  strategy: rolling
+  max_parallel: 3
+  health_check:
+    type: http
+    endpoint: /ping
+    interval: 30s
+  auto_rollback: true

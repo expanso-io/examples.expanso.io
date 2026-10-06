@@ -53,7 +53,6 @@ From there, the `cache`, `group_by`, and `aggregate` steps work exactly as they 
 
     ```yaml title="Replace the 'processors' array in sliding-windows.yaml"
     processors:
-      # 1. GENERATE an array of group keys for each message
       - mapping: |
           let parsed_time = this.timestamp.parse_timestamp()
           root = this
@@ -64,28 +63,20 @@ From there, the `cache`, `group_by`, and `aggregate` steps work exactly as they 
             this.sensor_id + ":" + (((parsed_time.unix() - 10) / 10).floor() * 10).ts_format_iso8601(),
             this.sensor_id + ":" + (((parsed_time.unix() - 20) / 10).floor() * 10).ts_format_iso8601()
           ]
-
-      # 2. UNARCHIVE to create a copy for each key
       - unarchive:
           format: json_array
           field: group_keys
       - mapping: |
           root = this
           root.group_key = content()
-
-      # 3. CACHE (same as before)
       - cache:
           resource: window_cache
           operator: add
           key: ${! this.group_key }
           value: ${! this }
-
-      # 4. GROUP (same as before)
       - group_by:
           - key: ${! this.group_key }
             value: ${! this }
-
-      # 5. AGGREGATE (same as before)
       - mapping: |
           let first_event = this[0]
           let temperatures = this.map_each(event -> event.temperature)
@@ -114,3 +105,5 @@ The output will be a stream of moving average calculations. Because the windows 
 ```
 
 You have now implemented a sliding window for smooth, real-time trend analysis.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

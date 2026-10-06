@@ -55,8 +55,8 @@ pipeline:
 
     # Step 6: Validate required fields before BigQuery load
     - mapping: |
-        root = if this.transaction_id == null || 
-                  this.customer_id == null || 
+        root = if this.transaction_id == null ||
+                  this.customer_id == null ||
                   this.amount_usd == null {
           throw("Missing required field for BigQuery load")
         } else {
@@ -132,7 +132,7 @@ pipeline:
 
 Check data types, not just presence:
 
-```yaml
+```bloblang
 root = if this.amount_usd.type() != "number" {
   throw("amount_usd must be numeric, got: " + this.amount_usd.type())
 } else if this.amount_usd < 0 {
@@ -146,7 +146,7 @@ root = if this.amount_usd.type() != "number" {
 
 Flag suspicious values:
 
-```yaml
+```bloblang
 root._warnings = []
 
 # Flag unusually large transactions
@@ -187,3 +187,5 @@ You've built all 6 transformation steps! See the complete, complete example conf
     📖 Complete Pipeline →
   </a>
 </div>
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

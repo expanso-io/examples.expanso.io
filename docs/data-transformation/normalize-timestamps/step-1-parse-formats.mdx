@@ -52,13 +52,11 @@ This is implemented in a single `mapping` processor:
     ```yaml title="normalize-timestamps.yaml"
     name: timestamp-normalizer
     description: A pipeline that parses multiple timestamp formats.
-
     config:
       input:
         http_server:
           address: 0.0.0.0:8080
           path: /ingest
-
       pipeline:
         processors:
           - mapping: |
@@ -71,7 +69,6 @@ This is implemented in a single `mapping` processor:
                 "number" => this.timestamp.ts_unix(),
                 _ => "unknown format"
               }
-
       output:
         stdout:
           codec: lines
@@ -95,3 +92,5 @@ This is implemented in a single `mapping` processor:
     Check your logs. You will see two output messages. Both will have a `normalized_timestamp` field. Although the original formats were different, the normalized versions will both represent the same point in time.
 
 You have now built a basic timestamp normalization pipeline. This same "detect -> parse" pattern can be extended to handle other declared formats.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

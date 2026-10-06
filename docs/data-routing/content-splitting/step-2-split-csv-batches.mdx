@@ -72,18 +72,15 @@ Unlike splitting a JSON array, processing a CSV file involves reading it line by
     ```yaml title="csv-splitter.yaml"
     name: csv-splitter
     description: Process a CSV file line-by-line.
-
     config:
       input:
         file:
           paths:
-            - ./transactions.csv # Assumes the CSV is in the same directory
+            - ./transactions.csv
           scanner:
-            lines: {} # This tells the input to create a message for each line
-
+            lines: {}
       pipeline:
         processors:
-          # Processor 1: Skip the header row
           - mapping: |
               # If the line starts with "transaction_id", delete the message
               if this.string().has_prefix("transaction_id") {
@@ -91,8 +88,6 @@ Unlike splitting a JSON array, processing a CSV file involves reading it line by
               } else {
                 root = this
               }
-
-          # Processor 2: Parse the CSV line into a JSON object
           - mapping: |
               # Split the line string into an array of fields
               let fields = this.string().split(",")
@@ -102,7 +97,6 @@ Unlike splitting a JSON array, processing a CSV file involves reading it line by
               root.timestamp = $fields.index(1)
               root.amount = $fields.index(2).number() # Convert amount to a number
               root.currency = $fields.index(3)
-
       output:
         stdout:
           codec: lines
@@ -113,3 +107,5 @@ Unlike splitting a JSON array, processing a CSV file involves reading it line by
 4.  **Verify:** Check the logs or output of the pipeline. You will see the two distinct JSON messages, one for each data row in the CSV file.
 
 You have now learned the fundamental pattern of processing batch files. This same "File -> Lines -> Structure" pattern can be adapted for any line-delimited format, like plain text logs.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

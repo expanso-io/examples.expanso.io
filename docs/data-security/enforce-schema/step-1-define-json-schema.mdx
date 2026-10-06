@@ -73,22 +73,16 @@ You will create a simple schema to validate incoming sensor data and then use th
     ```yaml title="schema-validator.yaml"
     name: schema-validator
     description: A pipeline that validates incoming data against a JSON schema.
-
     config:
       input:
         http_server:
           address: 0.0.0.0:8080
           path: /sensor/readings
-
       pipeline:
         processors:
-          # This processor is the core of the validation
           - json_schema:
-              schema_path: "file://./sensor-schema.json" # Assumes schema is in the same directory
-
-          # This mapping only runs if validation succeeds
-          - mapping: `root.validation_status = "passed"`
-
+              schema_path: file://./sensor-schema.json
+          - mapping: root.validation_status = "passed"
       output:
         stdout:
           codec: lines
@@ -120,3 +114,5 @@ You will create a simple schema to validate incoming sensor data and then use th
     - For the **invalid** request, you will get an HTTP 400 Bad Request error, and the message will not proceed through the pipeline. Check the pipeline's logs to see the specific validation error message.
 
 You have now built a basic but powerful data validation pipeline. In the next steps, you will learn how to handle validation failures more gracefully.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

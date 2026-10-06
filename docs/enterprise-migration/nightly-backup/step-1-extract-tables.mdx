@@ -40,48 +40,44 @@ Instead of running 3 separate pipelines:
 input:
   sequence:
     inputs:
-      # Orders - incremental (last 24h)
       - sql_select:
           driver: postgres
-          dsn: 'postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}?sslmode=require'
+          dsn: postgres://${POSTGRES_USERNAME}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/${POSTGRES_DATABASE}?sslmode=verify-full&sslrootcert=${POSTGRES_CA_FILE}
           table: orders
-          columns: ['*']
-          where: "updated_at >= CURRENT_DATE - INTERVAL '1 day'"
+          columns:
+            - "*"
+          where: updated_at >= CURRENT_DATE - INTERVAL '1 day'
         processors:
           - mapping: |
               root = this
               root._table = "orders"
               root._backup_type = "incremental"
-
-      # Inventory - full backup (smaller table)
       - sql_select:
           driver: postgres
-          dsn: 'postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}?sslmode=require'
+          dsn: postgres://${POSTGRES_USERNAME}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/${POSTGRES_DATABASE}?sslmode=verify-full&sslrootcert=${POSTGRES_CA_FILE}
           table: inventory
-          columns: ['*']
+          columns:
+            - "*"
         processors:
           - mapping: |
               root = this
               root._table = "inventory"
               root._backup_type = "full"
-
-      # Order items - incremental
       - sql_select:
           driver: postgres
-          dsn: 'postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}?sslmode=require'
+          dsn: postgres://${POSTGRES_USERNAME}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/${POSTGRES_DATABASE}?sslmode=verify-full&sslrootcert=${POSTGRES_CA_FILE}
           table: order_items
-          columns: ['*']
-          where: "created_at >= CURRENT_DATE - INTERVAL '1 day'"
+          columns:
+            - "*"
+          where: created_at >= CURRENT_DATE - INTERVAL '1 day'
         processors:
           - mapping: |
               root = this
               root._table = "order_items"
               root._backup_type = "incremental"
-
 pipeline:
   processors:
-    - mapping: root = this # Pass through for now
-
+    - mapping: root = this
 output:
   stdout:
     codec: json_pretty
@@ -110,9 +106,11 @@ output:
 # Last 24 hours by updated_at
 where: "updated_at >= CURRENT_DATE - INTERVAL '1 day'"
 
+---
 # Last 24 hours by created_at
 where: "created_at >= CURRENT_DATE - INTERVAL '1 day'"
 
+---
 # Since last backup (requires state tracking)
 where: "updated_at > '${LAST_BACKUP_TIMESTAMP}'"
 ```
@@ -140,7 +138,7 @@ For large extracts, configure connection limits:
 ```yaml
 sql_select:
   driver: postgres
-  dsn: '...?pool_max_conns=5'
+  dsn: postgres://${POSTGRES_USERNAME}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/${POSTGRES_DATABASE}?sslmode=verify-full&sslrootcert=${POSTGRES_CA_FILE}
 ```
 
 ### Handling Large Tables
@@ -163,10 +161,10 @@ Extract from different databases in one pipeline:
 sequence:
   inputs:
     - sql_select:
-        dsn: 'postgres://...@db1/ecommerce'
+        dsn: postgres://...@db1/ecommerce
         table: orders
     - sql_select:
-        dsn: 'postgres://...@db2/inventory'
+        dsn: ${DB2_CONNECTION_STRING};Security=SSL;SSLServerCertificate=${DB2_CA_FILE}
         table: stock_levels
 ```
 
@@ -182,3 +180,5 @@ sequence:
     📖 Step 2: Add Metadata →
   </a>
 </div>
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

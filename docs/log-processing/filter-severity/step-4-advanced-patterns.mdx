@@ -44,19 +44,18 @@ Sometimes you want to send a message to _multiple_ destinations. For example, yo
 output:
   switch:
     cases:
-      - check: 'this.level.string().uppercase() == "ERROR"'
+      - check: this.level.string().uppercase() == "ERROR"
         output:
           broker:
             pattern: fan_out
             outputs:
               - file:
-                  path: /tmp/errors.jsonl
-              - stdout: {} # Also send to stdout
-
-      - check: 'this.level.string().uppercase() == "WARN"'
+                  path: ${EXAMPLE_OUTPUT_PATH}/errors.jsonl
+              - stdout: {}
+      - check: this.level.string().uppercase() == "WARN"
         output:
           file:
-            path: /tmp/warnings.jsonl
+            path: ${EXAMPLE_OUTPUT_PATH}/warnings.jsonl
 ```
 
 ## Pattern 3: Failover Routing
@@ -67,26 +66,31 @@ When sending data to an external system, the destination might be temporarily un
 output:
   switch:
     cases:
-      - check: 'this.level.string().uppercase() == "ERROR"'
+      - check: this.level.string().uppercase() == "ERROR"
         output:
           broker:
-            pattern: try # Try each output in order until one succeeds
+            pattern: try
             outputs:
-              # 1. Try sending to the primary alerting service
               - http_client:
-                  url: 'http://primary-alert-service/ingest'
-                  verb: 'POST'
+                  url: ${PRIMARY_ALERT_SERVICE_HTTPS_URL}/ingest
+                  verb: POST
                   retries: 2
-
-              # 2. If that fails, fall back to a secondary service
+                  headers:
+                    Authorization: Bearer ${TUTORIAL_HTTP_TOKEN}
+                  tls:
+                    enabled: true
               - http_client:
-                  url: 'http://secondary-alert-service/ingest'
-                  verb: 'POST'
+                  url: ${SECONDARY_ALERT_SERVICE_HTTPS_URL}/ingest
+                  verb: POST
                   retries: 2
-
-              # 3. If all else fails, write to a local file
+                  headers:
+                    Authorization: Bearer ${TUTORIAL_HTTP_TOKEN}
+                  tls:
+                    enabled: true
               - file:
-                  path: /tmp/failed_alerts.jsonl
+                  path: ${EXAMPLE_OUTPUT_PATH}/failed_alerts.jsonl
 ```
 
 This configuration attempts the outputs in order. Its delivery and loss behavior depends on each output, retry, timeout, acknowledgement, and restart contract; none is verified here.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

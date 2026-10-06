@@ -39,7 +39,6 @@ You will modify a basic logging pipeline to route messages to `logs-critical`, `
 2.  **Add the Classification Processor:** Open `severity-router.yaml` and add the "Classify" `mapping` processor to the `pipeline` section.
 
     ```yaml title="Add this to the 'processors' array in severity-router.yaml"
-    # This goes after the existing 'mapping' processor
     - mapping: |
         root = this
         # Normalize severity to uppercase for consistent matching
@@ -63,38 +62,59 @@ You will modify a basic logging pipeline to route messages to `logs-critical`, `
           - check: this.priority == "critical"
             output:
               kafka:
-                addresses: ['${KAFKA_BROKERS}']
+                addresses:
+                  - ${KAFKA_TLS_BROKERS}
                 topic: logs-critical
-                # For critical logs, we send immediately (no batching)
                 batching:
                   count: 1
-
+                tls: &a1
+                  enabled: true
+                  root_cas_file: ${KAFKA_CA_FILE}
+                sasl:
+                  mechanism: SCRAM-SHA-512
+                  user: ${KAFKA_USERNAME}
+                  password: ${KAFKA_PASSWORD}
           - check: this.priority == "high"
             output:
               kafka:
-                addresses: ['${KAFKA_BROKERS}']
+                addresses:
+                  - ${KAFKA_TLS_BROKERS}
                 topic: logs-high
                 batching:
-                  count: 10 # Small batch for high-priority
+                  count: 10
                   period: 1s
-
+                tls: *a1
+                sasl:
+                  mechanism: SCRAM-SHA-512
+                  user: ${KAFKA_USERNAME}
+                  password: ${KAFKA_PASSWORD}
           - check: this.priority == "normal"
             output:
               kafka:
-                addresses: ['${KAFKA_BROKERS}']
+                addresses:
+                  - ${KAFKA_TLS_BROKERS}
                 topic: logs-normal
                 batching:
-                  count: 100 # Standard batch size
+                  count: 100
                   period: 5s
-
-          # Default case for "low" priority and any others
+                tls: *a1
+                sasl:
+                  mechanism: SCRAM-SHA-512
+                  user: ${KAFKA_USERNAME}
+                  password: ${KAFKA_PASSWORD}
           - output:
               kafka:
-                addresses: ['${KAFKA_BROKERS}']
+                addresses:
+                  - ${KAFKA_TLS_BROKERS}
                 topic: logs-low
                 batching:
-                  count: 1000 # Large batch for low-priority
+                  count: 1000
                   period: 60s
+                tls: *a1
+                sasl:
+                  mechanism: SCRAM-SHA-512
+                  user: ${KAFKA_USERNAME}
+                  password: ${KAFKA_PASSWORD}
     ```
 
 4.  **Deploy and Test:**
@@ -112,3 +132,5 @@ You will modify a basic logging pipeline to route messages to `logs-critical`, `
 5.  **Verify:** Use a console consumer to check the different Kafka topics. You will see that the critical message arrived immediately in `logs-critical`, while the info message was batched and sent to `logs-low`.
 
 You have now implemented a basic but powerful priority queue system based on log severity.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

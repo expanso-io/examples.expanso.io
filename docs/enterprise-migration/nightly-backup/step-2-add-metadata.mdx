@@ -92,7 +92,7 @@ pipeline:
 
 Track exact config version:
 
-```yaml
+```bloblang
 root._backup_metadata.pipeline_version = env("PIPELINE_VERSION").or("dev")
 root._backup_metadata.git_commit = env("GIT_COMMIT").or("unknown")
 ```
@@ -101,7 +101,7 @@ root._backup_metadata.git_commit = env("GIT_COMMIT").or("unknown")
 
 Generate unique ID per backup run:
 
-```yaml
+```bloblang
 root._backup_metadata.job_id = uuid_v4()
 root._backup_metadata.run_started_at = env("RUN_START_TIME").or(now())
 ```
@@ -110,7 +110,7 @@ root._backup_metadata.run_started_at = env("RUN_START_TIME").or(now())
 
 Add table row counts for validation:
 
-```yaml
+```bloblang
 root._backup_metadata.source_table = this._table
 root._backup_metadata.extraction_query = match this._table {
 "orders" => "updated_at >= CURRENT_DATE - INTERVAL '1 day'",
@@ -131,3 +131,5 @@ _ => "unknown"
     📖 Step 3: Calculate Checksum →
   </a>
 </div>
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

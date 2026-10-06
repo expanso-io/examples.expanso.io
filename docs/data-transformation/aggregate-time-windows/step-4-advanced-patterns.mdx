@@ -35,25 +35,26 @@ You can chain aggregation pipelines together to create "rollups". For example, y
 - Output: 1-hour summaries per sensor
 
 ```yaml title="1-Hour Rollup Pipeline"
-# This pipeline consumes the output of the 1-minute pipeline
 input:
   kafka:
-    addresses: [ ${KAFKA_BROKERS} ]
-    topics: [ "1-minute-aggregates" ]
-
+    addresses:
+      - ${KAFKA_TLS_BROKERS}
+    topics:
+      - 1-minute-aggregates
+    tls:
+      enabled: true
+      root_cas_file: ${KAFKA_CA_FILE}
+    sasl:
+      mechanism: SCRAM-SHA-512
+      user: ${KAFKA_USERNAME}
+      password: ${KAFKA_PASSWORD}
 pipeline:
   processors:
-    # 1. WINDOW: Round the 1-minute window to an hourly one
     - mapping: |
         let parsed_time = this.window_start.parse_timestamp()
         let hour_window = parsed_time.ts_format("2006-01-02T15:00:00Z")
         root = this
         root.group_key = this.sensor_id + ":" + hour_window
-
-    # 2. CACHE & GROUP (using a 1-hour TTL)
-    # ...
-
-    # 3. AGGREGATE the aggregates
     - mapping: |
         root = {
           "sensor_id": this[0].sensor_id,
@@ -108,3 +109,5 @@ config:
 ```
 
 This ensures the window stays "open" for an extra 10 seconds to accept late-arriving data before it is aggregated. Choosing the right grace period is a trade-off between accuracy and latency.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

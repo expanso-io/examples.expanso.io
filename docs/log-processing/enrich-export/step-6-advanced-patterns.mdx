@@ -27,9 +27,9 @@ For large-scale analytics, storing files with a simple date prefix isn't enough.
 output:
   aws_s3:
     bucket: ${S3_BUCKET_NAME}
-    # This path creates partitions that analytics engines can use for pruning
-    path: "logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/hour=${!timestamp("15")}/${!uuid_v4()}.jsonl.gz"
-    # ... other config
+    path: logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/hour=${!timestamp("15")}/${!uuid_v4()}.jsonl.gz
+    server_side_encryption: aws:kms
+    kms_key_id: ${S3_KMS_KEY_ARN}
 ```
 
 This key layout exposes year and month prefixes that a compatible query engine may use for pruning. Verify the behavior in the selected engine.
@@ -42,16 +42,16 @@ To configure gzip output, place a `compress` processor inside the `batching` blo
 output:
   aws_s3:
     bucket: ${S3_BUCKET_NAME}
-    path: 'logs/.../${!uuid_v4()}.jsonl.gz' # Note the .gz extension
+    path: logs/.../${!uuid_v4()}.jsonl.gz
     batching:
       count: 100
       period: 60s
-      # This processor runs on the batch *before* it gets sent
       processors:
         - compress:
             algorithm: gzip
-    # Let S3 know the content is compressed
     content_encoding: gzip
+    server_side_encryption: aws:kms
+    kms_key_id: ${S3_KMS_KEY_ARN}
 ```
 
 ## Pattern 3: Multi-Destination Routing
@@ -63,22 +63,20 @@ output:
   broker:
     pattern: fan_out
     outputs:
-      # --- Output 1: ERROR logs to a priority bucket ---
       - processors:
-        # This processor retains error records in this branch
-          - mapping: `root = this.filter(log -> log.event.level == "ERROR")`
+          - mapping: root = this.filter(log -> log.event.level == "ERROR")
         aws_s3:
-          bucket: "my-priority-error-logs"
-          path: "errors/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz"
-          # ... use a smaller, faster batching policy here
-
-      # --- Output 2: All other logs to a standard bucket ---
+          bucket: my-priority-error-logs
+          path: errors/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz
+          server_side_encryption: aws:kms
+          kms_key_id: ${S3_KMS_KEY_ARN}
       - processors:
-          - mapping: `root = this.filter(log -> log.event.level != "ERROR")`
+          - mapping: root = this.filter(log -> log.event.level != "ERROR")
         aws_s3:
-          bucket: "my-standard-logs"
-          path: "logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz"
-          # ... use a larger, more cost-effective batching policy here
+          bucket: my-standard-logs
+          path: logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz
+          server_side_encryption: aws:kms
+          kms_key_id: ${S3_KMS_KEY_ARN}
 ```
 
 This pattern uses a `broker` to fan out the data, with each output having its own processor to filter the batch for the appropriate log level before sending it to S3.
@@ -86,3 +84,5 @@ This pattern uses a `broker` to fan out the data, with each output having its ow
 ```
 
 ```
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

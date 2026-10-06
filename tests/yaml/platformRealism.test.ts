@@ -237,6 +237,7 @@ spec:
     assert.equal(result.examplesChecked, 26);
     assert.equal(result.stagesChecked, 100);
     assert.ok(result.copiesChecked >= 20);
+    assert.ok(result.tutorialsChecked > 0);
     assert.equal(
       result.status,
       'PASS',
@@ -261,8 +262,11 @@ spec:
       ]));
       writeFileSync(resolve(scratch, 'static/files/data-security/encrypt-data.yaml'), 'output:\n  stdout: {}\n');
       writeFileSync(resolve(scratch, 'copy.yaml'), 'output:\n  http_client:\n    url: http://external.invalid/events\n');
+      mkdirSync(resolve(scratch, 'docs/data-security/encrypt-data'), { recursive: true });
+      writeFileSync(resolve(scratch, 'docs/data-security/encrypt-data/step-test.mdx'), '---\ncontentArchetype: step\n---\n\x60\x60\x60yaml\noutput:\n  kafka:\n    addresses: [broker:9092]\n    topic: tutorial-events\n\x60\x60\x60\n');
       writeFileSync(resolve(scratch, 'stage.yaml'), 'output:\n  kafka:\n    addresses: [broker:9092]\n    topic: events\n');
       const result = await validatePublishedPlatformExamples(scratch);
+      assert.ok(result.findings.some((item) => item.file.includes('step-test.mdx') && item.rule === 'kafka-auth'));
       assert.ok(result.findings.some((item) => item.file === 'stage.yaml' && item.rule === 'kafka-tls'));
       assert.ok(result.findings.some((item) => item.file === 'copy.yaml' && item.rule === 'https-for-external-http'));
       assert.ok(result.findings.some((item) => item.file === 'copy.yaml' && item.rule === 'canonical-copy'));

@@ -34,7 +34,6 @@ Modify the `mapping` processor to add an `event_type_score` to the authored `pri
 2.  **Enhance the Classification Processor:** Open `multi-criteria-router.yaml`. You will modify the `mapping` processor to include the new `event_type_score`.
 
     ```yaml title="Replace the classification processor in multi-criteria-router.yaml"
-    # This replaces the mapping processor from Step 2
     - mapping: |
         root = this
         root.severity = this.severity.string().uppercase()
@@ -95,3 +94,5 @@ curl -X POST http://localhost:8080/logs -H "Content-Type: application/json" \
 Check your Kafka topics. The first `WARN` goes to the `logs-high` topic. However, the second `WARN` is **escalated to the `logs-critical` topic** because the scoring logic recognized it was a `payment` event and added a significant bonus, pushing its final score over the "critical" threshold.
 
 You have now built a routing system that makes sophisticated, business-aware decisions by combining multiple criteria.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

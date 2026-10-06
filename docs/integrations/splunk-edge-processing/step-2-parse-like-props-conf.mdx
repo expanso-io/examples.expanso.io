@@ -239,7 +239,7 @@ Here are common Splunk field extraction patterns and their Bloblang equivalents:
 
 **Bloblang:**
 
-```yaml
+```bloblang
 root.response_time = this.message.parse_regex("response_time=(?P<response_time>\\d+)").response_time.number()
 ```
 
@@ -253,7 +253,7 @@ root.response_time = this.message.parse_regex("response_time=(?P<response_time>\
 
 **Bloblang:**
 
-```yaml
+```bloblang
 root.priority = match this.level {
 "ERROR" => "high"
 "WARN" => "medium"
@@ -272,7 +272,7 @@ _ => "low"
 
 **Bloblang:**
 
-```yaml
+```bloblang
 root.user_domain = this.user.split("@")[1]
 root.upper_user = this.user.uppercase()
 ```
@@ -288,7 +288,7 @@ root.upper_user = this.user.uppercase()
 
 **Bloblang:**
 
-```yaml
+```bloblang
 root.hour = timestamp().format("15")
 root.is_business_hours = if this.hour.number() >= 9 && this.hour.number() <= 17 { "yes" } else { "no" }
 ```
@@ -303,7 +303,7 @@ root.is_business_hours = if this.hour.number() >= 9 && this.hour.number() <= 17 
 
 **Bloblang:**
 
-```yaml
+```bloblang
 root.theme = this.json_field.user.preferences.theme
 ```
 
@@ -370,7 +370,7 @@ You should see enriched output like:
 
 ### 1. Error Handling
 
-```yaml
+```bloblang
 root.parsed_data = this.raw_json.parse_json().catch({
   "parse_error": true,
   "raw_data": this.raw_json
@@ -379,7 +379,7 @@ root.parsed_data = this.raw_json.parse_json().catch({
 
 ### 2. Conditional Processing
 
-```yaml
+```bloblang
 if this.level == "DEBUG" {
   root = deleted()  # Drop debug logs entirely
 }
@@ -387,14 +387,14 @@ if this.level == "DEBUG" {
 
 ### 3. Data Enrichment
 
-```yaml
+```bloblang
 # GeoIP lookup (if service available)
 root.geo = this.source_ip.http_request("GET", "http://geoip-service/lookup/" + this.source_ip).parse_json().catch({})
 ```
 
 ### 4. Array Processing
 
-```yaml
+```bloblang
 # Process array fields
 root.user_tags = this.tags.map_each(tag -> tag.uppercase())
 ```
@@ -408,3 +408,5 @@ The pipeline now parses data at collection time. Next, implement filtering befor
 ---
 
 **Key takeaway:** Bloblang performs the example's parsing before HEC ingestion, while SPL is used here to illustrate analogous field extraction. Compare correctness, maintainability, and performance with your actual workload.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

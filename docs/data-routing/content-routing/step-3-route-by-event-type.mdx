@@ -39,27 +39,20 @@ You will modify your `switch` output so that any message with `event_type: "paym
     output:
       switch:
         cases:
-          # --- START: New addition ---
-          # Case 1: Handle all 'payment' events first for fraud analysis.
-          - check: 'this.event_type == "payment"'
+          - check: this.event_type == "payment"
             output:
               file:
-                path: /tmp/payments.jsonl
+                path: ${EXAMPLE_OUTPUT_PATH}/payments.jsonl
                 codec: lines
-          # --- END: New addition ---
-
-          # Case 2: Handle CRITICAL events (that are not payment events)
-          - check: 'this.level.string().uppercase() == "ERROR"'
+          - check: this.level.string().uppercase() == "ERROR"
             output:
               file:
-                path: /tmp/errors.jsonl
+                path: ${EXAMPLE_OUTPUT_PATH}/errors.jsonl
                 codec: lines
-
-          # Case 3: Handle WARN events (that are not payment events)
-          - check: 'this.level.string().uppercase() == "WARN"'
+          - check: this.level.string().uppercase() == "WARN"
             output:
               file:
-                path: /tmp/warnings.jsonl
+                path: ${EXAMPLE_OUTPUT_PATH}/warnings.jsonl
                 codec: lines
     ```
 
@@ -78,3 +71,5 @@ You will modify your `switch` output so that any message with `event_type: "paym
     - The second event will be in `errors.jsonl` because it did not match the payment rule and fell through to the severity-based routing.
 
 You have now built a routing system that can make decisions based on multiple different fields in your data.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

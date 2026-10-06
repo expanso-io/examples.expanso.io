@@ -47,12 +47,12 @@ pipeline:
     - mapping: |
         root = this
 
-# Customer ID -> pseudonymous cohort ID
-root.pseudonymous_customer_id = this.customer_id.string().hash(
-  "hmac_sha256",
-  env("GDPR_CUSTOMER_HMAC_KEY")
-).encode("hex").slice(0, 24)
-root = root.without("customer_id")
+        # Customer ID -> pseudonymous cohort ID
+        root.pseudonymous_customer_id = this.customer_id.string().hash(
+          "hmac_sha256",
+          env("GDPR_CUSTOMER_HMAC_KEY")
+        ).encode("hex").slice(0, 24)
+        root = root.without("customer_id")
 
         # Email → retain the domain in this example
         root.email_domain = if this.customer_email.contains("@") {
@@ -129,7 +129,7 @@ Load `GDPR_CUSTOMER_HMAC_KEY` from the deployment secret manager, restrict it to
 
 Document your HMAC specification:
 
-```yaml
+```text
 # HMAC SPECIFICATION (document for all pipelines):
 # Algorithm: HMAC-SHA-256
 # Key: env("GDPR_CUSTOMER_HMAC_KEY")
@@ -141,7 +141,7 @@ Document your HMAC specification:
 
 Support both IPv4 and IPv6:
 
-```yaml
+```bloblang
 root.ip_subnet = if this.ip_address.contains(":") {
   # IPv6: keep first 4 groups
   this.ip_address.split(":").slice(0, 4).join(":") + "::/64"
@@ -157,7 +157,7 @@ root.ip_subnet = if this.ip_address.contains(":") {
 
 Enhance domain extraction with categorization:
 
-```yaml
+```bloblang
 let domain = this.customer_email.split("@").index(1).lowercase()
 let freemail = ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com"]
 
@@ -177,3 +177,5 @@ root.email_type = if $freemail.contains(domain) { "consumer" } else { "business"
     📖 Step 5: Generalize Values →
   </a>
 </div>
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

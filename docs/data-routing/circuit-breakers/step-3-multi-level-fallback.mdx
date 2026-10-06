@@ -54,16 +54,13 @@ You will now modify the database circuit breaker pipeline from the previous step
     ```yaml title="Insert this into multi-level-fallback.yaml"
     output:
       fallback:
-        # PRIMARY: Try to insert into the database first.
-        # This is attempted after successful enrichment in the pipeline.
         - switch:
             cases:
               - check: this.db_enriched == true
                 output:
                   sql_insert:
                     driver: postgres
-                    data_source_name: ${DB_CONNECTION_STRING}
-                    table: 'enriched_events'
+                    table: enriched_events
                     columns:
                       - event_id
                       - user_id
@@ -76,19 +73,14 @@ You will now modify the database circuit breaker pipeline from the previous step
                         this.event_type,
                         this.format_json()
                       ]
-
-        # SECONDARY: If the database insert fails (e.g., DB is down),
-        # write the event to a local buffer file.
+                    dsn: postgres://${POSTGRES_USERNAME}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/${POSTGRES_DATABASE}?sslmode=verify-full&sslrootcert=${POSTGRES_CA_FILE}
         - file:
-            path: /tmp/fallback-buffer-${!timestamp_unix_date()}.jsonl
+            path: ${EXAMPLE_OUTPUT_PATH}/fallback-buffer-${!timestamp_unix_date()}.jsonl
             codec: lines
-
-        # TERTIARY (DLQ): If writing to the file fails (e.g., disk full),
-        # log a critical error and drop the message to prevent a crash.
         - processors:
             - log:
                 level: FATAL
-                message: 'All fallbacks failed. Dropping event: ${!this.event_id}'
+                message: "All fallbacks failed. Dropping event: ${!this.event_id}"
           drop: {}
     ```
 
@@ -122,3 +114,5 @@ You will now modify the database circuit breaker pipeline from the previous step
     ```
 
 You have now built a resilient pipeline that can survive multiple downstream failures.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

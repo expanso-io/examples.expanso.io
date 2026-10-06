@@ -41,14 +41,10 @@ To achieve this, you will use the `broker` output with `pattern: fan_out`. The b
     output:
       broker:
         pattern: fan_out
-        # The outputs array lists all the destinations.
         outputs:
-          # The first destination is the original file output.
           - file:
-              path: /tmp/events.jsonl
+              path: ${FAN_OUT_DIAGNOSTIC_PATH}/events.jsonl
               codec: lines
-
-          # The second destination is stdout.
           - stdout:
               codec: lines
     ```
@@ -66,8 +62,12 @@ To achieve this, you will use the `broker` output with `pattern: fan_out`. The b
 
 4.  **Verify:** Check your console. You should see the JSON message printed directly to `stdout` by the second output. Now, check the contents of the file.
     ```bash
-    cat /tmp/events.jsonl
+    cat ${FAN_OUT_DIAGNOSTIC_PATH}/events.jsonl
     ```
     You will see the exact same message in the file, written by the first output.
 
 You have now successfully configured a fan-out pipeline. In the next steps, you will replace these simple file and `stdout` outputs with real-world destinations like Kafka, S3, and Elasticsearch.
+
+Use the canonical setup contract for trusted CAs, Kafka SCRAM credentials, Elasticsearch API-key authorization, S3 workload identity and KMS. Set `FAN_OUT_DIAGNOSTIC_PATH` to persistent writable storage before deployment.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

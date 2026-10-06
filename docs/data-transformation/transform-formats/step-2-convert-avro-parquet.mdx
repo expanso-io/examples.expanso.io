@@ -43,23 +43,11 @@ Converting between two binary formats is a two-step process:
 2.  **Add the Conversion Logic:** Open `avro-to-parquet.yaml`. You will add two new processors to the end of the `pipeline` section.
 
     ```yaml title="Add these processors to your pipeline in avro-to-parquet.yaml"
-    # --- Processors from Step 1 ---
-    # (The existing mapping and to_avro processors remain here)
-
-    # --- START: New additions for Parquet Conversion ---
-
-    # 1. DE-SERIALIZE: Convert the Avro binary data back to a structured object.
-    # We must use the same schema we used to encode it.
     - from_avro:
-        schema_path: 'file://./sensor.avsc'
-
-    # 2. RE-SERIALIZE: Convert the structured object to the Parquet format.
-    # Parquet also uses the Avro schema to understand the data structure.
+        schema_path: file://./sensor.avsc
     - to_parquet:
-        schema_path: 'file://./sensor.avsc'
-        # For analytics, Snappy is a common and efficient compression choice.
+        schema_path: file://./sensor.avsc
         default_compression: snappy
-    # --- END: New additions ---
     ```
 
     _Note: The final output of this pipeline is now Parquet data, so you would typically change the `output` to write to a system that expects Parquet, like Amazon S3 or Google Cloud Storage._
@@ -71,3 +59,5 @@ Converting between two binary formats is a two-step process:
 Unreadable console bytes do not verify a Parquet conversion. Decode the result with the intended schema and consumer before treating it as valid output.
 
 This page records configuration intent, not a current executed result.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

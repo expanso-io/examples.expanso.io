@@ -67,8 +67,8 @@ pipeline:
     - mapping: |
         root = this
 
-# Illustrative PTP offset bands for this configuration
-# Validate bands against the applicable equipment and network requirements
+        # Illustrative PTP offset bands for this configuration
+        # Validate bands against the applicable equipment and network requirements
         let abs_offset = if this.ptp4l_offset_ns < 0 {
           -this.ptp4l_offset_ns
         } else {
@@ -76,10 +76,10 @@ pipeline:
         }
 
         root.ptp_review = match {
-$abs_offset < 100      => "within_band"  # Within the narrowest example band
-$abs_offset < 1000     => "degraded"     # Example warning band
-$abs_offset < 10000    => "critical"     # Example critical band
-_                      => "outside_band" # Outside the authored bands
+        $abs_offset < 100      => "within_band"  # Within the narrowest example band
+        $abs_offset < 1000     => "degraded"     # Example warning band
+        $abs_offset < 10000    => "critical"     # Example critical band
+        _                      => "outside_band" # Outside the authored bands
         }
 
         # Review score (0-100)
@@ -116,7 +116,7 @@ pipeline:
         # Spectral efficiency (bits/Hz) - typical values for 5G
         root.spectral_efficiency_dl = match {
           this.prb_dl_pct < 30  => 2.4   # Low load - high efficiency
-          this.prb_dl_pct < 70  => 3.2   # Medium load - optimal efficiency  
+          this.prb_dl_pct < 70  => 3.2   # Medium load - optimal efficiency
           this.prb_dl_pct < 90  => 2.8   # High load - decreasing efficiency
           _                     => 1.8   # Congestion - poor efficiency
         }
@@ -192,7 +192,7 @@ pipeline:
         root.estimated_coverage_radius_m = match {
           this.rsrp_dbm > -80   => 500
           this.rsrp_dbm > -90   => 1000
-          this.rsrp_dbm > -100  => 2000  
+          this.rsrp_dbm > -100  => 2000
           this.rsrp_dbm > -110  => 3000
           _                     => 5000
         }
@@ -220,7 +220,7 @@ pipeline:
         # Cell sector information
         root.sector = match this.cell_id {
           "cell-1" => "alpha"   # 0-120 degrees
-          "cell-2" => "beta"    # 120-240 degrees  
+          "cell-2" => "beta"    # 120-240 degrees
           "cell-3" => "gamma"   # 240-360 degrees
           _        => "omni"    # Omnidirectional
         }
@@ -235,13 +235,13 @@ pipeline:
         # Network hierarchy
         root.network_hierarchy = {
           "region": this.region,
-          "market": this.market, 
+          "market": this.market,
           "site_id": this.gnb_id,
           "cell_id": this.cell_id,
           "sector": this.sector
         }
 
-        # Deployment metadata  
+        # Deployment metadata
         root.deployment_info = {
           "vendor": "ericsson",
           "software_version": "22.Q4",
@@ -273,7 +273,7 @@ pipeline:
         # Add tags for downstream filtering
         root.tags = {
           "environment": "production",
-          "data_source": "oran_du", 
+          "data_source": "oran_du",
           "review_level": this.ptp_review,
           "congestion_level": this.congestion_level,
           "rf_quality": this.rsrp_quality

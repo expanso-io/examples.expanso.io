@@ -40,19 +40,15 @@ The `aws_s3` output processor is very similar to the `file` output, but requires
     ```yaml title="Replace the 'output' section in export-s3.yaml"
     output:
       aws_s3:
-        bucket: ${S3_BUCKET_NAME} # From your setup step
+        bucket: ${S3_BUCKET_NAME}
         region: ${AWS_REGION}
-        # This path creates a simple date-based folder structure
-        path: 'logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl'
-
-        # We can re-use the same batching policy from the previous step
+        path: logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl
         batching:
           count: 10
           period: 5s
-
-        # You must configure your credentials. Using a profile is a common method.
-        credentials:
-          profile: 'default' # Or your named AWS profile
+        credentials: {}
+        server_side_encryption: aws:kms
+        kms_key_id: ${S3_KMS_KEY_ARN}
     ```
 
 3.  **Configure AWS Credentials:** Ensure your environment is configured with AWS credentials. The pipeline above is configured to use the `default` profile. Make sure it's configured or change it to your named profile.
@@ -75,3 +71,5 @@ The `aws_s3` output processor is very similar to the `file` output, but requires
     ```
 
 You have now built the complete tutorial pipeline: it generates data, adds lineage, restructures it, and exports it to cloud storage.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

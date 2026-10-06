@@ -13,7 +13,7 @@ function run(processors,input,env={}){
  try{
   const config=path.join(scratch,'pipeline.yaml');
   fs.writeFileSync(config,YAML.stringify({http:{enabled:false},input:{stdin:{codec:'lines'}},pipeline:{processors},output:{stdout:{codec:'lines'}},logger:{level:'ERROR'}},{lineWidth:0}));
-  const result=spawnSync('benthos',['run',config],{input:JSON.stringify(input)+'\n',encoding:'utf8',timeout:10000,env:{...process.env,...env}});
+  const result=spawnSync(process.execPath,[path.join(root,'scripts/edge-contract-runtime.mjs'),config],{input:JSON.stringify(input)+'\n',encoding:'utf8',timeout:10000,env:{...process.env,...env}});
   assert.equal(result.status,0,result.stderr||String(result.error));
   return result.stdout.trim()?result.stdout.trim().split('\n').map(JSON.parse):[];
  }finally{fs.rmSync(scratch,{recursive:true,force:true});}

@@ -113,7 +113,7 @@ Note: `customer_name`, `customer_address`, and `customer_dob` are completely rem
 
 Track the selected deletions for debugging and review:
 
-```yaml
+```bloblang
 root._gdpr_compliance.fields_deleted = ["customer_name", "customer_address", "customer_dob"]
 root._gdpr_compliance.deletion_timestamp = now()
 ```
@@ -122,7 +122,7 @@ root._gdpr_compliance.deletion_timestamp = now()
 
 Make buckets configurable for different markets:
 
-```yaml
+```bloblang
 # Some markets use different age groupings
 let buckets = env("AGE_BUCKETS").or("18-24,25-34,35-44,45-54,55-64,65+")
 ```
@@ -131,7 +131,7 @@ let buckets = env("AGE_BUCKETS").or("18-24,25-34,35-44,45-54,55-64,65+")
 
 Gracefully handle records without DOB:
 
-```yaml
+```bloblang
 root.customer_age_bucket = if this.customer_dob == null {
   "unknown"
 } else if this.customer_dob == "" {
@@ -145,7 +145,7 @@ root.customer_age_bucket = if this.customer_dob == null {
 
 For GDPR, consider child protection (under 16):
 
-```yaml
+```bloblang
 root.customer_age_bucket = match {
   # GDPR considers under-16 as children requiring parental consent
   age_years < 16 => "child",
@@ -167,3 +167,5 @@ root.customer_age_bucket = match {
     📖 Step 4: Hash Identifiers →
   </a>
 </div>
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

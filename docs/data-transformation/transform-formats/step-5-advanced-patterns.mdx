@@ -65,22 +65,31 @@ output:
   broker:
     pattern: fan_out
     outputs:
-      # --- Output 1: Convert to Avro and send to Kafka ---
       - processors:
           - to_avro:
-              schema_path: "file://./sensor.avsc"
+              schema_path: file://./sensor.avsc
         kafka:
-          addresses: [ ${KAFKA_BROKERS} ]
-          topic: "sensor-readings-avro"
-
-      # --- Output 2: Convert to Parquet and send to S3 ---
+          addresses:
+            - ${KAFKA_TLS_BROKERS}
+          topic: sensor-readings-avro
+          tls:
+            enabled: true
+            root_cas_file: ${KAFKA_CA_FILE}
+          sasl:
+            mechanism: SCRAM-SHA-512
+            user: ${KAFKA_USERNAME}
+            password: ${KAFKA_PASSWORD}
       - processors:
           - to_parquet:
-              schema_path: "file://./sensor.avsc"
+              schema_path: file://./sensor.avsc
               default_compression: snappy
         aws_s3:
-          bucket: "my-analytics-bucket"
-          path: "readings/${!timestamp_unix_date()}/${!uuid_v4()}.parquet"
+          bucket: my-analytics-bucket
+          path: readings/${!timestamp_unix_date()}/${!uuid_v4()}.parquet
+          server_side_encryption: aws:kms
+          kms_key_id: ${S3_KMS_KEY_ARN}
 ```
 
 This pattern uses a `broker` output to fan the message out. Each branch of the fan-out has its own `processors` block to perform the format-specific conversion before sending the data to its final destination.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

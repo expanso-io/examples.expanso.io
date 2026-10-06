@@ -36,7 +36,6 @@ This configuration uses `event_id` directly rather than calculating a content ha
 2.  **Simplify the Key Creation:** Open `id-dedup.yaml`. You will replace the complex fingerprinting `mapping` processor with a much simpler one that just uses the `event_id`.
 
     ```yaml title="Replace the first 'mapping' processor in id-dedup.yaml"
-    # This processor is now much simpler.
     - mapping: |
         root = this
         # The key for deduplication is now just the event's own ID.
@@ -47,9 +46,9 @@ This configuration uses `event_id` directly rather than calculating a content ha
 
     ```yaml title="Update the 'cache' processor"
     - cache:
-        resource: dedup_cache # You can rename this to id_cache if you prefer
+        resource: dedup_cache
         operator: get
-        key: ${! this.dedup_key } # Use the new key field
+        key: ${! this.dedup_key }
     ```
 
     Finally, update the last `mapping` processor to also use the `dedup_key`.
@@ -81,3 +80,5 @@ This configuration uses `event_id` directly rather than calculating a content ha
 
 4.  **Verify:**
     Check your logs. Even though the `message` was different in the second request, it was dropped as a duplicate because it had the same `event_id`. This method is extremely fast and efficient when you can rely on a unique identifier in your events.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

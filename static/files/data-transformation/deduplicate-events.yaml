@@ -2,18 +2,11 @@ name: deduplicate-events
 type: pipeline
 config:
   input:
-    broker:
-      inputs:
-        - http_server:
-            address: ""
-            path: /webhooks/signup
-            allowed_verbs:
-              - POST
-        - http_server:
-            address: ""
-            path: /events
-            allowed_verbs:
-              - POST
+    http_server:
+      address: 127.0.0.1:8080
+      path: /{endpoint:webhooks/signup|events}
+      allowed_verbs:
+        - POST
   pipeline:
     threads: 1
     processors:
@@ -88,11 +81,6 @@ config:
             file:
               path: ${DUPLICATE_ARCHIVE_PATH}/dupes.jsonl
               codec: lines
-  http:
-    enabled: true
-    address: 127.0.0.1:8080
-    root_path: /runtime
-    debug_endpoints: false
   cache_resources:
     - label: delivered
       redis:

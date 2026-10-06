@@ -109,6 +109,12 @@ def encode_format(record, accept):
         def append(parent, value):
             if isinstance(value, dict):
                 for key, child in value.items():
+                    try:
+                        checked = ET.fromstring(ET.tostring(ET.Element(key)))
+                    except (ET.ParseError, TypeError, ValueError) as error:
+                        raise ValueError("JSON key cannot be represented as an XML element name") from error
+                    if checked.tag != key or checked.attrib or list(checked):
+                        raise ValueError("JSON key cannot be represented as an XML element name")
                     append(ET.SubElement(parent, key), child)
             elif isinstance(value, list):
                 for child in value:

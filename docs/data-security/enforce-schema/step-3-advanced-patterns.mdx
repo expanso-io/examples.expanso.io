@@ -74,17 +74,14 @@ output:
   broker:
     pattern: fan_out
     outputs:
-      # Output 1: The main switch for valid/DLQ routing
       - switch:
           cases:
-            - check: 'meta("validation_status") == "passed"'
+            - check: meta("validation_status") == "passed"
               output:
-                stdout: {} # Your "good" data destination
+                stdout: {}
             - output:
                 file:
-                  path: ./dlq.jsonl # Your DLQ destination
-
-      # Output 2: Send metadata about EVERY message to a monitoring endpoint
+                  path: ./dlq.jsonl
       - processors:
           - mapping: |
               root = {
@@ -93,8 +90,14 @@ output:
                 "timestamp": now()
               }
         http_client:
-          url: 'http://my-monitoring-service.com/validation-metrics'
-          verb: 'POST'
+          url: ${MY_MONITORING_SERVICE_COM_HTTPS_URL}/validation-metrics
+          verb: POST
+          headers:
+            Authorization: Bearer ${TUTORIAL_HTTP_TOKEN}
+          tls:
+            enabled: true
 ```
 
 This pattern uses a `broker` with `fan_out` to send the message down two paths simultaneously: the primary data path (which splits good from bad) and a secondary monitoring path that observes the outcome.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

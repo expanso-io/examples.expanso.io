@@ -50,22 +50,16 @@ This entire transformation can be done with a single function: `.parse_json()`.
     ```yaml title="json-parser.yaml"
     name: json-log-parser
     description: A pipeline that parses a string field containing JSON.
-
     config:
       input:
         generate:
           interval: 1s
           mapping: |
             root.raw_log = '{"timestamp": "2025-10-20T14:23:45Z", "level": "error", "service": "api", "message": "DB connection failed"}'
-
       pipeline:
         processors:
-          # This single processor does all the work.
-          # It takes the 'raw_log' string, parses it as JSON,
-          # and makes the result the new root of the message.
           - mapping: |
               root = this.raw_log.parse_json()
-
       output:
         stdout:
           codec: lines
@@ -89,3 +83,5 @@ The output will be a stream of structured JSON objects.
 ```
 
 You have successfully parsed a JSON log. Notice how you can now query fields like `level` and `service`, which was impossible when it was just a raw string. This is the first and most important step in building a structured logging pipeline.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

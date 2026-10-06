@@ -54,7 +54,6 @@ You will create a pipeline that takes a JSON message, validates it against an Av
     ```yaml title="json-to-avro.yaml"
     name: json-to-avro-converter
     description: A pipeline that converts JSON to Avro.
-
     config:
       input:
         generate:
@@ -65,21 +64,13 @@ You will create a pipeline that takes a JSON message, validates it against an Av
               "temperature": 25.5,
               "timestamp": now().ts_format_iso8601()
             }
-
       pipeline:
         processors:
-          # 1. PREPARE: Ensure the data matches the Avro schema.
-          # The schema requires 'timestamp' to be a 'long' (integer),
-          # but our input is an ISO8601 string. We must convert it.
           - mapping: |
               root = this
               root.timestamp = this.timestamp.parse_timestamp().unix_milli()
-
-          # 2. CONVERT: Convert the prepared JSON object to Avro binary format.
-          # This processor replaces the message content with the binary data.
           - to_avro:
-              schema_path: 'file://./sensor.avsc'
-
+              schema_path: file://./sensor.avsc
       output:
         stdout:
           codec: lines
@@ -92,3 +83,5 @@ You will create a pipeline that takes a JSON message, validates it against an Av
 The output in your console will look like garbled text, because it is binary data. This confirms the conversion was successful. A downstream system with access to the same Avro schema would be able to read this binary data and understand its structure perfectly.
 
 You have transformed JSON into a schema-enforced binary format.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

@@ -30,11 +30,11 @@ Some messages contain multiple arrays that each need to be split into different 
 pipeline:
   processors:
     # Store the context that is common to ALL branches
-    - mapping: `meta order_id = this.order_id`
+    - mapping: "meta order_id = this.order_id"
 
     # Process the 'items' array in the first branch
     - branch:
-        request_map: `root = {"items": this.items}`
+        request_map: "root = {\"items\": this.items}"
         processors:
           - unarchive:
               format: json_array
@@ -46,7 +46,7 @@ pipeline:
 
     # Process the 'discounts' array in a second branch
     - branch:
-        request_map: `root = {"discounts": this.applied_discounts}`
+        request_map: "root = {\"discounts\": this.applied_discounts}"
         processors:
           - unarchive:
               format: json_array
@@ -71,7 +71,7 @@ pipeline:
           # If 1 or fewer items, process as a single batch
           - check: this.items.length() <= 1
             processors:
-              - mapping: `root.processing_type = "batch"`
+              - mapping: "root.processing_type = \"batch\""
 
           # Otherwise, use the standard splitting pattern
           - processors:

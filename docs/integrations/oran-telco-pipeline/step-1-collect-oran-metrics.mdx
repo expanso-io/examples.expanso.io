@@ -148,14 +148,13 @@ config:
   input:
     broker:
       inputs:
-        # PTP metrics via API polling
         - http_client:
-            url: '${DU_ENDPOINT}/api/v1/metrics/ptp'
+            url: ${DU_ENDPOINT}/api/v1/metrics/ptp
             verb: GET
             headers:
-              Authorization: 'Bearer ${DU_API_KEY}'
-              Accept: 'application/json'
-            rate_limit: '1/s'
+              Authorization: Bearer ${DU_API_KEY}
+              Accept: application/json
+            rate_limit: 1/s
             processors:
               - mapping: |
                   root.timestamp = now()
@@ -168,14 +167,14 @@ config:
                   root.ptp4l_offset_ns = this.ptp.offset_nanoseconds
                   root.ptp_status = this.ptp.status
                   root.sync_source = this.ptp.master_id
-
-        # PRB metrics via API
+            tls:
+              enabled: true
         - http_client:
-            url: '${DU_ENDPOINT}/api/v1/metrics/prb'
+            url: ${DU_ENDPOINT}/api/v1/metrics/prb
             verb: GET
             headers:
-              Authorization: 'Bearer ${DU_API_KEY}'
-            rate_limit: '1/s'
+              Authorization: Bearer ${DU_API_KEY}
+            rate_limit: 1/s
             processors:
               - mapping: |
                   root.timestamp = now()
@@ -188,14 +187,14 @@ config:
                   root.prb_ul_pct = this.scheduler.prb_ul_utilization_percent
                   root.prb_total_available = this.scheduler.prb_total
                   root.active_ue_count = this.scheduler.active_ue_count
-
-        # System metrics via API
+            tls:
+              enabled: true
         - http_client:
-            url: '${DU_ENDPOINT}/api/v1/metrics/system'
+            url: ${DU_ENDPOINT}/api/v1/metrics/system
             verb: GET
             headers:
-              Authorization: 'Bearer ${DU_API_KEY}'
-            rate_limit: '10s'
+              Authorization: Bearer ${DU_API_KEY}
+            rate_limit: 10s
             processors:
               - mapping: |
                   root.timestamp = now()
@@ -210,8 +209,8 @@ config:
                   root.disk_pct = this.system.disk_utilization_percent
                   root.network_rx_mbps = this.system.network_rx_bytes_per_sec / 1000000
                   root.network_tx_mbps = this.system.network_tx_bytes_per_sec / 1000000
-
-  # Continue to transformation step...
+            tls:
+              enabled: true
 ```
 
 ## Collection Method 3: Hybrid Approach
@@ -224,25 +223,25 @@ config:
   input:
     broker:
       inputs:
-        # Real-time metrics via API (high frequency)
         - http_client:
-            url: '${DU_ENDPOINT}/api/v1/metrics/realtime'
+            url: ${DU_ENDPOINT}/api/v1/metrics/realtime
             verb: GET
-            rate_limit: '1/s'
+            rate_limit: 1/s
             processors:
-              - mapping: 'root.source = "api_realtime"'
-
-        # Historical/batch data via files (lower frequency)
+              - mapping: root.source = "api_realtime"
+            headers:
+              Authorization: Bearer ${TUTORIAL_HTTP_TOKEN}
+            tls:
+              enabled: true
         - file:
-            paths: ['/mnt/du-telemetry/batch/*.json']
+            paths:
+              - /mnt/du-telemetry/batch/*.json
             scanner:
               lines: {}
             processors:
-              - mapping: 'root.source = "file_batch"'
-
-        # Performance data via SNMP polling
+              - mapping: root.source = "file_batch"
         - generate:
-            interval: '30s'
+            interval: 30s
             mapping: |
               # Trigger SNMP collection
               root = {}
@@ -262,7 +261,7 @@ pipeline:
         # Validate required fields
         root = if [
           this.timestamp.type() == "string",
-          this.du_id.type() == "string", 
+          this.du_id.type() == "string",
           this.metric_type.type() == "string"
         ].all() {
           this
@@ -305,3 +304,5 @@ oc -n oran-telemetry logs -f deployment/expanso-edge
 ## Next Steps
 
 With O-RAN metrics flowing into your pipeline, proceed to [transform and enrich the data](/integrations/oran-telco-pipeline/step-2-transform-and-enrich.mdx) with Bloblang processing.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

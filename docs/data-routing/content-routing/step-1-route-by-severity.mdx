@@ -39,7 +39,6 @@ To achieve this, you will replace the `broker` output with a `switch` output. Th
     output:
       switch:
         cases:
-          # Case 1: Handle CRITICAL events
           - check: this.severity == "CRITICAL"
             output:
               http_client:
@@ -58,12 +57,12 @@ To achieve this, you will replace the `broker` output with a `switch` output. Th
                       "severity": "critical"
                     }
                   }
-
-          # Case 2: Handle WARN events
+                tls:
+                  enabled: true
           - check: this.severity == "WARN"
             output:
               http_client:
-                url: ${SLACK_WEBHOOK_URL}
+                url: ${SLACK_HTTPS_WEBHOOK_URL}
                 verb: POST
                 headers:
                   Content-Type: application/json
@@ -71,14 +70,20 @@ To achieve this, you will replace the `broker` output with a `switch` output. Th
                   {
                     "text": "⚠️ Warning: " + this.message.or("No message")
                   }
-
-          # Case 3 (Default): Handle all other events
+                tls:
+                  enabled: true
+              processors:
+                - mapping: root.text = this.message.or("Warning")
           - output:
-              elasticsearch:
-                hosts:
-                  - ${ELASTICSEARCH_HOST:http://localhost:9200}
-                index: application-logs-${!timestamp_date("2006-01-02")}
-                id: ${!this.event_id.or(uuid_v4())}
+              http_client:
+                url: ${ELASTICSEARCH_HTTPS_URL}/application-logs-${!timestamp_date("2006-01-02")}/_doc/${!this.event_id.or(uuid_v4())}
+                verb: PUT
+                headers:
+                  Authorization: ApiKey ${ELASTICSEARCH_API_KEY}
+                  Content-Type: application/json
+                tls:
+                  enabled: true
+                  root_cas_file: ${ELASTICSEARCH_CA_FILE}
     ```
 
     Your `severity-router.yaml` file should now use the same `input` as the foundation, but with this new conditional `output`.
@@ -105,3 +110,5 @@ To achieve this, you will replace the `broker` output with a `switch` output. Th
 4.  **Inspect:** Check the configured outputs and record which destinations accepted each synthetic event.
 
 You have now implemented the core of severity-based routing!
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

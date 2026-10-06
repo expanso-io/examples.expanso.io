@@ -39,33 +39,24 @@ Modify the `switch` output so a message with `region: "EU"` uses a dedicated exa
     output:
       switch:
         cases:
-          # --- START: New addition ---
-          # Case 1: Handle the authored EU label before severity branches.
           - check: this.region == "EU"
             output:
               file:
-                path: /tmp/eu-data.jsonl # A dedicated example destination
+                path: ${EXAMPLE_OUTPUT_PATH}/eu-data.jsonl
                 codec: lines
-          # --- END: New addition ---
-
-          # Case 2: Handle CRITICAL events (for non-EU data)
           - check: this.severity == "CRITICAL"
             output:
-              file: # Your PagerDuty/alerting output from Step 1
-                path: /tmp/critical.jsonl
+              file:
+                path: ${EXAMPLE_OUTPUT_PATH}/critical.jsonl
                 codec: lines
-
-          # Case 3: Handle WARN events (for non-EU data)
           - check: this.severity == "WARN"
             output:
-              file: # Your Slack/monitoring output from Step 1
-                path: /tmp/warnings.jsonl
+              file:
+                path: ${EXAMPLE_OUTPUT_PATH}/warnings.jsonl
                 codec: lines
-
-          # Case 4 (Default): Handle all other non-EU events
           - output:
-              file: # Your Elasticsearch/logging output from Step 1
-                path: /tmp/other.jsonl
+              file:
+                path: ${EXAMPLE_OUTPUT_PATH}/other.jsonl
                 codec: lines
     ```
 
@@ -88,3 +79,5 @@ Modify the `switch` output so a message with `region: "EU"` uses a dedicated exa
     - The second event will be in `critical.jsonl` because it did not match the EU rule and fell through to the severity-based routing.
 
 The resulting branch order evaluates the region case before the remaining business rules.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

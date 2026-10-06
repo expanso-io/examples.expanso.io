@@ -38,19 +38,26 @@ output:
   broker:
     pattern: fan_out
     outputs:
-      # Destination 1: Elasticsearch
-      - elasticsearch:
-          urls: ['${ELASTICSEARCH_URL}']
-          index: 'logs-${!timestamp_unix_date()}'
-
-      # Destination 2: S3
+      - http_client:
+          url: ${ELASTICSEARCH_HTTPS_URL}/logs-${!timestamp_unix_date()}/_doc/${! uuid_v4() }
+          verb: PUT
+          headers:
+            Authorization: ApiKey ${ELASTICSEARCH_API_KEY}
+            Content-Type: application/json
+          tls:
+            enabled: true
+            root_cas_file: ${ELASTICSEARCH_CA_FILE}
       - aws_s3:
-          bucket: '${S3_BUCKET}'
-          path: 'logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz'
+          bucket: ${S3_BUCKET}
+          path: logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz
           batching:
             count: 1000
             period: 30s
-            processors: [{ compress: { algorithm: gzip } }]
+            processors:
+              - compress:
+                  algorithm: gzip
+          server_side_encryption: aws:kms
+          kms_key_id: ${S3_KMS_KEY_ARN}
 ```
 
 ### 2. Handling Failures
@@ -122,3 +129,5 @@ output:
 You have assembled the complete tutorial pipeline. You started with a basic HTTP server, added the tutorial's security controls, validated data, enriched it with context, filtered noise, redacted PII, and routed it to multiple destinations.
 
 👉 [**View Complete Pipeline**](/log-processing/production-pipeline/complete-production-pipeline)
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

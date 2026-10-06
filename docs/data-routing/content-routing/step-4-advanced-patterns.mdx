@@ -27,24 +27,20 @@ A `check` can evaluate multiple conditions. For example, route a message with `C
 output:
   switch:
     cases:
-      - check: 'this.severity == "CRITICAL" && this.region == "EU"'
+      - check: this.severity == "CRITICAL" && this.region == "EU"
         output:
-          # Separate high-priority destination for the authored EU label
           file:
-            path: /tmp/eu-critical-alerts.jsonl
+            path: ${EXAMPLE_OUTPUT_PATH}/eu-critical-alerts.jsonl
             codec: lines
-
-      # Other cases follow...
-      - check: 'this.region == "EU"'
+      - check: this.region == "EU"
         output:
           file:
-            path: /tmp/eu-data.jsonl
+            path: ${EXAMPLE_OUTPUT_PATH}/eu-data.jsonl
             codec: lines
-
-      - check: 'this.severity == "CRITICAL"'
+      - check: this.severity == "CRITICAL"
         output:
           file:
-            path: /tmp/critical.jsonl
+            path: ${EXAMPLE_OUTPUT_PATH}/critical.jsonl
             codec: lines
 ```
 
@@ -86,3 +82,5 @@ output:
 ```
 
 This pattern makes your routing logic much easier to read, manage, and test.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

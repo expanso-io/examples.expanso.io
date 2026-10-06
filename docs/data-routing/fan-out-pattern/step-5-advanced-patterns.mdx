@@ -28,23 +28,28 @@ While `fan_out` sends to all outputs, the `try` pattern sends to them in order, 
 ```yaml title="Failover Routing with the 'try' Broker"
 output:
   broker:
-    pattern: try # Tries each output in order until one succeeds
+    pattern: try
     outputs:
-      # 1. Primary Destination
-      - elasticsearch:
-          urls: [ ${ES_PRIMARY_ENDPOINT} ]
-          index: "primary-index"
-          retries: 2 # Try a couple of times before failing over
-
-      # 2. Secondary/Fallback Destination
-      - elasticsearch:
-          urls: [ ${ES_SECONDARY_ENDPOINT} ]
-          index: "secondary-index"
-          retries: 2
-
-      # 3. Last Resort: Local File
+      - http_client:
+          url: ${ELASTICSEARCH_HTTPS_URL}/primary-index/_doc/${! uuid_v4() }
+          verb: PUT
+          headers:
+            Authorization: ApiKey ${ELASTICSEARCH_API_KEY}
+            Content-Type: application/json
+          tls:
+            enabled: true
+            root_cas_file: ${ELASTICSEARCH_CA_FILE}
+      - http_client:
+          url: ${ELASTICSEARCH_HTTPS_URL}/secondary-index/_doc/${! uuid_v4() }
+          verb: PUT
+          headers:
+            Authorization: ApiKey ${ELASTICSEARCH_API_KEY}
+            Content-Type: application/json
+          tls:
+            enabled: true
+            root_cas_file: ${ELASTICSEARCH_CA_FILE}
       - file:
-          path: /tmp/es_fallback_buffer.jsonl
+          path: ${EXAMPLE_OUTPUT_PATH}/es_fallback_buffer.jsonl
           codec: lines
 ```
 
@@ -59,26 +64,35 @@ output:
   broker:
     pattern: fan_out
     outputs:
-      # Destination 1: Kafka (all messages go here)
       - kafka:
-          addresses: [ ${KAFKA_BROKERS} ]
-          topic: "all-logs"
-
-      # Destination 2: S3 (all messages go here)
+          addresses:
+            - ${KAFKA_TLS_BROKERS}
+          topic: all-logs
+          tls:
+            enabled: true
+            root_cas_file: ${KAFKA_CA_FILE}
+          sasl:
+            mechanism: SCRAM-SHA-512
+            user: ${KAFKA_USERNAME}
+            password: ${KAFKA_PASSWORD}
       - aws_s3:
-          bucket: "my-log-archive"
-          path: "logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz"
-
-      # Destination 3: Alerting Service (errors selected here)
+          bucket: my-log-archive
+          path: logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz
+          server_side_encryption: aws:kms
+          kms_key_id: ${S3_KMS_KEY_ARN}
       - switch:
           cases:
             - check: this.level == "ERROR"
               output:
                 http_client:
-                  url: "http://my-alerting-service/ingest"
-                  verb: "POST"
-            # If the check fails, the 'switch' does nothing,
-            # effectively dropping the message for this branch.
+                  url: ${MY_ALERTING_SERVICE_HTTPS_URL}/ingest
+                  verb: POST
+                  headers:
+                    Authorization: Bearer ${TUTORIAL_HTTP_TOKEN}
+                  tls:
+                    enabled: true
 ```
 
 This powerful combination allows you to build complex, business-aware routing logic while maintaining the core efficiency of the fan-out pattern.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

@@ -40,16 +40,13 @@ You will build a single pipeline that can:
     ```yaml title="unified-transformer.yaml"
     name: unified-format-transformer
     description: A pipeline that auto-detects and converts between JSON and Protobuf.
-
     config:
       input:
         http_server:
           address: 0.0.0.0:8080
           path: /transform
-
       pipeline:
         processors:
-          # 1. DETECT: Check the Content-Type header
           - mapping: |
               root = this
               meta format = if meta("http_headers.Content-Type") == "application/x-protobuf" {
@@ -57,40 +54,27 @@ You will build a single pipeline that can:
               } else {
                 "json"
               }
-
-          # 2. ROUTE: Switch to the correct conversion logic
           - switch:
-              # CASE 1: Input is JSON, convert TO Protobuf
               - check: meta("format") == "json"
                 processors:
-                  # Prepare the JSON object to match the schema
                   - mapping: |
                       root = {
                         "sensor_id": this.sensor_id,
                         "temperature": this.temperature,
                         "timestamp_unix_ms": this.timestamp.parse_timestamp().unix_milli()
                       }
-                  # Convert to Protobuf
                   - to_protobuf:
-                      proto_path: 'file://./sensor.proto'
-                      message: 'SensorReading'
-
-              # CASE 2: Input is Protobuf, convert TO JSON
+                      proto_path: file://./sensor.proto
+                      message: SensorReading
               - check: meta("format") == "protobuf"
                 processors:
-                  # Convert from Protobuf back to a structured object
                   - from_protobuf:
-                      proto_path: 'file://./sensor.proto'
-                      message: 'SensorReading'
-                  # Convert the timestamp back to a human-readable string
+                      proto_path: file://./sensor.proto
+                      message: SensorReading
                   - mapping: |
                       root = this
                       root.timestamp = this.timestamp_unix_ms.ts_unix_milli().ts_format_iso8601()
-
       output:
-        # The output processor can dynamically set the Content-Type header
-        # of the HTTP response based on the final format.
-        # (This is an advanced feature covered in other guides).
         stdout:
           codec: lines
     ```
@@ -112,3 +96,5 @@ You will build a single pipeline that can:
 The first `curl` command will output unreadable binary text, confirming the successful conversion to Protobuf. The (conceptual) second test would show that the binary data can be successfully converted back to the original JSON structure.
 
 You have now built a flexible, multi-format transformation pipeline.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

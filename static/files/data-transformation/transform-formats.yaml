@@ -2,24 +2,15 @@ name: format-negotiation-and-avro
 type: pipeline
 config:
   input:
-    broker:
-      inputs:
-        - http_server:
-            address: ""
-            path: /sensors/ingest
-            allowed_verbs:
-              - POST
-            sync_response:
-              headers:
-                Content-Type: ${! meta("response_type") }
-        - http_server:
-            address: ""
-            path: /transform
-            allowed_verbs:
-              - POST
-            sync_response:
-              headers:
-                Content-Type: ${! meta("response_type") }
+    http_server:
+      address: 127.0.0.1:8080
+      path: /{endpoint:sensors/ingest|transform}
+      allowed_verbs:
+        - POST
+      sync_response:
+        headers:
+          Content-Type: ${! meta("response_type") }
+        status: ${! meta("response_status").or("200") }
   pipeline:
     processors:
       - command:
@@ -32,12 +23,19 @@ config:
       pattern: fan_out
       outputs:
         - processors:
-            - command:
-                name: uv
-                args_mapping: root = ["run", "--no-project", env("RECORD_CODECS_SCRIPT"), "encode", meta("Accept").or("application/json")]
-            - mapping: |-
-                meta response_type = match this.transformation.target_format { "xml" => "application/xml", "csv" => "text/csv", _ => "application/json" }
-                root = this.data
+            - try:
+                - command:
+                    name: uv
+                    args_mapping: root = ["run", "--no-project", env("RECORD_CODECS_SCRIPT"), "encode", meta("Accept").or("application/json")]
+                - mapping: |-
+                    meta response_type = match this.transformation.target_format { "xml" => "application/xml", "csv" => "text/csv", _ => "application/json" }
+                    root = this.data
+            - catch:
+                - mapping: |-
+                    let failure = error()
+                    root = {"error": $failure}
+                    meta response_type = "application/json"
+                    meta response_status = "422"
           sync_response: {}
         - switch:
             cases:
@@ -59,23 +57,21 @@ config:
                       count: 100
                       period: 5s
                   processors:
-                    - mapping: root = this.data
-                    - mapping: |
-                        root.sensor_id = this.sensor_id
-                        root.location = this.location
-                        root.temperature = this.temperature
-                        root.humidity = this.humidity
-                        root.timestamp = this.timestamp
-                        root.device_type = this.metadata.device_type
-                        root.firmware_version = this.metadata.firmware_version
-                    - command:
-                        name: uv
-                        args_mapping: root = ["run", "--no-project", env("RECORD_CODECS_SCRIPT"), "avro"]
-                    - mapping: root = this.avro_base64.decode("base64")
+                    - try:
+                        - mapping: root = this.data
+                        - mapping: |
+                            root.sensor_id = this.sensor_id
+                            root.location = this.location
+                            root.temperature = this.temperature
+                            root.humidity = this.humidity
+                            root.timestamp = this.timestamp
+                            root.device_type = this.metadata.device_type
+                            root.firmware_version = this.metadata.firmware_version
+                        - command:
+                            name: uv
+                            args_mapping: root = ["run", "--no-project", env("RECORD_CODECS_SCRIPT"), "avro"]
+                        - mapping: root = this.avro_base64.decode("base64")
+                    - catch:
+                        - mapping: root = deleted()
               - output:
                   drop: {}
-  http:
-    enabled: true
-    address: 127.0.0.1:8080
-    root_path: /runtime
-    debug_endpoints: false

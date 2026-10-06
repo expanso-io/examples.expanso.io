@@ -17,7 +17,7 @@ function scratch() { return fs.mkdtempSync(path.join(root, '.nm-superset-')); }
 function run(cfg, input, dir, env = {}) {
   const file = path.join(dir, 'run.yaml');
   fs.writeFileSync(file, YAML.stringify({ ...cfg, http: { enabled: false }, input: { stdin: { codec: 'lines' } }, logger: { level: 'ERROR' } }, { lineWidth: 0 }));
-  const result = spawnSync('benthos', ['run', file], {
+  const result = spawnSync(process.execPath, [path.join(root, 'scripts/edge-contract-runtime.mjs'), file], {
     input: input.map(v => typeof v === 'string' ? v : JSON.stringify(v)).join('\n') + '\n',
     encoding: 'utf8', timeout: 15000,
     env: { ...process.env, RECORD_CODECS_SCRIPT: path.join(root, 'scripts/examples/record_codecs.py'), ...env },
@@ -104,7 +104,7 @@ test('all format copies decode JSON CSV XML, negotiate response encoding, and re
       const cfg = config(source);
       const response = cfg.output.broker.outputs[0];
       assert.deepEqual(response.sync_response, {});
-      const encoders = response.processors.slice(0, 1);
+      const encoders = response.processors[0].try.slice(0, 1);
       cfg.output = stdout;
       for (const raw of [{ sensor_id: 'one', temperature: 10 }, '<root><sensor_id>one</sensor_id><temperature>10</temperature></root>', 'sensor_id,temperature\none,10']) {
         const wire = typeof raw === 'string' && raw.includes('\n') ? JSON.stringify(raw) : raw;
@@ -130,6 +130,10 @@ test('all format copies decode JSON CSV XML, negotiate response encoding, and re
         length >>= 1;
         const value = bytes.subarray(offset, offset + length).toString('utf8'); offset += length; return value;
       };
+
+      for (const invalid of [{...sensor, humidity:null}, {...sensor, temperature:'invalid'}]) {
+        assert.deepEqual(run({pipeline:{processors:[...original.pipeline.processors,...branch.processors]},output:stdout},[invalid],dir),[]);
+      }
       assert.equal(string(), sensor.sensor_id); assert.equal(string(), sensor.location);
       assert.equal(bytes.readDoubleLE(offset), sensor.temperature); offset += 8;
       assert.equal(bytes.readDoubleLE(offset), sensor.humidity); offset += 8;
@@ -158,12 +162,12 @@ test('format copies honor HTTP Accept headers on both public input paths', async
     const port = reserved.address().port;
     await new Promise(resolve => reserved.close(resolve));
     const cfg = config(source);
-    for (const input of cfg.input.broker.inputs) input.http_server.address = '';
+    cfg.input.http_server.address = `127.0.0.1:${port}`;
     cfg.output = cfg.output.broker.outputs[0];
-    cfg.http = { enabled: true, address: `127.0.0.1:${port}`, root_path: '/runtime' }; cfg.logger = { level: 'ERROR' };
+    cfg.logger = { level: 'ERROR' };
     const file = path.join(dir, 'http.yaml');
     fs.writeFileSync(file, YAML.stringify(cfg));
-    const child = spawn('benthos', ['run', file], { env: { ...process.env, RECORD_CODECS_SCRIPT: path.join(root, 'scripts/examples/record_codecs.py') } });
+    const child = spawn(process.execPath, [path.join(root, 'scripts/edge-contract-runtime.mjs'), file], { env: { ...process.env, RECORD_CODECS_SCRIPT: path.join(root, 'scripts/examples/record_codecs.py') } });
     let errors = '';
     child.stdout.on('data', data => errors += data);
     child.stderr.on('data', data => errors += data);
@@ -183,6 +187,9 @@ test('format copies honor HTTP Accept headers on both public input paths', async
         assert.equal(response.headers.get('content-type'), 'text/csv');
         assert.equal(await response.text(), 'name,value\r\nfixture,one\r\n');
       }
+      assert.equal((await fetch(base+'/unsupported',{method:'POST',body:'{}'})).status,404);
+      const invalidXml=await fetch(base+'/transform',{method:'POST',headers:{Accept:'application/xml'},body:JSON.stringify({'@timestamp':'2026-10-05T08:00:00Z'})});
+      assert.equal(invalidXml.status,422);assert.ok((await invalidXml.json()).error);
     } finally { child.kill('SIGTERM'); await stopped; fs.rmSync(dir, { recursive: true, force: true }); }
   }
 });
@@ -223,7 +230,7 @@ test('all circuit copies deliver through secondary, persistent-file and final fa
       const execute = async () => {
         const file = path.join(dir, 'fallback.yaml');
         fs.writeFileSync(file, YAML.stringify({ ...cfg, http: { enabled: false }, input: { stdin: { codec: 'lines' } }, logger: { level: 'ERROR' } }));
-        const child = spawn('benthos', ['run', file]);
+        const child = spawn(process.execPath, [path.join(root, 'scripts/edge-contract-runtime.mjs'), file]);
         let out = '', err = '';
         child.stdout.on('data', data => out += data);
         child.stderr.on('data', data => err += data);
@@ -298,7 +305,7 @@ test('fan-out copies retain a local diagnostic archive', () => {
 async function withRuntime(cfg, dir, env, operation) {
   const file = path.join(dir, 'live.yaml');
   fs.writeFileSync(file, YAML.stringify({ ...cfg, logger: { level: 'ERROR' } }));
-  const child = spawn('benthos', ['run', file], { env: { ...process.env, ...env } });
+  const child = spawn(process.execPath, [path.join(root, 'scripts/edge-contract-runtime.mjs'), file], { env: { ...process.env, ...env } });
   let output = '', errors = '';
   child.stdout.on('data', data => output += data); child.stderr.on('data', data => errors += data);
   const stopped = new Promise(resolve => child.on('close', resolve));
@@ -366,11 +373,11 @@ test('schema copies expose both public sensor input paths', async () => {
     await new Promise(resolve=>reserved.listen(0,'127.0.0.1',resolve));const port=reserved.address().port;
     await new Promise(resolve=>reserved.close(resolve));
     try {
-      const cfg=config(file);cfg.output=stdout;cfg.http={enabled:true,address:'127.0.0.1:'+port,root_path:'/runtime'};
+      const cfg=config(file);cfg.output=stdout;cfg.input.http_server.address='127.0.0.1:'+port;
       const schema=dir+'/schema.json';fs.writeFileSync(schema,JSON.stringify({type:'object',required:['sensor_id']}));
       cfg.pipeline.processors.find(p=>p.try).try.find(p=>p.json_schema).json_schema.schema_path='file://'+schema;
       await withRuntime(cfg,dir,{},async (child,output,errors)=>{
-        for(let i=0;i<100;i++){try{await fetch('http://127.0.0.1:'+port+'/runtime/ping');break;}catch{await new Promise(resolve=>setTimeout(resolve,30));}}
+        for(let i=0;i<100;i++){try{await fetch('http://127.0.0.1:'+port+'/sensors');break;}catch{await new Promise(resolve=>setTimeout(resolve,30));}}
         for(const endpoint of ['/sensors','/sensor/readings']){
           const response=await fetch('http://127.0.0.1:'+port+endpoint,{method:'POST',body:JSON.stringify({sensor_id:endpoint})});
           assert.equal(response.status,200,errors());
@@ -378,6 +385,49 @@ test('schema copies expose both public sensor input paths', async () => {
         await until(()=>output().trim().split('\n').length>=2,'sensor inputs delivered');
         assert.deepEqual(output().trim().split('\n').map(JSON.parse).map(r=>r.sensor_id).sort(),['/sensor/readings','/sensors']);
       });
+    }finally{fs.rmSync(dir,{recursive:true,force:true});}
+  }
+});
+
+test('window summaries sort offset timestamps by epoch and aggregate one large batch', () => {
+  const dir=scratch();
+  try {
+    const cfg=config(sources('aggregate-time-windows')[0]); cfg.buffer={none:{}};cfg.output=stdout;
+    const events=[{sensor_id:'one',location:'north',timestamp:'2026-10-05T09:00:15+01:00',temperature:10},{sensor_id:'one',location:'north',timestamp:'2026-10-05T08:00:45Z',temperature:30}];
+    cfg.pipeline.processors.unshift({mapping:'root = '+JSON.stringify(events)},{unarchive:{format:'json_array'}},{mapping:'root = this\nmeta window_end_timestamp = "2026-10-05T08:01:00Z"'});
+    const sliding=run(cfg,[{}],dir).find(r=>r.aggregation_type==='sliding');
+    assert.equal(sliding.temperature_change,20);assert.equal(sliding.temperature_trend,'increasing');
+    const batch=Array.from({length:2000},(_,i)=>({...events[i%2],sensor_id:'sensor-'+(i%20)}));
+    cfg.pipeline.processors[0].mapping='root = '+JSON.stringify(batch);
+    const results=run(cfg,[{}],dir);
+    assert.equal(results.filter(r=>r.aggregation_type==='sliding').length,20);
+    assert.equal(results.find(r=>r.aggregation_level==='location').event_count,2000);
+  }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
+test('production copies preserve latency, archival metadata and local sanitized backup', () => {
+  for(const source of sources('production-pipeline')){
+    const dir=scratch();
+    try{
+      const cfg=config(source),outputs=cfg.output.broker.outputs;
+      cfg.output=stdout;
+      const event={level:'ERROR',message:'retained',duration_ms:750,password:'remove'};
+      const out=run(cfg,[event],dir)[0];assert.equal(out.latency_category,'slow');
+      const archived=run({pipeline:{processors:outputs.find(o=>o.aws_s3).processors},output:stdout},[out],dir)[0];assert.ok(archived.archived_at);
+      cfg.output=outputs.find(o=>o.label==='local_backup');
+      run(cfg,[event],dir,{LOCAL_BACKUP_PATH:dir});
+      const backup=JSON.parse(fs.readFileSync(path.join(dir,fs.readdirSync(dir).find(n=>n.startsWith('logs-'))),'utf8'));
+      assert.equal(backup.latency_category,'slow');assert.equal(backup.password,undefined);
+      const job=YAML.parse(fs.readFileSync(path.join(root,source),'utf8'));
+      assert.deepEqual(job.selector.match_labels,{region:'us-west',role:'log-collector'});assert.equal(job.deployment.strategy,'rolling');assert.equal(job.deployment.auto_rollback,true);
+    }finally{fs.rmSync(dir,{recursive:true,force:true});}
+  }
+});
+test('INFO logs retain analytics delivery in every parser copy', () => {
+  for(const source of sources('parse-logs')){
+    const dir=scratch();try{
+      const cfg=config(source),output=cfg.output;cfg.output=stdout;
+      const out=run(cfg,[{level:'INFO',message:'retained'}],dir)[0];
+      assert.equal(select(output.switch.cases,out,dir).output.http_client.verb,'POST');assert.equal(out.message,'retained');
     }finally{fs.rmSync(dir,{recursive:true,force:true});}
   }
 });

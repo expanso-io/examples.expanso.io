@@ -37,17 +37,13 @@ You will transform a continuous stream of individual sensor readings into a seri
     ```yaml title="tumbling-windows.yaml"
     name: tumbling-windows-aggregator
     description: A pipeline that aggregates sensor data into 10-second tumbling windows.
-
-    # 1. Define a cache resource to temporarily store events for each window.
-    # The TTL (time-to-live) determines when the window "closes".
     config:
       cache_resources:
         - label: window_cache
           memory:
-            default_ttl: 12s # 10s window + 2s grace period for late events
-
+            default_ttl: 12s
       input:
-        generate: # Generate a stream of mock sensor data
+        generate:
           interval: 100ms
           mapping: |
             root = {
@@ -55,30 +51,22 @@ You will transform a continuous stream of individual sensor readings into a seri
               "temperature": (random_int() % 10) + 20.0,
               "timestamp": now().ts_format("2006-01-02T15:04:05.999Z")
             }
-
       pipeline:
         processors:
-          # 2. WINDOW: Calculate the 10-second window and create a group key
           - mapping: |
               let parsed_time = this.timestamp.parse_timestamp()
               let window_start_unix = (parsed_time.unix() / 10).floor() * 10
               let window_start = window_start_unix.ts_format_iso8601()
               root = this
               root.group_key = this.sensor_id + ":" + window_start
-
-          # 3. CACHE: Store the event until the window closes
           - cache:
               resource: window_cache
               operator: add
               key: ${! this.group_key }
               value: ${! this }
-
-          # 4. GROUP: When the cache TTL expires, group all events with the same key
           - group_by:
               - key: ${! this.group_key }
                 value: ${! this }
-
-          # 5. AGGREGATE: Calculate statistics for the group
           - mapping: |
               let first_event = this[0]
               let temperatures = this.map_each(event -> event.temperature)
@@ -89,7 +77,6 @@ You will transform a continuous stream of individual sensor readings into a seri
                 "event_count": this.length(),
                 "avg_temperature": temperatures.mean().round(2)
               }
-
       output:
         stdout:
           codec: lines
@@ -112,3 +99,5 @@ The authored output is a stream of summary objects for `sensor-0` and `sensor-1`
 ```
 
 You have successfully built a real-time aggregation pipeline using a tumbling window. This fundamental pattern is the basis for most time-series analysis.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

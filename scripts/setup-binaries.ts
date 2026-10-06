@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 const BIN_DIR = path.join(process.cwd(), '.bin');
+const {version: PINNED_VERSION} = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'scripts/edge-runtime-version.json'), 'utf8'));
 const INSTALL_TIMEOUT_MS = 240_000;
 const CURL_FLAGS =
   '--connect-timeout 15 --max-time 180 --retry 3 --retry-delay 2';
@@ -18,12 +19,12 @@ function setup() {
   console.log(`\n⬇️  Installing expanso-edge using official script...`);
   try {
     const edgePath = path.join(BIN_DIR, 'expanso-edge');
-    if (fs.existsSync(edgePath)) {
+    if (fs.existsSync(edgePath) && execSync(`${edgePath} version`).toString().includes(PINNED_VERSION)) {
       console.log(`↪️  Reusing existing ${edgePath}`);
     } else {
       // Set EXPANSO_INSTALL_DIR via env, not inline — ensures bash subprocess inherits it
       execSync(
-        `curl -fsSL ${CURL_FLAGS} https://get.expanso.io/edge/install.sh | bash`,
+        `curl -fsSL ${CURL_FLAGS} https://get.expanso.io/edge/install.sh | bash -s -- --version ${PINNED_VERSION}`,
         {
           stdio: ['ignore', 'inherit', 'inherit'],
           env: {
@@ -52,12 +53,12 @@ function setup() {
   console.log(`\n⬇️  Installing expanso-cli using official script...`);
   try {
     const cliPath = path.join(BIN_DIR, 'expanso-cli');
-    if (fs.existsSync(cliPath)) {
+    if (fs.existsSync(cliPath) && execSync(`${cliPath} version`).toString().includes(PINNED_VERSION)) {
       console.log(`↪️  Reusing existing ${cliPath}`);
     } else {
       // Set EXPANSO_INSTALL_DIR via env, not inline — ensures bash subprocess inherits it
       execSync(
-        `curl -fsSL ${CURL_FLAGS} https://get.expanso.io/cli/install.sh | bash`,
+        `curl -fsSL ${CURL_FLAGS} https://get.expanso.io/cli/install.sh | bash -s -- --version ${PINNED_VERSION}`,
         {
           stdio: ['ignore', 'inherit', 'inherit'],
           env: {

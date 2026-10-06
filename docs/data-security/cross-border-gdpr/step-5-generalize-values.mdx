@@ -110,7 +110,7 @@ This is a risk-based decision. Privacy review may require different buckets, fie
 
 Different markets may need different bucket ranges:
 
-```yaml
+```bloblang
 # High-value transaction market (B2B)
 root.amount_bucket = match {
 this.transaction_amount < 1000 => "0-1000",
@@ -124,7 +124,7 @@ _ => "100000+"
 
 Be explicit about time zones for global data:
 
-```yaml
+```bloblang
 # Convert to UTC before bucketing
 root.transaction_hour = this.transaction_timestamp
   .ts_parse("2006-01-02T15:04:05Z")
@@ -141,7 +141,7 @@ root.transaction_dow = this.transaction_timestamp
 
 Different currencies need different bucket ranges:
 
-```yaml
+```bloblang
 root.amount_bucket = match this.transaction_currency {
 "JPY" => match {
 this.transaction_amount < 1000 => "0-1000",
@@ -160,7 +160,7 @@ _ => "100+"
 
 If the release policy specifies a minimum cohort size, calculate it across the actual release population and merge undersized buckets:
 
-```yaml
+```bloblang
 # In aggregation step, filter out buckets with < k records
 root = if meta("bucket_count") < 5 {
   root.amount_bucket = "other"  # Merge small buckets
@@ -181,3 +181,5 @@ root = if meta("bucket_count") < 5 {
     Step 6: Validate Minimization
   </a>
 </div>
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

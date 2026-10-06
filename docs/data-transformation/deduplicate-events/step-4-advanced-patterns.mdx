@@ -25,22 +25,18 @@ The in-memory cache used in the examples works for a single pipeline instance. I
 
 ```yaml title="Using a Redis Cache for Deduplication"
 config:
-  # 1. Define a Redis cache resource instead of a memory one.
   cache_resources:
     - label: distributed_dedup_cache
       redis:
-        url: "${REDIS_URL}" # e.g., redis://localhost:6379
+        url: ${REDIS_URL}
         default_ttl: 60s
-
   pipeline:
     processors:
-      - mapping: `root.dedup_key = this.event_id`
-      # 2. Use the Redis cache resource in your processor.
+      - mapping: root.dedup_key = this.event_id
       - cache:
-          resource: distributed_dedup_cache # Use the Redis cache
+          resource: distributed_dedup_cache
           operator: get
           key: ${! this.dedup_key }
-      # ... rest of the deduplication logic
 ```
 
 This simple change makes your deduplication strategy scalable and resilient across a fleet of processing nodes.
@@ -80,3 +76,5 @@ You can layer the three checks when each one has a distinct equivalence contract
 3.  **Hash-Based:** If that fingerprint is also new, compare the serialized content hash.
 
 Layering increases cache lookups and policy complexity. Define which match takes precedence and how false matches are diagnosed.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

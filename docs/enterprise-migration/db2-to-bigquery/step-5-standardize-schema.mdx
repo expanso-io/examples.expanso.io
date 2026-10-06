@@ -136,7 +136,7 @@ Expanso uses Go's time format convention where `2006-01-02` is the reference dat
 
 For tables with many columns, automate the conversion:
 
-```yaml
+```bloblang
 # Convert all top-level fields to lowercase
 root = this.map_each_key(k -> k.lowercase())
 ```
@@ -145,7 +145,7 @@ root = this.map_each_key(k -> k.lowercase())
 
 If DB2 schema might change:
 
-```yaml
+```bloblang
 # Start with all fields lowercased
 root = this.map_each_key(k -> k.lowercase())
 
@@ -158,7 +158,7 @@ root._lineage = this._lineage  # Preserve as-is
 
 For time and region partitioning:
 
-```yaml
+```bloblang
 root._partition_date = this.TRANSACTION_DATE
 root._partition_region = match this.SOURCE_SYSTEM {
 this.contains("EU") => "eu",
@@ -172,7 +172,7 @@ _ => "global"
 
 Add clustering keys for query performance:
 
-```yaml
+```bloblang
 # These fields should be declared as clustering keys in BigQuery
 # Order matters: most filtered first
 root._cluster_1 = this.transaction_category
@@ -191,3 +191,5 @@ root._cluster_2 = this.customer_id
     📖 Step 6: Validate Required Fields →
   </a>
 </div>
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

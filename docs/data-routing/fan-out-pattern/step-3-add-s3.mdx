@@ -33,11 +33,19 @@ You will modify your `fan-out.yaml` file to send messages to a local file, a Kaf
         pattern: fan_out
         outputs:
           - file:
-              path: /tmp/events.jsonl
+              path: ${FAN_OUT_DIAGNOSTIC_PATH}/events.jsonl
               codec: lines
           - kafka:
-              addresses: [ ${KAFKA_BROKERS} ]
-              topic: "sensor-events"
+              addresses:
+                - ${KAFKA_TLS_BROKERS}
+              tls:
+                enabled: true
+                root_cas_file: ${KAFKA_CA_FILE}
+              sasl:
+                mechanism: SCRAM-SHA-512
+                user: ${KAFKA_USERNAME}
+                password: ${KAFKA_PASSWORD}
+              topic: sensor-events
               key: ${!this.sensor_id}
     ```
 
@@ -49,18 +57,26 @@ You will modify your `fan-out.yaml` file to send messages to a local file, a Kaf
         pattern: fan_out
         outputs:
           - file:
-              path: /tmp/events.jsonl
+              path: ${FAN_OUT_DIAGNOSTIC_PATH}/events.jsonl
               codec: lines
-          -kafka:
-              addresses: [ ${KAFKA_BROKERS} ]
-              topic: "sensor-events"
+          - kafka:
+              addresses:
+                - ${KAFKA_TLS_BROKERS}
+              tls:
+                enabled: true
+                root_cas_file: ${KAFKA_CA_FILE}
+              sasl:
+                mechanism: SCRAM-SHA-512
+                user: ${KAFKA_USERNAME}
+                password: ${KAFKA_PASSWORD}
+              topic: sensor-events
               key: ${!this.sensor_id}
-
-          # Add this block for S3
           - aws_s3:
-              bucket: ${S3_BUCKET} # From your setup step
+              bucket: ${S3_BUCKET}
               region: ${AWS_REGION}
-              path: "events/${!timestamp_unix_date()}/${!uuid_v4()}.json"
+              server_side_encryption: aws:kms
+              kms_key_id: ${S3_KMS_KEY_ARN}
+              path: events/${!timestamp_unix_date()}/${!uuid_v4()}.json
               batching:
                 count: 10
                 period: 10s
@@ -87,8 +103,12 @@ You will modify your `fan-out.yaml` file to send messages to a local file, a Kaf
     ```
 
 5.  **Verify:**
-    - Check the local file `/tmp/events.jsonl`.
+    - Check the local file `${FAN_OUT_DIAGNOSTIC_PATH}/events.jsonl`.
     - Check the `sensor-events` Kafka topic.
     - Check your S3 bucket. After the batch period (10 seconds), you should see a new file in the `events/` directory.
 
 You have now built a pipeline that concurrently routes data to three different types of systems: local file, a message queue, and object storage.
+
+Use the canonical setup contract for trusted CAs, Kafka SCRAM credentials, Elasticsearch API-key authorization, S3 workload identity and KMS. Set `FAN_OUT_DIAGNOSTIC_PATH` to persistent writable storage before deployment.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

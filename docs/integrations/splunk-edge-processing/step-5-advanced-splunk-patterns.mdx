@@ -311,7 +311,7 @@ processors:
       # Determine geographic region from IP
       root.geo_region = match this.source_ip {
         this.contains("10.1.") => "us_west"
-        this.contains("10.2.") => "us_east" 
+        this.contains("10.2.") => "us_east"
         this.contains("10.3.") => "eu_west"
         this.contains("10.4.") => "asia_pacific"
         _ => "unknown"
@@ -324,24 +324,30 @@ processors:
         "phi_*" => ["local_only"]
         _ => ["global_splunk", "global_s3"]
       }
-
 output:
-  # Route based on geographic review
   switch:
-    - condition: 'this.allowed_destinations.contains("eu_splunk")'
+    - condition: this.allowed_destinations.contains("eu_splunk")
       output:
         http_client:
-          url: 'https://eu-splunk.company.com:8088/services/collector/event'
-
-    - condition: 'this.allowed_destinations.contains("us_splunk")'
+          url: ${SPLUNK_HEC_HTTPS_URL}/services/collector/event
+          headers:
+            Authorization: Splunk ${SPLUNK_HEC_TOKEN}
+            Content-Type: application/json
+          tls:
+            enabled: true
+    - condition: this.allowed_destinations.contains("us_splunk")
       output:
         http_client:
-          url: 'https://us-splunk.company.com:8088/services/collector/event'
-
-    - condition: 'this.allowed_destinations.contains("local_only")'
+          url: ${SPLUNK_HEC_HTTPS_URL}/services/collector/event
+          headers:
+            Authorization: Splunk ${SPLUNK_HEC_TOKEN}
+            Content-Type: application/json
+          tls:
+            enabled: true
+    - condition: this.allowed_destinations.contains("local_only")
       output:
         file:
-          path: "/secure/local/phi-data-${timestamp().format('2006-01-02')}.log"
+          path: /secure/local/phi-data-${timestamp().format('2006-01-02')}.log
 ```
 
 ## Pattern 5: Intelligent Sampling
@@ -359,7 +365,7 @@ processors:
       # Sample rates based on event type and frequency
       root.sample_rate = match {
         this.level == "ERROR" => 1.0        # Keep all errors
-        this.level == "WARN" => 0.8         # Keep 80% of warnings  
+        this.level == "WARN" => 0.8         # Keep 80% of warnings
         this.level == "INFO" && this.endpoint.contains("/health") => 0.1  # Keep 10% of health checks
         this.level == "INFO" => 0.5         # Keep 50% of other INFO
         this.level == "DEBUG" => 0.0        # Drop all DEBUG
@@ -401,23 +407,23 @@ processors:
 
       # Reset counters every minute for rate calculation
       if current_time - last_reset > 60 {
-        let events_per_minute = meta("events_processed") 
+        let events_per_minute = meta("events_processed")
         let bytes_per_minute = meta("bytes_processed")
-        
+
         # Auto-adjust batch sizes based on throughput
         root.optimal_batch_size = match {
           events_per_minute > 10000 => 200  # High volume
-          events_per_minute > 1000 => 100   # Medium volume  
+          events_per_minute > 1000 => 100   # Medium volume
           _ => 50                            # Low volume
         }
-        
+
         # Auto-adjust filtering aggressiveness based on load
         root.auto_filter_level = match {
           events_per_minute > 5000 => "aggressive"
           events_per_minute > 1000 => "normal"
           _ => "permissive"
         }
-        
+
         # Reset counters
         meta("events_processed") = 0
         meta("bytes_processed") = 0
@@ -538,3 +544,5 @@ You have now implemented several optional routing and policy patterns. Next, rev
 ---
 
 **Key takeaway:** These patterns can complement a Splunk deployment with upstream routing and transformation. Feature parity, compatibility, regulatory outcomes, and commercial outcomes require workload-specific testing and review.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

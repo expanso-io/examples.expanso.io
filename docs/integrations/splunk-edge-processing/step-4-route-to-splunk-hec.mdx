@@ -47,26 +47,30 @@ compressed = true
 ### Expanso HEC Output
 
 ```yaml
-# Route on configured conditions
 output:
   switch:
-    - condition: 'this.priority == "critical" || this.sourcetype == "cef"'
+    - condition: this.priority == "critical" || this.sourcetype == "cef"
       output:
         http_client:
-          url: 'https://${SPLUNK_HOST}:8088/services/collector/event'
+          url: ${SPLUNK_HEC_HTTPS_URL}/services/collector/event
           headers:
-            Authorization: 'Splunk ${HEC_TOKEN}'
-            Content-Type: 'application/json'
-          timeout: '30s'
+            Authorization: Splunk ${SPLUNK_HEC_TOKEN}
+            Content-Type: application/json
+          timeout: 30s
           retry_policy:
             max_retries: 3
-            backoff: 'exponential'
-
-    - condition: 'this.target_index == "security"'
+            backoff: exponential
+          tls:
+            enabled: true
+    - condition: this.target_index == "security"
       output:
         http_client:
-          url: 'https://${SPLUNK_HOST}:8088/services/collector/event'
-          # Route to dedicated security indexer cluster
+          url: ${SPLUNK_HEC_HTTPS_URL}/services/collector/event
+          headers:
+            Authorization: Splunk ${SPLUNK_HEC_TOKEN}
+            Content-Type: application/json
+          tls:
+            enabled: true
 ```
 
 **Configured behavior in this example:**
@@ -328,14 +332,24 @@ index=main sourcetype="expanso:json"
 ```yaml
 output:
   switch:
-    - condition: 'this.event.host.hash("xxhash64") % 2 == 0'
+    - condition: this.event.host.hash("xxhash64") % 2 == 0
       output:
         http_client:
-          url: 'https://splunk-indexer1.company.com:8088/services/collector/event'
-    - condition: 'this.event.host.hash("xxhash64") % 2 == 1'
+          url: ${SPLUNK_HEC_HTTPS_URL}/services/collector/event
+          headers:
+            Authorization: Splunk ${SPLUNK_HEC_TOKEN}
+            Content-Type: application/json
+          tls:
+            enabled: true
+    - condition: this.event.host.hash("xxhash64") % 2 == 1
       output:
         http_client:
-          url: 'https://splunk-indexer2.company.com:8088/services/collector/event'
+          url: ${SPLUNK_HEC_HTTPS_URL}/services/collector/event
+          headers:
+            Authorization: Splunk ${SPLUNK_HEC_TOKEN}
+            Content-Type: application/json
+          tls:
+            enabled: true
 ```
 
 ### 2. Environment-Based Routing
@@ -346,7 +360,7 @@ processors:
       # Route based on environment
       root.target_cluster = match env("ENVIRONMENT") {
         "prod" => "https://prod-splunk.company.com:8088"
-        "staging" => "https://staging-splunk.company.com:8088"  
+        "staging" => "https://staging-splunk.company.com:8088"
         _ => "https://dev-splunk.company.com:8088"
       }
 ```
@@ -356,33 +370,49 @@ processors:
 ```yaml
 output:
   http_client:
-    # Circuit breaker prevents overwhelming Splunk during issues
     circuit_breaker:
-      failure_threshold: 10 # Open after 10 failures
-      success_threshold: 3 # Close after 3 successes
-      timeout: '60s' # Try again after 1 minute
-
-    # Graceful degradation
+      failure_threshold: 10
+      success_threshold: 3
+      timeout: 60s
     fallback_outputs:
       - file:
-          path: '/var/lib/expanso/failed-events.log'
+          path: /var/lib/expanso/failed-events.log
       - kafka:
-          brokers: ['kafka1:9092', 'kafka2:9092']
-          topic: 'splunk-backup'
+          brokers:
+            - kafka1:9092
+            - kafka2:9092
+          topic: splunk-backup
+          addresses:
+            - ${KAFKA_TLS_BROKERS}
+          tls:
+            enabled: true
+            root_cas_file: ${KAFKA_CA_FILE}
+          sasl:
+            mechanism: SCRAM-SHA-512
+            user: ${KAFKA_USERNAME}
+            password: ${KAFKA_PASSWORD}
 ```
 
 ### 4. Delivery Audit Fields
 
 ```yaml
 output:
-  # Primary: Send to Splunk
-  http_client:
-    url: "https://${SPLUNK_HOST}:8088/services/collector/event"
-
-# Secondary: Example audit-event file
-  - file:
-      path: "/var/audit/splunk-events-${timestamp().format('2006-01-02')}.log"
-      condition: 'this.event.sourcetype == "expanso:cef" || this.event.level == "ERROR"'
+  broker:
+    pattern: fan_out
+    outputs:
+      - http_client:
+          url: ${SPLUNK_HEC_HTTPS_URL}/services/collector/event
+          verb: POST
+          headers:
+            Authorization: Splunk ${SPLUNK_HEC_TOKEN}
+            Content-Type: application/json
+          tls:
+            enabled: true
+      - processors:
+          - mapping: root = if this.event.sourcetype == "expanso:cef" || this.event.level == "ERROR" { this } else { deleted() }
+        file:
+          path: ${EXAMPLE_OUTPUT_PATH}/splunk-events-${! now().ts_format("2006-01-02") }.log
+          codec: lines
 ```
 
 ## Monitoring HEC Performance
@@ -501,3 +531,5 @@ Your filtered sample data is now routed to Splunk via HEC. Measure destination b
 ---
 
 **Key Takeaway:** This example uses HEC with conditional routing and separate destinations for different event types.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.

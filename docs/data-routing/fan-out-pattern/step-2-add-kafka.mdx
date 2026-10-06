@@ -33,7 +33,7 @@ You will modify your `fan-out.yaml` file to send messages to both a local file _
         pattern: fan_out
         outputs:
           - file:
-              path: /tmp/events.jsonl
+              path: ${FAN_OUT_DIAGNOSTIC_PATH}/events.jsonl
               codec: lines
           - stdout:
               codec: lines
@@ -46,16 +46,21 @@ You will modify your `fan-out.yaml` file to send messages to both a local file _
       broker:
         pattern: fan_out
         outputs:
-          # This output remains the same
           - file:
-              path: /tmp/events.jsonl
+              path: ${FAN_OUT_DIAGNOSTIC_PATH}/events.jsonl
               codec: lines
-
-          # Replace stdout with this kafka block
-          -kafka:
-              addresses: [ ${KAFKA_BROKERS} ] # From your local-development setup
-              topic: "sensor-events"
-              key: ${!this.sensor_id} # Use the sensor_id for partitioning
+          - kafka:
+              addresses:
+                - ${KAFKA_TLS_BROKERS}
+              tls:
+                enabled: true
+                root_cas_file: ${KAFKA_CA_FILE}
+              sasl:
+                mechanism: SCRAM-SHA-512
+                user: ${KAFKA_USERNAME}
+                password: ${KAFKA_PASSWORD}
+              topic: sensor-events
+              key: ${!this.sensor_id}
     ```
 
     That's it. The broker will now send a copy of every message to the file and another copy to the `sensor-events` Kafka topic.
@@ -73,7 +78,11 @@ You will modify your `fan-out.yaml` file to send messages to both a local file _
     ```
 
 4.  **Verify:**
-    - **Check the file:** The message should appear in `/tmp/events.jsonl`.
+    - **Check the file:** The message should appear in `${FAN_OUT_DIAGNOSTIC_PATH}/events.jsonl`.
     - **Check Kafka:** Use a console consumer to read from the `sensor-events` topic. You should see the same message there.
 
 You have now successfully added a real-time streaming destination to your fan-out pipeline. The next steps will follow this same pattern to add S3 for archival and Elasticsearch for search.
+
+Use the canonical setup contract for trusted CAs, Kafka SCRAM credentials, Elasticsearch API-key authorization, S3 workload identity and KMS. Set `FAN_OUT_DIAGNOSTIC_PATH` to persistent writable storage before deployment.
+
+Supply the endpoint, credential, trusted-CA, KMS, and database variables used by these fragments from deployment configuration. `EXAMPLE_OUTPUT_PATH` must name writable persistent storage; use workload identity for S3 access.
