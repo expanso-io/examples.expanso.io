@@ -33,21 +33,21 @@ You will add a `time_metadata` object to your events that contains useful, pre-c
 
 2.  **Add the Enrichment Logic:** Open `enrich-timestamps.yaml` and add the enrichment logic to the bottom of the existing `mapping` processor.
 
-    ```yaml title="Add this to the 'mapping' processor in enrich-timestamps.yaml"
-    # --- Logic from previous steps ---
-    # (The existing parsing and timezone conversion logic remains here)
+    The surrounding pipeline context keeps this partial snippet executable. Copy the mapping body into your existing processor.
 
-    # --- START: New additions for Enrichment ---
-
-    root.time_metadata = {
-      "year": this.timestamp_utc.ts_year(),
-      "month": this.timestamp_utc.ts_month(),
-      "day": this.timestamp_utc.ts_day(),
-      "hour": this.timestamp_utc.ts_hour(),
-      "day_of_week": this.timestamp_utc.ts_weekday()
-    }
-
-    # --- END: New additions ---
+    ```yaml title="Partial snippet: timestamp metadata mapping"
+    pipeline:
+      processors:
+        - mapping: |
+            # The existing parsing and timezone conversion logic remains here.
+            let ts = this.timestamp_utc.ts_parse("2006-01-02T15:04:05Z07:00")
+            root.time_metadata = {
+              "year": $ts.ts_format("2006", "UTC"),
+              "month": $ts.ts_format("01", "UTC"),
+              "day": $ts.ts_format("02", "UTC"),
+              "hour": $ts.ts_format("15", "UTC"),
+              "day_of_week": $ts.ts_format("Monday", "UTC")
+            }
     ```
 
 3.  **Deploy and Test:**

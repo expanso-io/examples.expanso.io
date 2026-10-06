@@ -130,15 +130,10 @@ Be explicit about time zones for global data:
 
 ```yaml
 # Convert to UTC before bucketing
-root.transaction_hour = this.transaction_timestamp
-  .ts_parse("2006-01-02T15:04:05Z")
-  .ts_tz("UTC")
-  .ts_format("2006-01-02T15:00:00Z")
+root.transaction_hour = this.transaction_timestamp.ts_parse("2006-01-02T15:04:05Z").ts_tz("UTC").ts_format("2006-01-02T15:00:00Z")
 
 # Also store day-of-week for pattern analysis
-root.transaction_dow = this.transaction_timestamp
-  .ts_parse("2006-01-02T15:04:05Z")
-  .ts_format("Monday")
+root.transaction_dow = this.transaction_timestamp.ts_parse("2006-01-02T15:04:05Z").ts_format("Monday")
 ```
 
 ### Currency-Aware Buckets
@@ -166,10 +161,10 @@ Ensure buckets have enough records:
 
 ```yaml
 # In aggregation step, filter out buckets with < k records
-root = if meta("bucket_count") < 5 {
-  root.amount_bucket = "other"  # Merge small buckets
+root.amount_bucket = if meta("bucket_count") < 5 {
+  "other"  # Merge small buckets
 } else {
-  this
+  this.amount_bucket
 }
 ```
 

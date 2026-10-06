@@ -26,7 +26,10 @@ import {
   type Expectation,
   type EncryptionExpectation,
 } from '../../scripts/validation/expectations';
-import type { YamlObject } from '../../scripts/validation/yaml-value';
+import {
+  isYamlObject,
+  type YamlObject,
+} from '../../scripts/validation/yaml-value';
 import { stringify } from 'yaml';
 import { renderReport, summarize } from '../../scripts/validation/report';
 import type { PipelineReport } from '../../scripts/validation/types';
@@ -573,7 +576,7 @@ test('every complete inventory entry has a semantic output contract', () => {
     file.kind.startsWith('complete')
   );
 
-  assert.equal(complete.length, 106);
+  assert.equal(complete.length, 122);
 
   for (const file of complete) {
     const entry = {
@@ -651,6 +654,75 @@ for (const path of [
 
       assert.ok(rows.some((row) => (row.aggregation ?? row).event_count === 2));
     }
+  });
+}
+
+for (const path of [
+  'examples/data-transformation/aggregate-time-windows.yaml',
+  'static/files/data-transformation/aggregate-time-windows.yaml',
+]) {
+  test(`filters invalid sensor records before windowing: ${path}`, async () => {
+    const source = readFileSync(path, 'utf8');
+    const original = config(path);
+
+    const planned = planRun(
+      original,
+      resolve(
+        root,
+        'tests/fixtures/pipeline-inputs/aggregate-time-windows-mixed.jsonl'
+      ),
+      join(
+        work,
+        `aggregate-plan-${path.startsWith('static/') ? 'static' : 'example'}`
+      )
+    );
+
+    assert.ok(isYamlObject(planned.config.input));
+    assert.ok(isYamlObject(original.input));
+    assert.deepEqual(
+      planned.config.input.processors,
+      original.input.processors
+    );
+    assert.match(source, /name: aggregate_invalid_sensor_readings_dropped/);
+    assert.match(source, /dropping invalid sensor reading before window/);
+
+    const mixed = await execute(
+      original,
+      'tests/fixtures/pipeline-inputs/aggregate-time-windows-mixed.jsonl'
+    );
+
+    assert.equal(mixed.length, 1);
+    assert.ok(isYamlObject(mixed[0]));
+    assert.deepEqual(Object.keys(mixed[0]).sort(), [
+      'event_count',
+      'group_key',
+      'sensor_id',
+      'temperature_avg',
+      'temperature_max',
+      'temperature_min',
+      'time_bucket',
+      'window_end',
+      'window_start',
+    ]);
+
+    const aggregate = mixed[0];
+    assert.equal(aggregate.sensor_id, 'sensor-1');
+    assert.equal(aggregate.event_count, 2);
+    assert.equal(aggregate.temperature_avg, 21.8);
+    assert.equal(aggregate.temperature_min, 21.5);
+    assert.equal(aggregate.temperature_max, 22.1);
+    assert.equal(aggregate.time_bucket, aggregate.window_start);
+    assert.equal(
+      aggregate.group_key,
+      `sensor-1|${String(aggregate.window_start)}`
+    );
+
+    const allInvalid = await capture(
+      config(path),
+      'tests/fixtures/pipeline-inputs/aggregate-time-windows-all-invalid.jsonl'
+    );
+
+    assert.deepEqual(allInvalid, ['']);
   });
 }
 
@@ -1271,20 +1343,14 @@ test('retail batching emits Parquet objects grouped by region', async () => {
 
     // SAFETY: parquet_decode returns the store_region written by the source.
     const regionalRows = rows as Array<{ store_region: string }>;
-    assert.equal(
-      new Set(regionalRows.map((row) => row.store_region)).size,
-      1
-    );
+    assert.equal(new Set(regionalRows.map((row) => row.store_region)).size, 1);
     decoded.push(...rows);
   }
 
   assert.equal(decoded.length, 25);
   // SAFETY: decoded retail records retain the source transaction identifier.
   const decodedTransactions = decoded as Array<{ txn_id: string }>;
-  assert.equal(
-    new Set(decodedTransactions.map((row) => row.txn_id)).size,
-    25
-  );
+  assert.equal(new Set(decodedTransactions.map((row) => row.txn_id)).size, 25);
 });
 
 test('generated normalization fixtures emit stable report paths', () => {

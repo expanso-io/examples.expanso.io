@@ -13,7 +13,7 @@
  */
 
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
 
 import type { Substitution } from './types';
@@ -531,15 +531,14 @@ export function planRun(
       to: '0.3-second window arithmetic for fixture execution',
     });
 
-    // SAFETY: fixture records are JSON objects; the optional timestamp is
-    // checked with Date.parse before it influences the generated fixture.
-    const first = JSON.parse(
-      readFileSync(fixturePath, 'utf8')
-        .split('\n')
-        .find((line) => line.trim()) ?? '{}'
-    ) as { timestamp?: string };
+    // SAFETY: fixture records are JSON objects whose timestamps are checked
+    // with Date.parse before they influence the generated fixture.
+    const records = readFileSync(fixturePath, 'utf8')
+      .split('\n')
+      .filter((line) => line.trim())
+      .map((line) => JSON.parse(line) as YamlObject);
 
-    const firstTime = Date.parse(first.timestamp ?? '') / 1000;
+    const firstTime = Date.parse(String(records[0]?.timestamp ?? '')) / 1000;
 
     if (!Number.isFinite(firstTime))
       throw new Error('window fixture requires a timestamp');
@@ -548,17 +547,33 @@ export function planRun(
 
     if (!isYamlObject(localInput))
       throw new Error('window fixture input is missing');
+    const localFile = localInput.file;
 
-    const processors = Array.isArray(localInput.processors)
-      ? localInput.processors
-      : [];
+    if (!isYamlObject(localFile))
+      throw new Error('window fixture input must use the file stand-in');
 
-    localInput.processors = [
-      ...processors,
-      {
-        mapping: `root = this\nmeta original_window_timestamp = this.timestamp\nroot.timestamp = (${anchor} + (this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano() / 1000000000 - ${firstTime}) * 0.005).ts_format("2006-01-02T15:04:05.999999999Z07:00")`,
-      },
-    ];
+    const rebased = records.map((record) => {
+      const sourceTime = Date.parse(String(record.timestamp ?? '')) / 1000;
+
+      if (!Number.isFinite(sourceTime))
+        throw new Error('window fixture requires a timestamp on every record');
+
+      return {
+        ...record,
+        timestamp: new Date(
+          (anchor + (sourceTime - firstTime) * 0.005) * 1000
+        ).toISOString(),
+      };
+    });
+
+    const rebasedFixture = `${outputDir}/system-window-input.jsonl`;
+    mkdirSync(outputDir, { recursive: true });
+    writeFileSync(
+      rebasedFixture,
+      `${rebased.map((record) => JSON.stringify(record)).join('\n')}\n`,
+      'utf8'
+    );
+    localFile.paths = [rebasedFixture];
 
     if (config.buffer.system_window.slide !== undefined) {
       config.input = {
@@ -585,9 +600,9 @@ export function planRun(
 
     substitutions.push({
       role: 'input',
-      at: 'input.processors',
+      at: 'input.file.paths',
       from: 'historical event timestamps',
-      to: 'current timestamps at 1/200 time scale',
+      to: 'fixture copy with current timestamps at 1/200 time scale',
     });
     substitutions.push({
       role: 'resource',
@@ -803,6 +818,21 @@ export function wrapFragment(
   };
 
   if (document === undefined) return null;
+
+  if (isStringValue(document) && document.trim()) {
+    const wrapped: YamlObject = canonicalConfig
+      ? structuredClone(canonicalConfig)
+      : { input: generateInput, output: dropOutput };
+
+    wrapped.pipeline = { processors: [{ mapping: document }] };
+
+    return {
+      description: canonicalConfig
+        ? 'Bloblang mapping wrapped in its canonical pipeline context'
+        : 'Bloblang mapping wrapped in generate/drop pipeline',
+      source: stringifyYaml(wrapped),
+    };
+  }
 
   if (Array.isArray(document)) {
     if (document.length === 0) return null;

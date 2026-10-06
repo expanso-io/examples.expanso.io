@@ -204,7 +204,8 @@ function fieldPath(value: string): string {
 function inspectScalar(
   features: Map<string, SemanticFeature>,
   value: string,
-  inspectMapping: boolean
+  inspectMapping: boolean,
+  inspectGuard = false
 ): void {
   for (const match of value.matchAll(/\$\{([A-Z][A-Z0-9_]*)(?::[^}]*)?\}/g))
     addFeature(features, 'environment', match[1]);
@@ -237,6 +238,12 @@ function inspectScalar(
   ))
     addFeature(features, 'guard', fieldPath(match[1]));
 
+  if (inspectGuard)
+    for (const match of value.matchAll(
+      /\b(?:root|this)((?:\.[A-Za-z_][A-Za-z0-9_]*)+)\s*(?:==|!=|<=|>=|<|>)/g
+    ))
+      addFeature(features, 'guard', fieldPath(match[1]));
+
   for (const match of value.matchAll(
     /\b(?:root|this)\.exists\(["']([^"']+)["']\)/g
   ))
@@ -261,16 +268,23 @@ function inspectValue(
   features: Map<string, SemanticFeature>,
   value: YamlValue,
   path: readonly string[] = [],
-  inspectMapping = false
+  inspectMapping = false,
+  inspectGuard = false
 ): void {
   if (typeof value === 'string') {
-    inspectScalar(features, value, inspectMapping);
+    inspectScalar(features, value, inspectMapping, inspectGuard);
     return;
   }
 
   if (Array.isArray(value)) {
     value.forEach((item, index) =>
-      inspectValue(features, item, [...path, `[${index}]`], inspectMapping)
+      inspectValue(
+        features,
+        item,
+        [...path, `[${index}]`],
+        inspectMapping,
+        inspectGuard
+      )
     );
     return;
   }
@@ -295,7 +309,8 @@ function inspectValue(
       childPath,
       /^(?:check|condition|mapping|postmap|premap|request_map|result_map)$/.test(
         key
-      ) && !path.includes('catch')
+      ) && !path.includes('catch'),
+      /^(?:check|condition)$/.test(key)
     );
   }
 }
@@ -309,12 +324,12 @@ function inspectRecoveredSource(
 
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(
-      /^(\s*)(?:check|condition|mapping|postmap|premap|request_map|result_map):\s*(?:[|>-]\s*)?(.*)$/
+      /^(\s*)(check|condition|mapping|postmap|premap|request_map|result_map):\s*(?:[|>-]\s*)?(.*)$/
     );
 
     if (!match) continue;
     const indentation = match[1].length;
-    const block = [match[2]];
+    const block = [match[3]];
 
     while (index + 1 < lines.length) {
       const next = lines[index + 1];
@@ -323,7 +338,12 @@ function inspectRecoveredSource(
       index += 1;
     }
 
-    inspectScalar(features, block.join('\n'), true);
+    inspectScalar(
+      features,
+      block.join('\n'),
+      true,
+      /check|condition/.test(match[2])
+    );
   }
 }
 

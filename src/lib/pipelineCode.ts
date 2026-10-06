@@ -64,6 +64,10 @@ function isObject(value: ParsedYaml | undefined): value is ParsedYamlObject {
   );
 }
 
+function isString(value: ParsedYaml): value is string {
+  return value?.constructor === String;
+}
+
 function isNonPipelineDocument(document: ParsedYaml): boolean {
   if (!isObject(document)) return false;
 
@@ -93,6 +97,10 @@ function fragmentObject(document: ParsedYamlObject): boolean {
   );
 }
 
+export function isBloblangMappingSnippet(source: string): boolean {
+  return /(?:^|\n)\s*(?:let\s+[a-zA-Z_]\w*\s*=|root(?:\.|\s*=))/m.test(source);
+}
+
 export function classifyPipelineCode(source: string): PipelineCodeKind | null {
   if (!source.trim()) return null;
   let document: ParsedYaml;
@@ -102,8 +110,10 @@ export function classifyPipelineCode(source: string): PipelineCodeKind | null {
     // scalar, sequence, and mapping values match ParsedYaml.
     document = parse(source, { strict: true, uniqueKeys: true }) as ParsedYaml;
   } catch {
-    return null;
+    return isBloblangMappingSnippet(source) ? 'fragment' : null;
   }
+
+  if (isString(document) && isBloblangMappingSnippet(source)) return 'fragment';
 
   if (isNonPipelineDocument(document)) return null;
 

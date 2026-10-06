@@ -661,6 +661,12 @@ async function main(): Promise<void> {
     log(
       `${report.validate.status.padEnd(4)} ${report.file.kind.padEnd(13)} ${report.file.path}${run}`
     );
+
+    if (report.validate.status === 'FAIL')
+      for (const error of report.validate.errors)
+        log(
+          `  ${error.path ? `${error.path}: ` : ''}${error.message}${error.suggestion ? ` (${error.suggestion})` : ''}`
+        );
   }
 
   if (options.write)

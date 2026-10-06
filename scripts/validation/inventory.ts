@@ -18,6 +18,7 @@ import {
   classifyPipelineCode,
   extractYamlCodeBlocks,
   hasUnclassifiedExpansoCode,
+  isBloblangMappingSnippet,
 } from '../../src/lib/pipelineCode';
 
 import { PUBLIC_CATALOG } from '../../src/catalog/registry';
@@ -382,17 +383,30 @@ export function discoverPipelineFiles(repositoryRoot: string): PipelineFile[] {
 
       try {
         // SAFETY: rendered YAML fences are parsed as data-only values and the
-        // strict parser cannot produce values outside the YamlValue contract.
+        // strict parser cannot produce values outside YamlValue.
         file.document = parseYaml(block.source, {
           strict: true,
           uniqueKeys: true,
         }) as YamlValue;
 
+        if (
+          isStringValue(file.document) &&
+          renderedKind === 'fragment' &&
+          isBloblangMappingSnippet(block.source)
+        )
+          file.document = block.source;
+
         if (renderedKind === 'complete') file.kind = classify(file.document);
         else if (renderedKind === 'fragment') file.kind = 'fragment';
       } catch (error) {
-        file.parseError =
-          error instanceof Error ? error.message : String(error);
+        if (
+          renderedKind === 'fragment' &&
+          isBloblangMappingSnippet(block.source)
+        )
+          file.document = block.source;
+        else
+          file.parseError =
+            error instanceof Error ? error.message : String(error);
       }
 
       files.push(file);

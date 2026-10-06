@@ -133,11 +133,18 @@ Gracefully handle records without DOB:
 
 ```yaml
 root.customer_age_bucket = if this.customer_dob == null {
-  "unknown"
+"unknown"
 } else if this.customer_dob == "" {
-  "unknown"
+"unknown"
 } else {
-  # age calculation...
+match {
+now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 25 * 365 * 24 * 3600 => "18-24",
+now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 35 * 365 * 24 * 3600 => "25-34",
+now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 45 * 365 * 24 * 3600 => "35-44",
+now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 55 * 365 * 24 * 3600 => "45-54",
+now().ts_unix() - this.customer_dob.ts_parse("2006-01-02").ts_unix() < 65 * 365 * 24 * 3600 => "55-64",
+_ => "65+"
+}
 }
 ```
 

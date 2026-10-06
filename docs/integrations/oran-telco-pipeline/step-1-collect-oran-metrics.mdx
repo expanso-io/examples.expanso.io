@@ -79,9 +79,10 @@ config:
 
                 # Parse PTP offset from log line
                 # Example: "2024-02-10T17:23:45Z offset: -85ns"
-                let offset_match = this.re_find_all("offset: ([+-]?\\d+)ns")
-                root.ptp4l_offset_ns = offset_match.0.1.number()
-                root.raw_line = this
+                let raw_line = content().string()
+                let offset_match = $raw_line.re_find_all_submatch("offset: ([+-]?\\d+)ns")
+                root.ptp4l_offset_ns = $offset_match.index(0).index(1).number()
+                root.raw_line = $raw_line
 
         # PRB utilization data
         - file:
@@ -97,11 +98,12 @@ config:
 
                 # Parse PRB data from log line
                 # Example: "DL_PRB: 85%, UL_PRB: 42%"
-                let dl_match = this.re_find_all("DL_PRB: (\\d+)%")
-                let ul_match = this.re_find_all("UL_PRB: (\\d+)%")
-                root.prb_dl_pct = dl_match.0.1.number()
-                root.prb_ul_pct = ul_match.0.1.number()
-                root.raw_line = this
+                let raw_line = content().string()
+                let dl_match = $raw_line.re_find_all_submatch("DL_PRB: (\\d+)%")
+                let ul_match = $raw_line.re_find_all_submatch("UL_PRB: (\\d+)%")
+                root.prb_dl_pct = $dl_match.index(0).index(1).number()
+                root.prb_ul_pct = $ul_match.index(0).index(1).number()
+                root.raw_line = $raw_line
 
         # System performance data
         - file:
@@ -117,11 +119,12 @@ config:
 
                 # Parse CPU utilization
                 # Example: "CPU: 76.4%, MEM: 8.2GB"
-                let cpu_match = this.re_find_all("CPU: ([\\d.]+)%")
-                let mem_match = this.re_find_all("MEM: ([\\d.]+)GB")
-                root.cpu_pct = cpu_match.0.1.number()
-                root.memory_gb = mem_match.0.1.number()
-                root.raw_line = this
+                let raw_line = content().string()
+                let cpu_match = $raw_line.re_find_all_submatch("CPU: ([\\d.]+)%")
+                let mem_match = $raw_line.re_find_all_submatch("MEM: ([\\d.]+)GB")
+                root.cpu_pct = $cpu_match.index(0).index(1).number()
+                root.memory_gb = $mem_match.index(0).index(1).number()
+                root.raw_line = $raw_line
 
   # Continue to transformation step...
 ```

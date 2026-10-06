@@ -33,19 +33,15 @@ You will modify your pipeline to take the `normalized_timestamp` from the previo
 
 2.  **Add the Timezone Conversion Logic:** Open `convert-timezones.yaml` and add the conversion logic to the bottom of the existing `mapping` processor.
 
-    ```yaml title="Add this to the 'mapping' processor in convert-timezones.yaml"
-    # --- Logic from Step 1 (Parsing) ---
-    # (The existing timestamp parsing logic remains here)
+    The surrounding pipeline context keeps this partial snippet executable. Copy the two assignments into your existing mapping processor.
 
-    # --- START: New additions for Timezone Conversion ---
-
-    # Convert the parsed timestamp to a standard UTC string
-    root.timestamp_utc = this.normalized_timestamp.ts_format_iso8601("UTC")
-
-    # For auditing, it's good practice to also extract the original timezone offset
-    root.original_timezone = this.normalized_timestamp.ts_format("Z")
-
-    # --- END: New additions ---
+    ```yaml title="Partial snippet: timezone conversion mapping"
+    pipeline:
+      processors:
+        - mapping: |
+            # The existing timestamp parsing logic remains here.
+            root.timestamp_utc = this.normalized_timestamp.ts_format("2006-01-02T15:04:05Z07:00", "UTC")
+            root.original_timezone = this.normalized_timestamp.ts_format("-07:00")
     ```
 
 3.  **Deploy and Test:**

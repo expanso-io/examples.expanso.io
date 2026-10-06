@@ -275,6 +275,15 @@ test('pipeline classifier excludes infrastructure YAML and fails unknown Expanso
   assert.equal(hasUnclassifiedExpansoCode(unknown), true);
 });
 
+test('bare Bloblang mappings are inventoried and validated as fragments', () => {
+  const source = 'let suffix = "ok"\nroot.status = $suffix';
+  assert.equal(classifyPipelineCode(source), 'fragment');
+  const wrapped = wrapFragment(source);
+  assert.ok(wrapped);
+  const result = validateSource(edge, root, wrapped.source, environment);
+  assert.equal(result.status, 'PASS', JSON.stringify(result.errors));
+});
+
 test('invalid inline configuration fails the real Edge boundary', () => {
   const blocks = extractYamlCodeBlocks(
     '```yaml\ninput: {unknown_input: {}}\noutput: {drop: {}}\n```\n'
@@ -1412,7 +1421,7 @@ test('published Splunk audit retains only CEF or ERROR while HEC receives every 
     receiver.listen(0, '127.0.0.1', resolve);
   });
   const address = receiver.address();
-  assert.ok(address && typeof address !== 'string');
+  assert.ok(address instanceof Object);
   const target = join(work, `splunk-audit-${++sequence}.jsonl`);
   config.input = {
     file: {
@@ -1595,4 +1604,110 @@ test('published cache retrieval failure uses the database miss path', async () =
     assert.deepEqual(output.user_profile, { name: 'Ada', tier: 'premium' });
     assert.equal(output.db_error, undefined);
   });
+});
+
+test('published O-RAN file parsers extract values from raw telemetry lines', async () => {
+  const path =
+    'docs/integrations/oran-telco-pipeline/step-1-collect-oran-metrics.mdx';
+
+  const block = pageBlocks(path)[0];
+  const inputs = parse(block.source).config.input.broker.inputs;
+
+  const fixtures = JSON.parse(
+    readFileSync(
+      'tests/fixtures/pipeline-inputs/oran-file-parsers.json',
+      'utf8'
+    )
+  );
+
+  for (const fixture of fixtures) {
+    const source = stringify({
+      pipeline: { processors: inputs[fixture.input].processors },
+    });
+
+    const output = JSON.parse(
+      (
+        await execute(source, [], false, Buffer.from(fixture.line, 'utf8'))
+      ).toString()
+    );
+
+    assert.equal(output.metric_type, fixture.expected.metric_type);
+    assert.equal(output.raw_line, fixture.line);
+
+    for (const [field, value] of Object.entries(fixture.expected.values))
+      assert.equal(output[field], value);
+  }
+});
+
+test('published HTTP circuit breaker preserves sensor events on both routes', async () => {
+  const path =
+    'docs/data-routing/circuit-breakers/step-1-http-circuit-breakers.mdx';
+
+  const block = pageBlocks(path)[0];
+  const wrapped = wrapFragment(parse(block.source));
+  assert.ok(wrapped);
+
+  const config = parse(wrapped.source);
+
+  const receiver = createHttpServer((request, response) => {
+    if (request.url === '/metadata/fail') {
+      request.socket.destroy();
+
+      return;
+    }
+
+    response.setHeader('Content-Type', 'application/json');
+    response.end(
+      JSON.stringify({ metadata: { site: 'edge-a', firmware: '1.2.3' } })
+    );
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    receiver.once('error', reject);
+    receiver.listen(0, '127.0.0.1', resolve);
+  });
+
+  const address = receiver.address();
+  assert.ok(address instanceof Object);
+
+  const http = config.pipeline.processors[0].try[0].branch.processors[0].http;
+  http.url = `http://127.0.0.1:${address.port}/metadata/\${!this.sensor_id}`;
+  http.retries = 0;
+  http.timeout = '500ms';
+
+  const records = readFileSync(
+    'tests/fixtures/pipeline-inputs/circuit-breaker-enrichment.jsonl',
+    'utf8'
+  )
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+
+  try {
+    const outputs = (await execute(stringify(config), records))
+      .toString()
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+
+    const success = outputs.find((row) => row.sensor_id === 'temp_001');
+    const failure = outputs.find((row) => row.sensor_id === 'fail');
+    assert.deepEqual(success, {
+      ...records[0],
+      metadata: { site: 'edge-a', firmware: '1.2.3' },
+      enriched: true,
+      api_status: 'success',
+    });
+    assert.deepEqual(failure, {
+      ...records[1],
+      enriched: false,
+      api_status: 'failed',
+      fallback_reason: 'api_circuit_breaker_open',
+    });
+  } finally {
+    receiver.closeAllConnections();
+    await new Promise<void>((resolve, reject) =>
+      receiver.close((error) => (error ? reject(error) : resolve()))
+    );
+  }
 });

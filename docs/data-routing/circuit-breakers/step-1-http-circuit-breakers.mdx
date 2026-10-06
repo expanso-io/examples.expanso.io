@@ -60,20 +60,21 @@ To fix this, you'll wrap the `http` processor in a `try` block and add a `catch`
       processors:
         # Wrap the fallible processors in a try/catch block.
         - try:
-            - http:
-                url: ${MOCK_API_URL}/metadata/${!this.sensor_id}
-                verb: GET
-                timeout: 3s
-                retries: 2
-                retry_period: 1s
-                headers:
-                  Authorization: 'Bearer ${!env("API_TOKEN")}'
-            - mapping: |
-                root = this
-                let api_response = content().parse_json()
-                root.metadata = $api_response.metadata
-                root.enriched = true
-                root.api_status = "success"
+            - branch:
+                request_map: root = this
+                processors:
+                  - http:
+                      url: ${MOCK_API_URL}/metadata/${!this.sensor_id}
+                      verb: GET
+                      timeout: 3s
+                      retries: 2
+                      retry_period: 1s
+                      headers:
+                        Authorization: 'Bearer ${!env("API_TOKEN")}'
+                result_map: |
+                  root.metadata = this.metadata
+                  root.enriched = true
+                  root.api_status = "success"
         - catch:
             - mapping: |
                 root = this
