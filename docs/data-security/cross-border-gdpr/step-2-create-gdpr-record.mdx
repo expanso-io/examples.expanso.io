@@ -39,39 +39,7 @@ The record below documents the fields and operations selected by this example. I
 
 ## Implementation
 
-```yaml title="step-2-gdpr-record.yaml"
-pipeline:
-  processors:
-    # Step 1: Origin tagging (from previous)
-    - mapping: |
-        root = this
-        root._data_origin = {
-          "region": "EU",
-          "country": env("SOURCE_COUNTRY").or("DE"),
-          "database": "transactions_eu",
-          "extracted_at": now(),
-          "pipeline": "eu-cross-border-minimization"
-        }
-
-    # Step 2: example transformation record
-    - mapping: |
-        root = this
-        root._gdpr_compliance = {
-          "legal_basis": "legitimate_interest_analytics",
-          "original_pii_fields": [
-            "customer_id",
-            "customer_name",
-            "customer_email",
-            "customer_dob",
-            "customer_address",
-            "iban",
-            "ip_address"
-          ],
-          "anonymization_applied": true,
-          "transfer_type": "cross_border_eu_to_global",
-          "gdpr_article": "Article 44 - General principle for transfers"
-        }
-```
+See the transformation-record processor in the [canonical reference](../complete-pipeline). It preserves the origin metadata from the preceding stage; inspect both in the [Explorer](../explorer).
 
 ## Understanding the Code
 
