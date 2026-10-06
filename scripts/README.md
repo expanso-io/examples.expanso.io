@@ -101,6 +101,8 @@ npm run test-stage-configs
 
 Explorer configuration lives under `examples/explorer-stages/` and is bound by `content/explorer-stage-bindings-v1.json`. Stage modules own presentation data only. After an intentional canonical YAML or manifest edit, run `npm run stages:canonical:write` to regenerate the browser map, then rerun both read-only gates above. `validate-stages` also checks the deterministic fixture generator for drift. Use `npm run fixtures:explorer-stages -- --write` only when intentionally regenerating its declared sample inputs.
 
+The checkpoint capture helpers in `scripts/fixtures/` require `benthos` on `PATH` and execute local fixture pipelines. `capture-explorer-checkpoints.mjs` checks sequential DB2, GDPR, backup, and retail checkpoints; `capture-medical-device-checkpoint.mjs` checks the complete error-events collection checkpoint. Run either with `node` and add `--write` to update its authored stage modules, then regenerate the browser map with the command above. These captures do not verify external database, custom-analysis, Parquet encoding, or destination integrations.
+
 ## Legacy structural tools
 
 ```bash
