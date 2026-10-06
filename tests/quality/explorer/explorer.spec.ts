@@ -423,6 +423,35 @@ test('copy actions confirm where the reader clicked and close the menu', async (
   ).toHaveText('Copy JSON');
 });
 
+test('reopening the copy menu hides its trigger toast and permits copying', async ({
+  page,
+}) => {
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: () => Promise.resolve() },
+    });
+  });
+  const explorer = page.locator('[data-explorer-version="2"]');
+  const summary = explorer.getByText('Copy & download');
+  const toast = explorer.locator('[data-copy-toast]');
+
+  await summary.click();
+  await explorer.getByRole('button', { name: 'Copy full YAML' }).click();
+  await expect(toast).toBeVisible();
+  await expect(toast).toHaveText('Full YAML copied.');
+
+  await summary.click();
+  await expect(toast).toBeHidden();
+  await expect(toast).toHaveText('Full YAML copied.');
+  await explorer.getByRole('button', { name: 'Copy share link' }).click();
+  await expect(toast).toBeVisible();
+  await expect(toast).toHaveText('Share link copied.');
+  await expect(summary).toBeFocused();
+});
+
 test('a failed copy is reported inline on the control', async ({ page }) => {
   const explorer = page.locator('[data-explorer-version="2"]');
   await page.evaluate(() => {
