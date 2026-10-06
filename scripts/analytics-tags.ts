@@ -34,6 +34,8 @@ export const ANALYTICS_HOSTS = [
   'usemessages.com',
   'lfeeder.com',
   'analytics.ahrefs.com',
+  'survicate.com',
+  'leadsy.ai',
 ] as const;
 
 /** Identifiers that reveal a tag even when its host is not spelled out. */
@@ -57,16 +59,53 @@ export const PRODUCTION_PAGE_TAGS = [
   },
 ] as const;
 
-/** Tags this site no longer emits in any build. The shared Google Tag Manager
- * container fired GA4, Google Ads and six other vendors before any consent
- * choice; expanso.io and docs.expanso.io removed it too. The corporate GA4
- * stream only reached this site through that container. */
-export const RETIRED_TAGS = [
-  'GTM-MPSKFDMF',
-  'googletagmanager.com/gtm.js',
-  'googletagmanager.com/ns.html',
-  'G-X1RJ0QGN3Z',
+/** The only hosts and identifiers a production build may carry. Any other
+ * entry of ANALYTICS_HOSTS or ANALYTICS_MARKERS, and any other Google tag id,
+ * would send data outside these consent rules. That is how the retired
+ * Google Tag Manager container fired GA4, Google Ads and six other vendors
+ * before any consent choice; expanso.io and docs.expanso.io removed it too.
+ * googletagmanager.com is allowed only as the gtag.js path the dedicated GA
+ * adapter loads after consent. */
+export const PRODUCTION_ALLOWED_TAGS = [
+  'static.scarf.sh',
+  'web.t.expanso.io',
+  'posthog.com',
+  'G-6YXD85WVC6',
+  'phc_f467hBf7ZUEc5HDT3xFcbhZ4tL7wUYJH0COw9Y2bzSK',
+  'x-pxid=82d5c930-f525-4047-bb21-25a09e68ed2d',
 ] as const;
+
+const GTAG_PATH = 'googletagmanager.com/gtag/js';
+
+/** Google Tag Manager containers, Google Ads accounts and GA4 streams. */
+const GOOGLE_TAG_IDS = /\b(?:GTM-[A-Z0-9]{4,}|AW-\d{6,}|G-[A-Z0-9]{6,})\b/g;
+
+function isAllowed(needle: string): boolean {
+  return (PRODUCTION_ALLOWED_TAGS as readonly string[]).includes(needle);
+}
+
+function occurrences(text: string, needle: string): number {
+  return text.split(needle).length - 1;
+}
+
+/** Every analytics host or identifier in `text` outside PRODUCTION_ALLOWED_TAGS. */
+export function unapprovedTags(text: string): string[] {
+  const found: string[] = [];
+  for (const needle of [...ANALYTICS_HOSTS, ...ANALYTICS_MARKERS]) {
+    if (!text.includes(needle) || isAllowed(needle)) continue;
+    if (
+      needle === 'googletagmanager.com' &&
+      occurrences(text, needle) === occurrences(text, GTAG_PATH)
+    ) {
+      continue;
+    }
+    found.push(needle);
+  }
+  for (const [id] of text.matchAll(GOOGLE_TAG_IDS)) {
+    if (!isAllowed(id) && !found.includes(id)) found.push(id);
+  }
+  return found;
+}
 
 /** What the production JavaScript must carry: the direct PostHog collector and
  * the dedicated Google Analytics adapter. */

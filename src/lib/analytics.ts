@@ -60,12 +60,6 @@ let entryCampaign: Properties | undefined;
 
 let posthogClientPromise: Promise<PostHogInterface | undefined> | undefined;
 
-declare global {
-  interface Window {
-    dataLayer: unknown[];
-  }
-}
-
 export function readCookie(
   cookieString: string,
   cookieName: string

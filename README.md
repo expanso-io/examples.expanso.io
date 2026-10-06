@@ -106,8 +106,9 @@ PostHog SDK chunk, ingestion host and project key from non-production builds.
 `npm run verify:analytics-build -- --build-dir build --variant none` fails if
 any analytics host or identifier appears in a normal build and runs on every
 pull request; `--variant production` confirms the flagged `main` artifact
-carries every tag and none of the retired ones, and runs only in that
-production-build job. The shared Google Tag Manager container (`GTM-MPSKFDMF`)
+carries every tag and nothing outside `PRODUCTION_ALLOWED_TAGS` in
+`scripts/analytics-tags.ts`, and runs only in that production-build job. A
+unit test applies the same allowlist to the site sources on every pull request. The shared Google Tag Manager container (`GTM-MPSKFDMF`)
 is retired: it fired GA4, Google Ads and six other vendors before any consent
 choice, and expanso.io and docs.expanso.io removed it too. Browser suites that
 measure a production-variant build (`tests/quality/performance.spec.ts`,

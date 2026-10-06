@@ -1,12 +1,20 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
+import { globSync } from 'glob';
 
 import {
   analyticsBlockedUrlPatterns,
   isAnalyticsHost,
+  unapprovedTags,
 } from '../../scripts/analytics-tags';
 import {
   reportProblems,
@@ -136,10 +144,44 @@ describe('analytics build variant verifier', () => {
     });
     const problems = reportProblems(verifyAnalyticsBuild(root, 'production'));
     assert.deepEqual(problems, [
-      'index.html carries retired tag GTM-MPSKFDMF',
-      'index.html carries retired tag googletagmanager.com/gtm.js',
-      'index.html carries retired tag googletagmanager.com/ns.html',
-      'index.html carries retired tag G-X1RJ0QGN3Z',
+      'index.html carries unapproved analytics tag googletagmanager.com',
+      'index.html carries unapproved analytics tag GTM-MPSKFDMF',
+      'index.html carries unapproved analytics tag G-X1RJ0QGN3Z',
+    ]);
+  });
+
+  it('fails a production build that loads a GTM container with another id', () => {
+    const root = fixture({
+      'index.html': productionPage.replace(
+        '</head>',
+        `${retiredGtmTags.replaceAll('GTM-MPSKFDMF', 'GTM-OTHER00').replace(/<script>\/\^\(docs[^<]*<\/script>/, '')}</head>`
+      ),
+      'assets/js/main.js': productionScript,
+    });
+    const problems = reportProblems(verifyAnalyticsBuild(root, 'production'));
+    assert.deepEqual(problems, [
+      'index.html carries unapproved analytics tag googletagmanager.com',
+      'index.html carries unapproved analytics tag GTM-OTHER00',
+    ]);
+  });
+
+  it('fails a production build that loads a vendor the old container fired', () => {
+    const vendors = [
+      '<script async src="https://www.googletagmanager.com/gtag/js?id=AW-11179683646"></script>',
+      '<script src="https://js.hs-scripts.com/22582119.js"></script>',
+      '<script src="https://survey.survicate.com/workspaces/a057fe/web_surveys.js"></script>',
+      '<script src="https://r2.leadsy.ai/tag.js"></script>',
+    ].join('');
+    const root = fixture({
+      'index.html': productionPage.replace('</head>', `${vendors}</head>`),
+      'assets/js/main.js': productionScript,
+    });
+    const problems = reportProblems(verifyAnalyticsBuild(root, 'production'));
+    assert.deepEqual(problems, [
+      'index.html carries unapproved analytics tag hs-scripts.com',
+      'index.html carries unapproved analytics tag survicate.com',
+      'index.html carries unapproved analytics tag leadsy.ai',
+      'index.html carries unapproved analytics tag AW-11179683646',
     ]);
   });
 
@@ -184,6 +226,8 @@ describe('analytics host matching shared with the browser tests', () => {
     assert.equal(isAnalyticsHost('us.i.posthog.com'), true);
     assert.equal(isAnalyticsHost('web.t.expanso.io'), true);
     assert.equal(isAnalyticsHost('px.ads.linkedin.com'), true);
+    assert.equal(isAnalyticsHost('survey.survicate.com'), true);
+    assert.equal(isAnalyticsHost('r2.leadsy.ai'), true);
     assert.equal(isAnalyticsHost('examples.expanso.io'), false);
     assert.equal(isAnalyticsHost('docs.scarf.sh'), false);
     assert.equal(isAnalyticsHost('127.0.0.1'), false);
@@ -194,5 +238,26 @@ describe('analytics host matching shared with the browser tests', () => {
     assert.ok(patterns.includes('*static.scarf.sh/*'));
     assert.ok(patterns.includes('*googletagmanager.com/*'));
     assert.ok(patterns.every((pattern) => /^\*[a-z0-9.-]+\/\*$/.test(pattern)));
+  });
+});
+
+describe('analytics tags in the site sources', () => {
+  it('carry nothing outside the approved production tags', () => {
+    const sources = globSync(
+      [
+        'docusaurus.config.ts',
+        'plugins/**/*.{cjs,js,mjs,ts}',
+        'src/**/*.{css,js,jsx,ts,tsx}',
+        'static/**/*.{html,js}',
+      ],
+      { nodir: true, ignore: ['**/*.test.*'] }
+    ).sort();
+    assert.ok(sources.includes('docusaurus.config.ts'));
+    const problems = sources.flatMap((path) =>
+      unapprovedTags(readFileSync(path, 'utf8')).map(
+        (needle) => `${path} carries unapproved analytics tag ${needle}`
+      )
+    );
+    assert.deepEqual(problems, []);
   });
 });

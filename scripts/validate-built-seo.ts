@@ -1,4 +1,5 @@
 import { validateSocialHtml } from './social-validation.mjs';
+import { unapprovedTags } from './analytics-tags';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -42,9 +43,10 @@ for (const url of urls) {
   } catch (error) {
     failures.push(`${url.pathname}: ${String(error)}`);
   }
-  if (html.includes('GTM-MPSKFDMF') || html.includes('gtm.start')) {
+  const unapproved = unapprovedTags(html);
+  if (unapproved.length > 0) {
     failures.push(
-      `${url.pathname}: the retired GTM container must not be emitted`
+      `${url.pathname}: unapproved analytics tag ${unapproved.join(', ')}`
     );
   }
   const h1Count = countMatches(html, /<h1\b/gi);

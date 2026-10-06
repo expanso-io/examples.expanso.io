@@ -7,7 +7,7 @@
  * `none` fails on the first analytics host or identifier found in any text
  * file of the build. `production` requires every real page to carry each tag
  * and the JavaScript to carry the PostHog and Google adapters, and fails on
- * any retired tag.
+ * any tag outside PRODUCTION_ALLOWED_TAGS.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
@@ -17,7 +17,7 @@ import {
   ANALYTICS_MARKERS,
   PRODUCTION_PAGE_TAGS,
   PRODUCTION_SCRIPT_MARKERS,
-  RETIRED_TAGS,
+  unapprovedTags,
 } from './analytics-tags';
 
 export type Variant = 'none' | 'production';
@@ -33,7 +33,7 @@ export interface VerificationReport {
   pages: number;
   findings: Finding[];
   missing: Finding[];
-  retired: Finding[];
+  unapproved: Finding[];
 }
 
 const TEXT_EXTENSIONS = new Set([
@@ -90,7 +90,7 @@ export function verifyAnalyticsBuild(
   const needles = [...ANALYTICS_HOSTS, ...ANALYTICS_MARKERS];
   const findings: Finding[] = [];
   const missing: Finding[] = [];
-  const retired: Finding[] = [];
+  const unapproved: Finding[] = [];
   const scriptHits = new Set<string>();
   let pages = 0;
 
@@ -100,10 +100,10 @@ export function verifyAnalyticsBuild(
     for (const needle of needles) {
       if (text.includes(needle)) findings.push({ file, needle });
     }
-    for (const needle of RETIRED_TAGS) {
-      if (text.includes(needle)) retired.push({ file, needle });
-    }
     if (variant !== 'production') continue;
+    for (const needle of unapprovedTags(text)) {
+      unapproved.push({ file, needle });
+    }
     if (file.endsWith('.html') && isRealPage(text)) {
       pages += 1;
       for (const tag of PRODUCTION_PAGE_TAGS) {
@@ -132,7 +132,7 @@ export function verifyAnalyticsBuild(
     pages,
     findings,
     missing,
-    retired,
+    unapproved,
   };
 }
 
@@ -146,8 +146,8 @@ export function reportProblems(report: VerificationReport): string[] {
     ...report.missing.map(
       ({ file, needle }) => `${file} is missing production tag ${needle}`
     ),
-    ...report.retired.map(
-      ({ file, needle }) => `${file} carries retired tag ${needle}`
+    ...report.unapproved.map(
+      ({ file, needle }) => `${file} carries unapproved analytics tag ${needle}`
     ),
   ];
   if (report.findings.length === 0) {

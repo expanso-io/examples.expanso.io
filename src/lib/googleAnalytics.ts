@@ -1,5 +1,5 @@
 // This destination must be the dedicated examples property. Never infer an ID
-// from the shared GTM container or another tag already present on the page.
+// from another tag already present on the page.
 export const EXAMPLES_GA_MEASUREMENT_ID = 'G-6YXD85WVC6';
 const DATA_LAYER_NAME = 'expansoExamplesAnalyticsLayer';
 type Consent = 'granted' | 'denied' | 'unset';
@@ -24,7 +24,7 @@ function sanitizedLocation(path: unknown): string {
 }
 
 /** A separate gtag queue plus an explicit send_to keeps manual events away
- * from corporate tags. No Google script is loaded before consent is granted.
+ * from any other Google tag on the page. No Google script is loaded before consent is granted.
  */
 export function createGoogleAnalyticsAdapter(
   measurementId: string,
