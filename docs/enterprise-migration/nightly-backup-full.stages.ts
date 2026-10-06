@@ -408,14 +408,14 @@ export const nightlyBackupStages: Stage[] = [
         type: 'added',
       },
       {
-        content: '"backup_timestamp": "2026-10-05T17:35:16.247802-07:00",',
+        content: '"backup_timestamp": "2026-10-05T18:24:42.203165-07:00",',
         indent: 2,
         key: 'backup_timestamp',
         valueType: 'string',
         type: 'added',
       },
       {
-        content: '"node_id": "backup-node-1",',
+        content: '"node_id": "unknown",',
         indent: 2,
         key: 'node_id',
         valueType: 'string',
@@ -429,14 +429,14 @@ export const nightlyBackupStages: Stage[] = [
         type: 'added',
       },
       {
-        content: '"source_database": "ecommerce",',
+        content: '"source_database": "unknown",',
         indent: 2,
         key: 'source_database',
         valueType: 'string',
         type: 'added',
       },
       {
-        content: '"source_host": "postgres.internal.corp"',
+        content: '"source_host": "unknown"',
         indent: 2,
         key: 'source_host',
         valueType: 'string',
@@ -531,13 +531,13 @@ export const nightlyBackupStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"backup_timestamp": "2026-10-05T17:35:16.247802-07:00",',
+        content: '"backup_timestamp": "2026-10-05T18:24:42.203165-07:00",',
         indent: 2,
         key: 'backup_timestamp',
         valueType: 'string',
       },
       {
-        content: '"node_id": "backup-node-1",',
+        content: '"node_id": "unknown",',
         indent: 2,
         key: 'node_id',
         valueType: 'string',
@@ -549,13 +549,13 @@ export const nightlyBackupStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"source_database": "ecommerce",',
+        content: '"source_database": "unknown",',
         indent: 2,
         key: 'source_database',
         valueType: 'string',
       },
       {
-        content: '"source_host": "postgres.internal.corp"',
+        content: '"source_host": "unknown"',
         indent: 2,
         key: 'source_host',
         valueType: 'string',
@@ -641,14 +641,14 @@ export const nightlyBackupStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"backup_timestamp": "2026-10-05T17:35:16.274968-07:00",',
+        content: '"backup_timestamp": "2026-10-05T18:24:42.203165-07:00",',
         indent: 2,
         key: 'backup_timestamp',
         valueType: 'string',
         type: 'highlighted',
       },
       {
-        content: '"node_id": "backup-node-1",',
+        content: '"node_id": "unknown",',
         indent: 2,
         key: 'node_id',
         valueType: 'string',
@@ -660,13 +660,13 @@ export const nightlyBackupStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"source_database": "ecommerce",',
+        content: '"source_database": "unknown",',
         indent: 2,
         key: 'source_database',
         valueType: 'string',
       },
       {
-        content: '"source_host": "postgres.internal.corp"',
+        content: '"source_host": "unknown"',
         indent: 2,
         key: 'source_host',
         valueType: 'string',
@@ -750,20 +750,84 @@ export const nightlyBackupStages: Stage[] = [
       'Switch on the table tag to a dated object path per table. Cloud delivery has not been exercised.',
     inputLines: [
       {
-        content: '[Checksummed rows]',
+        content: '{',
         indent: 0,
         type: 'comment',
       },
       {
-        content: '• _table: orders (incremental)',
-        indent: 0,
+        content: '"_backup_metadata": {',
+        indent: 1,
       },
       {
-        content: '• _table: inventory (full)',
-        indent: 0,
+        content: '"backup_date": "2026-10-05",',
+        indent: 2,
       },
       {
-        content: '• _table: order_items (incremental)',
+        content: '"backup_timestamp": "2026-10-05T18:24:42.203165-07:00",',
+        indent: 2,
+      },
+      {
+        content: '"node_id": "unknown",',
+        indent: 2,
+      },
+      {
+        content: '"pipeline_version": "1.0.0",',
+        indent: 2,
+      },
+      {
+        content: '"source_database": "unknown",',
+        indent: 2,
+      },
+      {
+        content: '"source_host": "unknown"',
+        indent: 2,
+      },
+      {
+        content: '},',
+        indent: 1,
+      },
+      {
+        content: '"_backup_type": "incremental",',
+        indent: 1,
+      },
+      {
+        content: '"_checksum": "de4bd45a0d46a3ac1a2b1a702ad93380",',
+        indent: 1,
+      },
+      {
+        content: '"_table": "orders",',
+        indent: 1,
+      },
+      {
+        content: '"created_at": "2024-01-14T16:42:10Z",',
+        indent: 1,
+      },
+      {
+        content: '"currency": "USD",',
+        indent: 1,
+      },
+      {
+        content: '"customer_id": 4471,',
+        indent: 1,
+      },
+      {
+        content: '"order_id": 100231,',
+        indent: 1,
+      },
+      {
+        content: '"status": "shipped",',
+        indent: 1,
+      },
+      {
+        content: '"total": 189.95,',
+        indent: 1,
+      },
+      {
+        content: '"updated_at": "2024-01-15T08:03:22Z"',
+        indent: 1,
+      },
+      {
+        content: '}',
         indent: 0,
       },
     ],

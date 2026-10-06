@@ -122,7 +122,7 @@ export const crossBorderGdprStages: Stage[] = [
         type: 'added',
       },
       {
-        content: '"extracted_at": "2026-10-05T17:52:56.804903-07:00",',
+        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -261,7 +261,7 @@ export const crossBorderGdprStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"extracted_at": "2026-10-05T17:52:56.804903-07:00",',
+        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -389,7 +389,7 @@ export const crossBorderGdprStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"extracted_at": "2026-10-05T17:52:56.824747-07:00",',
+        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -613,7 +613,7 @@ export const crossBorderGdprStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"extracted_at": "2026-10-05T17:52:56.824747-07:00",',
+        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -817,7 +817,7 @@ export const crossBorderGdprStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"extracted_at": "2026-10-05T17:52:56.855779-07:00",',
+        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -1015,7 +1015,7 @@ export const crossBorderGdprStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"extracted_at": "2026-10-05T17:52:56.855779-07:00",',
+        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -1208,7 +1208,7 @@ export const crossBorderGdprStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"extracted_at": "2026-10-05T17:52:56.878594-07:00",',
+        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -1409,7 +1409,7 @@ export const crossBorderGdprStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"extracted_at": "2026-10-05T17:52:56.878594-07:00",',
+        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -1598,7 +1598,7 @@ export const crossBorderGdprStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"extracted_at": "2026-10-05T17:52:56.904639-07:00",',
+        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -1809,7 +1809,7 @@ export const crossBorderGdprStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"extracted_at": "2026-10-05T17:52:56.904639-07:00",',
+        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -2010,7 +2010,7 @@ export const crossBorderGdprStages: Stage[] = [
         valueType: 'string',
       },
       {
-        content: '"extracted_at": "2026-10-05T17:52:56.930981-07:00",',
+        content: '"extracted_at": "2026-10-05T18:24:42.064376-07:00",',
         indent: 2,
         key: 'extracted_at',
         valueType: 'string',
@@ -2052,43 +2052,82 @@ export const crossBorderGdprStages: Stage[] = [
         type: 'added',
       },
       {
-        content:
-          '"fields_hashed": ["customer_id", "customer_email", "iban", "ip_address"],',
+        content: '"fields_hashed": [',
         indent: 2,
         key: 'fields_hashed',
         valueType: 'array',
         type: 'added',
       },
       {
-        content:
-          '"fields_removed": ["customer_name", "customer_address", "customer_dob"],',
-        indent: 2,
+        content: '"customer_id",',
+        indent: 3,
         key: 'fields_removed',
         valueType: 'array',
         type: 'added',
       },
       {
-        content:
-          '"gdpr_article": "Article 44 - General principle for transfers",',
-        indent: 2,
+        content: '"customer_email",',
+        indent: 3,
         key: 'gdpr_article',
         valueType: 'string',
       },
       {
-        content: '"legal_basis": "legitimate_interest_analytics",',
-        indent: 2,
+        content: '"iban",',
+        indent: 3,
         key: 'legal_basis',
         valueType: 'string',
       },
       {
-        content: '"original_pii_fields": [',
-        indent: 2,
+        content: '"ip_address"',
+        indent: 3,
         key: 'original_pii_fields',
         valueType: 'array',
       },
       {
+        content: '],',
+        indent: 2,
+      },
+      {
+        content: '"fields_removed": [',
+        indent: 2,
+      },
+      {
+        content: '"customer_name",',
+        indent: 3,
+      },
+      {
+        content: '"customer_address",',
+        indent: 3,
+      },
+      {
+        content: '"customer_dob"',
+        indent: 3,
+      },
+      {
+        content: '],',
+        indent: 2,
+      },
+      {
+        content:
+          '"gdpr_article": "Article 44 - General principle for transfers",',
+        indent: 2,
+      },
+      {
+        content: '"legal_basis": "legitimate_interest_analytics",',
+        indent: 2,
+      },
+      {
+        content: '"original_pii_fields": [',
+        indent: 2,
+        key: 'transfer_type',
+        valueType: 'string',
+      },
+      {
         content: '"customer_id",',
         indent: 3,
+        key: 'verification_timestamp',
+        valueType: 'string',
+        type: 'added',
       },
       {
         content: '"customer_name",',
@@ -2097,121 +2136,116 @@ export const crossBorderGdprStages: Stage[] = [
       {
         content: '"customer_email",',
         indent: 3,
-      },
-      {
-        content: '"customer_dob",',
-        indent: 3,
-      },
-      {
-        content: '"customer_address",',
-        indent: 3,
-      },
-      {
-        content: '"iban",',
-        indent: 3,
-      },
-      {
-        content: '"ip_address"',
-        indent: 3,
-      },
-      {
-        content: '],',
-        indent: 2,
-      },
-      {
-        content: '"transfer_type": "cross_border_eu_to_global",',
-        indent: 2,
-        key: 'transfer_type',
-        valueType: 'string',
-      },
-      {
-        content: '"verification_timestamp": "2026-10-05T17:52:56.931087-07:00"',
-        indent: 2,
-        key: 'verification_timestamp',
-        valueType: 'string',
-        type: 'added',
-      },
-      {
-        content: '},',
-        indent: 1,
-      },
-      {
-        content: '"amount_bucket": "100-500",',
-        indent: 1,
         key: 'amount_bucket',
         valueType: 'string',
       },
       {
-        content: '"anonymized_customer_id": "2c3bff82c8f5",',
-        indent: 1,
+        content: '"customer_dob",',
+        indent: 3,
         key: 'anonymized_customer_id',
         valueType: 'string',
       },
       {
-        content: '"bank_country": "DE",',
-        indent: 1,
+        content: '"customer_address",',
+        indent: 3,
         key: 'bank_country',
         valueType: 'string',
       },
       {
-        content: '"customer_age_bucket": "35-44",',
-        indent: 1,
+        content: '"iban",',
+        indent: 3,
         key: 'customer_age_bucket',
         valueType: 'string',
       },
       {
-        content: '"email_domain": "example.de",',
-        indent: 1,
+        content: '"ip_address"',
+        indent: 3,
         key: 'email_domain',
         valueType: 'string',
       },
       {
-        content: '"ip_subnet": "85.214.0.0/16",',
-        indent: 1,
+        content: '],',
+        indent: 2,
         key: 'ip_subnet',
         valueType: 'string',
       },
       {
-        content: '"merchant_country": "DE",',
-        indent: 1,
+        content: '"transfer_type": "cross_border_eu_to_global",',
+        indent: 2,
         key: 'merchant_country',
         valueType: 'string',
       },
       {
-        content: '"merchant_name": "Kaufhaus Nord",',
-        indent: 1,
+        content: '"verification_timestamp": "2026-10-05T18:24:42.158584-07:00"',
+        indent: 2,
         key: 'merchant_name',
         valueType: 'string',
       },
       {
-        content: '"transaction_amount": 249.9,',
+        content: '},',
         indent: 1,
         key: 'transaction_amount',
         valueType: 'number',
       },
       {
-        content: '"transaction_currency": "EUR",',
+        content: '"amount_bucket": "100-500",',
         indent: 1,
         key: 'transaction_currency',
         valueType: 'string',
       },
       {
-        content: '"transaction_hour": "2024-01-15T13:00:00Z",',
+        content: '"anonymized_customer_id": "2c3bff82c8f5",',
         indent: 1,
         key: 'transaction_hour',
         valueType: 'string',
       },
       {
-        content: '"transaction_id": "TXN-EU-2024-001842",',
+        content: '"bank_country": "DE",',
         indent: 1,
         key: 'transaction_id',
         valueType: 'string',
       },
       {
-        content: '"transaction_timestamp": "2024-01-15T13:42:07Z"',
+        content: '"customer_age_bucket": "35-44",',
         indent: 1,
         key: 'transaction_timestamp',
         valueType: 'string',
+      },
+      {
+        content: '"email_domain": "example.de",',
+        indent: 1,
+      },
+      {
+        content: '"ip_subnet": "85.214.0.0/16",',
+        indent: 1,
+      },
+      {
+        content: '"merchant_country": "DE",',
+        indent: 1,
+      },
+      {
+        content: '"merchant_name": "Kaufhaus Nord",',
+        indent: 1,
+      },
+      {
+        content: '"transaction_amount": 249.9,',
+        indent: 1,
+      },
+      {
+        content: '"transaction_currency": "EUR",',
+        indent: 1,
+      },
+      {
+        content: '"transaction_hour": "2024-01-15T13:00:00Z",',
+        indent: 1,
+      },
+      {
+        content: '"transaction_id": "TXN-EU-2024-001842",',
+        indent: 1,
+      },
+      {
+        content: '"transaction_timestamp": "2024-01-15T13:42:07Z"',
+        indent: 1,
       },
       {
         content: '}',
