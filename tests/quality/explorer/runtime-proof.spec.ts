@@ -109,7 +109,8 @@ test('restores scenario history, normalizes invalid state, and copies the exact 
         .__copiedExplorerUrl
   );
   expect(copied).toBe(page.url());
-  await expect(explorer.getByRole('status')).toContainText(
+  await expect(explorer.getByRole('button', { name: 'Copied' })).toBeVisible();
+  await expect(explorer.locator('[data-copy-toast]')).toHaveText(
     'Share link copied.'
   );
 });

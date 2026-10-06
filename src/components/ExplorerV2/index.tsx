@@ -13,6 +13,12 @@ import {
   type ExplorerNavigationMethod,
 } from '../../analytics/events';
 import { captureExampleEvent } from '../../lib/analytics';
+import CopyActionButton, { CopyToast } from './CopyActionButton';
+import {
+  copyResultFeedback,
+  useCopyFeedback,
+  writeClipboardText,
+} from './copyFeedback';
 import { normalizeExplorerStages } from './normalize';
 import styles from './styles.module.css';
 import type {
@@ -190,6 +196,14 @@ export default function ExplorerV2({
   const focusStageAfterChangeRef = useRef(false);
   const normalizedInvalidStageRef = useRef<string | null>(null);
   const hasCapturedEngagementRef = useRef(false);
+  const actionMenuRef = useRef<HTMLDetailsElement | null>(null);
+  const { feedback: copyFeedback, show: showCopyFeedback } = useCopyFeedback();
+  // Menu items disappear when the menu closes, so success surfaces on the
+  // trigger they came from.
+  const menuCopyFeedback =
+    copyFeedback?.kind === 'success' && copyFeedback.key.startsWith('menu-')
+      ? copyFeedback
+      : null;
 
   const currentStage = stages[currentIndex];
   if (!currentStage) throw new Error('Explorer requires at least one stage');
@@ -346,15 +360,15 @@ export default function ExplorerV2({
   async function copyText(
     value: string,
     label: string,
-    scope: 'stage' | 'full' | 'input' | 'output' | 'share'
+    scope: 'stage' | 'full' | 'input' | 'output' | 'share',
+    feedbackKey: string
   ) {
     try {
-      if (!navigator.clipboard?.writeText) {
-        throw new Error('Clipboard permission is unavailable');
+      await writeClipboardText(value);
+      showCopyFeedback(copyResultFeedback(feedbackKey, label, 'success'));
+      if (feedbackKey.startsWith('menu-') && actionMenuRef.current) {
+        actionMenuRef.current.open = false;
       }
-      await navigator.clipboard.writeText(value);
-      setStatusKind('success');
-      setStatus(`${label} copied.`);
       recordAnalyticsEvent(
         scope === 'share'
           ? createExplorerShareEvent(exampleId, currentStage.slug)
@@ -365,10 +379,7 @@ export default function ExplorerV2({
             )
       );
     } catch {
-      setStatusKind('error');
-      setStatus(
-        `Could not copy ${label.toLowerCase()}. Select the text and copy it manually.`
-      );
+      showCopyFeedback(copyResultFeedback(feedbackKey, label, 'error'));
     }
   }
 
@@ -380,7 +391,7 @@ export default function ExplorerV2({
     const url = new URL(location.pathname, window.location.origin);
     url.search = search.toString();
     url.hash = location.hash;
-    void copyText(url.toString(), 'Share link', 'share');
+    void copyText(url.toString(), 'Share link', 'share', 'menu-share');
   }
 
   function downloadYaml(
@@ -565,56 +576,81 @@ export default function ExplorerV2({
               : 'Changes only'}
           </span>
         </label>
-        <details className={styles.actionMenu}>
-          <summary>Copy &amp; download</summary>
-          <div>
-            <button type="button" onClick={copyShareLink}>
-              Copy share link
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                copyText(currentStage.yamlCode, 'Stage YAML', 'stage')
-              }
-            >
-              Copy stage YAML
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                downloadYaml(
-                  currentStage.yamlCode,
-                  currentStage.yamlFilename,
-                  'stage'
-                )
-              }
-            >
-              Download stage YAML
-            </button>
-            {fullYaml ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => copyText(fullYaml, 'Full YAML', 'full')}
-                >
-                  Copy full YAML
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    downloadYaml(fullYaml, fullYamlFilename, 'full')
-                  }
-                >
-                  Download full YAML
-                </button>
-              </>
-            ) : (
-              <p className={styles.actionNote}>
-                Full pipeline file not included. Stage YAML remains available.
-              </p>
-            )}
-          </div>
-        </details>
+        <span className={styles.actionMenuAnchor}>
+          <details className={styles.actionMenu} ref={actionMenuRef}>
+            <summary>Copy &amp; download</summary>
+            <div>
+              <CopyActionButton
+                feedbackKey="menu-share"
+                feedback={copyFeedback}
+                toast="error-only"
+                toastPlacement="inline"
+                anchorClassName={styles.menuItem}
+                onCopy={copyShareLink}
+              >
+                Copy share link
+              </CopyActionButton>
+              <CopyActionButton
+                feedbackKey="menu-stage"
+                feedback={copyFeedback}
+                toast="error-only"
+                toastPlacement="inline"
+                anchorClassName={styles.menuItem}
+                onCopy={() =>
+                  void copyText(
+                    currentStage.yamlCode,
+                    'Stage YAML',
+                    'stage',
+                    'menu-stage'
+                  )
+                }
+              >
+                Copy stage YAML
+              </CopyActionButton>
+              <button
+                type="button"
+                onClick={() =>
+                  downloadYaml(
+                    currentStage.yamlCode,
+                    currentStage.yamlFilename,
+                    'stage'
+                  )
+                }
+              >
+                Download stage YAML
+              </button>
+              {fullYaml ? (
+                <>
+                  <CopyActionButton
+                    feedbackKey="menu-full"
+                    feedback={copyFeedback}
+                    toast="error-only"
+                    toastPlacement="inline"
+                    anchorClassName={styles.menuItem}
+                    onCopy={() =>
+                      void copyText(fullYaml, 'Full YAML', 'full', 'menu-full')
+                    }
+                  >
+                    Copy full YAML
+                  </CopyActionButton>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      downloadYaml(fullYaml, fullYamlFilename, 'full')
+                    }
+                  >
+                    Download full YAML
+                  </button>
+                </>
+              ) : (
+                <p className={styles.actionNote}>
+                  Full pipeline file not included. Stage YAML remains available.
+                </p>
+              )}
+            </div>
+          </details>
+          {menuCopyFeedback ? <CopyToast feedback={menuCopyFeedback} /> : null}
+        </span>
       </div>
 
       <div
@@ -642,19 +678,21 @@ export default function ExplorerV2({
               >
                 <div className={styles.panelHeader}>
                   <h4>{label}</h4>
-                  <button
-                    type="button"
+                  <CopyActionButton
+                    feedbackKey={panel}
+                    feedback={copyFeedback}
                     aria-label={`Copy ${label.toLowerCase()} ${payloadLabel} for ${currentStage.title}`}
-                    onClick={() =>
-                      copyText(
+                    onCopy={() =>
+                      void copyText(
                         value,
                         `${label} ${payloadLabel}`,
-                        isInput ? 'input' : 'output'
+                        isInput ? 'input' : 'output',
+                        panel
                       )
                     }
                   >
                     Copy {payloadLabel}
-                  </button>
+                  </CopyActionButton>
                 </div>
                 <div
                   className={styles.dataScroll}
@@ -688,18 +726,20 @@ export default function ExplorerV2({
                   : 'Stage configuration'}
               </span>
               <code>{visibleYamlFilename}</code>
-              <button
-                type="button"
-                onClick={() =>
-                  copyText(
+              <CopyActionButton
+                feedbackKey="yaml"
+                feedback={copyFeedback}
+                onCopy={() =>
+                  void copyText(
                     visibleYaml,
                     visibleYamlScope === 'full' ? 'Full YAML' : 'Stage YAML',
-                    visibleYamlScope
+                    visibleYamlScope,
+                    'yaml'
                   )
                 }
               >
                 Copy YAML
-              </button>
+              </CopyActionButton>
             </div>
             <pre tabIndex={0}>
               <code>{visibleYaml}</code>
@@ -711,6 +751,7 @@ export default function ExplorerV2({
       {status ? (
         <p
           className={styles.status}
+          data-explorer-status=""
           data-kind={statusKind}
           role={statusKind === 'error' ? 'alert' : 'status'}
           aria-live="polite"

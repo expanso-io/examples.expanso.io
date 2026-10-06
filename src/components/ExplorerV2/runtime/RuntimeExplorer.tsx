@@ -9,6 +9,12 @@ import {
   validateCheckpointArtifact,
   validateRuntimeSource,
 } from './disconnectedEdgeMachine';
+import CopyActionButton from '../CopyActionButton';
+import {
+  copyResultFeedback,
+  useCopyFeedback,
+  writeClipboardText,
+} from '../copyFeedback';
 import styles from './runtimeStyles.module.css';
 import type {
   RuntimeCheckpointArtifact,
@@ -64,6 +70,7 @@ export default function RuntimeExplorer({
     'Simulation ready at the deterministic initial state.'
   );
   const normalizedInvalidScenarioRef = useRef<string | null>(null);
+  const { feedback: copyFeedback, show: showCopyFeedback } = useCopyFeedback();
 
   const scenario =
     source.scenarios.find((candidate) => candidate.id === scenarioId) ??
@@ -185,15 +192,10 @@ export default function RuntimeExplorer({
     url.search = search.toString();
     url.hash = location.hash;
     try {
-      if (!navigator.clipboard?.writeText) {
-        throw new Error('Clipboard permission is unavailable');
-      }
-      await navigator.clipboard.writeText(url.toString());
-      setAnnouncement('Share link copied.');
+      await writeClipboardText(url.toString());
+      showCopyFeedback(copyResultFeedback('share', 'Share link', 'success'));
     } catch {
-      setAnnouncement(
-        'Could not copy the share link. Select the browser address and copy it manually.'
-      );
+      showCopyFeedback(copyResultFeedback('share', 'Share link', 'error'));
     }
   }
 
@@ -294,9 +296,13 @@ export default function RuntimeExplorer({
         <button type="button" onClick={replay}>
           Replay simulation
         </button>
-        <button type="button" onClick={() => void copyShareLink()}>
+        <CopyActionButton
+          feedbackKey="share"
+          feedback={copyFeedback}
+          onCopy={() => void copyShareLink()}
+        >
           Copy share link
-        </button>
+        </CopyActionButton>
       </div>
 
       <p className={styles.announcement} role="status" aria-live="polite">

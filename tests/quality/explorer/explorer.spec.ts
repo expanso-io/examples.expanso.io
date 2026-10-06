@@ -248,11 +248,15 @@ test('copy, share, and download actions preserve exact bytes and announce succes
     });
   });
 
+  const menu = explorer.locator('details');
   await explorer.getByText('Copy & download').click();
   await explorer.getByRole('button', { name: 'Copy stage YAML' }).click();
-  await expect(explorer.getByRole('status')).toContainText(
+  await expect(explorer.locator('[data-copy-toast]')).toHaveText(
     'Stage YAML copied.'
   );
+  await expect
+    .poll(() => menu.evaluate((d: HTMLDetailsElement) => d.open))
+    .toBe(false);
   expect(
     await page.evaluate(
       () =>
@@ -261,6 +265,7 @@ test('copy, share, and download actions preserve exact bytes and announce succes
     )
   ).toBe(stageYaml);
 
+  await explorer.getByText('Copy & download').click();
   await explorer.getByRole('button', { name: 'Copy share link' }).click();
   expect(
     await page.evaluate(
@@ -270,6 +275,7 @@ test('copy, share, and download actions preserve exact bytes and announce succes
     )
   ).toBe(page.url());
 
+  await explorer.getByText('Copy & download').click();
   const [stageDownload] = await Promise.all([
     page.waitForEvent('download'),
     explorer.getByRole('button', { name: 'Download stage YAML' }).click(),
@@ -281,8 +287,118 @@ test('copy, share, and download actions preserve exact bytes and announce succes
     explorer.getByRole('button', { name: 'Download full YAML' }).click(),
   ]);
   expect(await readFile((await fullDownload.path())!, 'utf8')).toBe(fullYaml);
-  await expect(explorer.getByRole('status')).toContainText(
+  await expect(explorer.locator('[data-explorer-status]')).toContainText(
     'remove-pii-complete.yaml download started.'
+  );
+});
+
+test('changing stages keeps the page scroll position', async ({ page }) => {
+  const explorer = page.locator('[data-explorer-version="2"]');
+  const compact = await usesCompactStageSelector(explorer);
+  const target = await explorer.evaluate((element) => {
+    const top = element.getBoundingClientRect().top + window.scrollY;
+    return Math.max(0, Math.round(top - 24));
+  });
+  expect(target).toBeGreaterThan(0);
+  await page.evaluate((y) => window.scrollTo(0, y), target);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(target);
+
+  if (compact) {
+    await stageSelector(explorer).selectOption({ index: 1 });
+  } else {
+    await explorer.locator('[aria-current="step"]').focus();
+    await page.keyboard.press('ArrowRight');
+  }
+  await expect(page).toHaveURL(/stage=delete-payment-data/);
+  await expectCurrentStage(explorer, 1);
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => window.scrollY)).toBe(target);
+
+  await explorer.getByRole('button', { name: 'Next stage' }).click();
+  await expect(page).toHaveURL(/stage=hash-ip-address/);
+  await expectCurrentStage(explorer, 2);
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => window.scrollY)).toBe(target);
+
+  await explorer.getByRole('button', { name: 'Previous stage' }).click();
+  await expect(page).toHaveURL(/stage=delete-payment-data/);
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => window.scrollY)).toBe(target);
+});
+
+test('copy actions confirm where the reader clicked and close the menu', async ({
+  page,
+}) => {
+  const explorer = page.locator('[data-explorer-version="2"]');
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: () => Promise.resolve() },
+    });
+  });
+  const menu = explorer.locator('details');
+  const summary = explorer.getByText('Copy & download');
+  const toast = explorer.locator('[data-copy-toast]');
+
+  await summary.click();
+  await explorer.getByRole('button', { name: 'Copy full YAML' }).click();
+  await expect
+    .poll(() => menu.evaluate((d: HTMLDetailsElement) => d.open))
+    .toBe(false);
+  await expect(toast).toHaveText('Full YAML copied.');
+  const toastBox = await toast.boundingBox();
+  const summaryBox = await summary.boundingBox();
+  expect(toastBox).not.toBeNull();
+  expect(summaryBox).not.toBeNull();
+  expect(toastBox!.y).toBeGreaterThanOrEqual(summaryBox!.y);
+  expect(toastBox!.y - (summaryBox!.y + summaryBox!.height)).toBeLessThan(48);
+
+  await summary.click();
+  await expect(explorer.getByRole('button', { name: 'Copied' })).toBeVisible();
+  await expect(
+    explorer.getByRole('button', { name: 'Copy full YAML' })
+  ).toBeVisible({ timeout: 4_000 });
+  await expect(toast).toHaveCount(0);
+  await summary.click();
+
+  const inputCopy = explorer.getByRole('button', {
+    name: /Copy input JSON for Original Input/,
+  });
+  await inputCopy.click();
+  await expect(inputCopy).toHaveText('Copied');
+  await expect(inputCopy).toHaveAttribute('data-copy-state', 'success');
+  await expect(toast).toHaveText('Input JSON copied.');
+  await expect(
+    explorer.getByRole('button', {
+      name: /Copy output JSON for Original Input/,
+    })
+  ).toHaveText('Copy JSON');
+});
+
+test('a failed copy is reported inline on the control', async ({ page }) => {
+  const explorer = page.locator('[data-explorer-version="2"]');
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error('denied')) },
+    });
+  });
+  const yamlPanel = explorer.locator('[id$="-yaml-panel"]');
+  const yamlCopy = yamlPanel.locator('button[data-copy-state]');
+  await yamlCopy.click();
+  await expect(yamlCopy).toHaveText('Copy failed');
+  await expect(yamlCopy).toHaveAttribute('data-copy-state', 'error');
+  await expect(yamlPanel.getByRole('alert')).toContainText(
+    'Could not copy stage yaml'
+  );
+
+  const menu = explorer.locator('details');
+  await explorer.getByText('Copy & download').click();
+  await explorer.getByRole('button', { name: 'Copy stage YAML' }).click();
+  await expect(menu.getByRole('button', { name: 'Copy failed' })).toBeVisible();
+  expect(await menu.evaluate((d: HTMLDetailsElement) => d.open)).toBe(true);
+  await expect(menu.getByRole('alert')).toContainText(
+    'Could not copy stage yaml'
   );
 });
 
@@ -309,7 +425,9 @@ test('Explorer analytics uses only the versioned privacy-safe schema', async ({
   await explorer.getByLabel('Changes only').check();
   await explorer.getByText('Copy & download').click();
   await explorer.getByRole('button', { name: 'Copy stage YAML' }).click();
+  await explorer.getByText('Copy & download').click();
   await explorer.getByRole('button', { name: 'Copy share link' }).click();
+  await explorer.getByText('Copy & download').click();
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     explorer.getByRole('button', { name: 'Download full YAML' }).click(),
