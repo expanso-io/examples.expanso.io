@@ -21,7 +21,7 @@ below, but it does not turn a partly satisfied cell into a pass.
 | Criterion 5: features preserved across redesigns |    0 |     0 |      26 |
 
 The zero pass count is deliberate. The criterion 1 and criterion 2 reports are
-not on `main`, and three open dependencies still supply required criterion 3,
+not on `main`, and the listed dependencies still supply required criterion 3,
 criterion 4, and criterion 5 behavior. This report does not convert an open
 dependency into proof.
 

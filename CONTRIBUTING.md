@@ -90,12 +90,8 @@ After building, run the class-wide browser gate:
 QUALITY_STATIC_SERVER=1 npm run quality:example-conformance
 ```
 
-It checks every published family for page order, every stage's owned evidence,
-focused keyboard navigation with preserved scroll, fresh operation-specific
-feedback beside copy and download controls, actions and unfolded sidebar routes,
-related examples, light/dark contrast, and 320px reflow. Pending sibling repairs
-do not exempt a family from these assertions. See the
-[conformance report](validation-reports/conformance/README.md) for recorded
-results and dependencies.
+Pending sibling repairs do not exempt a family from these assertions. See the
+[conformance report](validation-reports/conformance/README.md#gates-and-recorded-verification)
+for gate coverage, recorded results, and dependencies.
 
 Browser, accessibility, performance, exact-SHA artifact, deploy, redirect, and production-canary gates remain separate. A local pass never implies deployment or production acceptance.
