@@ -374,9 +374,15 @@ output:
       # Primary: send to Splunk.
       - http_client:
           url: 'https://${SPLUNK_HOST}:8088/services/collector/event'
-      # Secondary: retain an audit copy.
-      - file:
-          path: '/var/audit/splunk-events.jsonl'
+      - switch:
+          cases:
+            - check: 'this.event.sourcetype == "expanso:cef" || this.event.level == "ERROR"'
+              output:
+                file:
+                  path: '/var/audit/splunk-events.jsonl'
+                  codec: lines
+            - output:
+                drop: {}
 ```
 
 ## Monitoring HEC Performance

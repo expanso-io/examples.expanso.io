@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
 import { spawnSync } from 'node:child_process';
 import { parse, stringify } from 'yaml';
 import { globSync } from 'glob';
@@ -32,6 +33,7 @@ const root = process.cwd();
 
 const edge = resolveEdgeBinary(root, { log: () => {} });
 
+mkdirSync(join(root, '.bin'), { recursive: true });
 const work = mkdtempSync(join(root, '.bin', 'selected-review-'));
 
 const environment = JSON.parse(
@@ -1376,5 +1378,96 @@ test('published HTTP API-key check rejects unauthorized requests before output',
     );
   } finally {
     await agent.deleteJob(deployed.jobId);
+  }
+});
+
+test('published Splunk audit retains only CEF or ERROR while HEC receives every event', async () => {
+  const page =
+    'docs/integrations/splunk-edge-processing/step-4-route-to-splunk-hec.mdx';
+  const block = pageBlocks(page).find((block) => {
+    const output = parse(block.source)?.output;
+    return output?.broker?.pattern === 'fan_out';
+  });
+  assert.ok(block);
+  const wrapped = wrapFragment(parse(block.source));
+  assert.ok(wrapped);
+  const config = parse(wrapped.source);
+  const received: Array<{ event: { id: string } }> = [];
+  const receiver = createHttpServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on('data', (chunk: Buffer) => chunks.push(chunk));
+    request.on('end', () => {
+      try {
+        received.push(JSON.parse(Buffer.concat(chunks).toString()));
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ text: 'Success', code: 0 }));
+      } catch {
+        response.writeHead(400);
+        response.end();
+      }
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    receiver.once('error', reject);
+    receiver.listen(0, '127.0.0.1', resolve);
+  });
+  const address = receiver.address();
+  assert.ok(address && typeof address !== 'string');
+  const target = join(work, `splunk-audit-${++sequence}.jsonl`);
+  config.input = {
+    file: {
+      paths: [
+        join(root, 'tests/fixtures/pipeline-inputs/splunk-audit-routing.jsonl'),
+      ],
+      codec: 'lines',
+    },
+  };
+  config.output.broker.outputs[0].http_client.url = `http://127.0.0.1:${address.port}/services/collector/event`;
+  config.output.broker.outputs[1].switch.cases[0].output.file.path = target;
+  try {
+    const validation = validateSource(
+      edge,
+      root,
+      stringify(config),
+      environment
+    );
+    assert.equal(validation.status, 'PASS', JSON.stringify(validation.errors));
+    const deployed = await agent.deploy({
+      name: `splunk-audit-${sequence}`,
+      type: 'pipeline',
+      config,
+    });
+    assert.ok(deployed.ok, JSON.stringify(deployed));
+    if (!deployed.ok) throw new Error(deployed.error);
+    try {
+      let state = '';
+      const deadline = Date.now() + 15000;
+      while (Date.now() < deadline) {
+        state = (await agent.executionStatus(deployed.jobId))?.state ?? '';
+        if (['completed', 'failed', 'stopped'].includes(state)) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      assert.equal(state, 'completed');
+      assert.deepEqual(received.map((record) => record.event.id).sort(), [
+        'cef-info',
+        'json-error',
+        'json-info',
+      ]);
+      const audit = readFileSync(target, 'utf8')
+        .trim()
+        .split('\n')
+        .map((row) => JSON.parse(row));
+      assert.deepEqual(audit.map((record) => record.event.id).sort(), [
+        'cef-info',
+        'json-error',
+      ]);
+    } finally {
+      await agent.deleteJob(deployed.jobId);
+    }
+  } finally {
+    receiver.closeAllConnections();
+    await new Promise<void>((resolve, reject) =>
+      receiver.close((error) => (error ? reject(error) : resolve()))
+    );
   }
 });
