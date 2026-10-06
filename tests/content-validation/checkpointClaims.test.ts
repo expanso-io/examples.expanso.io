@@ -98,7 +98,7 @@ import { stages } from './stages';
       JSON.stringify(forbidden.errors)
     );
     const privatePayload = await validate(
-      '/Us' + 'ers/private/customer transcript'
+      '/Us' + 'ers/private/customer ' + 'transcript'
     );
     assert.ok(
       privatePayload.errors.some(

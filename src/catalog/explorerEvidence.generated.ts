@@ -688,7 +688,7 @@ export const GENERATED_ARCHITECTURE_EXPLORER_EVIDENCE: Readonly<
     authoredStageModulePath:
       "docs/integrations/medical-device-intelligence-full.stages.ts",
     authoredStageModuleSha256:
-      "sha256:f127d293cb9740ad767b96738e321ded292e682d7c4b06fe3ddc85a3d61a4e00",
+      "sha256:a7e6807bd271d74e675f9422b42853502c3c9977f4a9ea6ca583042fe5b517cb",
     inputCheckpointPath:
       "examples/explorer-stages/medical-device-intelligence/01-collect-synthetic-fixtures.yaml",
     inputCheckpointSha256:
