@@ -15,6 +15,7 @@ import { parse } from 'yaml';
 import {
   LocalEdgeAgent,
   resolveEdgeBinary,
+  validateFile,
   validateSource,
 } from '../../scripts/validation/edge';
 import { planRun } from '../../scripts/validation/harness';
@@ -929,3 +930,142 @@ test('retail batching emits Parquet objects grouped by region', async () => {
     25
   );
 });
+
+test('generated normalization fixtures emit stable report paths', () => {
+  const path = 'examples/data-transformation/normalize-timestamps.yaml';
+  const reports = ['first-', 'second-'].map((prefix): PipelineReport[] => {
+    const directory = mkdtempSync(join(work, prefix));
+    const fixture = join(directory, 'recent-timestamps.jsonl');
+    const recent = rebaseNormalizationFixture(
+      readFileSync(
+        'tests/fixtures/pipeline-inputs/data-transformation.jsonl',
+        'utf8'
+      ),
+      contracts[path]
+    );
+    writeFileSync(fixture, recent.source);
+    const plan = planRun(config(path), fixture, join(directory, 'output'));
+    return [
+      {
+        file: {
+          path,
+          kind: 'complete-job',
+          category: 'data-transformation',
+          family: 'normalize-timestamps',
+        },
+        validate: { status: 'PASS', mode: 'file', errors: [] },
+        run: {
+          status: 'PASS',
+          mode: plan.mode,
+          reason: 'semantic output verified',
+          substitutions: plan.substitutions,
+        },
+      },
+    ];
+  });
+  const options = {
+    date: '2026-10-05',
+    edgeVersion: edge.version,
+    pinnedEdgeVersion: edge.version,
+    inventoryDigest: 'fixture-digest',
+  };
+  assert.equal(JSON.stringify(reports[0]), JSON.stringify(reports[1]));
+  const markdown = renderReport(reports[0], summarize(reports[0], options), 2);
+  assert.equal(
+    markdown,
+    renderReport(reports[1], summarize(reports[1], options), 2)
+  );
+  assert.match(markdown, /\.validation-input\/recent-timestamps\.jsonl/);
+});
+
+test('original ingestion pipelines validate their declared rate limits', () => {
+  for (const path of [
+    'examples/log-processing/production-pipeline.yaml',
+    'examples/log-processing/production-pipeline-complete.yaml',
+    'examples/data-security/enforce-schema.yaml',
+    'examples/data-security/remove-pii.yaml',
+    'examples/data-routing/priority-queues.yaml',
+    'examples/data-routing/smart-buffering.yaml',
+    'static/files/log-processing/production-pipeline.yaml',
+    'static/files/data-security/enforce-schema.yaml',
+    'static/files/data-routing/priority-queues.yaml',
+    'static/files/data-routing/smart-buffering.yaml',
+  ]) {
+    const result = validateFile(edge, root, path, manifest.environment);
+    assert.equal(result.status, 'PASS', `${path}: ${JSON.stringify(result)}`);
+  }
+});
+
+test('original validation rejects unresolved input and processor rate limits', () => {
+  for (const declared of [false, true]) {
+    const pipeline: YamlObject = {
+      input: {
+        http_server: {
+          address: '127.0.0.1:8080',
+          path: '/records',
+          rate_limit: 'ingest',
+        },
+      },
+      pipeline: { processors: [{ rate_limit: { resource: 'ingest' } }] },
+      output: { stdout: {} },
+      ...(declared
+        ? {
+            rate_limit_resources: [
+              { label: 'ingest', local: { count: 10, interval: '1s' } },
+            ],
+          }
+        : {}),
+    };
+    const source = stringify(pipeline);
+    const path = join(work, 'rate-limits.yaml');
+    writeFileSync(path, source);
+    for (const result of [
+      validateSource(edge, root, source),
+      validateFile(edge, root, path.slice(root.length + 1)),
+    ]) {
+      assert.equal(
+        result.status,
+        declared ? 'PASS' : 'FAIL',
+        JSON.stringify(result)
+      );
+      if (!declared) {
+        assert.deepEqual(
+          result.errors.map((error) => error.path),
+          [
+            'config.input.http_server.rate_limit',
+            'config.pipeline.processors.0.rate_limit',
+          ]
+        );
+      }
+    }
+  }
+});
+
+for (const path of [
+  'examples/data-security/cross-border-gdpr/cross-border-gdpr.yaml',
+  'static/files/data-security/cross-border-gdpr.yaml',
+]) {
+  test(`GDPR errors block global transfer while preserving the regional archive: ${path}`, async () => {
+    const original = JSON.parse(
+      readFileSync(
+        'tests/fixtures/pipeline-inputs/cross-border-gdpr.jsonl',
+        'utf8'
+      ).split('\n')[0]
+    );
+    original.customer_email = null;
+    const fixture = join(work, 'nullable-gdpr.jsonl');
+    writeFileSync(fixture, JSON.stringify(original) + '\n');
+    const outputs = await capture(config(path), fixture, {}, 'failed');
+    assert.equal(outputs.length, 3);
+    assert.equal(outputs[0], '');
+    assert.equal(outputs[2], '');
+    const archive = outputs[1]
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    assert.equal(archive.length, 1);
+    const { _archive_metadata, ...row } = archive[0];
+    assert.deepEqual(row, original);
+    assert.equal(_archive_metadata.data_classification, 'personal_data_eu');
+  });
+}

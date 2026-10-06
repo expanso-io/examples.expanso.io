@@ -14,6 +14,7 @@
 
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 
 import type { Substitution } from './types';
 import {
@@ -269,7 +270,9 @@ export function planRun(
     const marker = '/tests/';
     const markerIndex = path.lastIndexOf(marker);
 
-    return markerIndex >= 0 ? path.slice(markerIndex + 1) : path;
+    return markerIndex >= 0
+      ? path.slice(markerIndex + 1)
+      : `.validation-input/${basename(path)}`;
   };
 
   const replaceProcessorStandIns = (node: YamlValue, at: string): YamlValue => {

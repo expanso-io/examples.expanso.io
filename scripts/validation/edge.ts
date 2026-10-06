@@ -12,12 +12,19 @@
  */
 
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+} from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
+import { parse } from 'yaml';
 
 import type { ValidateResult, ValidationError } from './types';
-import type { YamlObject } from './yaml-value';
+import { isYamlObject, type YamlObject, type YamlValue } from './yaml-value';
 
 /** The expanso-edge release every report is produced with. Bump deliberately. */
 export const PINNED_EDGE_VERSION = 'v2.1.22';
@@ -242,6 +249,48 @@ function parseValidatorOutput(
   return errors.sort(compareValidationErrors);
 }
 
+function rateLimitErrors(source: string): ValidationError[] {
+  const document = parse(source) as YamlValue;
+  if (!isYamlObject(document)) return [];
+  const config = isYamlObject(document.config) ? document.config : document;
+  const resources = config.rate_limit_resources;
+  const labels = new Set(
+    Array.isArray(resources)
+      ? resources.filter(isYamlObject).map((resource) => resource.label)
+      : []
+  );
+  const errors: ValidationError[] = [];
+  const visit = (node: YamlValue, path: string): void => {
+    if (Array.isArray(node)) {
+      node.forEach((entry, index) => visit(entry, `${path}.${index}`));
+      return;
+    }
+    if (!isYamlObject(node)) return;
+    for (const [key, value] of Object.entries(node)) {
+      const reference =
+        key === 'rate_limit'
+          ? typeof value === 'string'
+            ? value
+            : isYamlObject(value)
+              ? value.resource
+              : undefined
+          : undefined;
+      if (
+        typeof reference === 'string' &&
+        reference !== '' &&
+        !labels.has(reference)
+      )
+        errors.push({
+          path: `${path}.${key}`,
+          message: `rate limit resource '${reference}' is not declared`,
+        });
+      visit(value, `${path}.${key}`);
+    }
+  };
+  visit(config, 'config');
+  return errors;
+}
+
 /** Validate a pipeline file in place with `expanso-edge validate`. */
 export function validateFile(
   edge: EdgeBinary,
@@ -283,6 +332,10 @@ export function validateFile(
     };
   }
 
+  if (result.status === 0)
+    errors.push(
+      ...rateLimitErrors(readFileSync(join(cwd, relativePath), 'utf8'))
+    );
   return {
     status: result.status === 0 && errors.length === 0 ? 'PASS' : 'FAIL',
     mode: 'file',
@@ -328,6 +381,7 @@ export function validateSource(
     };
   }
 
+  if (result.status === 0) errors.push(...rateLimitErrors(source));
   return {
     status: result.status === 0 && errors.length === 0 ? 'PASS' : 'FAIL',
     mode: 'wrapped',
