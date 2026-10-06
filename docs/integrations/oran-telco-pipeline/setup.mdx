@@ -1,9 +1,18 @@
 ---
-title: Review the O-RAN Telemetry Reference
+title: Deploy the O-RAN Telemetry Job on Single-Node OpenShift
 sidebar_label: Run path
 sidebar_position: 3
-description: Inspect the checked-in telemetry architecture without connecting a RAN source or destination.
-keywords: [oran, telemetry, adapter, inspection]
+description: Run the Expanso Edge agent on an SNO node under the restricted SCC and deploy the telemetry job through Expanso Cloud.
+keywords:
+  [
+    oran,
+    telemetry,
+    openshift,
+    sno,
+    amq-streams,
+    user-workload-monitoring,
+    deployment,
+  ]
 contentArchetype: run
 executionStatus: architecture-only
 operationalEvidence: not-assessed
@@ -15,40 +24,115 @@ claimsVerifiedAt: '2026-07-18'
 claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2a52b4e340ab
 ---
 
-# Review the O-RAN Telemetry Reference
+# Deploy on Single-Node OpenShift
 
-This path inspects repository artifacts. It does not collect an O-RAN protocol, deploy to OpenShift, or contact any destination.
+This path puts the Expanso Edge agent on a Single-Node OpenShift (SNO) node and deploys the telemetry job to it through Expanso Cloud. The agent runs under the default `restricted-v2` SecurityContextConstraint: non-root, no privilege escalation, no `hostPath`, no `hostNetwork`. Everything it writes lands on PersistentVolumeClaims.
+
+The manifests live in [`examples/integrations/oran-telco-pipeline/openshift`](https://github.com/expanso-io/examples.expanso.io/tree/main/examples/integrations/oran-telco-pipeline/openshift). This page applies them; it does not report a verified run on a specific cluster.
+
+## What lands on the cluster
+
+| Resource                                             | Purpose                                                                   |
+| ---------------------------------------------------- | ------------------------------------------------------------------------- |
+| Namespace `oran-telemetry`                           | Restricted pod security, default SCC                                      |
+| PVC `oran-telemetry-data` (50Gi) at `/data`          | Parquet output and dead-letter files                                      |
+| PVC `expanso-edge-state` (1Gi) at `/var/lib/expanso` | Node identity, so restarts do not re-register the node                    |
+| `Kafka` `oran-kafka` + `KafkaNodePool` (AMQ Streams) | One KRaft broker, TLS listener on 9093 only, SCRAM-SHA-512                |
+| `KafkaTopic` x2, `KafkaUser` x2                      | Topics and producer/consumer identities with separate ACLs                |
+| `OpenTelemetryCollector` `oran`                      | OTLP in (4317/4318), Prometheus exporter out (8889)                       |
+| `ServiceMonitor` `oran-collector`                    | Hands the exporter to OpenShift user-workload monitoring                  |
+| Deployment + Service `expanso-edge`                  | The agent, plus an in-cluster endpoint for DU exporters to POST telemetry |
+| ConfigMaps `oran-site`, `expanso-edge-config`        | Site identity env vars; agent config with the labels the job selects on   |
 
 ## Prerequisites
 
-- A checkout of this repository
-- A shell with `sed` and `rg`
-- No RAN, cluster, broker, or analytics credentials
+- An SNO cluster and `oc` logged in as a user who can create a namespace. One step needs cluster-admin.
+- The AMQ Streams and Red Hat build of OpenTelemetry operators installed from OperatorHub.
+- A default StorageClass (on SNO this is usually the LVM Storage operator's class).
+- An Expanso Cloud account, a bootstrap token for a new node, and `expanso-cli` logged in.
+- A DU exporter that can POST JSON to an in-cluster Service, or leave the built-in simulator on.
 
-## Run the inspection
+## Run the deployment
 
-From the repository root:
+1. From the repository root, validate the job offline. This checks the config schema, every Bloblang mapping, and the component types.
 
-```bash
-test -f static/pipelines/oran-telco-pipeline.yaml
-test -f examples/integrations/oran-input.yaml
-sed -n '1,80p' examples/integrations/oran-input.yaml
-rg -n 'input:|mapping:|broker:|kafka:|file:' \
-  static/pipelines/oran-telco-pipeline.yaml
-```
+   ```bash
+   expanso-edge validate static/pipelines/oran-telco-pipeline.yaml
+   ```
+
+2. Enable user-workload monitoring. Cluster-admin, once per cluster. If `cluster-monitoring-config` already exists, merge `enableUserWorkload: true` into it instead.
+
+   ```bash
+   cd examples/integrations/oran-telco-pipeline/openshift
+   oc apply -f cluster/user-workload-monitoring.yaml
+   ```
+
+3. Apply the namespace, storage, Kafka, collector, and agent manifests.
+
+   ```bash
+   oc apply -k .
+   ```
+
+4. Create the two Secrets the Deployment reads. The third, `expanso-oran`, is written by the AMQ Streams User Operator.
+
+   ```bash
+   oc -n oran-telemetry create secret generic expanso-bootstrap \
+     --from-literal=token="$EXPANSO_BOOTSTRAP_TOKEN"
+   oc -n oran-telemetry create secret generic oran-du-api \
+     --from-literal=token="$DU_API_KEY"
+   ```
+
+5. Wait for Kafka, then confirm the CA and the user password exist. The agent pod stays in `CreateContainerConfigError` until they do.
+
+   ```bash
+   oc -n oran-telemetry wait kafka/oran-kafka \
+     --for=condition=Ready --timeout=10m
+   oc -n oran-telemetry get secret \
+     oran-kafka-cluster-ca-cert expanso-oran
+   oc -n oran-telemetry get pods
+   ```
+
+6. From the OpenShift manifest directory, deploy the job through Expanso Cloud. The selector in the job spec matches the labels in `expanso-edge-config`.
+
+   ```bash
+   expanso-cli job deploy \
+     ../../../../static/pipelines/oran-telco-pipeline.yaml
+   ```
+
+Before connecting a real DU, remove the `du_simulator` input from the job and redeploy it through Expanso Cloud. `SIMULATION_INTERVAL=0s` removes pacing; it does not disable the simulator.
+
+The ingress NetworkPolicy permits TCP 8080 only from pods labelled `app.kubernetes.io/name: oran-du` in namespace `oran-du`. Set both selectors in `62-telemetry-networkpolicy.yaml` to match your exporter before applying the manifests. This restricts access to the `/telemetry` listener by network source, not by HTTP path or claimed DU identity.
 
 ## Expected output
 
-Both file checks exit successfully. The fixture shows authored telemetry, and the final command identifies source, transformation, and external destination boundaries.
+- `oc -n oran-telemetry get pods` lists `expanso-edge`, `oran-kafka-dual-role-0`, the entity operator, and `oran-collector` as `Running`.
+- `expanso-cli node list` shows `sno-oran-edge` with labels `platform=openshift-sno` and `role=oran-du-telemetry`.
+- Within five minutes the first Parquet file exists on the claim:
+
+  ```bash
+  oc -n oran-telemetry exec deploy/expanso-edge -- \
+    find /data/oran-telemetry -name '*.parquet'
+  ```
+
+- In the OpenShift console, Observe, Metrics, the query `oran_ptp_review_score` returns one series per `du_id`.
+- `oc -n oran-telemetry get kafkatopic` shows both topics `Ready`.
 
 ## Cleanup
 
-No files or external resources are created.
+From the OpenShift manifest directory, `oc delete -k .` removes the namespace, its Secrets, and the PersistentVolumeClaims. Volume data deletion follows the StorageClass reclaim policy. Copy anything you want to keep first.
+
+```bash
+expanso-cli job delete oran-edge-telemetry
+oc delete -k .
+```
 
 ## Common failures
 
-- A missing file means the checkout does not contain the referenced artifact.
-- An empty search means the combined reference changed; inspect it directly before updating the walkthrough.
-- The fixture and mappings do not validate network thresholds or destination contracts.
+- **Pod `Pending`, PVC `Pending`.** No default StorageClass. Set `storageClassName` on both claims.
+- **`CreateContainerConfigError`.** A referenced Secret is missing: `expanso-bootstrap`, `oran-du-api`, or `expanso-oran` (not yet created by the User Operator).
+- **Agent restarts with a bootstrap error.** The token expired or was revoked. Create a new one, update the Secret, and restart the Deployment.
+- **Kafka output logs `client has run out of available brokers`.** The CA is not mounted, the KafkaUser is not ready, or the listener name or port changed. The broker only speaks TLS on 9093.
+- **No `oran_*` series.** User-workload monitoring is off, or the ServiceMonitor label selector no longer matches the collector Service. Check `oc -n openshift-user-workload-monitoring get pods`.
+- **Job never schedules.** The agent's labels do not match the selector. Compare `expanso-cli node describe` with the `selector` block in the job.
 
 **Next:** [Inspect the source boundary](/integrations/oran-telco-pipeline/step-1-collect-oran-metrics).

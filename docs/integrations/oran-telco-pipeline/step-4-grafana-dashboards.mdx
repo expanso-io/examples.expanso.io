@@ -20,12 +20,27 @@ claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2
 
 Inspect authored Grafana panels for telemetry review. Grafana remains an external service; this architecture walkthrough does not provision it or verify live telemetry.
 
+On the SNO deployment the `oran_*` series live in OpenShift user-workload monitoring. The pipeline posts them to the OpenTelemetry Collector, the collector's Prometheus exporter is scraped through a `ServiceMonitor`, and the names arrive unchanged because the exporter runs with `add_metric_suffixes: false` (see [Step 3](/integrations/oran-telco-pipeline/step-3-multi-destination-routing#output-1-opentelemetry-collector-and-user-workload-monitoring)).
+
 ## Work through this step
 
-1. Configure a Prometheus data source in Grafana and confirm it exposes the `oran_*` metrics used below.
-2. Save the three dashboard JSON objects as `dashboards/oran-operations.json`, `dashboards/oran-ptp-review.json`, and `dashboards/oran-performance.json`, respectively.
-3. Set `GRAFANA_URL` and `GRAFANA_TOKEN` in your environment, then run the [import script](#dashboard-import-script).
-4. Open each imported dashboard, select the data source, and check the time range. A blank panel can mean a missing metric or label; it does not establish that the network is healthy.
+1. Point Grafana at the cluster's Thanos Querier. Create a ServiceAccount with the `cluster-monitoring-view` ClusterRole, mint a token, and add a Prometheus data source with the querier route and that bearer token:
+
+   ```bash
+   oc -n oran-telemetry create serviceaccount grafana-reader
+   oc adm policy add-cluster-role-to-user cluster-monitoring-view \
+     -z grafana-reader -n oran-telemetry
+   oc -n oran-telemetry create token grafana-reader --duration=8760h
+   oc -n openshift-monitoring get route thanos-querier \
+     -o jsonpath='https://{.spec.host}{"\n"}'
+   ```
+
+   In the data source, set **Custom HTTP Headers** to `Authorization: Bearer <token>` and enable **Skip TLS verify** only if the cluster uses a self-signed ingress certificate.
+
+2. Confirm the data source exposes `oran_ptp_review_score` and `oran_prb_utilization_percent` from the Explore view before importing anything.
+3. Save the three dashboard JSON objects as `dashboards/oran-operations.json`, `dashboards/oran-ptp-review.json`, and `dashboards/oran-performance.json`, respectively.
+4. Set `GRAFANA_URL` and `GRAFANA_TOKEN` in your environment, then run the [import script](#dashboard-import-script).
+5. Open each imported dashboard, select the data source, and check the time range. A blank panel can mean a missing metric or label; it does not establish that the network is healthy.
 
 The full configurations are expandable below. Start with the operations dashboard; add the timing and performance panels after confirming the metric names and units.
 
