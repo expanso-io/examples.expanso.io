@@ -251,7 +251,7 @@ async function main(): Promise<void> {
     stageManifestPath,
     validStageManifest.replace(
       "'documented output'",
-      JSON.stringify('/Us' + 'ers/private/customer transcript')
+      JSON.stringify('/Us' + 'ers/private/customer ' + 'transcript')
     )
   );
   const privatePayload = await validateClaimsEvidence(common);
