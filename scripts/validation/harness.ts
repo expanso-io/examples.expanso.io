@@ -822,6 +822,24 @@ export function replaceMappingDeclarations(
 ): YamlObject | null {
   const replacements = declarationSpans(source);
   if (!replacements.length) return null;
+  let consumed = 0;
+  for (const replacement of replacements) {
+    const gap = source.slice(consumed, replacement.start);
+    if (
+      gap
+        .split('\n')
+        .some((line) => line.trim() && !line.trim().startsWith('#'))
+    )
+      return null;
+    consumed = Math.max(consumed, replacement.end);
+  }
+  if (
+    source
+      .slice(consumed)
+      .split('\n')
+      .some((line) => line.trim() && !line.trim().startsWith('#'))
+  )
+    return null;
   const wrapped = structuredClone(canonical);
   if (
     !isYamlObject(wrapped.pipeline) ||

@@ -2202,6 +2202,11 @@ test('selected fence-language CI command rejects changes unless explicitly liste
     );
     assert.equal(run().status, 1);
   }
+  writeFileSync(
+    join(fixtureRoot, path),
+    '# Example\n\n\x60\x60\x60yaml\nroot.unrelated = true\n\x60\x60\x60\n\n\x60\x60\x60text\nroot = this\nroot.changed = true\n\x60\x60\x60\n'
+  );
+  assert.equal(run().status, 1);
   for (const language of ['text', 'bloblang', 'coffee', '']) {
     writeFileSync(join(fixtureRoot, path), page(language));
     const result = run();
@@ -2871,5 +2876,39 @@ test('selected review R77 ignores code comments when matching retained snippets'
   assert.deepEqual(
     changedFenceLanguages('docs/test/step.mdx', before, after),
     []
+  );
+});
+
+test('selected review R80 rejects unconsumed declaration fragment content', () => {
+  const canonical = parse(
+    readFileSync('examples/data-routing/smart-buffering.yaml', 'utf8')
+  ).config;
+  const source = pageBlocks(
+    'docs/data-routing/smart-buffering/troubleshooting.mdx'
+  )[0].source;
+  for (const fragment of [
+    'INVALID_BLOBLANG\n' + source,
+    source + '\nINVALID_BLOBLANG',
+    source + '\nINVALID_BLOBLANG\nlet age_boost = 950',
+  ]) {
+    assert.equal(wrapFragment(fragment, canonical), null);
+  }
+  const commented = wrapFragment(
+    '# Replacement declaration\n' + source + '\n# Explanation',
+    canonical
+  );
+  assert.ok(commented);
+  assert.equal(
+    validateSource(edge, root, commented.source, environment).status,
+    'PASS'
+  );
+  const consumedInvalid = wrapFragment(
+    source.trimEnd() + '\n  INVALID_BLOBLANG',
+    canonical
+  );
+  assert.ok(consumedInvalid);
+  assert.equal(
+    validateSource(edge, root, consumedInvalid.source, environment).status,
+    'FAIL'
   );
 });

@@ -45,35 +45,29 @@ export function changedFenceLanguages(
   after: string,
   approved: readonly FenceLanguageChange[] = []
 ): FenceLanguageChange[] {
-  const identify = (page: string) => {
-    const ordinals = new Map<string, number>();
-    const fences = extractCodeBlocks(page, false);
-    const lines = page.split('\n');
-    return fences.map((fence) => {
-      const headings = lines
-        .slice(0, fence.line - 1)
-        .filter(
-          (line, index) =>
-            /^#{1,6} /.test(line) &&
-            !fences.some(
-              (block) =>
-                index >= block.line - 2 &&
-                index <= block.line + block.source.split('\n').length - 2
-            )
-        );
-      const section = headings.at(-1) ?? '';
-      const ordinal = ordinals.get(section) ?? 0;
-      ordinals.set(section, ordinal + 1);
-      return { ...fence, identity: section + '#' + ordinal };
-    });
-  };
-  const oldFences = identify(before).filter((fence) =>
+  const oldFences = extractCodeBlocks(before, false).filter((fence) =>
     isPipelineCodeLanguage(fence.language)
   );
-  const available = identify(after).map((fence) => ({
+  const available = extractCodeBlocks(after, false).map((fence) => ({
     ...fence,
     snippet: snippetDigest(fence.source),
   }));
+  const retainsSource = (original: string, replacement: string): boolean => {
+    const lines = replacement
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    let cursor = 0;
+    for (const line of original
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)) {
+      const next = lines.indexOf(line, cursor);
+      if (next < 0) return false;
+      cursor = next + 1;
+    }
+    return true;
+  };
   const changes: FenceLanguageChange[] = [];
   const pending: FenceLanguageChange[] = [];
   for (const fence of oldFences) {
@@ -122,13 +116,13 @@ export function changedFenceLanguages(
         (fence) => fence.line - 1 === change.line
       );
       const retained = available.findIndex(
-        (next) => next.identity === original?.identity
+        (next) =>
+          next.language === change.from &&
+          original !== undefined &&
+          retainsSource(original.source, next.source)
       );
-      if (retained >= 0) {
-        const [next] = available.splice(retained, 1);
-        if (next.language !== change.from)
-          changes.push({ ...change, to: next.language });
-      } else changes.push(change);
+      if (retained >= 0) available.splice(retained, 1);
+      else changes.push(change);
     }
   }
   return changes;
