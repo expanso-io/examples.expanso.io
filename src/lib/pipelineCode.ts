@@ -255,10 +255,12 @@ export function extractCodeBlocks(
       }
     }
 
-    if (closingIndex < 0) continue;
+    const hasClosingFence = closingIndex >= 0;
+    if (!hasClosingFence) closingIndex = lines.length;
     const line = index + 2;
     if (
       checkIndentation &&
+      hasClosingFence &&
       isPipelineCodeLanguage(opening[3]) &&
       closingIndentation !== indentation
     )
