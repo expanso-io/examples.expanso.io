@@ -1838,6 +1838,7 @@ for (const path of [
     ];
     const record = {
       event_id: 'same',
+      payload: { message: 'Retain the complete event', attributes: [1, 2] },
       event_type: 'signup',
       user: { email: 'ada@example.com' },
       signup_details: { source: 'web', plan: 'basic' },
@@ -1854,6 +1855,8 @@ for (const path of [
       .map((line) => JSON.parse(line));
     assert.equal(rows.length, 1);
     assert.equal(rows[0].is_duplicate, false);
+    for (const [field, value] of Object.entries(record))
+      assert.deepEqual(rows[0][field], value);
   });
 }
 
