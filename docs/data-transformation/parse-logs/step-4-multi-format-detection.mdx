@@ -21,12 +21,12 @@ In a real-world system, you often receive logs in various formats through a sing
 
 ## The Goal
 
-You will build a single pipeline that can correctly parse JSON, CSV, and Access Log strings by combining the techniques from the previous three steps.
+You will build a single pipeline that parses JSON, five-field CSV, syslog, and Access Log strings.
 
 ## The "Detect -> Route" Pattern
 
 1.  **Detect:** A `mapping` processor inspects the raw log string and uses simple heuristics (like checking for `{` or `<`) to guess the format, setting a metadata field like `detected_format`.
-2.  **Route:** A `switch` processor then reads this metadata field and sends the message to the appropriate block of processors (`parse_json`, `csv`, or `grok`).
+2.  **Route:** A `switch` processor reads this metadata field and selects a Bloblang mapping using `.parse_json()`, `.parse_csv()`, or regular-expression captures.
 
 ## Implementation
 

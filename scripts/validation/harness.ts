@@ -783,11 +783,6 @@ export function planRun(
   };
 }
 
-/**
- * Wrap a fragment in a minimal complete pipeline so the validator can check it.
- * Returns the YAML source to validate, or null when the fragment is not a
- * recognisable pipeline piece.
- */
 function declarationSpans(
   source: string
 ): Array<{ name: string; start: number; end: number }> {
@@ -880,6 +875,12 @@ export function replaceMappingDeclarations(
   return null;
 }
 
+/**
+ * Validate fragments in canonical context where available, otherwise using a
+ * minimal complete pipeline. Declaration-only Bloblang must replace matching
+ * canonical declarations without leaving non-comment content unconsumed.
+ * Return null when the fragment cannot be wrapped in a supported context.
+ */
 export function wrapFragment(
   document: YamlValue | undefined,
   canonicalConfig?: YamlObject

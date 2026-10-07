@@ -3,9 +3,10 @@
  *
  * A file is a complete pipeline when it carries both an `input` and an `output`,
  * either at the top level (bare config) or inside an Expanso job `config`
- * block. Everything else that parses is a fragment: a processor list, a single
- * output block, or a tutorial step file. Fragments are still validated, but
- * never executed.
+ * block. Supported fragments are validated but never executed. Recognized
+ * infrastructure documents are excluded; unclassified YAML fails inventory.
+ * Published MDX fences also enter inventory, and pipeline content must use an
+ * executable fence language.
  */
 
 import { createHash } from 'node:crypto';

@@ -31,7 +31,7 @@ export interface EdgeBinary {
   version: string;
 }
 
-/** Resolve the current official latest expanso-edge binary. */
+/** Resolve the operator-installed expanso-edge binary from PATH. */
 export function resolveEdgeBinary(
   _repositoryRoot: string,
   options: {

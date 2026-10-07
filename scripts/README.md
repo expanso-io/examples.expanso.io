@@ -32,13 +32,17 @@ npm run validate-examples
 ```
 
 The harness uses the installed `expanso-edge` and `expanso-cli` releases on
-`PATH`. Local validation never resolves, downloads, pins, or caches binaries;
+`PATH`. Local validation does not query releases, download, pin, or cache binaries;
 install the latest releases through the official Expanso installers first.
 It inventories pipeline YAML under `examples/`, `static/files/`,
-`static/pipelines/`, `docs/**/pipeline.yaml`, and catalog pipeline paths,
-plus YAML code blocks in non-draft MDX pages, including indented fences.
-Documents with both input and output are complete pipelines; other snippets
-are validated with synthetic wrappers but never executed. Kubernetes manifests
+`static/pipelines/`, `docs/**/*.{yaml,yml}`, and catalog pipeline paths,
+plus YAML and Bloblang code blocks in non-draft MDX pages, including indented
+fences. Pipeline content in other fence languages fails with its file and line.
+Documents with both input and output are complete pipelines; supported fragments
+are validated in canonical context where available, or with minimal wrappers,
+but never executed by the inventory harness. Bloblang declaration fragments
+replace matching declarations in the canonical mapping; unmatched declarations
+or unconsumed non-comment content fail validation. Kubernetes manifests
 are excluded from validation reports, as are recognized Docker Compose and
 Prometheus configurations. Unclassified YAML code blocks fail validation with
 their page path and source line. Rendered pipeline blocks show a Complete or
