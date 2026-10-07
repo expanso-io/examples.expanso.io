@@ -28,7 +28,10 @@ import {
 } from '../../scripts/validation/edge';
 import { wrapFragment } from '../../scripts/validation/harness';
 import { verifyOutputs } from '../../scripts/validation/expectations';
-import { snippetDigest } from '../../scripts/validation/fence-languages';
+import {
+  snippetDigest,
+  changedFenceLanguages,
+} from '../../scripts/validation/fence-languages';
 
 const root = process.cwd();
 
@@ -2187,6 +2190,18 @@ test('selected fence-language CI command rejects changes unless explicitly liste
       { cwd: fixtureRoot, encoding: 'utf8' }
     );
   assert.equal(run().status, 0);
+  for (const prefix of ['', '# Moved snippet\n']) {
+    writeFileSync(
+      join(fixtureRoot, path),
+      prefix +
+        page('text').replace(
+          'root = this',
+          'root = this\nroot.changed = true'
+        ) +
+        '\n# Unrelated snippet\n\n\x60\x60\x60yaml\nroot.unrelated = true\n\x60\x60\x60\n'
+    );
+    assert.equal(run().status, 1);
+  }
   for (const language of ['text', 'bloblang', 'coffee', '']) {
     writeFileSync(join(fixtureRoot, path), page(language));
     const result = run();
@@ -2782,4 +2797,79 @@ test('selected review R76 conformance rendering retains aggregate counts and lin
       );
     }
   }
+});
+
+for (const index of [0, 2]) {
+  test(
+    'selected review R78 declarations execute inside canonical classification ' +
+      index,
+    async () => {
+      const path = 'docs/data-routing/smart-buffering/troubleshooting.mdx';
+      const entry = discoverPipelineFiles(root).find(
+        (file) =>
+          file.sourcePath === path &&
+          file.source === pageBlocks(path)[index].source
+      );
+      assert.ok(entry);
+      assert.equal(entry.kind, 'fragment');
+      assert.equal(classifyPipelineCode(entry.source, 'bloblang'), 'fragment');
+      const canonical = parse(
+        readFileSync(entry.canonicalPath!, 'utf8')
+      ).config;
+      const wrapped = wrapFragment(entry.document, canonical);
+      assert.ok(wrapped);
+      assert.equal(wrapFragment(entry.document), null);
+      const config = parse(wrapped.source);
+      config.pipeline.processors.push({
+        mapping: 'root = this\nroot.downstream_priority = this.priority_tier',
+      });
+      const record =
+        index === 0
+          ? {
+              event_id: 'E1',
+              level: 'CRITICAL',
+              message: 'alert',
+              payload: { trace: [1, 2] },
+            }
+          : {
+              event_id: 'E2',
+              category: 'archive',
+              age_seconds: 4000,
+              priority_score: 100,
+              timestamp: new Date(Date.now() - 4000000).toISOString(),
+              payload: { trace: [3, 4] },
+            };
+      const rows = (await execute(stringify(config), [record]))
+        .toString()
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].event_id, record.event_id);
+      assert.deepEqual(rows[0].payload, record.payload);
+      if (index === 0) {
+        assert.equal(rows[0].priority_tier, 1);
+        assert.equal(rows[0].downstream_priority, 1);
+        assert.equal(rows[0].priority_label, 'important');
+        assert.equal(rows[0].priority_score, 1000);
+      } else {
+        assert.equal(rows[0].priority_tier, 3);
+        assert.equal(rows[0].age_boost, 950);
+        assert.equal(rows[0].priority_score, 1050);
+        assert.equal(rows[0].age_escalated, true);
+      }
+    }
+  );
+}
+
+test('selected review R77 ignores code comments when matching retained snippets', () => {
+  const before =
+    '# Example\n\n\x60\x60\x60bash\n# Old comment\necho ready\n\x60\x60\x60\n\n\x60\x60\x60yaml\nroot = this\n\x60\x60\x60\n';
+  const after = before
+    .replace('# Old comment', '# New comment')
+    .replace('root = this', 'root = this\nroot.checked = true');
+  assert.deepEqual(
+    changedFenceLanguages('docs/test/step.mdx', before, after),
+    []
+  );
 });

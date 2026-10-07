@@ -43,12 +43,11 @@ curl -X POST http://localhost:8080/events \
 docker logs smart-buffer --tail 20 2>&1 | grep priority
 ```
 
-**Fix:** Verify field names match your data:
+**Fix:** Replace the severity declaration inside the existing classification mapping
+when your field is `level`:
 
-```yaml
-- mapping: |
-    # If your field is "level" not "severity":
-    let severity = this.level.or("info").string().lowercase()
+```bloblang
+let severity = this.level.or("info").string().lowercase()
 ```
 
 ---
@@ -73,16 +72,15 @@ docker logs smart-buffer --tail 20 2>&1 | grep priority
 
 **Cause:** Age boost not high enough or timestamp parsing failing
 
-**Fix:** Increase age boost values:
+**Fix:** Replace the age boost declaration inside the existing classification
+mapping, after it calculates `age_seconds` and before it calculates `priority_score`:
 
-```yaml
-- mapping: |
-    let age_seconds = this.age_seconds.or(0)
-    let age_boost = match {
-      $age_seconds > 3600 => 950,   # 1 hour = near-important
-      $age_seconds > 600 => 500,    # 10 min = regular
-      _ => 0
-    }
+```bloblang
+let age_boost = match {
+  $age_seconds > 3600 => 950,
+  $age_seconds > 600 => 500,
+  _ => 0
+}
 ```
 
 ---

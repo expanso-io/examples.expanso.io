@@ -788,6 +788,80 @@ export function planRun(
  * Returns the YAML source to validate, or null when the fragment is not a
  * recognisable pipeline piece.
  */
+function declarationSpans(
+  source: string
+): Array<{ name: string; start: number; end: number }> {
+  const lines = source.split('\n');
+  const spans: Array<{ name: string; start: number; end: number }> = [];
+  let offset = 0;
+  for (let index = 0; index < lines.length; index++) {
+    const match = /^(\s*)let (\w+)\s*=/.exec(lines[index]);
+    if (match) {
+      let end = index + 1;
+      while (
+        end < lines.length &&
+        lines[end].trim() &&
+        (lines[end].search(/\S/) > match[1].length ||
+          /^\s*[}\])]/.test(lines[end]))
+      )
+        end++;
+      spans.push({
+        name: match[2],
+        start: offset,
+        end: offset + lines.slice(index, end).join('\n').length,
+      });
+    }
+    offset += lines[index].length + 1;
+  }
+  return spans;
+}
+
+export function replaceMappingDeclarations(
+  source: string,
+  canonical: YamlObject
+): YamlObject | null {
+  const replacements = declarationSpans(source);
+  if (!replacements.length) return null;
+  const wrapped = structuredClone(canonical);
+  if (
+    !isYamlObject(wrapped.pipeline) ||
+    !Array.isArray(wrapped.pipeline.processors)
+  )
+    return null;
+  for (const processor of wrapped.pipeline.processors) {
+    if (!isYamlObject(processor) || !isStringValue(processor.mapping)) continue;
+    const mapping = processor.mapping;
+    const declarations = declarationSpans(mapping);
+    if (
+      !replacements.every((replacement) =>
+        declarations.some((entry) => entry.name === replacement.name)
+      )
+    )
+      continue;
+    const edits = replacements
+      .map((replacement) => ({
+        replacement,
+        target: declarations.find((entry) => entry.name === replacement.name)!,
+      }))
+      .sort((a, b) => b.target.start - a.target.start);
+    let replaced = mapping;
+    for (const { replacement, target } of edits) {
+      const original = mapping.slice(target.start, target.end);
+      const indentation = /^\s*/.exec(original)?.[0] ?? '';
+      const fragment = source
+        .slice(replacement.start, replacement.end)
+        .split('\n')
+        .map((line) => indentation + line)
+        .join('\n');
+      replaced =
+        replaced.slice(0, target.start) + fragment + replaced.slice(target.end);
+    }
+    processor.mapping = replaced;
+    return wrapped;
+  }
+  return null;
+}
+
 export function wrapFragment(
   document: YamlValue | undefined,
   canonicalConfig?: YamlObject
@@ -820,6 +894,21 @@ export function wrapFragment(
   if (document === undefined) return null;
 
   if (isStringValue(document) && document.trim()) {
+    if (
+      /^\s*let /m.test(document) &&
+      !/^\s*(?:root|meta)[ .=(]/m.test(document)
+    ) {
+      const contextual = canonicalConfig
+        ? replaceMappingDeclarations(document, canonicalConfig)
+        : null;
+      return contextual
+        ? {
+            source: stringifyYaml(contextual),
+            description:
+              'Bloblang declarations replace variables in their canonical mapping',
+          }
+        : null;
+    }
     const wrapped: YamlObject = canonicalConfig
       ? structuredClone(canonicalConfig)
       : { input: generateInput, output: dropOutput };

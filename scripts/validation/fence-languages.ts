@@ -45,15 +45,36 @@ export function changedFenceLanguages(
   after: string,
   approved: readonly FenceLanguageChange[] = []
 ): FenceLanguageChange[] {
-  const oldFences = extractCodeBlocks(before, false).filter((fence) =>
+  const identify = (page: string) => {
+    const ordinals = new Map<string, number>();
+    const fences = extractCodeBlocks(page, false);
+    const lines = page.split('\n');
+    return fences.map((fence) => {
+      const headings = lines
+        .slice(0, fence.line - 1)
+        .filter(
+          (line, index) =>
+            /^#{1,6} /.test(line) &&
+            !fences.some(
+              (block) =>
+                index >= block.line - 2 &&
+                index <= block.line + block.source.split('\n').length - 2
+            )
+        );
+      const section = headings.at(-1) ?? '';
+      const ordinal = ordinals.get(section) ?? 0;
+      ordinals.set(section, ordinal + 1);
+      return { ...fence, identity: section + '#' + ordinal };
+    });
+  };
+  const oldFences = identify(before).filter((fence) =>
     isPipelineCodeLanguage(fence.language)
   );
-  const available = extractCodeBlocks(after, false).map((fence) => ({
+  const available = identify(after).map((fence) => ({
     ...fence,
     snippet: snippetDigest(fence.source),
   }));
   const changes: FenceLanguageChange[] = [];
-  const unmatched: FenceLanguageChange[] = [];
   const pending: FenceLanguageChange[] = [];
   for (const fence of oldFences) {
     const snippet = snippetDigest(fence.source);
@@ -96,12 +117,20 @@ export function changedFenceLanguages(
       available.splice(replacement, 1);
       changes.push({ ...change, to: listed.to });
     } else if (approvedChange(change, approved)) changes.push(change);
-    else unmatched.push(change);
+    else {
+      const original = oldFences.find(
+        (fence) => fence.line - 1 === change.line
+      );
+      const retained = available.findIndex(
+        (next) => next.identity === original?.identity
+      );
+      if (retained >= 0) {
+        const [next] = available.splice(retained, 1);
+        if (next.language !== change.from)
+          changes.push({ ...change, to: next.language });
+      } else changes.push(change);
+    }
   }
-  const remainingExecutable = available.filter((fence) =>
-    isPipelineCodeLanguage(fence.language)
-  ).length;
-  if (unmatched.length > remainingExecutable) changes.push(...unmatched);
   return changes;
 }
 
