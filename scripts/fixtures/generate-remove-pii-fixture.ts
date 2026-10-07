@@ -106,9 +106,16 @@ if (process.argv.slice(2).includes('--write')) {
     `Wrote ${generated.size} deterministic fixture files.\n`
   );
 } else {
-  const mismatches = [...generated].filter(
-    ([path, bytes]) => readFileSync(resolve(path), 'utf8') !== bytes
-  );
+  const mismatches = [...generated].filter(([path, bytes]) => {
+    const committed = readFileSync(resolve(path), 'utf8');
+    if (path !== paths.environment) return committed !== bytes;
+    const normalizeVersion = (content: string) =>
+      content.replace(
+        /^  "version": "[^"\n]*",$/m,
+        '  "version": "<execution-version>",'
+      );
+    return normalizeVersion(committed) !== normalizeVersion(bytes);
+  });
 
   if (mismatches.length > 0) {
     throw new Error(
