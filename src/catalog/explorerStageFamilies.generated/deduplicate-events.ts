@@ -86,6 +86,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "01-original-events.yaml",
     yamlCode:
       '# Original input - no deduplication yet\ninput:\n  http_server:\n    address: "0.0.0.0:8080"\n    path: "/webhooks/events"\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:6de77bb2ce570b57b415631fd8087f2808abd3a8521ef25bd3c72ffb92ec3b8d",
   },
@@ -181,6 +182,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "02-hash-based-deduplication.yaml",
     yamlCode:
       "# Hash-based deduplication processor\ncache_resources:\n  - label: dedup_cache\n    memory:\n      default_ttl: 1h\n\npipeline:\n  threads: 1\n  processors:\n    - mapping: |\n        root = this\n        # Generate SHA-256 hash of entire content\n        root.dedup_hash = this.format_json().hash(\"sha256\")\n\n    - for_each:\n        - branch:\n            request_map: root = this.dedup_hash\n            processors:\n              - cache:\n                  resource: dedup_cache\n                  operator: exists\n                  key: '${! content() }'\n            result_map: root.is_duplicate = content().string().bool()\n\n        - switch:\n            - check: '!this.is_duplicate'\n              processors:\n                - cache:\n                    resource: dedup_cache\n                    operator: set\n                    key: '${! json(\"dedup_hash\") }'\n                    value: '${! now() }'\n            - processors:\n                - mapping: root = deleted()\n",
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:54909df174d2afc01a69e15bb4ccfb40bd7fc3a73b0e5f625a3e13b781fa5bf6",
   },
@@ -289,6 +291,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "03-fingerprint-based-deduplication.yaml",
     yamlCode:
       '# Fingerprint-based deduplication\npipeline:\n  threads: 1\n  processors:\n    - mapping: |\n        root = this\n        # Extract only business-critical fields\n        let business_fields = {\n          "event_type": this.event_type,\n          "user_email": this.user.email,\n          "signup_source": this.signup_details.source,\n          "signup_plan": this.signup_details.plan\n        }\n\n        root.business_fingerprint = $business_fields.format_json().hash("sha256")\n\n    - for_each:\n        - branch:\n            request_map: root = this.business_fingerprint\n            processors:\n              - cache:\n                  resource: dedup_cache\n                  operator: exists\n                  key: \'${! content() }\'\n            result_map: root.is_duplicate = content().string().bool()\n\n        - switch:\n            - check: \'!this.is_duplicate\'\n              processors:\n                - cache:\n                    resource: dedup_cache\n                    operator: set\n                    key: \'${! json("business_fingerprint") }\'\n                    value: \'${! now() }\'\n            - processors:\n                - mapping: root = deleted()\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:3bca679c982215a5ff5465e8549d413b5a895bb90c486860e8b019343d3bac7e",
   },
@@ -395,6 +398,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "04-id-based-deduplication.yaml",
     yamlCode:
       "# ID-based deduplication (fastest)\npipeline:\n  threads: 1\n  processors:\n    - mapping: |\n        # Validate and extract unique ID\n        root = if !this.exists(\"event_id\") || this.event_id == \"\" {\n          throw(\"Missing event_id for ID-based deduplication\")\n        } else {\n          this\n        }\n        root.unique_id = this.event_id.trim()\n\n    - for_each:\n        - branch:\n            request_map: root = this.unique_id\n            processors:\n              - cache:\n                  resource: dedup_cache\n                  operator: exists\n                  key: '${! content() }'\n            result_map: root.is_duplicate = content().string().bool()\n\n        - switch:\n            - check: '!this.is_duplicate'\n              processors:\n                - cache:\n                    resource: dedup_cache\n                    operator: set\n                    key: '${! json(\"unique_id\") }'\n                    value: '${! now() }'\n            - processors:\n                - mapping: root = deleted()\n",
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:8dfc45277de9319fc10da1e92c2c20728e49c045ba63ffefeea7aa8d46a23c43",
   },
@@ -499,6 +503,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "05-external-cache-configuration.yaml",
     yamlCode:
       '# Production distributed configuration\ncache_resources:\n  - label: distributed_cache\n    redis:\n      url: "redis://redis-node-1:6379"\n      default_ttl: "1h"\n\n  - label: local_fallback_cache\n    memory:\n      default_ttl: "5m"\n\nhttp:\n  address: "0.0.0.0:9090"\n  enabled: true\n\npipeline:\n  processors:\n    # Auto-strategy selection\n    - mapping: |\n        root = this\n        root.dedup_strategy = if this.event_id.re_match("^[0-9a-fA-F-]{36}$") {\n          "id-based"\n        } else if ["user_signup", "purchase"].contains(this.event_type) {\n          "fingerprint-based"\n        } else {\n          "hash-based"\n        }\n\n    # Circuit breaker with fallback\n    - branch:\n        request_map: |\n          root = if env("CIRCUIT_STATE") == "closed" {\n            this\n          } else {\n            deleted()  # Use local cache\n          }\n        processors:\n          - cache:\n              resource: distributed_cache\n              operator: get\n              key: ${! this.dedup_key }\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:2daa17cf6e5b4f24b2ad5dabfc9a2c204d4340c7bbb9aa1c7f7faaef4a3bbb48",
   },
@@ -523,6 +528,9 @@ export const GENERATED_EXPLORER_STAGE_FAMILY = {
     fullYamlFilename: "deduplicate-events.yaml",
     fullYaml:
       'config:\n  cache_resources:\n    - label: dedup_cache\n      memory:\n        default_ttl: 1h\n\n  input:\n    http_server:\n      address: \'0.0.0.0:8080\'\n      path: /webhooks/signup\n\n  pipeline:\n    threads: 1\n    processors:\n      # Parse JSON\n      - mapping: root = content().parse_json()\n      # Generate content hash\n      - mapping: |\n          root = this\n          # json_format() ensures stable key ordering\n          let event_json = this.format_json()\n          root.dedup_hash = $event_json.hash("sha256")\n          root.dedup_timestamp = now()\n\n      - group_by_value:\n          value: \'${! this.dedup_hash }\'\n      - mapping: |\n          root = this\n          meta batch_duplicate = batch_index() > 0\n\n      - for_each:\n          - branch:\n              request_map: root = this.dedup_hash\n              processors:\n                - cache:\n                    resource: dedup_cache\n                    operator: exists\n                    key: \'${! content() }\'\n              result_map: |\n                root.is_duplicate = meta("batch_duplicate").bool() || content().string().bool()\n                meta cache = content().string()\n                meta is_duplicate = root.is_duplicate\n          - catch:\n              - mapping: |\n                  root = this\n                  root.is_duplicate = false\n                  meta cache = ""\n                  meta is_duplicate = false\n          - mapping: |\n              root = this\n              root.dedup_result = {\n                "is_duplicate": this.is_duplicate,\n                "dedup_hash": this.dedup_hash,\n                "checked_at": now(),\n                "strategy": "hash-based"\n              }\n              root.duplicate_metadata = if this.is_duplicate {\n                {\n                  "detected_at": now(),\n                  "original_hash": this.dedup_hash,\n                  "strategy": "hash-based"\n                }\n              } else { deleted() }\n          - switch:\n              - check: \'!this.is_duplicate\'\n                processors:\n                  - cache:\n                      resource: dedup_cache\n                      operator: set\n                      key: \'${! json("dedup_hash") }\'\n                      value: \'${! json("dedup_timestamp") }\'\n\n  output:\n    switch:\n      cases:\n        - check: \'!this.is_duplicate\'\n          output:\n            http_client:\n              url: \'${ANALYTICS_ENDPOINT}/events\'\n              verb: POST\n        - output:\n            file:\n              path: "/var/expanso/duplicates/${!timestamp_unix_date(\'2006-01-02\')}/dupes.jsonl"\n              codec: lines\n',
+    completePipelineHref:
+      "/data-transformation/deduplicate-events/complete-deduplication-pipeline/",
+    fullPipelineCodeKind: "complete",
   },
   stages: GENERATED_EXPLORER_STAGES,
 } satisfies GeneratedExplorerStageFamily;

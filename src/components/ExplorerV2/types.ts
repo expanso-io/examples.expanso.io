@@ -60,6 +60,7 @@ export interface ExplorerStage {
   outputLines: ExplorerLine[];
   yamlCode: string;
   yamlFilename: string;
+  pipelineCodeKind?: 'fragment' | 'complete';
   provenance: ExplorerProvenanceKind;
   inputFormat?: ExplorerPayloadFormat;
   outputFormat?: ExplorerPayloadFormat;
@@ -74,6 +75,8 @@ export interface ExplorerV2Props {
   title: string;
   subtitle?: string;
   fullYaml?: string;
+  fullPipelineCodeKind?: 'fragment' | 'complete';
+  completePipelineHref?: string;
   fullYamlFilename?: string;
   presentation: ExplorerPresentation;
   comparisonMode?: 'diff' | 'highlights';

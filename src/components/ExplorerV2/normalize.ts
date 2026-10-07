@@ -108,6 +108,7 @@ export function normalizeExplorerStages(
           ),
           yamlCode: stage.yamlCode,
           yamlFilename: stage.yamlFilename,
+          pipelineCodeKind: stage.pipelineCodeKind,
           provenance: fallbackProvenance,
           inputFormat:
             stage.inputFormat ?? inferPayloadFormat(stage.inputLines),

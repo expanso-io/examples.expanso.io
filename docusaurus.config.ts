@@ -1,5 +1,6 @@
 import socialDiscoveryPlugin from './plugins/social-discovery';
 import familyNavigation from './plugins/family-navigation';
+import pipelineCodeBadges from './plugins/pipeline-code-badges';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { themes as prismThemes } from 'prism-react-renderer';
@@ -148,6 +149,7 @@ const config: Config = {
       {
         docs: {
           routeBasePath: '/', // Docs-only mode
+          remarkPlugins: [pipelineCodeBadges],
           sidebarPath: './sidebars.ts',
           tags: 'tags.yml',
           onInlineTags: 'throw',

@@ -17,6 +17,7 @@ export type Stage = {
   outputLines: JsonLine[];
   yamlCode?: string;
   yamlFilename?: string;
+  pipelineCodeKind?: 'fragment' | 'complete';
   inputFormat?: 'json' | 'text' | 'binary' | 'tabular' | 'route';
   outputFormat?: 'json' | 'text' | 'binary' | 'tabular' | 'route';
 };

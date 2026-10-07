@@ -13,9 +13,7 @@ import {
   type ExplorerNavigationMethod,
 } from '../../analytics/events';
 import { captureExampleEvent } from '../../lib/analytics';
-import { completePipelineRouteForFamily } from '../../catalog/completePipelineRoutes';
 import PipelineBadge from '../PipelineBadge';
-import { classifyPipelineCode } from '../../lib/pipelineCode';
 import CopyActionButton, { CopyToast } from './CopyActionButton';
 import {
   copyResultFeedback,
@@ -151,6 +149,8 @@ export default function ExplorerV2({
   title,
   subtitle,
   fullYaml,
+  fullPipelineCodeKind,
+  completePipelineHref,
   fullYamlFilename = 'pipeline.yaml',
   presentation,
   comparisonMode = 'diff',
@@ -851,12 +851,14 @@ export default function ExplorerV2({
         >
           <div className={styles.yamlPanel}>
             <div className={styles.yamlHeader}>
-              <div className={styles.yamlClassification}>
-                <PipelineBadge
-                  kind={classifyPipelineCode(visibleYaml) ?? 'fragment'}
-                  completeHref={completePipelineRouteForFamily(exampleId)}
-                />
-              </div>
+              <PipelineBadge
+                kind={
+                  visibleYamlScope === 'full'
+                    ? (fullPipelineCodeKind ?? 'fragment')
+                    : (currentStage.pipelineCodeKind ?? 'fragment')
+                }
+                completeHref={completePipelineHref}
+              />
               <code>{visibleYamlFilename}</code>
               <CopyActionButton
                 feedbackKey="yaml"

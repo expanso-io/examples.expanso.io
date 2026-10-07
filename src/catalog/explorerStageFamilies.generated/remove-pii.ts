@@ -110,6 +110,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "remove-pii-complete.yaml#config-input",
     yamlCode:
       "input:\n  http_server:\n    address: '0.0.0.0:8080'\n    path: /events/ingest\n    allowed_verbs: [POST]\n    timeout: 30s\n\n# Five field transformations. Review these choices for your own data model.\n",
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:8a5bcaa8e472687b47d9ff80725ab671c5ec204cd951229652a4559eee4ee33c",
   },
@@ -223,6 +224,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "remove-pii-complete.yaml#processor-1",
     yamlCode:
       '- mapping: |\n    root = this\n\n    # Remove credit card number and expiry date\n    # Keep payment type and last four digits\n    root.payment_method = this.payment_method.without(\n      "full_number",\n      "expiry"\n    )\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:d0a94a40ccb34e54e310f83220b3368cc994f526d5413882d306e292c78f0aa9",
   },
@@ -322,6 +324,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "remove-pii-complete.yaml#processor-2",
     yamlCode:
       '- mapping: |\n    root = this.without("ip_address")\n\n    # Hash the source value with a caller-provided salt\n    root.ip_hash = this.ip_address.hash(\n      "hmac_sha256",\n      env("IP_SALT")\n    ).encode("hex")\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:4f139e40cb8b18c3a9f50860a51d959850c1aee62db2b7d3f376eda228c74b88",
   },
@@ -429,6 +432,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "remove-pii-complete.yaml#processor-3",
     yamlCode:
       '- mapping: |\n    root = this.without("email")\n\n    root.email_hash = this.email.hash(\n      "hmac_sha256",\n      env("EMAIL_SALT")\n    ).encode("hex")\n\n    # Preserve only the domain as a separate field\n    root.email_domain = this.email.split("@").index(1)\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:14bd9edfa079d4aa1eced6def3aed25614055c11333941126e3b6abc49c78c9d",
   },
@@ -549,6 +553,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "remove-pii-complete.yaml#processor-4",
     yamlCode:
       '- mapping: |\n    root = this.without("user_name")\n\n    root.user_id = "user_" + this.user_name.hash(\n      "hmac_sha256",\n      env("USER_SALT")\n    ).encode("hex").slice(0, 12)\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:30af917e002cd276b675f093e6e900f3429de08839ef10d4c8bf9e6a1296bc61",
   },
@@ -672,6 +677,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "remove-pii-complete.yaml#processor-5",
     yamlCode:
       '- mapping: |\n    root = this\n    root.location = this.location.without("latitude", "longitude")\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:855b5b895dece704fb0fe23c7986835087da21bbd896f4be5aff49080bd7c5c3",
   },
@@ -694,6 +700,8 @@ export const GENERATED_EXPLORER_STAGE_FAMILY = {
     fullYamlFilename: "remove-pii-complete.yaml",
     fullYaml:
       'name: pii-complete-removal\ndescription: Five-step example for deleting or transforming selected fields\ntype: pipeline\nnamespace: default\npriority: 100\n\nlabels:\n  pattern: data-minimization\n  category: data-security\n  example: remove-pii\n\nconfig:\n  # Accept events via HTTP POST\n  input:\n    http_server:\n      address: \'0.0.0.0:8080\'\n      path: /events/ingest\n      allowed_verbs: [POST]\n      timeout: 30s\n\n  # Five field transformations. Review these choices for your own data model.\n  pipeline:\n    processors:\n      # Step 1: Delete payment card data\n      - mapping: |\n          root = this\n\n          # Remove credit card number and expiry date\n          # Keep payment type and last four digits\n          root.payment_method = this.payment_method.without(\n            "full_number",\n            "expiry"\n          )\n\n      # Step 2: Hash IP address\n      - mapping: |\n          root = this.without("ip_address")\n\n          # Hash the source value with a caller-provided salt\n          root.ip_hash = this.ip_address.hash(\n            "hmac_sha256",\n            env("IP_SALT")\n          ).encode("hex")\n\n      # Step 3: Hash email and extract its domain\n      - mapping: |\n          root = this.without("email")\n\n          root.email_hash = this.email.hash(\n            "hmac_sha256",\n            env("EMAIL_SALT")\n          ).encode("hex")\n\n          # Preserve only the domain as a separate field\n          root.email_domain = this.email.split("@").index(1)\n\n      # Step 4: Replace the user name with a pseudonymous identifier\n      - mapping: |\n          root = this.without("user_name")\n\n          root.user_id = "user_" + this.user_name.hash(\n            "hmac_sha256",\n            env("USER_SALT")\n          ).encode("hex").slice(0, 12)\n\n      # Step 5: Remove precise coordinates\n      - mapping: |\n          root = this\n          root.location = this.location.without("latitude", "longitude")\n\n  # Write transformed events to a local file for inspection\n  output:\n    file:\n      path: /var/log/expanso/pii-removed.jsonl\n      codec: lines\n\nlogger:\n  level: INFO\n  format: json\n\nmetrics:\n  type: prometheus\n  path: /metrics\n  address: 0.0.0.0:9090\n# This example requires IP_SALT, EMAIL_SALT, and USER_SALT. Choose and manage\n# those values according to the requirements of the environment using it.\n',
+    completePipelineHref: "/data-security/remove-pii/complete-pipeline/",
+    fullPipelineCodeKind: "complete",
   },
   stages: GENERATED_EXPLORER_STAGES,
 } satisfies GeneratedExplorerStageFamily;

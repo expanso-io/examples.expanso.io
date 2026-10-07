@@ -28,6 +28,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "01-adapter-output.yaml",
     yamlCode:
       "input:\n  socket:\n    network: tcp\n    address: 0.0.0.0:4195\n    codec: lines\n",
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:0597ca71b2e3c57bedf6b183b1ff0139e0fa2a9da967cf09d0c84e35b7f09795",
   },
@@ -93,6 +94,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "02-parse-decoded-fields.yaml",
     yamlCode:
       'pipeline:\n  processors:\n    - mapping: |\n        let fields = content().string().split(";").fold({}, item -> item.tally.merge({ item.value.split("=").index(0): item.value.split("=").index(1) }))\n        let reg = $fields.REG.number()\n        let val = $fields.VAL.number()\n\n        root.voltage_kv = if $reg == 40001 { $val / 100.0 } else { deleted() }\n        root.device_id = $fields.DEVICE\n        root.register = $reg\n        root.raw_value = $val\n        root.status = $fields.STATUS.number()\n        root."@timestamp" = $fields.TS.number()\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:190bbddfaf091091fc4ac5d402494d4067a862201a96176a8f7a3ab11f19cddf",
   },
@@ -156,6 +158,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "03-select-and-label.yaml",
     yamlCode:
       'pipeline:\n  processors:\n    - mapping: |\n        if this.adapter_status == 0 {\n          root = deleted()\n        }\n\n    - mapping: |\n        root.review_class = match {\n          this.adapter_status == 2 => "status-2"\n          this.adapter_status == 1 => "status-1"\n          _ => "unclassified-status"\n        }\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:3e9c4b1255ff269a477828afe465965b86633756781b581806940976b8604712",
   },
@@ -197,6 +200,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "04-route-selected-records.yaml",
     yamlCode:
       'output:\n  broker:\n    outputs:\n      - kafka:\n          addresses: ["${KAFKA_BROKERS:localhost:9092}"]\n          topic: "${KAFKA_TOPIC:scada-review-events}"\n      - file:\n          path: "${LOCAL_ARCHIVE_PATH:/tmp/scada-review-events.jsonl}"\n          codec: lines\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:4d7dad779f78dbae8db9b1dde0f610af4a695f5c8320829aee327fc58bc18a2e",
   },
@@ -221,6 +225,9 @@ export const GENERATED_EXPLORER_STAGE_FAMILY = {
     fullYamlFilename: "scada-edge-complete.yaml",
     fullYaml:
       'name: scada-edge-complete\ntype: pipeline\ndescription: Parse synthetic adapter-decoded register records, retain nonzero adapter statuses, add review labels, and route the result.\nnamespace: examples\nlabels:\n  category: integrations\n  pattern: scada-edge-processing\n  industry: energy\n\nconfig:\n  input:\n    socket:\n      network: tcp\n      address: 0.0.0.0:4195\n      codec: lines\n\n  pipeline:\n    processors:\n      - mapping: |\n          let fields = content().string().split(";").fold({}, item -> item.tally.merge({ item.value.split("=").index(0): item.value.split("=").index(1) }))\n          let reg = $fields.REG.number()\n          let val = $fields.VAL.number()\n\n          root.voltage_kv = if $reg == 40001 { $val / 100.0 } else { deleted() }\n          root.current_a = if $reg == 40003 { $val / 10.0 } else { deleted() }\n          root.frequency_hz = if $reg == 40005 { $val / 100.0 } else { deleted() }\n          root.temp_c = if $reg == 40007 { $val / 10.0 } else { deleted() }\n          root.power_mw = if $reg == 40009 { $val / 10.0 } else { deleted() }\n          root.device_id = $fields.DEVICE\n          root.register = $reg\n          root.raw_value = $val\n          root.source_unit = $fields.UNIT\n          root.adapter_status = $fields.STATUS.number()\n          root."@timestamp" = $fields.TS.number()\n\n      - mapping: |\n          if this.adapter_status == 0 {\n            root = deleted()\n          }\n\n      - mapping: |\n          root = this\n          root.review_class = match {\n            this.adapter_status == 2 => "status-2"\n            this.adapter_status == 1 => "status-1"\n            _ => "unclassified-status"\n          }\n          root.pipeline_version = "1.0.0"\n\n  output:\n    broker:\n      outputs:\n        - kafka:\n            addresses: [\'${KAFKA_BROKERS:localhost:9092}\']\n            topic: \'${KAFKA_TOPIC:scada-review-events}\'\n        - file:\n            path: \'${LOCAL_ARCHIVE_PATH:/tmp/scada-review-events.jsonl}\'\n            codec: lines\n',
+    completePipelineHref:
+      "/integrations/scada-energy-edge/complete-scada-integration/",
+    fullPipelineCodeKind: "complete",
   },
   stages: GENERATED_EXPLORER_STAGES,
 } satisfies GeneratedExplorerStageFamily;
