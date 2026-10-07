@@ -15,6 +15,8 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { parse, stringify } from 'yaml';
 import { globSync } from 'glob';
 import matter from 'gray-matter';
+import { GENERATED_EXPLORER_STAGES as displayedDedupStages } from '../../src/catalog/explorerStageFamilies.generated/deduplicate-events';
+import { GENERATED_EXPLORER_STAGE_CONFIGS } from '../../src/catalog/explorerStageConfigs.generated';
 import {
   classifyPipelineCode,
   containsPipelineCode,
@@ -2983,6 +2985,12 @@ for (const path of [
   'tutorial-hash',
   'tutorial-fingerprint',
   'tutorial-id',
+  'generated-family-2',
+  'generated-family-3',
+  'generated-family-4',
+  'generated-registry-2',
+  'generated-registry-3',
+  'generated-registry-4',
 ]) {
   test(`same-batch deduplication preserves distinct records: ${path}`, async () => {
     const base = parse(
@@ -2990,9 +2998,19 @@ for (const path of [
         'docs/data-transformation/deduplicate-events/step-1-hash-based-exact-duplicates.mdx'
       )[0].source
     ).config;
+    const generated = /^generated-(family|registry)-([234])$/.exec(path);
+    const displayed = generated
+      ? (generated[1] === 'family'
+          ? displayedDedupStages
+          : GENERATED_EXPLORER_STAGE_CONFIGS['deduplicate-events'].stages
+        ).find((stage) => stage.id === Number(generated[2]))
+      : undefined;
+    if (generated) assert.ok(displayed);
     const config = path.startsWith('tutorial-')
       ? base
-      : parse(readFileSync(path, 'utf8'));
+      : displayed
+        ? parse(displayed.yamlCode)
+        : parse(readFileSync(path, 'utf8'));
     if (path === 'tutorial-fingerprint')
       config.pipeline.processors[0] = parse(
         pageBlocks(
