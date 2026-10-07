@@ -31,7 +31,7 @@ for (const path of reports) {
   const rendered = source
     .split('\n')
     .map((line) => {
-      if (line.startsWith('| Example '))
+      if (line.startsWith('| Example |'))
         return '| Example | 1: Runs | 2: Platform | 3: Structure | 4: Usability | 5: Preserved | Live page | Source |';
 
       if (/^\| -+ \| -+ \| -+ \| -+ \| -+ \| -+ \|$/.test(line))

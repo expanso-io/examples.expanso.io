@@ -12,9 +12,9 @@ landed; it is not treated as a pass.
 
 ## Counts
 
-| Measure                                          |    Pass |       Fixed |      Pending |
-| ------------------------------------------------ | ------: | ----------: | -----------: | ------------ | ------------ | --------- | ------ |
-| Example | 1: Runs | 2: Platform | 3: Structure | 4: Usability | 5: Preserved | Live page | Source |
+| Measure | Pass | Fixed | Pending |
+| --- | ---: | ---: | ---: |
+| Example by criterion cells | 26 | 79 | 25 |
 | Criterion 1: runs                                |      26 |           0 |            0 |
 | Criterion 2: platform realism                    |       0 |           1 |           25 |
 | Criterion 3: common page structure               |       0 |          26 |            0 |

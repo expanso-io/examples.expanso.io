@@ -2653,3 +2653,133 @@ test('payload preservation: unknown log format retains the event', async () => {
   assertPreserved(rows[0], record);
   assert.equal(rows[0].parsed_by, 'unknown');
 });
+
+test('selected review R74 restores parent context without losing readings', async () => {
+  const processors = parse(
+    pageBlocks('docs/data-routing/content-splitting/troubleshooting.mdx')[1]
+      .source
+  );
+  const readings = [
+    { value: 1, payload: { trace: ['a'] } },
+    { value: 2, payload: { trace: ['b'] } },
+  ];
+  const rows = (
+    await execute(stringify({ pipeline: { processors } }), [
+      { device_id: 'test', readings },
+    ])
+  )
+    .toString()
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.deepEqual(
+    rows,
+    readings.map((reading) => ({ ...reading, device_id: 'test' }))
+  );
+});
+
+for (const count of [4, 5]) {
+  test(
+    'selected review R75 preserves aggregates at bucket count ' + count,
+    async () => {
+      const block = pageBlocks(
+        'docs/data-security/cross-border-gdpr/step-5-generalize-values.mdx'
+      ).at(-1);
+      assert.ok(block);
+      const record = {
+        amount_bucket: '100+',
+        region: 'EU',
+        transaction_count: count,
+        payload: { trace: [1, 2] },
+      };
+      const processors = [
+        { mapping: 'meta bucket_count = ' + count + '\nroot = this' },
+        { mapping: block.source },
+      ];
+      const rows = (
+        await execute(stringify({ pipeline: { processors } }), [record])
+      )
+        .toString()
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      assert.deepEqual(rows, [
+        { ...record, amount_bucket: count < 5 ? 'other' : '100+' },
+      ]);
+    }
+  );
+}
+
+test('selected review R76 conformance rendering retains aggregate counts and links', () => {
+  execFileSync(
+    process.execPath,
+    [
+      'node_modules/tsx/dist/cli.mjs',
+      'scripts/validation/render-conformance-links.ts',
+    ],
+    { cwd: root }
+  );
+  for (const path of [
+    'validation-reports/conformance/README.md',
+    'validation-reports/conformance/2026-10-06.md',
+  ]) {
+    const source = readFileSync(path, 'utf8');
+    const counts = source
+      .split('## Counts')[1]
+      .split('## Example by criterion')[0]
+      .split('\n')
+      .filter((line) => line.startsWith('|'))
+      .map((line) =>
+        line
+          .split('|')
+          .slice(1, -1)
+          .map((cell) => cell.trim())
+      );
+    assert.equal(counts.length, 8);
+    assert.ok(counts.every((row) => row.length === 4));
+    assert.deepEqual(counts[0], ['Measure', 'Pass', 'Fixed', 'Pending']);
+    assert.deepEqual(counts[2], [
+      'Example by criterion cells',
+      '26',
+      '79',
+      '25',
+    ]);
+    const totals = [0, 0, 0];
+    for (const row of counts.slice(3))
+      row.slice(1).forEach((value, index) => {
+        totals[index] += Number(value);
+      });
+    assert.deepEqual(totals, [26, 79, 25]);
+    const examples = source
+      .split('## Example by criterion')[1]
+      .split('\n## ')[0]
+      .split('\n')
+      .filter((line) => line.startsWith('|'))
+      .map((line) =>
+        line
+          .split('|')
+          .slice(1, -1)
+          .map((cell) => cell.trim())
+      );
+    assert.equal(examples.length, 28);
+    assert.deepEqual(examples[0], [
+      'Example',
+      '1: Runs',
+      '2: Platform',
+      '3: Structure',
+      '4: Usability',
+      '5: Preserved',
+      'Live page',
+      'Source',
+    ]);
+    for (const row of examples.slice(2)) {
+      assert.equal(row.length, 8);
+      assert.ok(row[6].startsWith('[Live page](https://examples.expanso.io/'));
+      assert.ok(
+        row[7].startsWith(
+          '[Source](https://github.com/expanso-io/examples.expanso.io/blob/main/'
+        )
+      );
+    }
+  }
+});
