@@ -28,10 +28,6 @@ import {
 } from '../../scripts/validation/edge';
 import { wrapFragment } from '../../scripts/validation/harness';
 import { verifyOutputs } from '../../scripts/validation/expectations';
-import {
-  snippetDigest,
-  changedFenceLanguages,
-} from '../../scripts/validation/fence-languages';
 
 const root = process.cwd();
 
@@ -2050,7 +2046,7 @@ for (const stage of [1, 2, 3]) {
   });
 }
 
-for (const language of ['bloblang', 'coffee']) {
+for (const language of ['bloblang']) {
   test(`selected ${language} fences reach inventory, fragment classification, and Edge lint`, async () => {
     const fixtureRoot = join(work, `fence-${language}`);
     mkdirSync(join(fixtureRoot, 'docs', 'test'), { recursive: true });
@@ -2149,118 +2145,6 @@ test('selected MCC enrichment preserves transaction fields through standardizati
     assert.equal(output.customer_id, 'C1');
     assert.equal(output.merchant_category_code, '5411');
   }
-});
-
-test('selected fence-language CI command rejects changes unless explicitly listed', () => {
-  const fixtureRoot = join(work, 'fence-language-git');
-  mkdirSync(join(fixtureRoot, 'docs', 'test'), { recursive: true });
-  mkdirSync(join(fixtureRoot, 'content'));
-  const path = 'docs/test/step.mdx';
-  const page = (language: string) =>
-    `# Example\n\n\x60\x60\x60${language}\nroot = this\n\x60\x60\x60\n`;
-  writeFileSync(join(fixtureRoot, path), page('yaml'));
-  writeFileSync(
-    join(fixtureRoot, 'content', 'fence-language-changes.json'),
-    '[]\n'
-  );
-  const git = (args: string[]) =>
-    execFileSync('git', args, { cwd: fixtureRoot, encoding: 'utf8' });
-  git(['init', '--quiet']);
-  git(['add', '.']);
-  git([
-    '-c',
-    'user.name=Fixture',
-    '-c',
-    'user.email=fixture@example.invalid',
-    'commit',
-    '--quiet',
-    '-m',
-    'Fixture baseline',
-  ]);
-  const base = git(['rev-parse', 'HEAD']).trim();
-  const run = () =>
-    spawnSync(
-      process.execPath,
-      [
-        join(root, 'node_modules/tsx/dist/cli.mjs'),
-        join(root, 'scripts/validate-fence-languages.ts'),
-        '--base',
-        base,
-      ],
-      { cwd: fixtureRoot, encoding: 'utf8' }
-    );
-  assert.equal(run().status, 0);
-  for (const prefix of ['', '# Moved snippet\n']) {
-    writeFileSync(
-      join(fixtureRoot, path),
-      prefix +
-        page('text').replace(
-          'root = this',
-          'root = this\nroot.changed = true'
-        ) +
-        '\n# Unrelated snippet\n\n\x60\x60\x60yaml\nroot.unrelated = true\n\x60\x60\x60\n'
-    );
-    assert.equal(run().status, 1);
-  }
-  writeFileSync(
-    join(fixtureRoot, path),
-    '# Example\n\n\x60\x60\x60yaml\nroot.unrelated = true\n\x60\x60\x60\n\n\x60\x60\x60text\nroot = this\nroot.changed = true\n\x60\x60\x60\n'
-  );
-  assert.equal(run().status, 1);
-  for (const language of ['text', 'bloblang', 'coffee', '']) {
-    writeFileSync(join(fixtureRoot, path), page(language));
-    const result = run();
-    assert.equal(result.status, 1, result.stderr);
-    assert.match(result.stderr, /docs\/test\/step.mdx:3/);
-  }
-  writeFileSync(
-    join(fixtureRoot, path),
-    '# Example\n\nNew introductory prose.\n' +
-      '\n'.repeat(20) +
-      '# Moved snippet\n\n' +
-      page('text')
-  );
-  assert.equal(run().status, 1);
-  writeFileSync(
-    join(fixtureRoot, path),
-    page('yaml').replace('root = this', 'root = this\nroot.checked = true')
-  );
-  assert.equal(run().status, 0);
-  writeFileSync(join(fixtureRoot, path), '# Example\n');
-  assert.equal(run().status, 1);
-  writeFileSync(
-    join(fixtureRoot, 'content', 'fence-language-changes.json'),
-    JSON.stringify([
-      {
-        path,
-        line: 3,
-        snippet: snippetDigest('root = this'),
-        from: 'yaml',
-        to: 'deleted',
-      },
-    ])
-  );
-  assert.equal(run().status, 0);
-  writeFileSync(join(fixtureRoot, path), page('text'));
-  assert.equal(run().status, 1);
-  writeFileSync(join(fixtureRoot, path), page('coffee'));
-  writeFileSync(
-    join(fixtureRoot, 'content', 'fence-language-changes.json'),
-    JSON.stringify([
-      {
-        path,
-        line: 3,
-        snippet: snippetDigest('root = this'),
-        from: 'yaml',
-        to: 'coffee',
-      },
-    ])
-  );
-  assert.equal(run().status, 0);
-  writeFileSync(join(fixtureRoot, path), page('bloblang'));
-  assert.equal(run().status, 1);
-  git(['mv', path, 'docs/test/renamed.mdx']);
-  assert.equal(run().status, 1);
 });
 
 test('selected range validation preserves transactions and their output routing', async () => {
@@ -2867,18 +2751,6 @@ for (const index of [0, 2]) {
   );
 }
 
-test('selected review R77 ignores code comments when matching retained snippets', () => {
-  const before =
-    '# Example\n\n\x60\x60\x60bash\n# Old comment\necho ready\n\x60\x60\x60\n\n\x60\x60\x60yaml\nroot = this\n\x60\x60\x60\n';
-  const after = before
-    .replace('# Old comment', '# New comment')
-    .replace('root = this', 'root = this\nroot.checked = true');
-  assert.deepEqual(
-    changedFenceLanguages('docs/test/step.mdx', before, after),
-    []
-  );
-});
-
 test('selected review R80 rejects unconsumed declaration fragment content', () => {
   const canonical = parse(
     readFileSync('examples/data-routing/smart-buffering.yaml', 'utf8')
@@ -2911,4 +2783,125 @@ test('selected review R80 rejects unconsumed declaration fragment content', () =
     validateSource(edge, root, consumedInvalid.source, environment).status,
     'FAIL'
   );
+});
+
+test('selected review R81 scans pipeline content regardless of fence language', () => {
+  const page = 'docs/review-fence-content.mdx';
+  const fence = (language: string, source: string) =>
+    '\x60\x60\x60' + language + '\n' + source + '\n\x60\x60\x60\n';
+  const run = () =>
+    spawnSync(
+      process.execPath,
+      [
+        'node_modules/tsx/dist/cli.mjs',
+        'scripts/validate-examples.ts',
+        '--no-run',
+        '--no-write',
+        '--files',
+        page,
+      ],
+      { cwd: root, encoding: 'utf8' }
+    );
+  const cases = [
+    {
+      language: 'text',
+      source: 'pipeline:\n  processors:\n    - mapping: root = this',
+      fails: true,
+    },
+    {
+      language: 'text',
+      source: 'root = this\nroot.checked = true',
+      fails: true,
+    },
+    {
+      language: 'coffee',
+      source: 'let value = 1\nroot.value = $value',
+      fails: true,
+    },
+    { language: 'text', source: '- log:\n    message: test', fails: true },
+    {
+      language: 'bash',
+      source: 'curl -X POST http://localhost:8080/events',
+      fails: false,
+    },
+    {
+      language: 'bash',
+      source: "cat <<'EOF' > pipeline.yaml\nroot = this\nEOF",
+      fails: false,
+    },
+    {
+      language: 'yaml',
+      source: '- mapping: |\n    root = this\n    root.checked = false',
+      fails: false,
+    },
+  ];
+  try {
+    for (const entry of cases) {
+      writeFileSync(
+        page,
+        '---\ntitle: Fixture\n---\n' +
+          fence(entry.language, entry.source) +
+          fence('yaml', '- mapping: root = this')
+      );
+      const result = run();
+      assert.equal(
+        result.status,
+        entry.fails ? 1 : 0,
+        result.stderr + result.stdout
+      );
+      if (entry.fails) {
+        assert.ok(result.stderr.includes(page), result.stderr);
+        assert.ok(result.stderr.includes(page + ':4'), result.stderr);
+      }
+    }
+  } finally {
+    rmSync(page, { force: true });
+  }
+});
+
+test('selected review R82 fails unclassified example YAML and excludes only infrastructure', () => {
+  const path = 'examples/review-unclassified.yaml';
+  const original = readFileSync('examples/data-routing/input.yaml', 'utf8');
+  try {
+    writeFileSync(path, original.replace('output:', 'outpt:'));
+    const result = spawnSync(
+      process.execPath,
+      [
+        'node_modules/tsx/dist/cli.mjs',
+        'scripts/validate-examples.ts',
+        '--no-run',
+        '--no-write',
+        '--files',
+        path,
+      ],
+      { cwd: root, encoding: 'utf8' }
+    );
+    assert.equal(result.status, 1, result.stderr + result.stdout);
+    assert.ok(result.stderr.includes(path), result.stderr);
+    for (const source of [
+      'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: fixture',
+      'services:\n  edge:\n    image: expanso-edge',
+      'groups:\n  - name: example\n    rules: []',
+    ]) {
+      writeFileSync(path, source);
+      assert.equal(
+        discoverPipelineFiles(root).find((file) => file.path === path)?.kind,
+        'manifest'
+      );
+    }
+    for (const source of [
+      'global: {}',
+      'services: invalid',
+      'groups: invalid',
+      'outpt: {}',
+    ]) {
+      writeFileSync(path, source);
+      assert.equal(
+        discoverPipelineFiles(root).find((file) => file.path === path)?.kind,
+        'invalid-yaml'
+      );
+    }
+  } finally {
+    rmSync(path, { force: true });
+  }
 });

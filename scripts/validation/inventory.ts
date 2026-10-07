@@ -16,7 +16,10 @@ import { parse as parseYaml } from 'yaml';
 import matter from 'gray-matter';
 import {
   classifyPipelineCode,
-  extractYamlCodeBlocks,
+  extractCodeBlocks,
+  containsPipelineCode,
+  isPipelineCodeLanguage,
+  isInfrastructureDocument,
   hasUnclassifiedExpansoCode,
   isBloblangMappingSnippet,
 } from '../../src/lib/pipelineCode';
@@ -76,8 +79,7 @@ export function classify(document: YamlValue): PipelineKind {
   if (document.input !== undefined && document.output !== undefined)
     return 'complete-bare';
 
-  if (isStringValue(document.apiVersion) && isStringValue(document.kind))
-    return 'manifest';
+  if (isInfrastructureDocument(document)) return 'manifest';
 
   return 'fragment';
 }
@@ -293,7 +295,7 @@ export function discoverPipelineFiles(repositoryRoot: string): PipelineFile[] {
 
       const kind =
         classified === 'fragment' && !classifyPipelineCode(source)
-          ? 'manifest'
+          ? 'invalid-yaml'
           : classified;
 
       const standaloneRoute =
@@ -311,6 +313,10 @@ export function discoverPipelineFiles(repositoryRoot: string): PipelineFile[] {
         source,
         surface: 'file',
         kind,
+        parseError:
+          kind === 'invalid-yaml'
+            ? 'Unclassified pipeline YAML document'
+            : undefined,
         category,
         family,
         liveRoute:
@@ -359,10 +365,13 @@ export function discoverPipelineFiles(repositoryRoot: string): PipelineFile[] {
           .replace(/\.mdx$/, '')
           .replace(/\/index$/, '');
 
-    for (const block of extractYamlCodeBlocks(page)) {
+    for (const block of extractCodeBlocks(page)) {
+      const executable = isPipelineCodeLanguage(block.language);
+      const hidden = !executable && containsPipelineCode(block.source);
+      if (!executable && !hidden) continue;
       const renderedKind = classifyPipelineCode(block.source, block.language);
       const unclassified =
-        !renderedKind && hasUnclassifiedExpansoCode(block.source);
+        hidden || (!renderedKind && hasUnclassifiedExpansoCode(block.source));
 
       if (!renderedKind && !unclassified) continue;
 
@@ -377,12 +386,19 @@ export function discoverPipelineFiles(repositoryRoot: string): PipelineFile[] {
         canonicalPath,
         liveRoute: `/${route.replace(/^\/+|\/+$/g, '')}/`,
         kind: unclassified ? 'invalid-yaml' : 'fragment',
-        parseError: unclassified
-          ? 'YAML could not be classified as a complete pipeline, supported fragment, or infrastructure document'
-          : undefined,
+        parseError: hidden
+          ? `Pipeline content requires a yaml, yml, or bloblang fence (${path}:${block.line - 1})`
+          : unclassified
+            ? 'YAML could not be classified as a complete pipeline, supported fragment, or infrastructure document'
+            : undefined,
       };
 
-      if (/^(?:bloblang|coffee)$/i.test(block.language)) {
+      if (hidden) {
+        files.push(file);
+        continue;
+      }
+
+      if (/^bloblang$/i.test(block.language)) {
         file.document = block.source;
         files.push(file);
         continue;

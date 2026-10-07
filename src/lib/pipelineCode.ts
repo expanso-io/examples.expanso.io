@@ -19,6 +19,8 @@ const PIPELINE_CONTAINER_KEYS = new Set([
   'input',
   'output',
   'pipeline',
+  'processors',
+  'resources',
   'processor_resources',
   'cache_resources',
   'rate_limit_resources',
@@ -53,6 +55,30 @@ const PIPELINE_FRAGMENT_KEYS = new Set([
   'try',
   'unarchive',
   'window',
+  'archive',
+  'bounds_check',
+  'command',
+  'compress',
+  'decompress',
+  'drop',
+  'file',
+  'filter',
+  'for_each',
+  'generate',
+  'group_by',
+  'http_server',
+  'json_schema',
+  'log',
+  'mutation',
+  'parquet_encode',
+  'rate_limit',
+  'reject',
+  'resource',
+  'sleep',
+  'split',
+  'sql_insert',
+  'stdout',
+  'while',
 ]);
 
 function isObject(value: ParsedYaml | undefined): value is ParsedYamlObject {
@@ -68,18 +94,17 @@ function isString(value: ParsedYaml): value is string {
   return value?.constructor === String;
 }
 
-function isNonPipelineDocument(document: ParsedYaml): boolean {
+export function isInfrastructureDocument(document: ParsedYaml): boolean {
   if (!isObject(document)) return false;
 
-  if ('apiVersion' in document && 'kind' in document) return true;
+  if (isString(document.apiVersion) && isString(document.kind)) return true;
 
-  if ('services' in document) return true;
+  if (isObject(document.services)) return true;
 
   return (
-    'scrape_configs' in document ||
-    'rule_files' in document ||
-    ('global' in document && !('input' in document || 'output' in document)) ||
-    ('groups' in document && !('pipeline' in document))
+    Array.isArray(document.scrape_configs) ||
+    Array.isArray(document.rule_files) ||
+    (Array.isArray(document.groups) && !('pipeline' in document))
   );
 }
 
@@ -102,7 +127,7 @@ export function isBloblangMappingSnippet(source: string): boolean {
 }
 
 export function isPipelineCodeLanguage(language: string): boolean {
-  return /^(?:yaml|yml|bloblang|coffee)$/i.test(language);
+  return /^(?:yaml|yml|bloblang)$/i.test(language);
 }
 
 export function classifyPipelineCode(
@@ -110,7 +135,7 @@ export function classifyPipelineCode(
   language = 'yaml'
 ): PipelineCodeKind | null {
   if (!source.trim()) return null;
-  if (/^(?:bloblang|coffee)$/i.test(language)) return 'fragment';
+  if (/^bloblang$/i.test(language)) return 'fragment';
   let document: ParsedYaml;
 
   try {
@@ -123,7 +148,7 @@ export function classifyPipelineCode(
 
   if (isString(document) && isBloblangMappingSnippet(source)) return 'fragment';
 
-  if (isNonPipelineDocument(document)) return null;
+  if (isInfrastructureDocument(document)) return null;
 
   if (Array.isArray(document))
     return document.length > 0 &&
@@ -140,6 +165,38 @@ export function classifyPipelineCode(
   return fragmentObject(config) ? 'fragment' : null;
 }
 
+export function containsPipelineCode(source: string): boolean {
+  const first =
+    source
+      .split('\n')
+      .find((line) => line.trim() && !line.trim().startsWith('#')) ?? '';
+  if (
+    /^\s*(?:let\s+[a-zA-Z_]\w*\s*=|root(?:\.|\s*=)|meta(?:\s|\())/.test(first)
+  )
+    return true;
+  try {
+    const document = parse(source, {
+      strict: true,
+      uniqueKeys: true,
+    }) as ParsedYaml;
+    if (isInfrastructureDocument(document)) return false;
+    const recognized = (value: ParsedYaml): boolean => {
+      if (Array.isArray(value)) return value.some(recognized);
+      if (!isObject(value)) return false;
+      if (isObject(value.config)) return recognized(value.config);
+      return Object.keys(value).some(
+        (key) =>
+          PIPELINE_CONTAINER_KEYS.has(key) ||
+          PIPELINE_FRAGMENT_KEYS.has(key) ||
+          key.endsWith('_resources')
+      );
+    };
+    return recognized(document);
+  } catch {
+    return false;
+  }
+}
+
 export function hasUnclassifiedExpansoCode(source: string): boolean {
   if (classifyPipelineCode(source)) return false;
 
@@ -151,7 +208,7 @@ export function hasUnclassifiedExpansoCode(source: string): boolean {
       uniqueKeys: true,
     }) as ParsedYaml;
 
-    return !isNonPipelineDocument(document);
+    return !isInfrastructureDocument(document);
   } catch {
     return true;
   }

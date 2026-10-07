@@ -8,7 +8,9 @@ import { globSync } from 'glob';
 
 import {
   classifyPipelineCode,
-  extractYamlCodeBlocks,
+  extractCodeBlocks,
+  containsPipelineCode,
+  isPipelineCodeLanguage,
   hasUnclassifiedExpansoCode,
 } from '../src/lib/pipelineCode';
 import { discoverPipelineFiles } from './validation/inventory';
@@ -28,7 +30,14 @@ for (const path of globSync('docs/**/*.mdx', {
 }).sort()) {
   const page = readFileSync(`${repositoryRoot}/${path}`, 'utf8');
 
-  for (const block of extractYamlCodeBlocks(page)) {
+  for (const block of extractCodeBlocks(page)) {
+    if (!isPipelineCodeLanguage(block.language)) {
+      if (containsPipelineCode(block.source))
+        failures.push(
+          `${path}:${block.line - 1}: pipeline content requires an executable fence`
+        );
+      continue;
+    }
     yamlBlocks += 1;
 
     if (classifyPipelineCode(block.source, block.language))
@@ -40,7 +49,11 @@ for (const path of globSync('docs/**/*.mdx', {
   }
 }
 
-const pipelineFiles = discoverPipelineFiles(repositoryRoot).filter(
+const inventory = discoverPipelineFiles(repositoryRoot);
+for (const file of inventory.filter((entry) => entry.kind === 'invalid-yaml'))
+  failures.push(`${file.path}: ${file.parseError}`);
+
+const pipelineFiles = inventory.filter(
   (file) => file.kind !== 'manifest' && file.kind !== 'invalid-yaml'
 );
 
