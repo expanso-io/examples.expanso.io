@@ -852,11 +852,6 @@ export default function ExplorerV2({
           <div className={styles.yamlPanel}>
             <div className={styles.yamlHeader}>
               <div className={styles.yamlClassification}>
-                <span>
-                  {isFinalStage && fullYaml
-                    ? 'Complete pipeline'
-                    : 'Stage configuration'}
-                </span>
                 <PipelineBadge
                   kind={classifyPipelineCode(visibleYaml) ?? 'fragment'}
                   completeHref={completePipelineRouteForFamily(exampleId)}

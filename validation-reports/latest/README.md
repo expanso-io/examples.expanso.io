@@ -4,7 +4,7 @@ Overall: **PASS**
 
 - expanso-edge: `v2.1.22` (latest installed)
 - expanso-cli: `v2.1.22` (latest installed)
-- Inventory digest: `sha256:df7b4280f7acdf46af280f549ddaa72146d00faad722a388a5ec807e1c287638`
+- Inventory digest: `sha256:a148d56e2a98f023e6355721a3e30ff11f43be31ed9d6949ec1ee1b2ee7dfef8`
 - Complete pipelines: 122. Validate: 122 pass, 0 fail. Run: 122 pass, 0 fail, 0 skipped.
 - Fragments (partial snippets, validated inside a synthetic pipeline, never run): 440. 440 pass, 0 fail.
 

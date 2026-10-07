@@ -3037,7 +3037,10 @@ for (const path of [
         'root = this\nroot.input_batch_size = meta("regression_batch_size").number()',
     });
     const { first, distinct } = JSON.parse(
-      readFileSync('tests/fixtures/pipeline-inputs/dedup-same-batch.json', 'utf8')
+      readFileSync(
+        'tests/fixtures/pipeline-inputs/dedup-same-batch.json',
+        'utf8'
+      )
     );
     const rows = (
       await execute(
@@ -3069,16 +3072,17 @@ test('known-source timezone troubleshooting handles naive and offset-bearing tim
     )[1].source
   );
   const fixtures = JSON.parse(
-    readFileSync('tests/fixtures/pipeline-inputs/known-source-timezones.json', 'utf8')
+    readFileSync(
+      'tests/fixtures/pipeline-inputs/known-source-timezones.json',
+      'utf8'
+    )
   ) as { timestamp: string; expected: string }[];
   const records = fixtures.map(({ timestamp }, index) => ({
     event_id: `timezone-${index}`,
     timestamp,
     payload: { message: 'preserve this record' },
   }));
-  const rows = (
-    await execute(stringify({ pipeline: { processors } }), records)
-  )
+  const rows = (await execute(stringify({ pipeline: { processors } }), records))
     .toString()
     .trim()
     .split('\n')
