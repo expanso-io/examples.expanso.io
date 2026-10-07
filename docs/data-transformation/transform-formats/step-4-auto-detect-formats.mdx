@@ -2,7 +2,7 @@
 title: 'Step 4: Auto-Detect and Route Formats'
 sidebar_label: 'Step 4: Auto-Detect Formats'
 sidebar_position: 6
-description: Automatically detect and route data to different transformation logic based on its format.
+description: Prepare JSON fields for a Protobuf adapter and review the remaining format-routing requirements.
 keywords: [format-detection, content-type, routing, multi-format]
 contentArchetype: step
 executionStatus: architecture-only
@@ -19,19 +19,19 @@ claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2
 
 In a real-world system, you might need a single endpoint that can handle multiple formats. For example, perhaps you want to convert incoming JSON to Protobuf, but also be able to accept Protobuf and convert it back to JSON.
 
-This step teaches you how to build a unified pipeline that detects the incoming format and routes it to the correct conversion logic.
+This step provides the JSON preparation mapping for that design. Encoding,
+decoding, and format routing require an adapter supported by the target Edge release.
 
 ## The Goal
 
-You will build a single pipeline that can:
-
-- Accept a JSON message and convert it to Protobuf.
-- Accept a Protobuf message and convert it back to JSON.
+Prepare the sensor identifier, temperature, and Unix-millisecond timestamp that
+the adapter will encode. The snippet below covers only that preparation step.
 
 ## The "Detect by Header -> Route" Pattern
 
-1.  **Detect by Header:** Instead of looking at the content, we can use the `Content-Type` HTTP header to reliably know the format of the incoming data. This is available in a `mapping` processor via `meta("http_headers")`.
-2.  **Route:** A `switch` processor then directs the message to the appropriate conversion logic based on the detected content type.
+For a complete pipeline, define how the HTTP input exposes `Content-Type`, then
+use a `switch` processor to select the adapter's encode or decode path. The
+preparation fragment below does not implement header detection or routing.
 
 ## Implementation
 

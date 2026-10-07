@@ -25,6 +25,9 @@ npm run test-pipelines
 
 Fixture generators live in `scripts/fixtures/`. Run a generator without `--write` to detect drift; use `--write` only to regenerate its declared files.
 
+The remove-PII fixture comparison ignores only the recorded execution version.
+Hashes, salts, inputs, expected outputs, and all other fixture fields must match.
+
 ## Example pipeline validation
 
 ```bash
@@ -45,8 +48,8 @@ replace matching declarations in the canonical mapping; unmatched declarations
 or unconsumed non-comment content fail validation. Kubernetes manifests
 are excluded from validation reports, as are recognized Docker Compose and
 Prometheus configurations. Unclassified YAML code blocks fail validation with
-their page path and source line. Rendered pipeline blocks show a Complete or
-Fragment badge from the shared classifier in `src/lib/pipelineCode.ts`.
+their page path and source line. Rendered pipeline blocks show a Complete pipeline
+or Partial snippet badge from the shared classifier in `src/lib/pipelineCode.ts`.
 
 Complete pipelines are validated with their original inputs and resources before
 fixture substitution. An isolated local agent then runs deterministic inputs and
@@ -66,8 +69,10 @@ The command fails for invalid or unclassified inventory YAML, failed pipeline
 or fragment validation, skipped complete pipelines, failed execution, or failed
 output assertions.
 The workflow in `.github/workflows/validate-examples.yml` reruns the committed
-report date and rejects report drift. Regenerate and commit reports after source
-changes before that CI check. It runs on every pull request and main push;
+report date and rejects report drift. The comparison ignores the run date and
+recorded Edge and CLI versions; generated reports retain those values. Validation
+results and all other report content must match. Regenerate and commit reports
+after source changes before that CI check. It runs on every pull request and main push;
 only changes entirely covered by its explicit inert-file list take a fast no-op.
 
 The nightly workflow installs the latest Edge and CLI releases and validates

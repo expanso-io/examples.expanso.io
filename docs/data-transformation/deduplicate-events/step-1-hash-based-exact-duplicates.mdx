@@ -26,7 +26,7 @@ You will build a pipeline that generates a unique "fingerprint" (a hash) for eac
 ## The "Hash -> Cache -> Check -> Drop" Pattern
 
 1.  **Hash:** For each message, create a SHA-256 hash of its content. This creates a consistent, unique fingerprint.
-2.  **Cache:** Check whether this fingerprint has been seen before. The pipeline uses one processing thread so the check and update cannot race.
+2.  **Cache:** Check whether this fingerprint has been seen before. `threads: 1` serializes batches, and `for_each` completes each record's lookup, cache write, and duplicate drop before processing the next record in that batch.
 3.  **Check:** A `mapping` processor checks the result from the cache.
 4.  **Drop:** If the cache found a match, the message is deleted. Otherwise, the new fingerprint is cached and the message continues.
 
