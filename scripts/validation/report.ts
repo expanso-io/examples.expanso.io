@@ -18,19 +18,77 @@ function escapeCell(text: string): string {
   return text.replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim();
 }
 
+function displayWidth(text: string): number {
+  let width = 0;
+
+  for (const character of text
+    .replaceAll('\ufe0f', '')
+    .replaceAll('\u200d', ''))
+    width += /\p{Extended_Pictographic}/u.test(character) ? 2 : 1;
+
+  return width;
+}
+
+function padCell(cell: string, width: number): string {
+  return `${cell}${' '.repeat(Math.max(0, width - displayWidth(cell)))}`;
+}
+
 function renderTable(headers: string[], rows: string[][]): string[] {
   const widths = headers.map((header, column) =>
-    Math.max(3, header.length, ...rows.map((row) => row[column].length))
+    Math.max(
+      3,
+      displayWidth(header),
+      ...rows.map((row) => displayWidth(row[column]))
+    )
   );
 
   const renderRow = (row: string[]) =>
-    `| ${row.map((cell, column) => cell.padEnd(widths[column])).join(' | ')} |`;
+    `| ${row.map((cell, column) => padCell(cell, widths[column])).join(' | ')} |`;
 
   return [
     renderRow(headers),
     renderRow(widths.map((width) => '-'.repeat(width))),
     ...rows.map(renderRow),
   ];
+}
+
+export function formatMarkdownTables(markdown: string): string {
+  const lines = markdown.split('\n');
+  const rendered: string[] = [];
+
+  for (let index = 0; index < lines.length; ) {
+    if (!/^\|.*\|$/.test(lines[index])) {
+      rendered.push(lines[index]);
+      index += 1;
+      continue;
+    }
+
+    const table: string[] = [];
+
+    while (index < lines.length && /^\|.*\|$/.test(lines[index])) {
+      table.push(lines[index]);
+      index += 1;
+    }
+
+    const rows = table.map((line) =>
+      line
+        .split('|')
+        .slice(1, -1)
+        .map((cell) => cell.trim())
+    );
+    const separator = rows.findIndex((row) =>
+      row.every((cell) => /^:?-{3,}:?$/.test(cell))
+    );
+
+    if (separator !== 1 || rows.length < 2) {
+      rendered.push(...table);
+      continue;
+    }
+
+    rendered.push(...renderTable(rows[0], rows.slice(2)));
+  }
+
+  return rendered.join('\n');
 }
 
 const REPOSITORY_BLOB_URL =

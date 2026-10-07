@@ -3,6 +3,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 
 import { PUBLIC_CATALOG } from '../../src/catalog/registry';
+import { formatMarkdownTables } from './report';
 
 const reports = [
   'validation-reports/conformance/README.md',
@@ -50,5 +51,5 @@ for (const path of reports) {
     })
     .join('\n');
 
-  writeFileSync(path, rendered, 'utf8');
+  writeFileSync(path, formatMarkdownTables(rendered), 'utf8');
 }

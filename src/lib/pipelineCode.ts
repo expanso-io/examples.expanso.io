@@ -66,6 +66,7 @@ const PIPELINE_FRAGMENT_KEYS = new Set([
   'for_each',
   'generate',
   'group_by',
+  'group_by_value',
   'http_server',
   'json_schema',
   'log',
@@ -78,6 +79,7 @@ const PIPELINE_FRAGMENT_KEYS = new Set([
   'split',
   'sql_insert',
   'stdout',
+  'sync_response',
   'while',
 ]);
 
@@ -225,27 +227,53 @@ export function extractCodeBlocks(
   checkIndentation = true
 ): CodeFence[] {
   const blocks: CodeFence[] = [];
-  const fence =
-    /^([ \t]*)(`{3,}|~{3,})([^\s`~]*)[^\n]*\n([\s\S]*?)^([ \t]*)\2[ \t]*$/gm;
-  for (const match of page.matchAll(fence)) {
-    const indentation = match[1];
-    const line = page.slice(0, match.index).split('\n').length + 1;
+  const lines = page.split('\n');
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const opening = /^([ \t]*)(`{3,}|~{3,})([^\s`~]*)[^\n]*$/.exec(
+      lines[index]
+    );
+
+    if (!opening) continue;
+    const indentation = opening[1];
+    const marker = opening[2];
+    const character = marker[0];
+    let closingIndex = -1;
+    let closingIndentation = '';
+
+    for (let candidate = index + 1; candidate < lines.length; candidate += 1) {
+      const closing = /^([ \t]*)(`{3,}|~{3,})[ \t]*$/.exec(lines[candidate]);
+
+      if (
+        closing &&
+        closing[2][0] === character &&
+        closing[2].length >= marker.length
+      ) {
+        closingIndex = candidate;
+        closingIndentation = closing[1];
+        break;
+      }
+    }
+
+    if (closingIndex < 0) continue;
+    const line = index + 2;
     if (
       checkIndentation &&
-      isPipelineCodeLanguage(match[3]) &&
-      match[5] !== indentation
+      isPipelineCodeLanguage(opening[3]) &&
+      closingIndentation !== indentation
     )
       throw new Error(`Code fence indentation mismatch at line ${line - 1}`);
     blocks.push({
-      source: match[4]
-        .split('\n')
+      source: lines
+        .slice(index + 1, closingIndex)
         .map((line) =>
           line.startsWith(indentation) ? line.slice(indentation.length) : line
         )
         .join('\n'),
       line,
-      language: match[3],
+      language: opening[3],
     });
+    index = closingIndex;
   }
   return blocks;
 }

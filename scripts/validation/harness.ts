@@ -1028,6 +1028,11 @@ export function wrapFragment(
     }
   }
 
+  if (body.http !== undefined) {
+    wrapped.http = body.http;
+    parts.push('http');
+  }
+
   if (body.input !== undefined) {
     wrapped.input = mergeComponentContext(wrapped.input, body.input);
     parts.push('input');
@@ -1046,8 +1051,19 @@ export function wrapFragment(
   if (body.output !== undefined) {
     wrapped.output = mergeComponentContext(wrapped.output, body.output);
     parts.push('output');
+  } else if (Array.isArray(body.outputs)) {
+    wrapped.output = {
+      broker: { pattern: 'fan_out', outputs: body.outputs },
+    };
+    parts.push('outputs');
   } else if (!canonicalConfig) {
     wrapped.output = dropOutput;
+  }
+
+  if (parts.length > 0) {
+    const consumed = new Set([...parts, 'label', 'name', 'schedule', 'type']);
+
+    if (Object.keys(body).some((key) => !consumed.has(key))) return null;
   }
 
   if (parts.length === 0) {

@@ -17,6 +17,7 @@ import { globSync } from 'glob';
 import matter from 'gray-matter';
 import {
   classifyPipelineCode,
+  containsPipelineCode,
   extractYamlCodeBlocks,
   hasUnclassifiedExpansoCode,
 } from '../../src/lib/pipelineCode';
@@ -1819,7 +1820,9 @@ test('selected timestamp metadata retains numeric calendar components', async ()
     .split('\n')
     .map((line) => JSON.parse(line));
   assert.deepEqual(
-    rows.map((row) => row.time_metadata),
+    rows
+      .map((row) => row.time_metadata)
+      .sort((left, right) => left.day - right.day),
     [
       { year: 2025, month: 10, day: 20, hour: 18, day_of_week: 1 },
       { year: 2025, month: 10, day: 26, hour: 0, day_of_week: 0 },
@@ -2169,7 +2172,10 @@ test('selected range validation preserves transactions and their output routing'
     .toString()
     .trim()
     .split('\n')
-    .map((line) => JSON.parse(line));
+    .map((line) => JSON.parse(line))
+    .sort((left, right) =>
+      left.transaction_id.localeCompare(right.transaction_id)
+    );
   assert.deepEqual(rows, [
     { ...valid, _warnings: [] },
     {
@@ -2205,7 +2211,12 @@ test('selected range validation preserves transactions and their output routing'
       .filter(Boolean)
       .map((line) => JSON.parse(line))
   );
-  assert.deepEqual(bigquery, rows);
+  assert.deepEqual(
+    bigquery.sort((left, right) =>
+      left.transaction_id.localeCompare(right.transaction_id)
+    ),
+    rows
+  );
   assert.equal(dlq.length, 1);
   assert.equal(dlq[0]._error, 'Missing required field for BigQuery load');
   assert.equal(dlq[0].customer_id, 'C1');
@@ -2245,10 +2256,12 @@ test('selected priority normalization and defaults preserve event data', async (
     .map((line) => JSON.parse(line));
   const byEventId = (left: { event_id: string }, right: { event_id: string }) =>
     left.event_id.localeCompare(right.event_id);
-  assert.deepEqual(rows.sort(byEventId), [
-    { ...missing, severity: 'INFO', user_tier: 'free' },
-    existing,
-  ].sort(byEventId));
+  assert.deepEqual(
+    rows.sort(byEventId),
+    [{ ...missing, severity: 'INFO', user_tier: 'free' }, existing].sort(
+      byEventId
+    )
+  );
 });
 
 function assertPreserved(
@@ -2906,4 +2919,55 @@ test('selected review R82 fails unclassified example YAML and excludes only infr
   } finally {
     rmSync(path, { force: true });
   }
+});
+
+test('selected review R85 rejects fragment wrapping that drops unknown keys', () => {
+  const source = [
+    'input:',
+    '  generate:',
+    '    count: 1',
+    '    mapping: root = {}',
+    'pipeline:',
+    '  processors:',
+    '    - mapping: root = this',
+    'outpt:',
+    '  drop: {}',
+  ].join('\n');
+
+  assert.equal(classifyPipelineCode(source), 'fragment');
+  assert.equal(wrapFragment(parse(source)), null);
+});
+
+test('selected review R86 accepts a longer matching closing fence', () => {
+  const page = [
+    '```yaml',
+    'input: {generate: {count: 1, mapping: "root = {}"}}',
+    'output: {drop: {}}',
+    '````',
+  ].join('\n');
+  const blocks = extractYamlCodeBlocks(page);
+
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].line, 2);
+  assert.equal(classifyPipelineCode(blocks[0].source), 'complete');
+});
+
+test('selected review R87 classifies published processor fragment forms', () => {
+  for (const source of [
+    '- group_by_value:\n    value: ${!this.sensor_id}',
+    '- sync_response: {}',
+  ]) {
+    assert.equal(containsPipelineCode(source), true);
+    assert.equal(classifyPipelineCode(source), 'fragment');
+  }
+});
+
+test('circuit breaker retry fragment validates as an HTTP client output', () => {
+  const source = pageBlocks(
+    'docs/data-routing/circuit-breakers/troubleshooting.mdx'
+  )[0].source;
+  const wrapped = wrapFragment(parse(source));
+
+  assert.ok(wrapped);
+  assert.equal(validateSource(edge, root, wrapped.source).status, 'PASS');
 });

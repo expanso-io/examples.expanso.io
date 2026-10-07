@@ -35,10 +35,7 @@ test('unknown example YAML remains rejected, including tag-shaped content', () =
   const directory = mkdtempSync('examples/review-metadata-');
   const path = join(directory, 'tags.yml');
   try {
-    for (const source of [
-      readFileSync('docs/tags.yml', 'utf8'),
-      'outpt: {}',
-    ]) {
+    for (const source of [readFileSync('docs/tags.yml', 'utf8'), 'outpt: {}']) {
       writeFileSync(path, source);
       const result = validateFile(path);
       assert.equal(result.status, 1, result.stderr + result.stdout);
