@@ -2008,12 +2008,14 @@ for (const stage of [1, 2, 3]) {
       const row = rows.find((row) => row.event_id === record.event_id);
       assert.ok(row);
       assert.equal(row.original_timestamp, record.timestamp);
-      const utc =
-        typeof record.timestamp === 'number'
-          ? new Date(record.timestamp * 1000)
-              .toISOString()
-              .replace('.000Z', 'Z')
-          : '2025-10-20T18:23:45Z';
+      const expectedUtc: Record<string, string> = {
+        A: '2025-10-20T18:23:45.123Z',
+        B: '2024-10-20T18:53:45Z',
+        C: '2025-10-20T18:23:45.123456789Z',
+        D: '2025-10-20T18:23:45Z',
+        E: '2024-10-20T18:53:45.125Z',
+      };
+      const utc = expectedUtc[record.event_id];
       assert.equal(row.normalized_timestamp, utc);
       if (stage >= 2) {
         assert.equal(row.timestamp_utc, utc);
@@ -2022,13 +2024,14 @@ for (const stage of [1, 2, 3]) {
           record.event_id === 'C' ? '-04:00' : '+00:00'
         );
       }
-      if (stage === 3 && record.event_id !== 'B') {
+      if (stage === 3) {
+        const instant = new Date(utc);
         assert.deepEqual(row.time_metadata, {
-          year: 2025,
-          month: 10,
-          day: 20,
-          hour: 18,
-          day_of_week: 1,
+          year: instant.getUTCFullYear(),
+          month: instant.getUTCMonth() + 1,
+          day: instant.getUTCDate(),
+          hour: instant.getUTCHours(),
+          day_of_week: instant.getUTCDay(),
         });
       }
     }
@@ -2229,4 +2232,106 @@ test('selected fence-language CI command rejects changes unless explicitly liste
   assert.equal(run().status, 1);
   git(['mv', path, 'docs/test/renamed.mdx']);
   assert.equal(run().status, 1);
+});
+
+test('selected range validation preserves transactions and their output routing', async () => {
+  const blocks = pageBlocks(
+    'docs/enterprise-migration/db2-to-bigquery/step-6-validate-required-fields.mdx'
+  );
+  const range = parse(blocks[3].source);
+  const valid = {
+    transaction_id: 'TX1',
+    customer_id: 'C1',
+    amount_usd: 100,
+    transaction_date: '2025-10-20',
+  };
+  const suspicious = {
+    ...valid,
+    transaction_id: 'TX2',
+    amount_usd: 150001,
+    transaction_date: '2999-01-01',
+  };
+  const source = stringify({ pipeline: { processors: range } });
+  const rows = (await execute(source, [valid, suspicious]))
+    .toString()
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.deepEqual(rows, [
+    { ...valid, _warnings: [] },
+    {
+      ...suspicious,
+      _warnings: [
+        'Large transaction: review required',
+        'Future transaction date',
+      ],
+    },
+  ]);
+  const config = parse(blocks[0].source);
+  config.pipeline.processors.unshift(...range);
+  const missing = {
+    customer_id: 'C1',
+    amount_usd: 100,
+    transaction_date: '2025-10-20',
+  };
+  const [dlq, bigquery] = JSON.parse(
+    (
+      await execute(
+        stringify(config),
+        [valid, suspicious, missing],
+        false,
+        undefined,
+        'completed',
+        true
+      )
+    ).toString()
+  ).map((text: string) =>
+    text
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+  );
+  assert.deepEqual(bigquery, rows);
+  assert.equal(dlq.length, 1);
+  assert.equal(dlq[0]._error, 'Missing required field for BigQuery load');
+  assert.equal(dlq[0].customer_id, 'C1');
+  assert.equal(dlq[0].amount_usd, 100);
+});
+
+test('selected priority normalization and defaults preserve event data', async () => {
+  const blocks = pageBlocks(
+    'docs/data-routing/priority-queues/troubleshooting.mdx'
+  );
+  const normalize = stringify({
+    pipeline: { processors: parse(blocks[0].source) },
+  });
+  const record = {
+    event_id: 'event',
+    message: 'Keep this payload',
+    severity: 'critical',
+    priority_score: 250,
+  };
+  assert.deepEqual(
+    JSON.parse((await execute(normalize, [record])).toString()),
+    { ...record, severity: 'CRITICAL' }
+  );
+  const defaults = stringify({
+    pipeline: { processors: parse(blocks[3].source) },
+  });
+  const missing = {
+    event_id: 'missing',
+    message: 'Keep this payload',
+    priority_score: 50,
+  };
+  const existing = { ...record, user_tier: 'paid' };
+  const rows = (await execute(defaults, [missing, existing]))
+    .toString()
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.deepEqual(rows, [
+    { ...missing, severity: 'INFO', user_tier: 'free' },
+    existing,
+  ]);
 });
