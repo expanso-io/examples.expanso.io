@@ -41,6 +41,9 @@ const INVENTORY_GLOBS = [
   'docs/**/*.{yaml,yml}',
 ];
 
+// Docusaurus tag definitions are site metadata, not pipeline configs.
+export const SITE_METADATA_FILES = ['docs/tags.yml'];
+
 /** The pipeline config carried by a document, whether bare or wrapped in a job. */
 export function pipelineConfigOf(
   document: YamlValue | undefined
@@ -256,6 +259,7 @@ export function discoverPipelineFiles(repositoryRoot: string): PipelineFile[] {
       cwd: repositoryRoot,
       nodir: true,
       posix: true,
+      ignore: SITE_METADATA_FILES,
     })) {
       paths.add(match);
     }

@@ -41,6 +41,7 @@ import {
   discoverPipelineFiles,
   inventoryDigest,
   pipelineConfigOf,
+  SITE_METADATA_FILES,
 } from './validation/inventory';
 import { renderIndex, renderReport, summarize } from './validation/report';
 import { writeFailureReport } from './validation/failure-report';
@@ -585,8 +586,8 @@ async function main(): Promise<void> {
       (path) =>
         !found.has(path) &&
         !(
-          path.startsWith('docs/') &&
-          path.endsWith('.mdx') &&
+          (SITE_METADATA_FILES.includes(path) ||
+            (path.startsWith('docs/') && path.endsWith('.mdx'))) &&
           existsSync(join(repositoryRoot, path))
         )
     );

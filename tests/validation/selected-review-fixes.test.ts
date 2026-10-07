@@ -2243,10 +2243,12 @@ test('selected priority normalization and defaults preserve event data', async (
     .trim()
     .split('\n')
     .map((line) => JSON.parse(line));
-  assert.deepEqual(rows, [
+  const byEventId = (left: { event_id: string }, right: { event_id: string }) =>
+    left.event_id.localeCompare(right.event_id);
+  assert.deepEqual(rows.sort(byEventId), [
     { ...missing, severity: 'INFO', user_tier: 'free' },
     existing,
-  ]);
+  ].sort(byEventId));
 });
 
 function assertPreserved(
