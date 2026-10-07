@@ -58,7 +58,8 @@ async function execute(
   raw = false,
   inputBytes?: Buffer,
   expectedState = 'completed',
-  captureRouting = false
+  captureRouting = false,
+  captureBroker = false
 ): Promise<Buffer> {
   const document = parse(source);
   const config = document.config ?? document;
@@ -82,6 +83,11 @@ async function execute(
         entry.output = { file: { path, codec: 'lines' } };
       }
     );
+  } else if (captureBroker) {
+    for (const output of config.output.broker.outputs) {
+      delete output.stdout;
+      output.file = { path: target, codec: 'lines' };
+    }
   } else
     config.output = {
       file: { path: target, codec: raw ? 'all-bytes' : 'lines' },
@@ -2337,4 +2343,313 @@ test('selected priority normalization and defaults preserve event data', async (
     { ...missing, severity: 'INFO', user_tier: 'free' },
     existing,
   ]);
+});
+
+function assertPreserved(
+  row: Record<string, unknown>,
+  record: Record<string, unknown>,
+  changed: string[] = []
+) {
+  for (const [field, value] of Object.entries(record))
+    if (!changed.includes(field)) assert.deepEqual(row[field], value, field);
+}
+
+test('payload preservation: conditional splitter retains whole single-item orders', async () => {
+  const path =
+    'docs/data-routing/content-splitting/step-4-advanced-patterns.mdx';
+  const record = {
+    order_id: 'O1',
+    items: [{ sku: 'A' }],
+    payload: { trace: [1, 2] },
+  };
+  const rows = (await execute(pageBlocks(path)[1].source, [record]))
+    .toString()
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.equal(rows.length, 1);
+  assertPreserved(rows[0], record);
+  assert.equal(rows[0].processing_type, 'batch');
+});
+
+for (const event_type of ['user_signup', 'purchase']) {
+  test('payload preservation: dynamic fingerprint ' + event_type, async () => {
+    const document = parse(
+      pageBlocks(
+        'docs/data-transformation/deduplicate-events/step-4-advanced-patterns.mdx'
+      )[1].source
+    );
+    const record = {
+      event_id: 'E1',
+      event_type,
+      user: { email: 'ada@example.com', id: 'U1' },
+      product: { id: 'P1' },
+      purchase: { amount: 20 },
+      payload: { trace: [1, 2] },
+    };
+    const rows = (
+      await execute(stringify({ pipeline: { processors: document } }), [record])
+    )
+      .toString()
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    assert.equal(rows.length, 1);
+    assertPreserved(rows[0], record);
+    assert.ok(rows[0].dedup_hash);
+  });
+}
+
+for (const index of [0, 1]) {
+  test('payload preservation: hybrid O-RAN input ' + index, async () => {
+    const blocks = pageBlocks(
+      'docs/integrations/oran-telco-pipeline/step-1-collect-oran-metrics.mdx'
+    );
+    const input = parse(blocks[2].source).config.input.broker.inputs[index];
+    const validator = parse(blocks[3].source).pipeline.processors;
+    const record = {
+      timestamp: '2025-10-20T18:23:45Z',
+      du_id: 'DU1',
+      metric_type: 'ptp_offset',
+      ptp4l_offset_ns: -85,
+      event_id: 'E1',
+      payload: { trace: [1, 2] },
+    };
+    const rows = (
+      await execute(
+        stringify({
+          pipeline: { processors: [...input.processors, ...validator] },
+        }),
+        [record]
+      )
+    )
+      .toString()
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    assert.equal(rows.length, 1);
+    assertPreserved(rows[0], record);
+    assert.equal(rows[0].source, index === 0 ? 'api_realtime' : 'file_batch');
+  });
+}
+
+test('payload preservation: smart buffering output forwards the complete event', async () => {
+  const config = parse(
+    pageBlocks('docs/data-routing/smart-buffering/troubleshooting.mdx')[3]
+      .source
+  );
+  const record = {
+    event_id: 'E1',
+    priority_score: 100,
+    message: 'alert',
+    payload: { trace: [1, 2] },
+  };
+  const rows = (
+    await execute(
+      stringify(config),
+      [record],
+      false,
+      undefined,
+      'completed',
+      false,
+      true
+    )
+  )
+    .toString()
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.deepEqual(rows, [record]);
+});
+
+const preservationCases = [
+  {
+    path: 'docs/data-transformation/aggregate-time-windows/troubleshooting.mdx',
+    block: 1,
+    record: { timestamp: '2025-10-20T18:23:45Z' },
+    changed: ['timestamp'],
+    expected: { timestamp: '2025-10-20T18:23:45Z' },
+  },
+  {
+    path: 'docs/data-transformation/normalize-timestamps/troubleshooting.mdx',
+    block: 0,
+    record: { timestamp: '2025-10-20T18:23:00Z' },
+    changed: ['timestamp'],
+    expected: { timestamp: '2025-10-20T18:23:00Z' },
+  },
+  {
+    path: 'docs/data-transformation/normalize-timestamps/troubleshooting.mdx',
+    block: 1,
+    record: { timestamp: '2025-10-20 14:23:45 -04:00' },
+    changed: ['timestamp'],
+    expected: { timestamp: '2025-10-20T18:23:45Z' },
+  },
+  {
+    path: 'docs/data-transformation/normalize-timestamps/troubleshooting.mdx',
+    block: 2,
+    record: { timestamp: 1760984625123 },
+    changed: [],
+    expected: { timestamp_unix: 1760984625 },
+  },
+  {
+    path: 'docs/log-processing/production-pipeline/troubleshooting.mdx',
+    block: 2,
+    record: { message: 'contact ada@example.com' },
+    changed: ['message'],
+    expected: { message: 'contact [EMAIL]' },
+  },
+  {
+    path: 'docs/integrations/splunk-edge-processing/step-5-advanced-splunk-patterns.mdx',
+    block: 0,
+    record: {
+      response_time_ms: 5000,
+      baseline_response_ms: 100,
+      endpoint: '/api',
+    },
+    changed: [],
+    expected: { is_anomaly: true },
+  },
+  {
+    path: 'docs/integrations/splunk-edge-processing/step-5-advanced-splunk-patterns.mdx',
+    block: 3,
+    record: { events_per_minute: 12000 },
+    changed: [],
+    expected: { optimal_batch_size: 200, auto_filter_level: 'aggressive' },
+  },
+];
+
+for (const entry of preservationCases) {
+  test(
+    'payload preservation: enrichment ' + entry.path + ':' + entry.block,
+    async () => {
+      const doc = parse(pageBlocks(entry.path)[entry.block].source);
+      const processors = Array.isArray(doc)
+        ? doc
+        : (doc.pipeline?.processors ?? doc.processors);
+      const record = {
+        event_id: 'E1',
+        payload: { trace: [1, 2] },
+        ...entry.record,
+      };
+      const rows = (
+        await execute(stringify({ pipeline: { processors } }), [record])
+      )
+        .toString()
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      assert.equal(rows.length, 1);
+      assertPreserved(rows[0], record, entry.changed);
+      for (const [field, value] of Object.entries(entry.expected))
+        assert.deepEqual(rows[0][field], value);
+    }
+  );
+}
+
+test('payload preservation: external-cache strategy retains the event', async () => {
+  const doc = parse(
+    readFileSync(
+      'examples/explorer-stages/deduplicate-events/05-external-cache-configuration.yaml',
+      'utf8'
+    )
+  );
+  const record = {
+    event_id: 'E1',
+    event_type: 'user_signup',
+    message: 'signup',
+    payload: { trace: [1, 2] },
+  };
+  const rows = (
+    await execute(
+      stringify({ pipeline: { processors: [doc.pipeline.processors[0]] } }),
+      [record]
+    )
+  )
+    .toString()
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.equal(rows.length, 1);
+  assertPreserved(rows[0], record);
+  assert.equal(rows[0].dedup_strategy, 'fingerprint-based');
+});
+
+test('payload preservation: distributed dedup key retains the event', async () => {
+  const doc = parse(
+    pageBlocks(
+      'docs/data-transformation/deduplicate-events/step-4-advanced-patterns.mdx'
+    )[0].source
+  );
+  const record = {
+    event_id: 'E1',
+    message: 'signup',
+    payload: { trace: [1, 2] },
+  };
+  const rows = (
+    await execute(
+      stringify({
+        pipeline: { processors: [doc.config.pipeline.processors[0]] },
+      }),
+      [record]
+    )
+  )
+    .toString()
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.equal(rows.length, 1);
+  assertPreserved(rows[0], record);
+  assert.equal(rows[0].dedup_key, 'E1');
+});
+
+for (const index of [0, 1]) {
+  test('payload preservation: database failure tag ' + index, async () => {
+    const doc = parse(
+      pageBlocks(
+        'docs/data-routing/circuit-breakers/step-4-advanced-patterns.mdx'
+      )[1].source
+    );
+    const processors =
+      doc.pipeline.processors[0].switch[index].processors[1].catch;
+    const record = {
+      event_id: 'E1',
+      message: 'database operation',
+      payload: { trace: [1, 2] },
+    };
+    const rows = (
+      await execute(stringify({ pipeline: { processors } }), [record])
+    )
+      .toString()
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    assert.equal(rows.length, 1);
+    assertPreserved(rows[0], record);
+    assert.equal(rows[0][index === 0 ? 'read_failed' : 'write_failed'], true);
+  });
+}
+
+test('payload preservation: unknown log format retains the event', async () => {
+  const doc = parse(
+    pageBlocks(
+      'docs/data-transformation/parse-logs/step-4-multi-format-detection.mdx'
+    )[0].source
+  ).config;
+  const processors = doc.pipeline.processors[1].switch.at(-1).processors;
+  const record = {
+    raw_log: 'plain text',
+    event_id: 'E1',
+    message: 'log',
+    payload: { trace: [1, 2] },
+  };
+  const rows = (
+    await execute(stringify({ pipeline: { processors } }), [record])
+  )
+    .toString()
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.equal(rows.length, 1);
+  assertPreserved(rows[0], record);
+  assert.equal(rows[0].parsed_by, 'unknown');
 });

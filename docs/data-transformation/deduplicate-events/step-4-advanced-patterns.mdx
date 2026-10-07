@@ -34,7 +34,9 @@ config:
 
   pipeline:
     processors:
-      - mapping: root.dedup_key = this.event_id
+      - mapping: |
+          root = this
+          root.dedup_key = this.event_id
       # 2. Use the Redis cache resource in your processor.
       - cache:
           resource: distributed_dedup_cache # Use the Redis cache
@@ -54,12 +56,14 @@ In a complex system, the fields that define a unique business event can change d
     - check: this.event_type == "user_signup"
       processors:
         - mapping: |
+            root = this
             let fingerprint = {"email": this.user.email}
             root.dedup_hash = $fingerprint.format_json().hash("sha256")
 
     - check: this.event_type == "purchase"
       processors:
         - mapping: |
+            root = this
             let fingerprint = {
               "user_id": this.user.id,
               "product_id": this.product.id,

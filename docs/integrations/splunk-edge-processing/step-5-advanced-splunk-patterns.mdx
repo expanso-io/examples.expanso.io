@@ -276,6 +276,7 @@ Detect anomalies at the edge and alert before data reaches Splunk:
 processors:
   # Anomaly detection processor
   - mapping: |
+      root = this
       # Track baseline metrics in memory (sliding window)
       let response_time = this.response_time_ms.number().catch(0)
       let endpoint = this.endpoint.string().catch("unknown")
@@ -369,6 +370,7 @@ Monitor pipeline performance and adapt automatically:
 ```yaml
 processors:
   - mapping: |
+      root = this
       let events_per_minute = this.events_per_minute.or(0)
       root.optimal_batch_size = match {
         $events_per_minute > 10000 => 200

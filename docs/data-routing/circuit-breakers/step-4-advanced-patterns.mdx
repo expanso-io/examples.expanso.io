@@ -140,7 +140,9 @@ pipeline:
                     where: user_id = $1
                     args_mapping: root = [this.user_id]
             - catch:
-                - mapping: root.read_failed = true
+                - mapping: |
+                    root = this
+                    root.read_failed = true
 
         # WRITE operations have a strict circuit breaker
         - check: this.operation == "write"
@@ -153,7 +155,9 @@ pipeline:
                     columns: [event_id, payload]
                     args_mapping: root = [this.event_id, this.format_json()]
             - catch:
-                - mapping: root.write_failed = true
+                - mapping: |
+                    root = this
+                    root.write_failed = true
 
 output:
   switch:

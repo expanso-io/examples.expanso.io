@@ -91,16 +91,14 @@ docker logs smart-buffer --tail 20 2>&1 | grep priority
 
 **Cause:** Sort processor not applied to output batch
 
-**Fix:** Preserve the upstream priority score in an output processor; ordering
-belongs to the destination queue rather than an unsupported local sort stage:
+**Fix:** Forward the complete event with its upstream priority score; ordering
+belongs to the destination queue:
 
 ```yaml
 output:
   broker:
     outputs:
       - stdout: {}
-        processors:
-          - mapping: root.priority_score = this.priority_score
 ```
 
 ---
