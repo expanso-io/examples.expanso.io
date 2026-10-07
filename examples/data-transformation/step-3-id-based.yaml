@@ -11,22 +11,23 @@ pipeline:
         }
         root.unique_id = this.event_id.trim()
 
-    - branch:
-        request_map: root = this.unique_id
-        processors:
-          - cache:
-              resource: dedup_cache
-              operator: exists
-              key: '${! content() }'
-        result_map: root.is_duplicate = content().string().bool()
+    - for_each:
+        - branch:
+            request_map: root = this.unique_id
+            processors:
+              - cache:
+                  resource: dedup_cache
+                  operator: exists
+                  key: '${! content() }'
+            result_map: root.is_duplicate = content().string().bool()
 
-    - switch:
-        - check: '!this.is_duplicate'
-          processors:
-            - cache:
-                resource: dedup_cache
-                operator: set
-                key: '${! json("unique_id") }'
-                value: '${! now() }'
-        - processors:
-            - mapping: root = deleted()
+        - switch:
+            - check: '!this.is_duplicate'
+              processors:
+                - cache:
+                    resource: dedup_cache
+                    operator: set
+                    key: '${! json("unique_id") }'
+                    value: '${! now() }'
+            - processors:
+                - mapping: root = deleted()

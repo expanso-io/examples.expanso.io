@@ -12,22 +12,23 @@ pipeline:
         # Generate SHA-256 hash of entire content
         root.dedup_hash = this.format_json().hash("sha256")
 
-    - branch:
-        request_map: root = this.dedup_hash
-        processors:
-          - cache:
-              resource: dedup_cache
-              operator: exists
-              key: '${! content() }'
-        result_map: root.is_duplicate = content().string().bool()
+    - for_each:
+        - branch:
+            request_map: root = this.dedup_hash
+            processors:
+              - cache:
+                  resource: dedup_cache
+                  operator: exists
+                  key: '${! content() }'
+            result_map: root.is_duplicate = content().string().bool()
 
-    - switch:
-        - check: '!this.is_duplicate'
-          processors:
-            - cache:
-                resource: dedup_cache
-                operator: set
-                key: '${! json("dedup_hash") }'
-                value: '${! now() }'
-        - processors:
-            - mapping: root = deleted()
+        - switch:
+            - check: '!this.is_duplicate'
+              processors:
+                - cache:
+                    resource: dedup_cache
+                    operator: set
+                    key: '${! json("dedup_hash") }'
+                    value: '${! now() }'
+            - processors:
+                - mapping: root = deleted()

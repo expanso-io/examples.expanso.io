@@ -60,33 +60,34 @@ You will build a pipeline that generates a unique "fingerprint" (a hash) for eac
               # format_json() ensures keys are sorted, creating a consistent hash
               root.dedup_hash = this.format_json().hash("sha256")
 
-          # 3. CACHE: Check whether we've seen this hash before.
-          - branch:
-              request_map: root = this.dedup_hash
-              processors:
-                - cache:
-                    resource: dedup_cache
-                    operator: exists
-                    key: '${!content()}'
-              result_map: root.is_duplicate = content().string().bool()
+          - for_each:
+              # 3. CACHE: Check whether we've seen this hash before.
+              - branch:
+                  request_map: root = this.dedup_hash
+                  processors:
+                    - cache:
+                        resource: dedup_cache
+                        operator: exists
+                        key: '${!content()}'
+                  result_map: root.is_duplicate = content().string().bool()
 
-          # 4. CACHE NEW HASHES: Remember records that passed the lookup.
-          - switch:
-              - check: '!this.is_duplicate'
-                processors:
-                  - cache:
-                      resource: dedup_cache
-                      operator: set
-                      key: '${!this.dedup_hash}'
-                      value: seen
+              # 4. CACHE NEW HASHES: Remember records that passed the lookup.
+              - switch:
+                  - check: '!this.is_duplicate'
+                    processors:
+                      - cache:
+                          resource: dedup_cache
+                          operator: set
+                          key: '${!this.dedup_hash}'
+                          value: seen
 
-          # 5. DROP: Emit only the first occurrence.
-          - mapping: |
-              root = if this.is_duplicate {
-                deleted()
-              } else {
-                this.merge({"status": "processed_new"})
-              }
+              # 5. DROP: Emit only the first occurrence.
+              - mapping: |
+                  root = if this.is_duplicate {
+                    deleted()
+                  } else {
+                    this.merge({"status": "processed_new"})
+                  }
 
       output:
         stdout:

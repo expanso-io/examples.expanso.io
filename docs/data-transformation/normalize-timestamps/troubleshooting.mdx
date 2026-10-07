@@ -62,7 +62,13 @@ docker logs normalize-timestamps --tail 20 2>&1 | grep timestamp
 ```yaml
 - mapping: |
     root = this
-    root.timestamp = this.timestamp.ts_parse("2006-01-02 15:04:05 -07:00").ts_format("2006-01-02T15:04:05Z", "UTC")
+    let offset_timestamp = if this.timestamp.contains("T") { this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00") } else if this.timestamp.length() > 19 { this.timestamp.ts_parse("2006-01-02 15:04:05 -07:00") } else { null }
+    let local = if $offset_timestamp != null { $offset_timestamp } else { this.timestamp.ts_parse("2006-01-02 15:04:05") }
+    let offset = $local.ts_format("-07:00", "America/Los_Angeles")
+    let candidate = if $offset_timestamp != null { $offset_timestamp } else { (this.timestamp + " " + $offset).ts_parse("2006-01-02 15:04:05 -07:00") }
+    let source_offset = $candidate.ts_format("-07:00", "America/Los_Angeles")
+    let parsed = if $offset_timestamp != null { $offset_timestamp } else { (this.timestamp + " " + $source_offset).ts_parse("2006-01-02 15:04:05 -07:00") }
+    root.timestamp = $parsed.ts_format("2006-01-02T15:04:05Z", "UTC")
 ```
 
 ---

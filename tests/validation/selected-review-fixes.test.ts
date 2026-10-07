@@ -579,8 +579,9 @@ test('ID tutorial replacements retain the first occurrence and filter repeated I
     'docs/data-transformation/deduplicate-events/step-3-id-based-unique-identifiers.mdx'
   );
   assert.equal(replacements.length, 3);
-  for (let index = 0; index < replacements.length; index++)
-    original.config.pipeline.processors[index] = parse(
+  original.config.pipeline.processors[0] = parse(replacements[0].source)[0];
+  for (let index = 1; index < replacements.length; index++)
+    original.config.pipeline.processors[1].for_each[index - 1] = parse(
       replacements[index].source
     )[0];
   const outputs = (
@@ -2970,4 +2971,103 @@ test('circuit breaker retry fragment validates as an HTTP client output', () => 
 
   assert.ok(wrapped);
   assert.equal(validateSource(edge, root, wrapped.source).status, 'PASS');
+});
+
+for (const path of [
+  'examples/data-transformation/step-1-hash-based.yaml',
+  'examples/data-transformation/step-2-fingerprint-based.yaml',
+  'examples/data-transformation/step-3-id-based.yaml',
+  'examples/explorer-stages/deduplicate-events/02-hash-based-deduplication.yaml',
+  'examples/explorer-stages/deduplicate-events/03-fingerprint-based-deduplication.yaml',
+  'examples/explorer-stages/deduplicate-events/04-id-based-deduplication.yaml',
+  'tutorial-hash',
+  'tutorial-fingerprint',
+  'tutorial-id',
+]) {
+  test(`same-batch deduplication preserves distinct records: ${path}`, async () => {
+    const base = parse(
+      pageBlocks(
+        'docs/data-transformation/deduplicate-events/step-1-hash-based-exact-duplicates.mdx'
+      )[0].source
+    ).config;
+    const config = path.startsWith('tutorial-')
+      ? base
+      : parse(readFileSync(path, 'utf8'));
+    if (path === 'tutorial-fingerprint')
+      config.pipeline.processors[0] = parse(
+        pageBlocks(
+          'docs/data-transformation/deduplicate-events/step-2-fingerprint-semantic-duplicates.mdx'
+        )[0].source
+      )[0];
+    if (path === 'tutorial-id') {
+      const replacements = pageBlocks(
+        'docs/data-transformation/deduplicate-events/step-3-id-based-unique-identifiers.mdx'
+      );
+      config.pipeline.processors[0] = parse(replacements[0].source)[0];
+      for (let index = 1; index < replacements.length; index++)
+        config.pipeline.processors[1].for_each[index - 1] = parse(
+          replacements[index].source
+        )[0];
+    }
+    config.cache_resources ??= base.cache_resources;
+    config.pipeline.processors.unshift(
+      { unarchive: { format: 'json_array' } },
+      { mapping: 'meta regression_batch_size = batch_size()' }
+    );
+    config.pipeline.processors.push({
+      mapping:
+        'root = this\nroot.input_batch_size = meta("regression_batch_size").number()',
+    });
+    const { first, distinct } = JSON.parse(
+      readFileSync('tests/fixtures/pipeline-inputs/dedup-same-batch.json', 'utf8')
+    );
+    const rows = (
+      await execute(
+        stringify(config),
+        [],
+        false,
+        Buffer.from(JSON.stringify([first, first, distinct]))
+      )
+    )
+      .toString()
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    assert.deepEqual(
+      rows.map((row) => row.event_id),
+      [first.event_id, distinct.event_id]
+    );
+    for (const [index, record] of [first, distinct].entries()) {
+      assertPreserved(rows[index], record);
+      assert.equal(rows[index].input_batch_size, 3);
+    }
+  });
+}
+
+test('known-source timezone troubleshooting handles naive and offset-bearing timestamps', async () => {
+  const processors = parse(
+    pageBlocks(
+      'docs/data-transformation/normalize-timestamps/troubleshooting.mdx'
+    )[1].source
+  );
+  const fixtures = JSON.parse(
+    readFileSync('tests/fixtures/pipeline-inputs/known-source-timezones.json', 'utf8')
+  ) as { timestamp: string; expected: string }[];
+  const records = fixtures.map(({ timestamp }, index) => ({
+    event_id: `timezone-${index}`,
+    timestamp,
+    payload: { message: 'preserve this record' },
+  }));
+  const rows = (
+    await execute(stringify({ pipeline: { processors } }), records)
+  )
+    .toString()
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.equal(rows.length, fixtures.length);
+  for (const [index, fixture] of fixtures.entries()) {
+    const row = rows.find((row) => row.event_id === records[index].event_id);
+    assert.deepEqual(row, { ...records[index], timestamp: fixture.expected });
+  }
 });
