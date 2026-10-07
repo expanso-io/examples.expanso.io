@@ -15,6 +15,8 @@ jobs:
   capture:
     name: Capture Unapproved Candidates
     runs-on: ubuntu-latest
+    env:
+      QUALITY_STATIC_SERVER: '1'
     steps:
       - name: Checkout requested ref
         uses: actions/checkout@v4
@@ -30,6 +32,9 @@ jobs:
 
       - name: Install pinned Playwright Chromium
         run: ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Build production assets for visual comparison
+        run: npm run build
 
       - name: Capture candidate baselines
         run: npm run quality:visual:update

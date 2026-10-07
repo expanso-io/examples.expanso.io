@@ -71,11 +71,20 @@ function explorer(page: Page): Locator {
 
 async function selectSecondStage(root: Locator): Promise<void> {
   const compactSelector = root.getByLabel('Stage', { exact: true });
-  if (await compactSelector.isVisible()) {
-    await compactSelector.selectOption({ index: 1 });
-    return;
-  }
-  await root.getByRole('button', { name: /Stage 2 of/ }).click();
+  const secondStage = root.getByRole('button', {
+    name: /Stage 2 of/,
+    includeHidden: true,
+  });
+  // Production HTML can be visible before its controls are hydrated.
+  await expect(async () => {
+    if (await compactSelector.isVisible()) {
+      await compactSelector.selectOption({ index: 1 });
+    } else {
+      await secondStage.click();
+    }
+
+    await expect(secondStage).toHaveAttribute('aria-current', 'step');
+  }).toPass({ timeout: 10_000 });
 }
 
 for (const theme of themes) {
