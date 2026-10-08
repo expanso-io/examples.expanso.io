@@ -25,12 +25,12 @@ In this step, you will use the `fallback` output processor to create a chain of 
 
 The `fallback` output takes a list of outputs and tries each one in order until one succeeds.
 
-```yaml
+```yaml title="Partial snippet: validated fallback chain"
 output:
   fallback:
-    -  # 1. Try this output first
-    -  # 2. If the first one fails, try this one
-    -  # 3. And so on...
+    - http_client: { url: 'http://localhost:8080/primary', verb: POST }
+    - file: { path: '/tmp/fallback.jsonl', codec: lines }
+    - drop: {}
 ```
 
 ## Implementation
@@ -62,7 +62,7 @@ You will now modify the database circuit breaker pipeline from the previous step
                 output:
                   sql_insert:
                     driver: postgres
-                    data_source_name: ${DB_CONNECTION_STRING}
+                    dsn: ${DB_CONNECTION_STRING}
                     table: 'enriched_events'
                     columns:
                       - event_id

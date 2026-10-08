@@ -1,25 +1,22 @@
 pipeline:
   processors:
-    - switch:
-        - check: this.validate_json_schema(schema)
-          processors:
-            - mapping: 'root = this.with("status", "valid")'
-            - metric:
-                type: counter
-                name: schema_validation_success
-                labels:
-                  sensor_id: \${! this.sensor_id }
-        - processors:
-            - mapping: 'root = this.with("status", "invalid")'
-            - metric:
-                type: counter
-                name: schema_validation_failure
-                labels:
-                  sensor_id: \${! this.sensor_id }
-                  error_type: \${! error() }
-
-metrics:
-  prometheus:
-    enabled: true
-    path: /metrics
-  # Export validation metrics every 10s
+    - try:
+        - json_schema:
+            schema: '{"type": "object","required": ["sensor_id", "timestamp", "readings"],"properties": {"sensor_id": {"type": "string"},"timestamp": {"type": "string", "format": "date-time"},"readings": {"type": "object","required": ["temperature_celsius", "humidity_percent"],"properties": {"temperature_celsius": {"type": "number", "minimum": -50, "maximum": 100},"humidity_percent": {"type": "number", "minimum": 0, "maximum": 100}}}}}'
+        - mapping: |
+            root = this
+            root.status = "valid"
+        - metric:
+            type: counter
+            name: schema_validation_success
+            labels:
+              sensor_id: ${! this.sensor_id }
+    - catch:
+        - mapping: |
+            root = this
+            root.status = "invalid"
+        - metric:
+            type: counter
+            name: schema_validation_failure
+            labels:
+              sensor_id: ${! this.sensor_id }

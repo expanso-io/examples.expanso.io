@@ -13,7 +13,7 @@
  */
 
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
 
 import type { Substitution } from './types';
@@ -478,6 +478,7 @@ export function planRun(
     const processors = Array.isArray(config.input.processors)
       ? config.input.processors
       : [];
+
     config.input.processors = [
       {
         mapping: Object.entries(standIns.inputMetadata)
@@ -501,10 +502,14 @@ export function planRun(
   ) {
     const window = config.buffer.system_window;
     window.size = window.size === '5m' ? '1500ms' : '300ms';
+
     if (window.slide !== undefined) window.slide = '300ms';
+
     const scaleWindowMappings = (node: YamlValue): YamlValue => {
       if (Array.isArray(node)) return node.map(scaleWindowMappings);
+
       if (!isYamlObject(node)) return node;
+
       return Object.fromEntries(
         Object.entries(node).map(([key, value]) => [
           key,
@@ -516,6 +521,7 @@ export function planRun(
         ])
       );
     };
+
     if (config.pipeline !== undefined)
       config.pipeline = scaleWindowMappings(config.pipeline);
     substitutions.push({
@@ -524,27 +530,51 @@ export function planRun(
       from: '60-second window arithmetic',
       to: '0.3-second window arithmetic for fixture execution',
     });
-    const first = JSON.parse(
-      readFileSync(fixturePath, 'utf8')
-        .split('\n')
-        .find((line) => line.trim()) ?? '{}'
-    ) as { timestamp?: string };
-    const firstTime = Date.parse(first.timestamp ?? '') / 1000;
+
+    // SAFETY: fixture records are JSON objects whose timestamps are checked
+    // with Date.parse before they influence the generated fixture.
+    const records = readFileSync(fixturePath, 'utf8')
+      .split('\n')
+      .filter((line) => line.trim())
+      .map((line) => JSON.parse(line) as YamlObject);
+
+    const firstTime = Date.parse(String(records[0]?.timestamp ?? '')) / 1000;
+
     if (!Number.isFinite(firstTime))
       throw new Error('window fixture requires a timestamp');
     const anchor = Math.ceil((Date.now() + 1000) / 300) * 0.3 + 0.1;
     const localInput = config.input;
+
     if (!isYamlObject(localInput))
       throw new Error('window fixture input is missing');
-    const processors = Array.isArray(localInput.processors)
-      ? localInput.processors
-      : [];
-    localInput.processors = [
-      ...processors,
-      {
-        mapping: `root = this\nmeta original_window_timestamp = this.timestamp\nroot.timestamp = (${anchor} + (this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano() / 1000000000 - ${firstTime}) * 0.005).ts_format("2006-01-02T15:04:05.999999999Z07:00")`,
-      },
-    ];
+    const localFile = localInput.file;
+
+    if (!isYamlObject(localFile))
+      throw new Error('window fixture input must use the file stand-in');
+
+    const rebased = records.map((record) => {
+      const sourceTime = Date.parse(String(record.timestamp ?? '')) / 1000;
+
+      if (!Number.isFinite(sourceTime))
+        throw new Error('window fixture requires a timestamp on every record');
+
+      return {
+        ...record,
+        timestamp: new Date(
+          (anchor + (sourceTime - firstTime) * 0.005) * 1000
+        ).toISOString(),
+      };
+    });
+
+    const rebasedFixture = `${outputDir}/system-window-input.jsonl`;
+    mkdirSync(outputDir, { recursive: true });
+    writeFileSync(
+      rebasedFixture,
+      `${rebased.map((record) => JSON.stringify(record)).join('\n')}\n`,
+      'utf8'
+    );
+    localFile.paths = [rebasedFixture];
+
     if (config.buffer.system_window.slide !== undefined) {
       config.input = {
         sequence: {
@@ -567,11 +597,12 @@ export function planRun(
         to: 'finite input held open until overlapping windows flush',
       });
     }
+
     substitutions.push({
       role: 'input',
-      at: 'input.processors',
+      at: 'input.file.paths',
       from: 'historical event timestamps',
-      to: 'current timestamps at 1/200 time scale',
+      to: 'fixture copy with current timestamps at 1/200 time scale',
     });
     substitutions.push({
       role: 'resource',
@@ -592,6 +623,7 @@ export function planRun(
 
     if (kind === 'broker' && isYamlObject(next.broker)) {
       const broker = { ...next.broker };
+
       if (
         isYamlObject(broker.batching) &&
         broker.batching.processors !== undefined
@@ -690,13 +722,16 @@ export function planRun(
 
     if (!LOCAL_OUTPUTS.has(kind)) native = false;
     const settings = next[kind];
+
     const batching =
       isYamlObject(settings) && isYamlObject(settings.batching)
         ? settings.batching
         : undefined;
+
     delete next[kind];
     next.file = { path: target, codec: 'lines' };
     const format = standIns.outputFormats?.[leafIndex - 1];
+
     if (format === 'parquet' || format === 'avro' || format === 'gzip') {
       const processors = Array.isArray(next.processors) ? next.processors : [];
       next.processors = [
@@ -723,6 +758,7 @@ export function planRun(
         from: `count=${String(batching.count)}, period=${String(batching.period)}`,
         to: 'count=25, period=1s; batching processors retained',
       });
+
       return {
         broker: {
           pattern: 'fan_out',
@@ -747,13 +783,107 @@ export function planRun(
   };
 }
 
+function declarationSpans(
+  source: string
+): Array<{ name: string; start: number; end: number }> {
+  const lines = source.split('\n');
+  const spans: Array<{ name: string; start: number; end: number }> = [];
+  let offset = 0;
+  for (let index = 0; index < lines.length; index++) {
+    const match = /^(\s*)let (\w+)\s*=/.exec(lines[index]);
+    if (match) {
+      let end = index + 1;
+      while (
+        end < lines.length &&
+        lines[end].trim() &&
+        (lines[end].search(/\S/) > match[1].length ||
+          /^\s*[}\])]/.test(lines[end]))
+      )
+        end++;
+      spans.push({
+        name: match[2],
+        start: offset,
+        end: offset + lines.slice(index, end).join('\n').length,
+      });
+    }
+    offset += lines[index].length + 1;
+  }
+  return spans;
+}
+
+export function replaceMappingDeclarations(
+  source: string,
+  canonical: YamlObject
+): YamlObject | null {
+  const replacements = declarationSpans(source);
+  if (!replacements.length) return null;
+  let consumed = 0;
+  for (const replacement of replacements) {
+    const gap = source.slice(consumed, replacement.start);
+    if (
+      gap
+        .split('\n')
+        .some((line) => line.trim() && !line.trim().startsWith('#'))
+    )
+      return null;
+    consumed = Math.max(consumed, replacement.end);
+  }
+  if (
+    source
+      .slice(consumed)
+      .split('\n')
+      .some((line) => line.trim() && !line.trim().startsWith('#'))
+  )
+    return null;
+  const wrapped = structuredClone(canonical);
+  if (
+    !isYamlObject(wrapped.pipeline) ||
+    !Array.isArray(wrapped.pipeline.processors)
+  )
+    return null;
+  for (const processor of wrapped.pipeline.processors) {
+    if (!isYamlObject(processor) || !isStringValue(processor.mapping)) continue;
+    const mapping = processor.mapping;
+    const declarations = declarationSpans(mapping);
+    if (
+      !replacements.every((replacement) =>
+        declarations.some((entry) => entry.name === replacement.name)
+      )
+    )
+      continue;
+    const edits = replacements
+      .map((replacement) => ({
+        replacement,
+        target: declarations.find((entry) => entry.name === replacement.name)!,
+      }))
+      .sort((a, b) => b.target.start - a.target.start);
+    let replaced = mapping;
+    for (const { replacement, target } of edits) {
+      const original = mapping.slice(target.start, target.end);
+      const indentation = /^\s*/.exec(original)?.[0] ?? '';
+      const fragment = source
+        .slice(replacement.start, replacement.end)
+        .split('\n')
+        .map((line) => indentation + line)
+        .join('\n');
+      replaced =
+        replaced.slice(0, target.start) + fragment + replaced.slice(target.end);
+    }
+    processor.mapping = replaced;
+    return wrapped;
+  }
+  return null;
+}
+
 /**
- * Wrap a fragment in a minimal complete pipeline so the validator can check it.
- * Returns the YAML source to validate, or null when the fragment is not a
- * recognisable pipeline piece.
+ * Validate fragments in canonical context where available, otherwise using a
+ * minimal complete pipeline. Declaration-only Bloblang must replace matching
+ * canonical declarations without leaving non-comment content unconsumed.
+ * Return null when the fragment cannot be wrapped in a supported context.
  */
 export function wrapFragment(
-  document: YamlValue | undefined
+  document: YamlValue | undefined,
+  canonicalConfig?: YamlObject
 ): { source: string; description: string } | null {
   const generateInput = {
     generate: { count: 1, interval: '1s', mapping: 'root = {}' },
@@ -761,34 +891,152 @@ export function wrapFragment(
 
   const dropOutput = { drop: {} };
 
+  const mergeComponentContext = (
+    existing: YamlValue | undefined,
+    partial: YamlValue
+  ): YamlValue => {
+    if (!isYamlObject(existing) || !isYamlObject(partial)) return partial;
+    const keys = Object.keys(partial);
+
+    if (keys.every((key) => ['batching', 'label', 'processors'].includes(key)))
+      return { ...existing, ...partial };
+
+    if (keys.length !== 1 || !Object.hasOwn(existing, keys[0])) return partial;
+    const key = keys[0];
+
+    if (!isYamlObject(existing[key]) || !isYamlObject(partial[key]))
+      return partial;
+
+    return { ...existing, [key]: { ...existing[key], ...partial[key] } };
+  };
+
   if (document === undefined) return null;
+
+  if (isStringValue(document) && document.trim()) {
+    if (
+      /^\s*let /m.test(document) &&
+      !/^\s*(?:root|meta)[ .=(]/m.test(document)
+    ) {
+      const contextual = canonicalConfig
+        ? replaceMappingDeclarations(document, canonicalConfig)
+        : null;
+      return contextual
+        ? {
+            source: stringifyYaml(contextual),
+            description:
+              'Bloblang declarations replace variables in their canonical mapping',
+          }
+        : null;
+    }
+    const wrapped: YamlObject = canonicalConfig
+      ? structuredClone(canonicalConfig)
+      : { input: generateInput, output: dropOutput };
+
+    wrapped.pipeline = { processors: [{ mapping: document }] };
+
+    return {
+      description: canonicalConfig
+        ? 'Bloblang mapping wrapped in its canonical pipeline context'
+        : 'Bloblang mapping wrapped in generate/drop pipeline',
+      source: stringifyYaml(wrapped),
+    };
+  }
 
   if (Array.isArray(document)) {
     if (document.length === 0) return null;
 
+    if (
+      document.every(
+        (entry) =>
+          isYamlObject(entry) &&
+          (entry.output !== undefined ||
+            [
+              'aws_s3',
+              'broker',
+              'fallback',
+              'file',
+              'http_client',
+              'kafka',
+              'opensearch',
+            ].some((key) => entry[key] !== undefined))
+      )
+    ) {
+      const wrapped: YamlObject = canonicalConfig
+        ? structuredClone(canonicalConfig)
+        : { input: generateInput, output: dropOutput };
+
+      wrapped.output = document.every(
+        (entry) => isYamlObject(entry) && entry.output !== undefined
+      )
+        ? { switch: { cases: document } }
+        : { broker: { pattern: 'fan_out', outputs: document } };
+
+      return {
+        description: 'output fragments wrapped in a complete pipeline',
+        source: stringifyYaml(wrapped),
+      };
+    }
+
+    const wrapped: YamlObject = canonicalConfig
+      ? structuredClone(canonicalConfig)
+      : { input: generateInput, output: dropOutput };
+
+    wrapped.pipeline = { processors: document };
+
     return {
-      description: 'processor list wrapped in generate/drop pipeline',
-      source: stringifyYaml({
-        input: generateInput,
-        pipeline: { processors: document },
-        output: dropOutput,
-      }),
+      description: canonicalConfig
+        ? 'processor list wrapped in its canonical pipeline context'
+        : 'processor list wrapped in generate/drop pipeline',
+      source: stringifyYaml(wrapped),
     };
   }
 
   if (!isYamlObject(document)) return null;
   const body = isYamlObject(document.config) ? document.config : document;
-  const wrapped: YamlObject = {};
+
+  if (
+    Object.keys(body).length > 0 &&
+    Object.keys(body).every((key) => key === 'auth' || key === 'cors')
+  ) {
+    return {
+      description:
+        'HTTP input fields wrapped in a minimal http_server pipeline',
+      source: stringifyYaml({
+        input: {
+          http_server: { address: '127.0.0.1:8080', path: '/post', ...body },
+        },
+        output: dropOutput,
+      }),
+    };
+  }
+
+  const wrapped: YamlObject = canonicalConfig
+    ? structuredClone(canonicalConfig)
+    : {};
+
   const parts: string[] = [];
 
-  for (const key of ['cache_resources', 'rate_limit_resources']) {
-    if (body[key] !== undefined) wrapped[key] = body[key];
+  for (const key of [
+    'buffer',
+    'cache_resources',
+    'rate_limit_resources',
+    'processor_resources',
+  ]) {
+    if (body[key] !== undefined) {
+      wrapped[key] = body[key];
+      parts.push(key);
+    }
+  }
+
+  if (body.http !== undefined) {
+    wrapped.http = body.http;
+    parts.push('http');
   }
 
   if (body.input !== undefined) {
-    wrapped.input = body.input;
+    wrapped.input = mergeComponentContext(wrapped.input, body.input);
     parts.push('input');
-  } else {
+  } else if (!canonicalConfig) {
     wrapped.input = generateInput;
   }
 
@@ -801,10 +1049,21 @@ export function wrapFragment(
   }
 
   if (body.output !== undefined) {
-    wrapped.output = body.output;
+    wrapped.output = mergeComponentContext(wrapped.output, body.output);
     parts.push('output');
-  } else {
+  } else if (Array.isArray(body.outputs)) {
+    wrapped.output = {
+      broker: { pattern: 'fan_out', outputs: body.outputs },
+    };
+    parts.push('outputs');
+  } else if (!canonicalConfig) {
     wrapped.output = dropOutput;
+  }
+
+  if (parts.length > 0) {
+    const consumed = new Set([...parts, 'label', 'name', 'schedule', 'type']);
+
+    if (Object.keys(body).some((key) => !consumed.has(key))) return null;
   }
 
   if (parts.length === 0) {
@@ -812,12 +1071,109 @@ export function wrapFragment(
 
     if (keys.length !== 1) return null;
 
+    const key = keys[0];
+
+    const base = canonicalConfig
+      ? structuredClone(canonicalConfig)
+      : { input: generateInput, output: dropOutput };
+
+    if (key === 'batching' && isYamlObject(body.batching)) {
+      base.output = {
+        broker: {
+          pattern: 'fan_out',
+          batching: body.batching,
+          outputs: [{ drop: {} }],
+        },
+      };
+
+      return {
+        description: 'output batching fields wrapped in a broker output',
+        source: stringifyYaml(base),
+      };
+    }
+
+    if (key === 'outputs' && Array.isArray(body.outputs)) {
+      base.output = {
+        broker: { pattern: 'fan_out', outputs: body.outputs },
+      };
+
+      return {
+        description: 'output list wrapped in a broker output',
+        source: stringifyYaml(base),
+      };
+    }
+
+    if (key === 'sequence') {
+      base.input = body;
+
+      return {
+        description: 'input sequence wrapped in a complete pipeline',
+        source: stringifyYaml(base),
+      };
+    }
+
+    if (
+      [
+        'broker',
+        'fallback',
+        'gcp_cloud_storage',
+        'http_client',
+        'kafka',
+      ].includes(key)
+    ) {
+      const outputBody = structuredClone(body);
+
+      if (key === 'http_client' && isYamlObject(outputBody.http_client)) {
+        outputBody.http_client = {
+          url: 'http://127.0.0.1:1',
+          ...outputBody.http_client,
+        };
+      }
+
+      if (
+        key === 'gcp_cloud_storage' &&
+        isYamlObject(outputBody.gcp_cloud_storage)
+      ) {
+        outputBody.gcp_cloud_storage = {
+          bucket: 'validation-bucket',
+          path: 'validation-object',
+          ...outputBody.gcp_cloud_storage,
+        };
+      }
+
+      base.output = outputBody;
+
+      return {
+        description: `output component '${key}' wrapped in a complete pipeline`,
+        source: stringifyYaml(base),
+      };
+    }
+
+    if (key === 'sql_select' && isYamlObject(body.sql_select)) {
+      const processor = {
+        sql_select: {
+          driver: 'sqlite',
+          dsn: ':memory:',
+          table: 'validation_table',
+          columns: ['value'],
+          ...body.sql_select,
+        },
+      };
+
+      return {
+        description: 'SQL query fields wrapped in a complete processor context',
+        source: stringifyYaml({
+          ...base,
+          pipeline: { processors: [processor] },
+        }),
+      };
+    }
+
     return {
-      description: `single component '${keys[0]}' wrapped as a processor`,
+      description: `single component '${key}' wrapped as a processor`,
       source: stringifyYaml({
-        input: generateInput,
+        ...base,
         pipeline: { processors: [body] },
-        output: dropOutput,
       }),
     };
   }

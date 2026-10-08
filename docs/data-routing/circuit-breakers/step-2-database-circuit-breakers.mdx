@@ -60,35 +60,35 @@ You will now add a `try`/`catch` block to handle the database failure gracefully
 
 2.  **Modify the Pipeline:** Open `database-circuit-breaker.yaml` and replace the `pipeline` section with the one below. This wraps the database call in a `try` block and adds a `catch` block for error handling.
 
-        ```yaml title="Insert this into database-circuit-breaker.yaml"
-
+    ```yaml title="Insert this into database-circuit-breaker.yaml"
     pipeline:
-    processors: - try: # This processor will attempt to run. If it fails, # the 'catch' block is executed. - sql_select:
-    driver: postgres
-    data_source_name: $\{DB_CONNECTION_STRING\}
-    query: |
-    SELECT user_name, user_tier FROM users WHERE user_id = $1
-    args_mapping: |
-    root = [ this.user_id ] # These settings help fail faster
-    timeout: 3s
-    max_open_connections: 5
-
-            # This mapping runs after a successful SQL query.
+      processors:
+        - try:
+            - branch:
+                processors:
+                  - sql_select:
+                      driver: postgres
+                      dsn: ${DB_CONNECTION_STRING}
+                      table: users
+                      columns: [user_name, user_tier]
+                      where: user_id = $1
+                      args_mapping: root = [this.user_id]
+                result_map: |
+                  root.user_name = this.index(0).user_name
+                  root.user_tier = this.index(0).user_tier
             - mapping: |
                 root = this
                 root.user_profile.name = this.user_name
                 root.user_profile.tier = this.user_tier
                 root.db_enriched = true
                 root.db_status = "success"
-
-          catch:
-            # This block runs when the 'sql_select' processor fails.
+        - catch:
             - mapping: |
                 root = this
                 root.db_enriched = false
                 root.db_status = "failed"
                 root.fallback_reason = "database_circuit_breaker_open"
-        ```
+    ```
 
 ## 4. Deploy and Test Again
 

@@ -1,4 +1,9 @@
+const validatePipeline = 'npm run validate-staged-pipelines --';
+
 module.exports = {
   '*.{ts,tsx}': () => 'npm run typecheck -- --noEmit',
-  'examples/**/*-complete.yaml': 'npx tsx scripts/validate-complete-yaml.ts',
+  'examples/**/*.{yaml,yml}': validatePipeline,
+  'static/files/**/*.{yaml,yml}': validatePipeline,
+  'static/pipelines/**/*.{yaml,yml}': validatePipeline,
+  'docs/**/*.{yaml,yml,mdx}': validatePipeline,
 };

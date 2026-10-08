@@ -65,14 +65,11 @@ We drop logs that fall below a certain priority, or filter out specific noisy pa
     root = this
 
     # Drop DEBUG logs unless explicitly enabled
-    if root.level == "DEBUG" && env("DEBUG_LOGGING_ENABLED") != "true" {
-       deleted()
-    }
-
-    # Drop Health Checks (often very noisy)
-    if root.service == "health-check" && root.level == "INFO" {
-       deleted()
-    }
+    root = if this.level == "DEBUG" && env("DEBUG_LOGGING_ENABLED") != "true" {
+      deleted()
+    } else if this.service == "health-check" && this.level == "INFO" {
+      deleted()
+    } else { this }
 ```
 
 ## Complete Step 4 Configuration

@@ -1,10 +1,16 @@
-# Stage 3: Identity Field Encryption
+# Stage 3: Personal Data Encryption (GDPR/CCPA Compliance)
 
 pipeline:
   processors:
     # Email encryption with domain preservation
     - mapping: |
         root = this
+        let key = env("PII_ENCRYPTION_KEY").or(throw("PII_ENCRYPTION_KEY is not set"))
+        let email_iv = uuid_v4().hash("sha256").slice(0, 12)
+        let phone_iv = uuid_v4().hash("sha256").slice(0, 12)
+        let ssn_iv = uuid_v4().hash("sha256").slice(0, 12)
+        let first_iv = uuid_v4().hash("sha256").slice(0, 12)
+        let last_iv = uuid_v4().hash("sha256").slice(0, 12)
 
         # Extract email domain for B2B analytics
         root.customer.email_domain = this.customer.email.split("@").index(1)
@@ -15,21 +21,26 @@ pipeline:
 
         # Phone encryption with area code preservation
         let phone_clean = this.customer.phone.re_replace_all("[^0-9+]", "")
-        root.customer.phone_country_code = if phone_clean.has_prefix("+1") { "+1" } else { "international" }
-        root.customer.phone_area_code = if phone_clean.length() == 12 { phone_clean.slice(2, 5) }
+        root.customer.phone_country_code = if $phone_clean.has_prefix("+1") { "+1" } else { "international" }
+        root.customer.phone_area_code = if $phone_clean.length() == 12 { $phone_clean.slice(2, 5) }
 
         # SSN encryption with last 4 preservation
         let ssn_clean = this.customer.ssn.re_replace_all("[^0-9]", "")
-        root.customer.ssn_last_four = ssn_clean.slice(-4)
+        root.customer.ssn_last_four = $ssn_clean.slice(-4)
 
         # Encrypt all PII fields
-        root.customer.email_encrypted = this.customer.email.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
-        root.customer.phone_encrypted = this.customer.phone.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
-        root.customer.ssn_encrypted = this.customer.ssn.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
-        root.customer.first_name_encrypted = this.customer.first_name.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
-        root.customer.last_name_encrypted = this.customer.last_name.encrypt_aes("gcm", env("PII_ENCRYPTION_KEY"))
+        root.customer.email_nonce = $email_iv.encode("base64")
+        root.customer.email_encrypted = this.customer.email.string().encrypt_aes("gcm", $key, $email_iv).encode("base64")
+        root.customer.phone_nonce = $phone_iv.encode("base64")
+        root.customer.phone_encrypted = this.customer.phone.string().encrypt_aes("gcm", $key, $phone_iv).encode("base64")
+        root.customer.ssn_nonce = $ssn_iv.encode("base64")
+        root.customer.ssn_encrypted = this.customer.ssn.string().encrypt_aes("gcm", $key, $ssn_iv).encode("base64")
+        root.customer.first_name_nonce = $first_iv.encode("base64")
+        root.customer.first_name_encrypted = this.customer.first_name.string().encrypt_aes("gcm", $key, $first_iv).encode("base64")
+        root.customer.last_name_nonce = $last_iv.encode("base64")
+        root.customer.last_name_encrypted = this.customer.last_name.string().encrypt_aes("gcm", $key, $last_iv).encode("base64")
 
         # Remove plaintext PII
-        root.customer = this.customer.without("email", "phone", "ssn", "first_name", "last_name")
+        root.customer = root.customer.without("email", "phone", "ssn", "first_name", "last_name")
     - catch:
         - mapping: root = deleted()

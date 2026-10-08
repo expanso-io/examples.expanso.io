@@ -3,21 +3,59 @@ config:
     http_server:
       address: '0.0.0.0:8080'
       path: /sensors/readings
+    processors:
+      - mapping: root = content().parse_json().catch({})
+      - switch:
+          - check: >-
+              !this.exists("sensor_id") || this.sensor_id.type() != "string" || this.sensor_id == "" ||
+              !this.exists("timestamp") || this.timestamp.type() != "string" ||
+              !this.exists("temperature") || this.temperature.type() != "number"
+            processors:
+              - mapping: |
+                  meta validation_error = if !this.exists("sensor_id") {
+                    "missing required field: sensor_id"
+                  } else if this.sensor_id.type() != "string" || this.sensor_id == "" {
+                    "sensor_id must be a non-empty string"
+                  } else if !this.exists("timestamp") || this.timestamp.type() != "string" {
+                    "timestamp must be a string"
+                  } else {
+                    "temperature must be a number"
+                  }
+                  root = this
+              - log:
+                  level: WARN
+                  message: 'dropping invalid sensor reading before window: ${! meta("validation_error") }'
+              - metric:
+                  type: counter
+                  name: aggregate_invalid_sensor_readings_dropped
+      - mapping: |
+          root = if !this.exists("sensor_id") || this.sensor_id.type() != "string" ||
+            (this.sensor_id | "") == "" || !this.exists("timestamp") ||
+            this.timestamp.type() != "string" || !this.exists("temperature") ||
+            this.temperature.type() != "number" {
+              deleted()
+            } else {
+              this.merge({"group_key": this.sensor_id})
+            }
 
   pipeline:
     processors:
-      - mapping: root = content().parse_json()
+      - mapping: root = if this.group_key.or("") == "" { deleted() } else { this }
       - group_by_value:
-          value: ${! this.sensor_id }
+          value: ${! this.sensor_id.or("") }
       - mapping: |-
-          let values = json("temperature").from_all()
+          let events = json().from_all().filter(event -> event.sensor_id.type() == "string" && event.sensor_id != "" && event.group_key != "")
+          let first = $events.index(0)
+          let values = $events.map_each(event -> event.temperature)
           let end = meta("window_end_timestamp").ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano() / 1000000000
-          root = if batch_index() == 0 {
-            {"sensor_id": this.sensor_id,
+          root = if $events.length() == 0 {
+            deleted()
+          } else if batch_index() == 0 {
+            {"sensor_id": $first.sensor_id,
              "window_start": ($end - 60).ts_format("2006-01-02T15:04:05Z07:00"),
              "window_end": meta("window_end_timestamp"),
              "time_bucket": ($end - 60).ts_format("2006-01-02T15:04:05Z07:00"),
-             "group_key": this.sensor_id + "|" + ($end - 60).ts_format("2006-01-02T15:04:05Z07:00"),
+             "group_key": $first.sensor_id + "|" + ($end - 60).ts_format("2006-01-02T15:04:05Z07:00"),
              "event_count": $values.length(),
              "temperature_avg": $values.sum() / $values.length(),
              "temperature_min": $values.min(), "temperature_max": $values.max()}

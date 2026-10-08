@@ -72,26 +72,25 @@ This example uses a three-processor sequence; preserve its order when adapting t
 
 2.  **Add the Splitting Logic:** Open `array-splitter.yaml` and replace the entire `pipeline` section with the three-processor block below.
 
-        ```yaml title="Insert this into array-splitter.yaml"
-
+    ```yaml title="Insert this into array-splitter.yaml"
     pipeline:
-    processors: # 1. STORE parent context into metadata - mapping: |
-    meta device_id = this.device_id
-    meta location = this.location
-    root = this
-
-        # 2. SPLIT the array into individual messages
+      processors:
+        # 1. Store parent context in metadata.
+        - mapping: |
+            meta device_id = this.device_id
+            meta location = this.location
+            root = this.readings
+        # 2. Split the array into individual messages.
         - unarchive:
             format: json_array
-            field: readings
-
-        # 3. RESTORE the context from metadata into each new message
+        # 3. Restore context into each new message.
         - mapping: |
             root = this
             root.device_id = meta("device_id")
             root.location = meta("location")
-        ```
-        This is the processor change in this step. The `input` and `output` remain the same.
+    ```
+
+    This is the processor change in this step. The `input` and `output` remain the same.
 
 3.  **Deploy and Test:**
 

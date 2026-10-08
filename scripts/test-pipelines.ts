@@ -16,7 +16,6 @@ import { PUBLIC_CATALOG } from '../src/catalog/registry';
 import type { ExampleRecord } from '../src/catalog/schema';
 import {
   LocalEdgeAgent,
-  PINNED_EDGE_VERSION,
   resolveEdgeBinary,
   validateFile,
 } from './validation/edge';
@@ -35,7 +34,9 @@ import {
 
 const repositoryRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
-const executor = `expanso-edge ${PINNED_EDGE_VERSION}`;
+const edge = resolveEdgeBinary(repositoryRoot, { log: () => {} });
+
+const executor = `expanso-edge ${edge.version}`;
 
 const canonicalPipelinePath = 'examples/data-security/remove-pii-complete.yaml';
 
@@ -87,7 +88,7 @@ interface PipelineExecutionSummary {
 interface FixtureEnvironment {
   schemaVersion: '1.0.0';
   executor: 'expanso-edge-local';
-  version: typeof PINNED_EDGE_VERSION;
+  version: string;
   pipelineSha256: typeof canonicalPipelineSha256;
   inputSha256: typeof fixtureSha256;
   expectedOutputSha256: typeof expectedOutputSha256;
@@ -223,13 +224,14 @@ function parseFixtureEnvironment(bytes: Buffer): FixtureEnvironment {
   if (
     parsed.schemaVersion !== '1.0.0' ||
     parsed.executor !== 'expanso-edge-local' ||
-    parsed.version !== PINNED_EDGE_VERSION ||
+    !isStringValue(parsed.version) ||
+    !/^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(parsed.version) ||
     parsed.pipelineSha256 !== canonicalPipelineSha256 ||
     parsed.inputSha256 !== fixtureSha256 ||
     parsed.expectedOutputSha256 !== expectedOutputSha256
   ) {
     throw new Error(
-      'fixture environment does not match the pinned executor contract'
+      'fixture environment does not match the recorded executor contract'
     );
   }
 
@@ -263,7 +265,7 @@ function parseFixtureEnvironment(bytes: Buffer): FixtureEnvironment {
   return {
     schemaVersion: '1.0.0',
     executor: 'expanso-edge-local',
-    version: PINNED_EDGE_VERSION,
+    version: parsed.version,
     pipelineSha256: canonicalPipelineSha256,
     inputSha256: fixtureSha256,
     expectedOutputSha256,
@@ -376,11 +378,6 @@ async function executeRemovePii(
 
     const fixture = parseFixtureEnvironment(environmentBytes);
 
-    const edge = resolveEdgeBinary(repositoryRoot, {
-      install: true,
-      log: () => {},
-    });
-
     const validation = validateFile(
       edge,
       repositoryRoot,
@@ -411,7 +408,7 @@ async function executeRemovePii(
 
     mkdirSync(outputDirectory);
 
-    // SAFETY: the fixture digest is pinned above and JSON.parse accepts the
+    // SAFETY: the fixture digest is fixed above and JSON.parse accepts the
     // checked-in JSON object before it is serialized as one JSONL record.
     const inputRecord = JSON.parse(inputBytes.toString('utf8')) as YamlValue;
 
@@ -490,7 +487,7 @@ async function executeRemovePii(
     }
 
     result.status = 'PASS';
-    result.reason = `Pinned expanso-edge ${PINNED_EDGE_VERSION} validated and executed the canonical pipeline and produced the exact expected JSONL bytes.`;
+    result.reason = `expanso-edge ${edge.version} validated and executed the canonical pipeline and produced the exact expected JSONL bytes.`;
   } catch (error) {
     result.status = 'FAIL';
     result.reason = error instanceof Error ? error.message : String(error);
@@ -517,7 +514,7 @@ async function main(): Promise<void> {
       const unsupported = baseRecord(record);
 
       unsupported.reason =
-        'No pinned deterministic executor is registered for this offline-runnable record.';
+        'No deterministic executor is registered for this offline-runnable record.';
       records.push(unsupported);
     } else {
       records.push(await executeRemovePii(record));
@@ -547,7 +544,7 @@ async function main(): Promise<void> {
     assertedOutputs,
     status: passed ? 'PASS' : 'FAIL',
     reason: passed
-      ? 'Exactly one catalog record was executed by pinned expanso-edge and matched its exact output oracle.'
+      ? `Exactly one catalog record was executed by expanso-edge ${edge.version} and matched its exact output oracle.`
       : claimed.length === 0
         ? 'No catalog record has a verified offline-runnable path; the required fixture gate cannot pass vacuously.'
         : 'The gate requires exactly one registered Remove PII execution with an exact asserted output.',

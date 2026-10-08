@@ -57,27 +57,25 @@ The pattern is exactly the same as before, you just need to store more context f
 
 2.  **Add the Splitting Logic:** Open `order-splitter.yaml` and replace the entire `pipeline` section with the three-processor block below.
 
-        ```yaml title="Insert this into order-splitter.yaml"
-
+    ```yaml title="Insert this into order-splitter.yaml"
     pipeline:
-    processors: # 1. STORE context from the nested structure - mapping: |
-    meta order_id = this.order_id
-    meta customer_id = this.customer.customer_id
-    meta customer_email = this.customer.email
-    root = this
-
-        # 2. SPLIT the 'items' array
+      processors:
+        # 1. Store context from the nested structure.
+        - mapping: |
+            meta order_id = this.order_id
+            meta customer_id = this.customer.customer_id
+            meta customer_email = this.customer.email
+            root = this.items
+        # 2. Split the items array.
         - unarchive:
             format: json_array
-            field: items
-
-        # 3. RESTORE the context into each new line item message
+        # 3. Restore context into each line item.
         - mapping: |
             root = this
             root.order_id = meta("order_id")
             root.customer_id = meta("customer_id")
             root.customer_email = meta("customer_email")
-        ```
+    ```
 
 3.  **Deploy and Test:**
 

@@ -2,7 +2,7 @@
 title: 'Step 4: Auto-Detect and Route Formats'
 sidebar_label: 'Step 4: Auto-Detect Formats'
 sidebar_position: 6
-description: Automatically detect and route data to different transformation logic based on its format.
+description: Prepare JSON fields for a Protobuf adapter and review the remaining format-routing requirements.
 keywords: [format-detection, content-type, routing, multi-format]
 contentArchetype: step
 executionStatus: architecture-only
@@ -19,96 +19,41 @@ claimsPolicyDigest: sha256:8d1c6ede95f42b16f4068c7997e7d46d38736d2f93bbf193543b2
 
 In a real-world system, you might need a single endpoint that can handle multiple formats. For example, perhaps you want to convert incoming JSON to Protobuf, but also be able to accept Protobuf and convert it back to JSON.
 
-This step teaches you how to build a unified pipeline that detects the incoming format and routes it to the correct conversion logic.
+This step provides the JSON preparation mapping for that design. Encoding,
+decoding, and format routing require an adapter supported by the target Edge release.
 
 ## The Goal
 
-You will build a single pipeline that can:
-
-- Accept a JSON message and convert it to Protobuf.
-- Accept a Protobuf message and convert it back to JSON.
+Prepare the sensor identifier, temperature, and Unix-millisecond timestamp that
+the adapter will encode. The snippet below covers only that preparation step.
 
 ## The "Detect by Header -> Route" Pattern
 
-1.  **Detect by Header:** Instead of looking at the content, we can use the `Content-Type` HTTP header to reliably know the format of the incoming data. This is available in a `mapping` processor via `meta("http_headers")`.
-2.  **Route:** A `switch` processor then directs the message to the appropriate conversion logic based on the detected content type.
+For a complete pipeline, define how the HTTP input exposes `Content-Type`, then
+use a `switch` processor to select the adapter's encode or decode path. The
+preparation fragment below does not implement header detection or routing.
 
 ## Implementation
 
-1.  **Create the Unified Pipeline:** Copy the following configuration into a file named `unified-transformer.yaml`.
+1.  **Prepare the JSON branch:** The current Edge runtime does not provide the
+    Protobuf processors assumed by the original example. This partial snippet
+    prepares the canonical object that a supported adapter must encode.
 
-    ```yaml title="unified-transformer.yaml"
-    name: unified-format-transformer
-    description: A pipeline that auto-detects and converts between JSON and Protobuf.
-
-    config:
-      input:
-        http_server:
-          address: 0.0.0.0:8080
-          path: /transform
-
-      pipeline:
-        processors:
-          # 1. DETECT: Check the Content-Type header
-          - mapping: |
-              root = this
-              meta format = if meta("http_headers.Content-Type") == "application/x-protobuf" {
-                "protobuf"
-              } else {
-                "json"
-              }
-
-          # 2. ROUTE: Switch to the correct conversion logic
-          - switch:
-              # CASE 1: Input is JSON, convert TO Protobuf
-              - check: meta("format") == "json"
-                processors:
-                  # Prepare the JSON object to match the schema
-                  - mapping: |
-                      root = {
-                        "sensor_id": this.sensor_id,
-                        "temperature": this.temperature,
-                        "timestamp_unix_ms": this.timestamp.parse_timestamp().unix_milli()
-                      }
-                  # Convert to Protobuf
-                  - to_protobuf:
-                      proto_path: 'file://./sensor.proto'
-                      message: 'SensorReading'
-
-              # CASE 2: Input is Protobuf, convert TO JSON
-              - check: meta("format") == "protobuf"
-                processors:
-                  # Convert from Protobuf back to a structured object
-                  - from_protobuf:
-                      proto_path: 'file://./sensor.proto'
-                      message: 'SensorReading'
-                  # Convert the timestamp back to a human-readable string
-                  - mapping: |
-                      root = this
-                      root.timestamp = this.timestamp_unix_ms.ts_unix_milli().ts_format_iso8601()
-
-      output:
-        # The output processor can dynamically set the Content-Type header
-        # of the HTTP response based on the final format.
-        # (This is an advanced feature covered in other guides).
-        stdout:
-          codec: lines
+    ```yaml title="Partial snippet: prepare JSON for a Protobuf adapter"
+    - mapping: |
+        root = {
+          "sensor_id": this.sensor_id,
+          "temperature": this.temperature,
+          "timestamp_unix_ms": this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_milli()
+        }
     ```
 
-2.  **Deploy and Test:**
-
-    ```bash
-    # --- Test 1: Send JSON, expect Protobuf back ---
-    curl -X POST http://localhost:8080/transform \
-      -H "Content-Type: application/json" \
-      -d '{"sensor_id": "sensor-1", "temperature": 25.5, "timestamp": "2025-10-20T18:23:45Z"}'
-
-    # --- Test 2: Send Protobuf, expect JSON back ---
-    # (This requires sending the binary output from the first command)
-    ```
+2.  **Add and test the adapter:** Select an adapter that is actually supported
+    in the target Edge release, then test both encode and decode paths with a
+    checked-in schema and fixture bytes.
 
 ## Verification
 
-The first `curl` command will output unreadable binary text, confirming the successful conversion to Protobuf. The (conceptual) second test would show that the binary data can be successfully converted back to the original JSON structure.
-
-You have now built a flexible, multi-format transformation pipeline.
+The snippet validates the preparation mapping only. Binary output, schema
+compatibility, and round-trip fidelity remain unproven until the selected
+adapter is run with fixture bytes.

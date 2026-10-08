@@ -106,6 +106,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "01-original-log-data.yaml",
     yamlCode:
       'input:\n  generate:\n    interval: 2s\n    mapping: |\n      root.id = uuid_v4()\n      root.timestamp = now()\n      root.level = "INFO"\n      root.service = "demo-service"\n      root.message = "Demo log message from edge"\n      root.user_id = "user_123"\n      root.request_id = uuid_v4()\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:d3771400d8f05e2dde64ad32f3410e261b18d536393011e6abb2c646373ed599",
   },
@@ -231,6 +232,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "02-add-lineage-metadata.yaml",
     yamlCode:
       'pipeline:\n  processors:\n    - mapping: |\n        root = this\n        root.lineage_node_id = env("NODE_ID").or("edge-node-demo")\n        root.lineage_pipeline = "log-enrichment-s3-demo"\n        root.lineage_timestamp = now()\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:b380353804ffe1b57824fb220ddd33851188702e6ac1bb4fa97d90d069842585",
   },
@@ -385,6 +387,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "03-restructure-to-event-metadata.yaml",
     yamlCode:
       'pipeline:\n  processors:\n    - mapping: |\n        root.event = {\n          "id": this.id,\n          "timestamp": this.timestamp,\n          "level": this.level,\n          "service": this.service,\n          "message": this.message,\n          "user_id": this.user_id,\n          "request_id": this.request_id\n        }\n        root.metadata = {\n          "node_id": this.lineage_node_id,\n          "pipeline": this.lineage_pipeline,\n          "processed_at": this.lineage_timestamp\n        }\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:27323e78550b70dff559b848053ce4b3a01acca09b5f6abc744377b763e2d2af",
   },
@@ -473,6 +476,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "04-configure-batching.yaml",
     yamlCode:
       "output:\n  aws_s3:\n    bucket: expanso-demo-logs\n    path: logs/demo_${!timestamp_unix()}.jsonl\n    batching:\n      count: 10\n      period: 10s\n    credentials:\n      profile: expanso-demo\n",
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:2449454a97e16263c2700f5fdeeec56c2c3b19a264c616cd7cb182972aa7af28",
   },
@@ -501,9 +505,10 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "05-configured-s3-object.yaml",
     yamlCode:
-      'output:\n  broker:\n    pattern: fan_out\n    outputs:\n      - aws_s3:\n          bucket: ${S3_BUCKET_NAME}\n          path: logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/logs_${!timestamp_unix()}.jsonl.gz\n          batching:\n            count: ${BATCH_COUNT:-200}\n            period: ${BATCH_PERIOD:-2m}\n            byte_size: ${BATCH_SIZE:-5242880}\n            processors:\n              - compress:\n                  algorithm: gzip\n                  level: 6\n          content_type: application/x-ndjson\n          content_encoding: gzip\n          storage_class: ${S3_STORAGE_CLASS:-STANDARD_IA}\n          credentials:\n            profile: ${AWS_PROFILE}\n          region: ${AWS_REGION}\n',
+      'output:\n  broker:\n    pattern: fan_out\n    outputs:\n      - aws_s3:\n          bucket: ${S3_BUCKET_NAME}\n          path: logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/logs_${!timestamp_unix()}.jsonl.gz\n          batching:\n            count: 200\n            period: ${BATCH_PERIOD:-2m}\n            byte_size: 5242880\n            processors:\n              - compress:\n                  algorithm: gzip\n                  level: 6\n          content_type: application/x-ndjson\n          content_encoding: gzip\n          storage_class: ${S3_STORAGE_CLASS:-STANDARD_IA}\n          credentials:\n            profile: ${AWS_PROFILE}\n          region: ${AWS_REGION}\n',
+    pipelineCodeKind: "fragment",
     configSha256:
-      "sha256:fba9fe3706f078eb3cc2b1b76f179a08a7232ea68c970e677fc57a0d3473a1a4",
+      "sha256:6b42514483d9c0029c57e5490700273f474ad0338bbd1d009b291bf5daa1021b",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 
@@ -526,6 +531,9 @@ export const GENERATED_EXPLORER_STAGE_FAMILY = {
     fullYamlFilename: "enrich-export-complete.yaml",
     fullYaml:
       'name: enrich-export-complete\ntype: pipeline\ndescription: Complete example pipeline for enriching logs with metadata and exporting to Amazon S3.\nnamespace: production\nlabels:\n  category: log-processing\n  pattern: enrichment-export\n\nconfig:\n  input:\n    generate:\n      interval: ${GENERATE_INTERVAL:1s}\n      count: 0\n      mapping: |\n        root.id = uuid_v4()\n        root.timestamp = now()\n\n        let level_random = random_int() % 100\n        root.level = if $level_random < 70 {\n          "INFO"\n        } else if $level_random < 90 {\n          "WARN"\n        } else {\n          "ERROR"\n        }\n\n        let services = [\n          {"name": "api-gateway", "weight": 30},\n          {"name": "auth-service", "weight": 20},\n          {"name": "user-service", "weight": 15},\n          {"name": "payment-service", "weight": 15},\n          {"name": "notification-service", "weight": 10},\n          {"name": "analytics-service", "weight": 10}\n        ]\n        root.service = $services.index(random_int() % 6).name\n\n        root.user_id = "user_" + (random_int() % 10000).string()\n        root.session_id = "session_" + (random_int() % 1000).string()\n        root.request_id = uuid_v4()\n        root.trace_id = uuid_v4()\n\n        root.duration_ms = random_int() % 5000 + 50\n        root.status_code = match {\n          root.level == "INFO" => [200, 201, 202, 204].index(random_int() % 4)\n          root.level == "WARN" => [400, 401, 403, 404, 429].index(random_int() % 5)\n          root.level == "ERROR" => [500, 502, 503, 504].index(random_int() % 4)\n          _ => 200\n        }\n\n        root.message = match {\n          root.service == "api-gateway" => "Request processed: " + root.status_code.string() + " in " + root.duration_ms.string() + "ms"\n          root.service == "auth-service" => if root.level == "ERROR" { "Authentication failed" } else { "User authenticated successfully" }\n          root.service == "payment-service" => if root.level == "ERROR" { "Payment processing failed" } else { "Payment processed" }\n          _ => "Service operation completed with status " + root.status_code.string()\n        }\n\n  pipeline:\n    processors:\n      # Step 1: Add lineage metadata\n      - mapping: |\n          root = this\n          let processing_start = now()\n\n          root.lineage = {\n            "node_id": env("NODE_ID").or("edge-node-" + uuid_v4().slice(0, 8)),\n            "node_region": env("AWS_REGION").or("us-east-1"),\n            "pipeline_name": "log-enrichment-s3-production",\n            "pipeline_version": env("PIPELINE_VERSION").or("5.0.0"),\n            "processed_at": $processing_start,\n            "environment": env("ENVIRONMENT").or("production")\n          }\n\n      # Step 2: Restructure into event/metadata format\n      - mapping: |\n          root.event = {\n            "id": this.id.or(uuid_v4()),\n            "timestamp": this.timestamp.or(now()),\n            "type": "application_log",\n            "application": {\n              "service": this.service.or("unknown"),\n              "level": this.level.or("INFO"),\n              "message": this.message.or(""),\n              "duration_ms": this.duration_ms,\n              "status_code": this.status_code\n            },\n            "trace": {\n              "request_id": this.request_id.or(uuid_v4()),\n              "trace_id": this.trace_id.or(uuid_v4())\n            }\n          }\n\n          root.metadata = {\n            "lineage": this.lineage,\n            "quality": {\n              "completeness_score": (\n                (if this.user_id != null { 1 } else { 0 }) +\n                (if this.request_id != null { 1 } else { 0 }) +\n                (if this.message != null { 1 } else { 0 }) +\n                (if this.service != null { 1 } else { 0 })\n              ) / 4.0,\n              "is_error": this.level == "ERROR"\n            }\n          }\n\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        # Primary S3 export\n        - aws_s3:\n            bucket: ${S3_BUCKET_NAME}\n            path: logs/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/logs_${!timestamp_unix()}.jsonl.gz\n            batching:\n              count: 200\n              period: ${BATCH_PERIOD:2m}\n              byte_size: 5242880\n              processors:\n                - compress:\n                    algorithm: gzip\n                    level: 6\n            content_type: application/x-ndjson\n            content_encoding: gzip\n            storage_class: ${S3_STORAGE_CLASS:-STANDARD_IA}\n            credentials:\n              profile: ${AWS_PROFILE}\n            region: ${AWS_REGION}\n\n        # Error stream\n        - aws_s3:\n            bucket: ${S3_ERROR_BUCKET_NAME:-${S3_BUCKET_NAME}}\n            path: errors/year=${!timestamp("2006")}/month=${!timestamp("01")}/day=${!timestamp("02")}/error_${!timestamp_unix()}.jsonl\n            batching:\n              count: 50\n              period: 1m\n            content_type: application/x-ndjson\n            storage_class: STANDARD\n            credentials:\n              profile: ${AWS_PROFILE}\n            region: ${AWS_REGION}\n          processors:\n            - mapping: |\n                root = if this.event.application.level == "ERROR" {\n                  this\n                } else {\n                  deleted()\n                }\n\nlogger:\n  level: ${LOG_LEVEL:-info}\n  format: json\n\nmetrics:\n  prometheus:\n    prefix: log_enrichment_prod\n',
+    completePipelineHref:
+      "/log-processing/enrich-export/complete-log-enrichment/",
+    fullPipelineCodeKind: "complete",
   },
   stages: GENERATED_EXPLORER_STAGES,
 } satisfies GeneratedExplorerStageFamily;

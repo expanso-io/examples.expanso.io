@@ -1,25 +1,36 @@
 # Fingerprint-based deduplication
-processors:
-  - mapping: |
-      # Extract the selected comparison fields
-      let business_fields = {
-        "event_type": this.event_type,
-        "user_email": this.user.email,
-        "signup_source": this.signup_details.source,
-        "signup_plan": this.signup_details.plan
-      }
+pipeline:
+  threads: 1
+  processors:
+    - mapping: |
+        root = this
+        # Extract only business-critical fields
+        let business_fields = {
+          "event_type": this.event_type,
+          "user_email": this.user.email,
+          "signup_source": this.signup_details.source,
+          "signup_plan": this.signup_details.plan
+        }
 
-      root.business_fingerprint = business_fields.format_json().hash("sha256")
+        root.business_fingerprint = $business_fields.format_json().hash("sha256")
 
-  - cache:
-      resource: dedup_cache
-      operator: get
-      key: ${! this.business_fingerprint }
+    - for_each:
+        - branch:
+            request_map: root = this.business_fingerprint
+            processors:
+              - cache:
+                  resource: dedup_cache
+                  operator: exists
+                  key: '${! content() }'
+            result_map: root.is_duplicate = content().string().bool()
 
-  - mapping: |
-      root = if meta("cache") != null {
-        deleted()  # Drop semantic duplicates
-      } else {
-        _ = cache_set("dedup_cache", this.business_fingerprint, now(), "6h")
-        this
-      }
+        - switch:
+            - check: '!this.is_duplicate'
+              processors:
+                - cache:
+                    resource: dedup_cache
+                    operator: set
+                    key: '${! json("business_fingerprint") }'
+                    value: '${! now() }'
+            - processors:
+                - mapping: root = deleted()

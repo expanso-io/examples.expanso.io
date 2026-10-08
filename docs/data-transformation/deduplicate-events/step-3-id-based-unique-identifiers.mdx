@@ -43,27 +43,30 @@ This configuration uses `event_id` directly rather than calculating a content ha
         root.dedup_key = this.event_id
     ```
 
-    You will also need to update the `cache` processor to use this new `dedup_key` field.
+    Inside the inherited `for_each`, replace the lookup branch so it checks `dedup_key` and preserves the record.
 
-    ```yaml title="Update the 'cache' processor"
-    - cache:
-        resource: dedup_cache # You can rename this to id_cache if you prefer
-        operator: get
-        key: ${! this.dedup_key } # Use the new key field
+    ```yaml title="Replace the lookup branch"
+    - branch:
+        request_map: root = this.dedup_key
+        processors:
+          - cache:
+              resource: dedup_cache
+              operator: exists
+              key: '${!content()}'
+        result_map: root.is_duplicate = content().string().bool()
     ```
 
-    Finally, update the last `mapping` processor to also use the `dedup_key`.
+    Inside the same `for_each`, replace the conditional cache write to store `dedup_key`. Keep the final duplicate-filtering `mapping` processor from Step 1 there as well.
 
-    ```yaml title="Update the last 'mapping' processor"
-    - mapping: |
-        let is_duplicate = meta("cache").exists()
-        root = this
-
-        if is_duplicate {
-          root = deleted()
-        } else {
-          _ = cache_set("dedup_cache", this.dedup_key, "seen")
-        }
+    ```yaml title="Replace the conditional cache write"
+    - switch:
+        - check: '!this.is_duplicate'
+          processors:
+            - cache:
+                resource: dedup_cache
+                operator: set
+                key: '${!this.dedup_key}'
+                value: seen
     ```
 
 3.  **Deploy and Test:**

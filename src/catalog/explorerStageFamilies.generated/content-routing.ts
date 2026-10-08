@@ -112,6 +112,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "01-original-input.yaml",
     yamlCode:
       "input:\n  http_server:\n    address: 0.0.0.0:8080\n    path: /events\n\noutput:\n  kafka:\n    addresses: [localhost:9092]\n    topic: general-events\n",
+    pipelineCodeKind: "complete",
     configSha256:
       "sha256:36b68efa7184097942c4b885ff2f0d397efce5e2b6f16e77ddfb70a763556ecc",
   },
@@ -227,9 +228,10 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "02-severity-based-routing.yaml",
     yamlCode:
-      'output:\n  switch:\n    cases:\n      # Critical alerts to PagerDuty\n      - check: this.severity == "CRITICAL"\n        output:\n          http_client:\n            url: https://events.pagerduty.com/v2/enqueue\n\n      # Warnings to Slack\n      - check: this.severity == "WARN"\n        output:\n          http_client:\n            url: https://hooks.slack.com/warning\n\n      # Default: Info to Elasticsearch\n      - output:\n          opensearch:\n            action: index\n            index: application-logs\n',
+      'output:\n  switch:\n    cases:\n      # Critical alerts to PagerDuty\n      - check: this.severity == "CRITICAL"\n        output:\n          http_client:\n            url: https://events.pagerduty.com/v2/enqueue\n\n      # Warnings to Slack\n      - check: this.severity == "WARN"\n        output:\n          http_client:\n            url: https://hooks.slack.com/warning\n\n      # Default: Info to Elasticsearch\n      - output:\n          opensearch:\n            action: index\n            urls: [https://search.example.com:9200]\n            index: application-logs\n            id: \'${! uuid_v4() }\'\n',
+    pipelineCodeKind: "fragment",
     configSha256:
-      "sha256:ac8b4fd33b649e2b82e04c943aaf1d9b2ebb9d795535e715285b1505d5bde110",
+      "sha256:5a94499a01c146bbbfd9eed09dca7be1022060e06647d2bd4b6453adf304d246",
   },
   {
     id: 3,
@@ -345,9 +347,10 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-geographic-routing.yaml",
     yamlCode:
-      'output:\n  switch:\n    cases:\n      # EU data to EU systems (GDPR)\n      - check: this.region == "eu-west"\n        output:\n          broker:\n            pattern: fan_out\n            outputs:\n              - kafka:\n                  addresses: [eu-kafka.example.com:9092]\n              - aws_s3:\n                  bucket: eu-data-archive\n                  region: eu-west-1\n\n      # US East to regional cluster\n      - check: this.region == "us-east"\n        output:\n          kafka:\n            addresses: [us-east-kafka.example.com:9092]\n',
+      'output:\n  switch:\n    cases:\n      # EU data to EU systems (GDPR)\n      - check: this.region == "eu-west"\n        output:\n          broker:\n            pattern: fan_out\n            outputs:\n              - kafka:\n                  addresses: [eu-kafka.example.com:9092]\n                  topic: eu-events\n              - aws_s3:\n                  bucket: eu-data-archive\n                  region: eu-west-1\n\n      # US East to regional cluster\n      - check: this.region == "us-east"\n        output:\n          kafka:\n            addresses: [us-east-kafka.example.com:9092]\n            topic: us-east-events\n',
+    pipelineCodeKind: "fragment",
     configSha256:
-      "sha256:047ae77d943eb2a2be31bd82068084af0f38f4c7262f2a2039c87401daebf249",
+      "sha256:dcd8bff1896c6abb6dace49e205a88d28d491184a26929081c149523223c3345",
   },
   {
     id: 4,
@@ -489,9 +492,10 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "04-event-type-routing.yaml",
     yamlCode:
-      'output:\n  switch:\n    cases:\n      # Auth events to security systems\n      - check: |\n          this.event_type == "user.login" ||\n          this.event_type == "user.logout"\n        output:\n          broker:\n            pattern: fan_out\n            outputs:\n              - http_client:\n                  url: https://security-api.com/auth\n              - aws_s3:\n                  bucket: security-audit-logs\n\n      # Payment events to fraud detection\n      - check: this.event_type.has_prefix("payment.")\n        output:\n          broker:\n            outputs:\n              - kafka:\n                  topic: payment-events\n                  idempotent_write: true\n              - http_client:\n                  url: https://fraud-detection-api.com\n\n      # Telemetry to local storage\n      - check: this.event_type.has_prefix("telemetry.")\n        output:\n          file:\n            path: /var/expanso/telemetry.jsonl\n',
+      'output:\n  switch:\n    cases:\n      # Auth events to security systems\n      - check: |\n          this.event_type == "user.login" ||\n          this.event_type == "user.logout"\n        output:\n          broker:\n            pattern: fan_out\n            outputs:\n              - http_client:\n                  url: https://security-api.com/auth\n              - aws_s3:\n                  bucket: security-audit-logs\n\n      # Payment events to fraud detection\n      - check: this.event_type.has_prefix("payment.")\n        output:\n          broker:\n            outputs:\n              - kafka:\n                  addresses: [payments-kafka.example.com:9092]\n                  topic: payment-events\n                  idempotent_write: true\n              - http_client:\n                  url: https://fraud-detection-api.com\n\n      # Telemetry to local storage\n      - check: this.event_type.has_prefix("telemetry.")\n        output:\n          file:\n            path: /var/expanso/telemetry.jsonl\n',
+    pipelineCodeKind: "fragment",
     configSha256:
-      "sha256:4e5d0dcef145f134127ef689d0c7dd38186a4ab078ba2d1cd6781abac722e111",
+      "sha256:c9c761de6cf58b0d38be97746c517cb53c97dde083ba2677f935425bd6b87550",
   },
   {
     id: 5,
@@ -620,9 +624,10 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "05-priority-queue-routing.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - mapping: |\n        root = this\n        root.priority = if this.exists("priority") {\n          this.priority\n        } else if this.severity == "CRITICAL" {\n          "critical"\n        } else if this.user_tier == "premium" {\n          "high"\n        } else {\n          "normal"\n        }\n\noutput:\n  switch:\n    cases:\n      # Critical: immediate delivery\n      - check: this.priority == "critical"\n        output:\n          kafka:\n            topic: critical-queue\n            batching:\n              count: 1\n              period: 0s\n\n      # High: fast delivery\n      - check: this.priority == "high"\n        output:\n          kafka:\n            topic: high-priority-queue\n            batching:\n              count: 10\n              period: 1s\n\n      # Low: efficient batching\n      - check: this.priority == "low"\n        output:\n          kafka:\n            topic: low-priority-queue\n            batching:\n              count: 1000\n              period: 1m\n',
+      'pipeline:\n  processors:\n    - mapping: |\n        root = this\n        root.priority = if this.exists("priority") {\n          this.priority\n        } else if this.severity == "CRITICAL" {\n          "critical"\n        } else if this.user_tier == "premium" {\n          "high"\n        } else {\n          "normal"\n        }\n\noutput:\n  switch:\n    cases:\n      # Critical: immediate delivery\n      - check: this.priority == "critical"\n        output:\n          kafka:\n            addresses: [priority-kafka.example.com:9092]\n            topic: critical-queue\n            batching:\n              count: 1\n              period: 0s\n\n      # High: fast delivery\n      - check: this.priority == "high"\n        output:\n          kafka:\n            addresses: [priority-kafka.example.com:9092]\n            topic: high-priority-queue\n            batching:\n              count: 10\n              period: 1s\n\n      # Low: efficient batching\n      - check: this.priority == "low"\n        output:\n          kafka:\n            addresses: [priority-kafka.example.com:9092]\n            topic: low-priority-queue\n            batching:\n              count: 1000\n              period: 1m\n',
+    pipelineCodeKind: "fragment",
     configSha256:
-      "sha256:bba39d15b4ec598055438355036ce02518676e2f667a8d1e03b3fecc2e812d1e",
+      "sha256:9b869e1e257d4a2949b9ac7dd5589b9b9e762a183166da7c8f649e5489ddaf95",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 
@@ -643,6 +648,9 @@ export const GENERATED_EXPLORER_STAGE_FAMILY = {
     fullYamlFilename: "content-routing.yaml",
     fullYaml:
       'name: severity-based-routing\ndescription: Route log messages based on severity level\ntype: pipeline\nnamespace: production\nlabels:\n  environment: production\n  pattern: content-routing\n\nconfig:\n  input:\n    http_server:\n      address: 0.0.0.0:8080\n      path: /logs\n      timeout: 5s\n\n  pipeline:\n    processors:\n      # Parse JSON input and validate\n      - mapping: |\n          # Ensure severity field exists\n          root = if !this.exists("severity") {\n            throw("Missing required field: severity")\n          } else {\n            this\n          }\n\n          # Normalize severity to uppercase\n          root.severity = this.severity.string().uppercase()\n\n          # Add routing metadata\n          root.routed_at = now()\n          root.node_id = env("NODE_ID").or("unknown")\n\n  output:\n    switch:\n      cases:\n        # Case 1: Critical errors to PagerDuty\n        - check: this.severity == "CRITICAL" || this.severity == "FATAL"\n          output:\n            http_client:\n              url: https://events.pagerduty.com/v2/enqueue\n              verb: POST\n              headers:\n                Content-Type: application/json\n                Authorization: Token ${PAGERDUTY_TOKEN}\n\n              # Fast delivery for critical alerts\n              retries: 5\n              retry_period: 500ms\n              max_retry_backoff: 5s\n            # Transform to PagerDuty event format\n            processors:\n              - mapping: |\n                  root.routing_key = env("PAGERDUTY_ROUTING_KEY")\n                  root.event_action = "trigger"\n                  root.payload = {\n                    "summary": this.message.or("Critical error occurred"),\n                    "severity": "critical",\n                    "source": this.source.or("unknown"),\n                    "timestamp": this.timestamp,\n                    "custom_details": this\n                  }\n\n        # Case 2: Warnings to Slack\n        - check: this.severity == "WARNING" || this.severity == "WARN"\n          output:\n            http_client:\n              url: ${SLACK_WEBHOOK_URL}\n              verb: POST\n              headers:\n                Content-Type: application/json\n\n              # Batch warnings to avoid Slack rate limits\n              batching:\n                count: 10\n                period: 30s\n\n              retries: 3\n            # Transform to Slack message format\n            processors:\n              - mapping: |\n                  root.text = ":warning: " + this.message.or("Warning")\n                  root.blocks = [\n                    {\n                      "type": "section",\n                      "text": {\n                        "type": "mrkdwn",\n                        "text": "*Severity:* " + this.severity + "\\n*Source:* " + this.source.or("unknown") + "\\n*Message:* " + this.message.or("N/A")\n                      }\n                    }\n                  ]\n\n        # Case 3: Everything else to Elasticsearch\n        - output:\n            opensearch:\n              action: index\n              urls:\n                - ${ELASTICSEARCH_URL:http://elasticsearch:9200}\n\n              # Use date-based indices\n              index: logs-${!timestamp_unix_date("2006-01-02")}\n              id: ${!json("event_id")}\n\n              batching:\n                count: 500\n                period: 10s\n',
+    completePipelineHref:
+      "/data-routing/content-routing/complete-content-routing/",
+    fullPipelineCodeKind: "complete",
   },
   stages: GENERATED_EXPLORER_STAGES,
 } satisfies GeneratedExplorerStageFamily;

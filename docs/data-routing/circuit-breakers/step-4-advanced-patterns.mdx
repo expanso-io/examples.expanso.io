@@ -35,55 +35,83 @@ config:
   cache_resources:
     - label: user_profile_cache
       memory:
-        cap: 5000
         default_ttl: 5m # Cache entries for 5 minutes
 
   pipeline:
     processors:
       # 1. Check the cache first
-      - cache:
-          resource: user_profile_cache
-          operator: get
-          key: user_${!this.user_id}
+      - branch:
+          processors:
+            - branch:
+                processors:
+                  - cache:
+                      resource: user_profile_cache
+                      operator: exists
+                      key: user_${!this.user_id}
+                result_map: root.profile_exists = content().string().bool()
+            - switch:
+                - check: this.profile_exists
+                  processors:
+                    - try:
+                        - cache:
+                            resource: user_profile_cache
+                            operator: get
+                            key: user_${!this.user_id}
+                        - mapping: |
+                            root.profile = this
+                            root.found = true
+                    - catch:
+                        - mapping: |
+                            root = {"found": false}
+                - processors:
+                    - mapping: |
+                        root = {"found": false}
+          result_map: |
+            root.profile_cached = this.found
+            root.user_profile = if this.found { this.profile } else { deleted() }
 
       # 2. Act based on cache hit or miss
       - switch:
-          cases:
-            # CACHE HIT: Use the cached data
-            - check: this.cached_data.exists()
-              processors:
-                - mapping: |
-                    root = this
-                    root.user_profile = this.cached_data.parse_json()
-                    root.data_source = "cache"
+          # CACHE HIT: Use the cached data
+          - check: this.profile_cached
+            processors:
+              - mapping: |
+                  root = this
+                  root.data_source = "cache"
 
-            # CACHE MISS: Query the database
-            - processors:
-                - try:
-                    - sql_select:
-                        driver: postgres
-                        data_source_name: ${DB_CONNECTION_STRING}
-                        query: "SELECT user_name, user_tier FROM users WHERE user_id = $1"
-                        args_mapping: `root = [ this.user_id ]`
-                        timeout: 3s
+          # CACHE MISS: Query the database
+          - processors:
+              - try:
+                  - branch:
+                      processors:
+                        - sql_select:
+                            driver: postgres
+                            dsn: ${DB_CONNECTION_STRING}
+                            table: users
+                            columns: [user_name, user_tier]
+                            where: user_id = $1
+                            args_mapping: root = [ this.user_id ]
+                      result_map: |
+                        root.user_name = this.index(0).user_name
+                        root.user_tier = this.index(0).user_tier
 
-                    - mapping: |
-                        root = this
-                        root.user_profile = { "name": this.user_name, "tier": this.user_tier }
-                        root.data_source = "database"
+                  - mapping: |
+                      root = this
+                      root.user_profile = { "name": this.user_name, "tier": this.user_tier }
+                      root.data_source = "database"
 
-                    # On success, write the result to the cache
-                    - cache:
-                        resource: user_profile_cache
-                        operator: set
-                        key: user_${!this.user_id}
-                        value: ${!this.user_profile.format_json()}
-                  catch:
-                    # If the DB fails, mark it and continue without enrichment
-                    - mapping: |
-                        root = this
-                        root.data_source = "none"
-                        root.db_error = true
+                  # On success, write the result to the cache
+                  - cache:
+                      resource: user_profile_cache
+                      operator: set
+                      key: user_${!this.user_id}
+                      value: ${!this.user_profile.format_json()}
+              - catch:
+                  # If the DB fails, mark it and continue without enrichment
+                  - mapping: |
+                      root = this
+                      root.data_source = "none"
+                      root.db_error = true
 ```
 
 ## Pattern 2: Read-Write Separation
@@ -100,45 +128,50 @@ This example uses a `switch` to route events based on an `operation` field. Writ
 pipeline:
   processors:
     - switch:
-        cases:
-          # READ operations have a tolerant circuit breaker
-          - check: this.operation == "read"
-            processors:
-              - try:
-                  - sql_select:
-                      driver: postgres
-                      data_source_name: ${DB_CONNECTION_STRING}
-                      timeout: 10s
-                      max_open_connections: 20 # More connections for reads
-                      query: ${!this.sql_query}
-                catch:
-                  - mapping: `root.read_failed = true`
+        # READ operations have a tolerant circuit breaker
+        - check: this.operation == "read"
+          processors:
+            - try:
+                - sql_select:
+                    driver: postgres
+                    dsn: ${DB_CONNECTION_STRING}
+                    table: users
+                    columns: [user_name, user_tier]
+                    where: user_id = $1
+                    args_mapping: root = [this.user_id]
+            - catch:
+                - mapping: |
+                    root = this
+                    root.read_failed = true
 
-          # WRITE operations have a strict circuit breaker
-          - check: this.operation == "write"
-            processors:
-              - try:
-                  - sql_insert:
-                      driver: postgres
-                      data_source_name: ${DB_CONNECTION_STRING}
-                      timeout: 3s # Fail fast on writes
-                      max_open_connections: 5 # Fewer connections for writes
-                      query: ${!this.sql_query}
-                catch:
-                  - mapping: `root.write_failed = true`
+        # WRITE operations have a strict circuit breaker
+        - check: this.operation == "write"
+          processors:
+            - try:
+                - sql_insert:
+                    driver: postgres
+                    dsn: ${DB_CONNECTION_STRING}
+                    table: events
+                    columns: [event_id, payload]
+                    args_mapping: root = [this.event_id, this.format_json()]
+            - catch:
+                - mapping: |
+                    root = this
+                    root.write_failed = true
 
 output:
   switch:
-    # Failed writes are sent to a retry queue
-    - check: this.write_failed == true
-      output:
-        kafka:
-          addresses: [${KAFKA_BROKERS}]
-          topic: "database_writes_retry"
+    cases:
+      # Failed writes are sent to a retry queue
+      - check: this.write_failed == true
+        output:
+          kafka:
+            addresses: ['${KAFKA_BROKERS}']
+            topic: 'database_writes_retry'
 
-    # All other events go to a standard output
-    - output:
-        stdout: {}
+      # All other events go to a standard output
+      - output:
+          stdout: {}
 ```
 
 ## Pattern 3: Adaptive Circuit Breaker
@@ -154,31 +187,34 @@ pipeline:
   processors:
     # 1. Perform a quick health check
     - try:
-        - http:
-            url: ${MOCK_API_URL}/health
-            verb: GET
-            timeout: 1s
-        - mapping: `root.api_is_healthy = true`
-      catch:
-        - mapping: `root.api_is_healthy = false`
+        - branch:
+            processors:
+              - http:
+                  url: ${MOCK_API_URL}/health
+                  verb: GET
+                  timeout: 1s
+            result_map: root.api_is_healthy = true
+    - catch:
+        - mapping: |
+            root = this
+            root.api_is_healthy = false
 
     # 2. Choose a breaker policy based on health
     - switch:
-        cases:
-          # If healthy, use normal settings
-          - check: this.api_is_healthy == true
-            processors:
-              - http:
-                  url: ${MOCK_API_URL}/metadata/${!this.sensor_id}
-                  timeout: 10s
-                  retries: 5
+        # If healthy, use normal settings
+        - check: this.api_is_healthy == true
+          processors:
+            - http:
+                url: ${MOCK_API_URL}/metadata/${!this.sensor_id}
+                timeout: 10s
+                retries: 5
 
-          # If unhealthy, use aggressive settings to fail fast
-          - processors:
-              - http:
-                  url: ${MOCK_API_URL}/metadata/${!this.sensor_id}
-                  timeout: 2s
-                  retries: 1
+        # If unhealthy, use aggressive settings to fail fast
+        - processors:
+            - http:
+                url: ${MOCK_API_URL}/metadata/${!this.sensor_id}
+                timeout: 2s
+                retries: 1
 ```
 
 These advanced patterns add explicit fallback and recovery controls. Validate their resilience and performance in the target environment.

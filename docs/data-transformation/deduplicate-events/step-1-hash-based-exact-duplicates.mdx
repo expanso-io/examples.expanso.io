@@ -26,9 +26,9 @@ You will build a pipeline that generates a unique "fingerprint" (a hash) for eac
 ## The "Hash -> Cache -> Check -> Drop" Pattern
 
 1.  **Hash:** For each message, create a SHA-256 hash of its content. This creates a consistent, unique fingerprint.
-2.  **Cache:** Use a `cache` processor to check if this fingerprint has been seen before.
+2.  **Cache:** Check whether this fingerprint has been seen before. `threads: 1` serializes batches, and `for_each` completes each record's lookup, cache write, and duplicate drop before processing the next record in that batch.
 3.  **Check:** A `mapping` processor checks the result from the cache.
-4.  **Drop:** If the cache found a match (meaning it's a duplicate), the message is deleted. If it's a new message, it's added to the cache for future checks and allowed to continue.
+4.  **Drop:** If the cache found a match, the message is deleted. Otherwise, the new fingerprint is cached and the message continues.
 
 ## Implementation
 
@@ -51,34 +51,43 @@ You will build a pipeline that generates a unique "fingerprint" (a hash) for eac
           path: /ingest
 
       pipeline:
+        # Serialize cache checks so duplicate messages cannot race each other.
+        threads: 1
         processors:
           # 2. HASH: Create a hash of the message content.
           - mapping: |
               root = this
-              # json_format() ensures keys are sorted, creating a consistent hash
-              root.dedup_hash = this.json_format().hash("sha256")
+              # format_json() ensures keys are sorted, creating a consistent hash
+              root.dedup_hash = this.format_json().hash("sha256")
 
-          # 3. CACHE: Check if we've seen this hash before.
-          # The result will be available in `meta("cache")`.
-          - cache:
-              resource: dedup_cache
-              operator: get
-              key: ${! this.dedup_hash }
+          - for_each:
+              # 3. CACHE: Check whether we've seen this hash before.
+              - branch:
+                  request_map: root = this.dedup_hash
+                  processors:
+                    - cache:
+                        resource: dedup_cache
+                        operator: exists
+                        key: '${!content()}'
+                  result_map: root.is_duplicate = content().string().bool()
 
-          # 4. CHECK & DROP: Decide whether to keep or drop the message.
-          - mapping: |
-              let is_duplicate = meta("cache").exists()
-              root = this
+              # 4. CACHE NEW HASHES: Remember records that passed the lookup.
+              - switch:
+                  - check: '!this.is_duplicate'
+                    processors:
+                      - cache:
+                          resource: dedup_cache
+                          operator: set
+                          key: '${!this.dedup_hash}'
+                          value: seen
 
-              if is_duplicate {
-                # If it's a duplicate, delete the message
-                root = deleted()
-                root.status = "dropped_duplicate" # This won't be in the final output
-              } else {
-                # If it's new, add its hash to the cache for next time
-                _ = cache_set("dedup_cache", this.dedup_hash, "seen")
-                root.status = "processed_new"
-              }
+              # 5. DROP: Emit only the first occurrence.
+              - mapping: |
+                  root = if this.is_duplicate {
+                    deleted()
+                  } else {
+                    this.merge({"status": "processed_new"})
+                  }
 
       output:
         stdout:

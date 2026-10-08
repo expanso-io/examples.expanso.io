@@ -24,9 +24,9 @@ export const transformFormatsStages: Stage[] = [
   {
     id: 2,
     slug: 'json-avro',
-    title: 'JSON → Avro',
+    title: 'Partial snippet: JSON → Avro preparation',
     description:
-      'Attach a representative Avro record schema and review writer-reader compatibility separately.',
+      "The installed Edge validator reports `Unknown component or field 'avro'` for the documented processor, so this validated stage prepares schema-compatible JSON but does not claim to emit Avro bytes.",
     inputLines: [
       { content: '{"sensor_id":"sensor-42",', indent: 0 },
       { content: '"temperature_celsius":23.5,', indent: 0 },
@@ -34,10 +34,14 @@ export const transformFormatsStages: Stage[] = [
       { content: '"timestamp":"2024-01-15T10:30:00Z"}', indent: 0 },
     ],
     outputLines: [
-      { content: 'Avro review points:', indent: 0, type: 'highlighted' },
-      { content: 'Schema: enforced at write', indent: 1 },
       {
-        content: 'Reader compatibility requires a versioned schema policy',
+        content: 'Partial-stage review points:',
+        indent: 0,
+        type: 'highlighted',
+      },
+      { content: 'Schema-compatible field types are prepared', indent: 1 },
+      {
+        content: 'No native Avro bytes are emitted by this stage',
         indent: 1,
       },
     ],

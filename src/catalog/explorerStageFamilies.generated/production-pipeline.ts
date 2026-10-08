@@ -24,6 +24,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "01-raw-http-input.yaml",
     yamlCode:
       "input:\n  http_server:\n    address: 0.0.0.0:8080\n    path: /logs\n",
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:2a7d89c43e0c2156a1400755f46990fb66d709bcb8632b90922a62a9db25641b",
   },
@@ -44,6 +45,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "02-parse-validate.yaml",
     yamlCode:
       'pipeline:\n  processors:\n    - mapping: |\n        root = this.parse_json()\n        # Validate required fields\n        root.msg = this.msg.or(throw("missing msg"))\n        root.user = this.user.or(throw("missing user"))\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:45078d1f289162c50c74593ebe38232bafb72fb9011dd70888b30eff475ab125",
   },
@@ -68,6 +70,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "03-enrich-metadata.yaml",
     yamlCode:
       'pipeline:\n  processors:\n    - mapping: |\n        root = this\n        root.metadata.ingestion_time = now()\n        root.metadata.correlation_id = uuid_v4()\n        root.metadata.pipeline_version = "v2.1"\n        root.metadata.edge_node = env("HOSTNAME")\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:d9d84180ab41b443c9e05d275cb89c1bc7f203d65b227204a796d23304dcc21f",
   },
@@ -92,6 +95,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "04-filter-score.yaml",
     yamlCode:
       'pipeline:\n  processors:\n    - mapping: |\n        root = this\n        # Assign priority score\n        root.priority = match {\n          this.msg.contains("error") => 10\n          this.msg.contains("warn") => 7\n          this.msg.contains("login") => 5\n          _ => 3\n        }\n    - bloblang: |\n        # Drop low-priority logs\n        root = if this.priority < 4 { deleted() }\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:826d24e8972746c8f5ec6ea73e614e818960a41c4773c2d98172aa458ae3c633",
   },
@@ -122,6 +126,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "05-redact-pii.yaml",
     yamlCode:
       'pipeline:\n  processors:\n    - mapping: |\n        root = this\n        # Hash email for privacy\n        root.user_hash = this.user.hash("sha256").string()\n        root = this.without("user")\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:012c99415c48ae74269f4673a0f7f6151b4033710951231bb3e06a409ebc47c3",
   },
@@ -149,9 +154,10 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "06-fan-out.yaml",
     yamlCode:
-      "output:\n  broker:\n    pattern: fan_out\n    outputs:\n      # 1. Real-time alerts (high priority)\n      - switch:\n          cases:\n            - check: this.priority >= 7\n              output:\n                opensearch:\n                  action: index\n                  urls: [http://localhost:9200]\n                  index: logs-critical\n\n      # 2. Stream processing (all logs)\n      - kafka:\n          addresses: [localhost:9092]\n          topic: logs-stream\n\n      # 3. Long-term archival (S3)\n      - aws_s3:\n          bucket: logs-archive\n          path: ${!timestamp_unix()}.json\n",
+      "output:\n  broker:\n    pattern: fan_out\n    outputs:\n      # 1. Real-time alerts (high priority)\n      - switch:\n          cases:\n            - check: this.priority >= 7\n              output:\n                opensearch:\n                  action: index\n                  urls: [http://localhost:9200]\n                  index: logs-critical\n                  id: '${! uuid_v4() }'\n\n      # 2. Stream processing (all logs)\n      - kafka:\n          addresses: [localhost:9092]\n          topic: logs-stream\n\n      # 3. Long-term archival (S3)\n      - aws_s3:\n          bucket: logs-archive\n          path: ${!timestamp_unix()}.json\n",
+    pipelineCodeKind: "fragment",
     configSha256:
-      "sha256:ba47c5e605d74eaec2e83168d1f51c59c40ae988c72bbbb9e02d3d2a2c68879b",
+      "sha256:9dcbccd44edc1e5e130a1acde27acbaf6a1f6a88446324285ad21acb32d95521",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 
@@ -174,6 +180,9 @@ export const GENERATED_EXPLORER_STAGE_FAMILY = {
     fullYamlFilename: "production-pipeline-complete.yaml",
     fullYaml:
       'name: production-pipeline-complete\ntype: pipeline\ndescription: Complete Production Log Pipeline - HTTP input, validation, enrichment, filtering, PII redaction, and multi-destination output.\nnamespace: production\nlabels:\n  category: log-processing\n  pattern: production-pipeline\n\nconfig:\n  input:\n    http_server:\n      address: \'0.0.0.0:8080\'\n      path: /logs/ingest\n      allowed_verbs: [\'POST\']\n      rate_limit: \'http_ingest\'\n\n  pipeline:\n    processors:\n      # Step 1: Parse and validate JSON\n      - mapping: root = content().parse_json()\n      - mapping: |\n          root = this\n          root.timestamp = this.timestamp.or(now())\n          root.level = this.level.uppercase().or("INFO")\n          root.service = this.service.or("unknown")\n          root.message = this.message.or("")\n\n      # Step 2: Enrich with metadata\n      - mapping: |\n          root = this\n          root.metadata = {\n            "node_id": env("NODE_ID").or("unknown"),\n            "region": env("REGION").or("unknown"),\n            "received_at": now(),\n            "request_id": uuid_v4()\n          }\n\n      # Step 3: Calculate severity score for routing\n      - mapping: |\n          root = this\n          root.severity_score = match this.level {\n            "FATAL" | "CRITICAL" => 5,\n            "ERROR" => 4,\n            "WARN" => 3,\n            "INFO" => 2,\n            _ => 1\n          }\n\n          root.priority = if root.severity_score >= 4 { "high" }\n                         else if root.severity_score >= 3 { "medium" }\n                         else { "low" }\n\n          meta priority = root.priority\n\n      # Step 4: Filter noise (health checks, debug in prod)\n      - mapping: |\n          let msg = this.message.lowercase()\n          root = if $msg.contains("health check") || $msg.contains("heartbeat") {\n            deleted()\n          } else if this.level == "DEBUG" && env("DEBUG_ENABLED").or("false") != "true" {\n            deleted()\n          } else {\n            this\n          }\n\n      # Step 5: Redact PII\n      - mapping: |\n          root = this\n          # Redact common PII patterns\n          root.message = this.message.\n            re_replace_all("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\\\.[a-zA-Z]{2,}", "[EMAIL]").\n            re_replace_all("\\\\d{3}-\\\\d{2}-\\\\d{4}", "[SSN]").\n            re_replace_all("4\\\\d{3}[\\\\s-]?\\\\d{4}[\\\\s-]?\\\\d{4}[\\\\s-]?\\\\d{4}", "[CARD]")\n\n          # Hash IPs if present\n          root.source_ip = if this.exists("source_ip") {\n            this.source_ip.hash("sha256").slice(0, 12)\n          } else { deleted() }\n\n      - catch:\n          - mapping: root = deleted()\n\n  output:\n    broker:\n      pattern: fan_out\n      outputs:\n        # Elasticsearch for search\n        - processors:\n            - mapping: |\n                root = if this.severity_score >= 2 { this } else { deleted() }\n          http_client:\n            url: "${ELASTICSEARCH:http://es:9200}/logs-${!timestamp_unix_date(\'2006.01.02\')}/_doc"\n            verb: POST\n            headers:\n              Content-Type: application/json\n            batching:\n              count: 100\n              period: 5s\n\n        # S3 for archival\n        - aws_s3:\n            bucket: \'${S3_BUCKET:logs-archive}\'\n            path: "logs/${!timestamp_unix_date(\'2006/01/02\')}/${!uuid_v4()}.jsonl"\n            batching:\n              count: 500\n              period: 60s\n\n        # Alerts for critical logs\n        - processors:\n            - mapping: |\n                root = if meta("priority") == "high" { this } else { deleted() }\n          http_client:\n            url: \'${ALERT_WEBHOOK:http://alerts:8080/webhook}\'\n            verb: POST\n            batching:\n              count: 1\n              period: 1s\n  rate_limit_resources:\n    - label: http_ingest\n      local:\n        count: 1000\n        interval: 1s\n\nlogger:\n  level: INFO\n  format: json\n\nmetrics:\n  prometheus:\n    path: /metrics\n',
+    completePipelineHref:
+      "/log-processing/production-pipeline/complete-production-pipeline/",
+    fullPipelineCodeKind: "complete",
   },
   stages: GENERATED_EXPLORER_STAGES,
 } satisfies GeneratedExplorerStageFamily;

@@ -2,7 +2,7 @@
 /**
  * CLI Command Validator
  *
- * Downloads real expanso-cli and expanso-edge binaries and validates that
+ * Uses the installed latest expanso-cli and expanso-edge binaries to validate that
  * all CLI commands mentioned in documentation are real (not hallucinated).
  *
  * Usage:
@@ -15,10 +15,12 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { glob } from 'glob';
+import { resolveInstalledExpansoBinary } from './validation/expanso-binary';
 
 // Configuration
-const BIN_DIR = path.join(process.cwd(), '.bin');
 const DOCS_DIR = path.join(process.cwd(), 'docs');
+
+const binaryPaths = new Map<string, string>();
 
 interface CommandTree {
   [key: string]: CommandTree | null;
@@ -32,7 +34,18 @@ interface ValidationResult {
   context: string;
 }
 
+interface CommandValidation {
+  valid: boolean;
+  issue?: string;
+}
+
+interface ExtractedCommand {
+  binary: string;
+  args: string;
+}
+
 const VERBOSE = process.argv.includes('--verbose');
+
 const DUMP_COMMANDS = process.argv.includes('--dump-commands');
 
 function log(msg: string) {
@@ -49,11 +62,9 @@ function debug(msg: string) {
  * Run a command and capture output
  */
 function runHelp(binary: string, args: string[] = []): string {
-  const binaryPath = path.join(BIN_DIR, binary);
+  const binaryPath = binaryPaths.get(binary);
 
-  if (!fs.existsSync(binaryPath)) {
-    throw new Error(`Binary not found: ${binaryPath}`);
-  }
+  if (!binaryPath) throw new Error(`Binary was not resolved: ${binary}`);
 
   const result = spawnSync(binaryPath, [...args, '--help'], {
     encoding: 'utf-8',
@@ -81,13 +92,17 @@ function parseSubcommands(output: string): string[] {
     }
 
     // Section ends at "Flags:" or empty line after commands
-    if (inCommandsSection && (/^Flags:$/i.test(trimmed) || /^Global Flags:$/i.test(trimmed))) {
+    if (
+      inCommandsSection &&
+      (/^Flags:$/i.test(trimmed) || /^Global Flags:$/i.test(trimmed))
+    ) {
       break;
     }
 
     // Parse commands - they appear as "  command    description"
     if (inCommandsSection && trimmed) {
       const match = trimmed.match(/^(\w[\w-]*)\s+/);
+
       if (match) {
         subcommands.push(match[1]);
       }
@@ -114,7 +129,8 @@ function buildCommandTree(binary: string): CommandTree {
       continue;
     }
 
-    tree[cmd] = {};
+    const subtree: CommandTree = {};
+    tree[cmd] = subtree;
 
     // Get subcommands for this command (one level deep)
     try {
@@ -123,14 +139,14 @@ function buildCommandTree(binary: string): CommandTree {
 
       for (const sub of subCommands) {
         if (sub === 'help') continue;
-        (tree[cmd] as CommandTree)[sub] = null;
+        subtree[sub] = null;
       }
 
       // If no subcommands, mark as leaf
-      if (Object.keys(tree[cmd] as CommandTree).length === 0) {
+      if (Object.keys(subtree).length === 0) {
         tree[cmd] = null;
       }
-    } catch (e) {
+    } catch {
       // Command might not support --help, mark as leaf
       tree[cmd] = null;
     }
@@ -145,7 +161,8 @@ function buildCommandTree(binary: string): CommandTree {
 function printCommandTree(tree: CommandTree, prefix: string = ''): void {
   for (const [cmd, sub] of Object.entries(tree)) {
     console.log(`${prefix}${cmd}`);
-    if (sub && typeof sub === 'object') {
+
+    if (sub) {
       printCommandTree(sub, prefix + '  ');
     }
   }
@@ -161,7 +178,7 @@ function getValidPaths(tree: CommandTree, prefix: string = ''): string[] {
     const currentPath = prefix ? `${prefix} ${cmd}` : cmd;
     paths.push(currentPath);
 
-    if (sub && typeof sub === 'object') {
+    if (sub) {
       paths.push(...getValidPaths(sub, currentPath));
     }
   }
@@ -172,16 +189,26 @@ function getValidPaths(tree: CommandTree, prefix: string = ''): string[] {
 /**
  * Check if a command path is valid
  */
-function isValidCommand(commandParts: string[], tree: CommandTree): { valid: boolean; issue?: string } {
+function isValidCommand(
+  commandParts: string[],
+  tree: CommandTree
+): CommandValidation {
   let current: CommandTree | null = tree;
 
   for (let i = 0; i < commandParts.length; i++) {
     const part = commandParts[i];
 
     // Skip flags and values
-    if (part.startsWith('-') || part.includes('/') || part.includes('.') ||
-        part.includes('=') || part.startsWith('$') || part.startsWith('<') ||
-        part.match(/^[A-Z_]+$/) || part.match(/^\d/)) {
+    if (
+      part.startsWith('-') ||
+      part.includes('/') ||
+      part.includes('.') ||
+      part.includes('=') ||
+      part.startsWith('$') ||
+      part.startsWith('<') ||
+      part.match(/^[A-Z_]+$/) ||
+      part.match(/^\d/)
+    ) {
       continue;
     }
 
@@ -195,6 +222,7 @@ function isValidCommand(commandParts: string[], tree: CommandTree): { valid: boo
     } else {
       // Check if it's an argument (not a known subcommand)
       const validSubs = Object.keys(current);
+
       if (validSubs.length === 0) {
         // No subcommands expected, this is an argument
         return { valid: true };
@@ -220,8 +248,8 @@ function isValidCommand(commandParts: string[], tree: CommandTree): { valid: boo
 /**
  * Extract CLI commands from a line
  */
-function extractCommands(line: string): { binary: string; args: string }[] {
-  const results: { binary: string; args: string }[] = [];
+function extractCommands(line: string): ExtractedCommand[] {
+  const results: ExtractedCommand[] = [];
 
   // Match "expanso-cli ..." or "expanso-edge ..."
   const patterns = [
@@ -233,6 +261,7 @@ function extractCommands(line: string): { binary: string; args: string }[] {
 
   for (const pattern of patterns) {
     let match;
+
     while ((match = pattern.exec(line)) !== null) {
       results.push({
         binary: match[1],
@@ -262,7 +291,7 @@ function validateFile(
 
     for (const { binary, args } of commands) {
       const tree = binary === 'expanso-cli' ? cliTree : edgeTree;
-      const parts = args.split(/\s+/).filter(p => p.length > 0);
+      const parts = args.split(/\s+/).filter((p) => p.length > 0);
       const validation = isValidCommand(parts, tree);
 
       if (!validation.valid) {
@@ -281,31 +310,6 @@ function validateFile(
 }
 
 /**
- * Save command reference JSON
- */
-function saveReference(cliTree: CommandTree, edgeTree: CommandTree) {
-  const reference = {
-    generatedAt: new Date().toISOString(),
-    binaries: {
-      'expanso-cli': path.join(BIN_DIR, 'expanso-cli'),
-      'expanso-edge': path.join(BIN_DIR, 'expanso-edge'),
-    },
-    'expanso-cli': {
-      commands: getValidPaths(cliTree),
-      tree: cliTree,
-    },
-    'expanso-edge': {
-      commands: getValidPaths(edgeTree),
-      tree: edgeTree,
-    },
-  };
-
-  const refPath = path.join(BIN_DIR, 'command-reference.json');
-  fs.writeFileSync(refPath, JSON.stringify(reference, null, 2));
-  log(`\nSaved command reference to ${refPath}`);
-}
-
-/**
  * Main
  */
 async function main() {
@@ -313,29 +317,12 @@ async function main() {
   console.log('  Expanso CLI Command Validator');
   console.log('========================================\n');
 
-  // Check binaries exist
-  const cliBinary = path.join(BIN_DIR, 'expanso-cli');
-  const edgeBinary = path.join(BIN_DIR, 'expanso-edge');
-
-  if (!fs.existsSync(cliBinary)) {
-    console.error(`expanso-cli not found at ${cliBinary}`);
-    console.error('Run: curl -fsSL https://get.expanso.io/cli/install.sh | bash');
-    console.error('Then copy to .bin/expanso-cli');
-    process.exit(1);
-  }
-
-  if (!fs.existsSync(edgeBinary)) {
-    console.error(`expanso-edge not found at ${edgeBinary}`);
-    console.error('Run: curl -fsSL https://get.expanso.io/edge/install.sh | bash');
-    console.error('Then copy to .bin/expanso-edge');
-    process.exit(1);
-  }
-
-  // Get versions
-  const cliVersion = spawnSync(cliBinary, ['version'], { encoding: 'utf-8' });
-  const edgeVersion = spawnSync(edgeBinary, ['version'], { encoding: 'utf-8' });
-  log(`expanso-cli: ${cliVersion.stdout.trim().split('\n')[0]}`);
-  log(`expanso-edge: ${edgeVersion.stdout.trim().split('\n')[0]}`);
+  const cli = resolveInstalledExpansoBinary('cli');
+  const edge = resolveInstalledExpansoBinary('edge');
+  binaryPaths.set('expanso-cli', cli.path);
+  binaryPaths.set('expanso-edge', edge.path);
+  log(`expanso-cli: ${cli.version}`);
+  log(`expanso-edge: ${edge.version}`);
 
   // Build command trees
   log('\nDiscovering commands...');
@@ -348,6 +335,7 @@ async function main() {
 
   console.log('\n--- Valid Commands ---');
   console.log(`expanso-cli (${cliPaths.length} commands):`);
+
   if (VERBOSE || DUMP_COMMANDS) {
     printCommandTree(cliTree, '  ');
   } else {
@@ -355,14 +343,12 @@ async function main() {
   }
 
   console.log(`\nexpanso-edge (${edgePaths.length} commands):`);
+
   if (VERBOSE || DUMP_COMMANDS) {
     printCommandTree(edgeTree, '  ');
   } else {
     console.log(`  ${Object.keys(edgeTree).join(', ')}`);
   }
-
-  // Save reference
-  saveReference(cliTree, edgeTree);
 
   if (DUMP_COMMANDS) {
     process.exit(0);
@@ -415,4 +401,3 @@ main().catch((error) => {
   console.error('Error:', error);
   process.exit(1);
 });
-

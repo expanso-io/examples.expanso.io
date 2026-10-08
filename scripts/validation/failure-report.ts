@@ -1,22 +1,24 @@
 import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PINNED_EDGE_VERSION } from './edge';
 import { renderIndex, renderReport, summarize } from './report';
 
 export function writeFailureReport(
   root: string,
   date: string,
-  error: unknown
+  error: Error
 ): void {
-  const failure = error instanceof Error ? error.message : String(error);
+  const failure = error.message;
+
   const summary = summarize([], {
     date,
     edgeVersion: 'unavailable',
-    pinnedEdgeVersion: PINNED_EDGE_VERSION,
+    cliVersion: 'unavailable',
     inventoryDigest: 'unavailable',
     failure,
   });
+
   const reportRoot = join(root, 'validation-reports');
+
   for (const name of [date, 'latest']) {
     const directory = join(reportRoot, name);
     mkdirSync(directory, { recursive: true });
@@ -26,8 +28,10 @@ export function writeFailureReport(
       JSON.stringify({ summary, pipelines: [] }, null, 2) + '\n'
     );
   }
+
   const dates = readdirSync(reportRoot).filter((name) =>
     /^\d{4}-\d{2}-\d{2}$/.test(name)
   );
+
   writeFileSync(join(reportRoot, 'README.md'), renderIndex(dates, summary));
 }

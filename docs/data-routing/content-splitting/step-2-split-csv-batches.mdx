@@ -86,16 +86,16 @@ Unlike splitting a JSON array, processing a CSV file involves reading it line by
           # Processor 1: Skip the header row
           - mapping: |
               # If the line starts with "transaction_id", delete the message
-              if this.string().has_prefix("transaction_id") {
+              if content().string().has_prefix("transaction_id") {
                 root = deleted()
               } else {
-                root = this
+                root = content()
               }
 
           # Processor 2: Parse the CSV line into a JSON object
           - mapping: |
               # Split the line string into an array of fields
-              let fields = this.string().split(",")
+              let fields = content().string().split(",")
 
               # Create the new JSON structure
               root.transaction_id = $fields.index(0)

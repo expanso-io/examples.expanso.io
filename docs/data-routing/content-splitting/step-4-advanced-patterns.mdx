@@ -22,39 +22,26 @@ Once you've mastered the basic "Store -> Split -> Restore" pattern, you can appl
 
 ## Pattern 1: Multi-Array Splitting
 
-Some messages contain multiple arrays that each need to be split into different event types. Use the `branch` processor to split each array in isolation.
+Some messages contain multiple arrays that each need to be split into different event types. Tag and combine the arrays, then split the combined array into events.
 
 **Use Case:** An order message that contains both `items` and `applied_discounts` arrays.
 
 ```yaml title="multi-array-splitter.yaml"
 pipeline:
   processors:
-    # Store the context that is common to ALL branches
-    - mapping: `meta order_id = this.order_id`
-
-    # Process the 'items' array in the first branch
-    - branch:
-        request_map: `root = {"items": this.items}`
-        processors:
-          - unarchive:
-              format: json_array
-              field: items
-          - mapping: |
-              root = this
-              root.order_id = meta("order_id")
-              root.type = "line_item"
-
-    # Process the 'discounts' array in a second branch
-    - branch:
-        request_map: `root = {"discounts": this.applied_discounts}`
-        processors:
-          - unarchive:
-              format: json_array
-              field: discounts
-          - mapping: |
-              root = this
-              root.order_id = meta("order_id")
-              root.type = "discount_application"
+    - mapping: |
+        let order_id = this.order_id
+        let items = this.items.map_each(item -> item.merge({
+          "order_id": $order_id,
+          "type": "line_item"
+        }))
+        let discounts = this.applied_discounts.map_each(discount -> discount.merge({
+          "order_id": $order_id,
+          "type": "discount_application"
+        }))
+        root = $items.concat($discounts)
+    - unarchive:
+        format: json_array
 ```
 
 ## Pattern 2: Conditional Splitting
@@ -67,24 +54,24 @@ You may want to split an array when it meets a condition, such as containing mor
 pipeline:
   processors:
     - switch:
-        cases:
-          # If 1 or fewer items, process as a single batch
-          - check: this.items.length() <= 1
-            processors:
-              - mapping: `root.processing_type = "batch"`
+        # If 1 or fewer items, process as a single batch
+        - check: this.items.length() <= 1
+          processors:
+            - mapping: |
+                root = this
+                root.processing_type = "batch"
 
-          # Otherwise, use the standard splitting pattern
-          - processors:
-              - mapping: |
-                  meta order_id = this.order_id
-                  root = this
-              - unarchive:
-                  format: json_array
-                  field: items
-              - mapping: |
-                  root = this
-                  root.order_id = meta("order_id")
-                  root.processing_type = "individual"
+        # Otherwise, use the standard splitting pattern
+        - processors:
+            - mapping: |
+                meta order_id = this.order_id
+                root = this.items
+            - unarchive:
+                format: json_array
+            - mapping: |
+                root = this
+                root.order_id = meta("order_id")
+                root.processing_type = "individual"
 ```
 
 ## Pattern 3: Handling Commas in CSV Fields

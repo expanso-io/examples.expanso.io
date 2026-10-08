@@ -240,7 +240,8 @@ Here are common Splunk field extraction patterns and their Bloblang equivalents:
 **Bloblang:**
 
 ```yaml
-root.response_time = this.message.parse_regex("response_time=(?P<response_time>\\d+)").response_time.number()
+let response_time = this.message.re_find_all_submatch("response_time=(\\d+)").index(0).index(1)
+root.response_time = $response_time.number()
 ```
 
 ### 2. Conditional Field Creation
@@ -273,7 +274,7 @@ _ => "low"
 **Bloblang:**
 
 ```yaml
-root.user_domain = this.user.split("@")[1]
+root.user_domain = this.user.split("@").index(1)
 root.upper_user = this.user.uppercase()
 ```
 
@@ -289,7 +290,7 @@ root.upper_user = this.user.uppercase()
 **Bloblang:**
 
 ```yaml
-root.hour = timestamp().format("15")
+root.hour = now().ts_format("15")
 root.is_business_hours = if this.hour.number() >= 9 && this.hour.number() <= 17 { "yes" } else { "no" }
 ```
 
@@ -387,9 +388,14 @@ if this.level == "DEBUG" {
 
 ### 3. Data Enrichment
 
-```yaml
-# GeoIP lookup (if service available)
-root.geo = this.source_ip.http_request("GET", "http://geoip-service/lookup/" + this.source_ip).parse_json().catch({})
+```yaml title="Partial snippet: GeoIP enrichment"
+- branch:
+    request_map: root = this.source_ip
+    processors:
+      - http:
+          url: http://geoip-service/lookup/${!content().string()}
+          verb: GET
+    result_map: root.geo = this
 ```
 
 ### 4. Array Processing

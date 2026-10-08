@@ -45,13 +45,17 @@ docker logs enforce-schema --tail 20 2>&1 | grep validation
 
 **Fix:** Check for type coercion issues:
 
-```yaml
-# Allow string or number for temperature
-'temperature':
-  {
-    'oneOf':
-      [{ 'type': 'number' }, { 'type': 'string', 'pattern': '^[0-9.]+$' }],
+```json
+{
+  "properties": {
+    "temperature": {
+      "oneOf": [
+        { "type": "number" },
+        { "type": "string", "pattern": "^[0-9.]+$" }
+      ]
+    }
   }
+}
 ```
 
 ---
@@ -62,9 +66,11 @@ docker logs enforce-schema --tail 20 2>&1 | grep validation
 
 **Fix:** Add `required` array and `additionalProperties`:
 
-```yaml
-"required": ["sensor_id", "temperature", "timestamp"],
-"additionalProperties": false
+```json
+{
+  "required": ["sensor_id", "temperature", "timestamp"],
+  "additionalProperties": false
+}
 ```
 
 ---
@@ -78,9 +84,9 @@ docker logs enforce-schema --tail 20 2>&1 | grep validation
 ```yaml
 - check: meta("validation_error") != ""
   output:
-    kafka: { topic: dlq }
+    kafka: { addresses: ['localhost:9092'], topic: dlq }
 - output:
-    kafka: { topic: valid-data }
+    kafka: { addresses: ['localhost:9092'], topic: valid-data }
 ```
 
 ---

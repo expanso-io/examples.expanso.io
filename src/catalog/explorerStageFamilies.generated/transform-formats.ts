@@ -27,15 +27,16 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "01-json-input.yaml",
     yamlCode:
       "pipeline:\n  processors: [] # JSON input; no format conversion yet\n",
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:97bf3c31922063b8a4c1e2756d9046874a5ab5f5a3328dc84fb14556fccb9973",
   },
   {
     id: 2,
     slug: "json-avro",
-    title: "JSON → Avro",
+    title: "Partial snippet: JSON → Avro preparation",
     description:
-      "Attach a representative Avro record schema and review writer-reader compatibility separately.",
+      "The installed Edge validator reports `Unknown component or field 'avro'` for the documented processor, so this validated stage prepares schema-compatible JSON but does not claim to emit Avro bytes.",
     inputLines: [
       { content: '{"sensor_id":"sensor-42",', indent: 0 },
       { content: '"temperature_celsius":23.5,', indent: 0 },
@@ -43,18 +44,20 @@ export const GENERATED_EXPLORER_STAGES = [
       { content: '"timestamp":"2024-01-15T10:30:00Z"}', indent: 0 },
     ],
     outputLines: [
-      { content: "Avro review points:", indent: 0, type: "highlighted" },
-      { content: "Schema: enforced at write", indent: 1 },
       {
-        content: "Reader compatibility requires a versioned schema policy",
-        indent: 1,
+        content: "Partial-stage review points:",
+        indent: 0,
+        type: "highlighted",
       },
+      { content: "Schema-compatible field types are prepared", indent: 1 },
+      { content: "No native Avro bytes are emitted by this stage", indent: 1 },
     ],
     yamlFilename: "02-json-avro.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - avro:\n        operator: to_json\n        schema: |\n          {\n            "type": "record",\n            "name": "SensorReading",\n            "fields": [\n              {"name": "sensor_id", "type": "string"},\n              {"name": "temperature_celsius", "type": "double"},\n              {"name": "humidity_percent", "type": "double"},\n              {"name": "timestamp", "type": "string"}\n            ]\n          }\n',
+      "pipeline:\n  processors:\n    # Partial snippet: prepare schema-compatible JSON only. The current Edge\n    # validator reports \"Unknown component or field 'avro'\" for the documented\n    # avro processor, so this stage does not claim to emit Avro bytes.\n    - mapping: |\n        root.sensor_id = this.sensor_id.string()\n        root.temperature_celsius = this.temperature_celsius.number()\n        root.humidity_percent = this.humidity_percent.number()\n        root.timestamp = this.timestamp.string()\n",
+    pipelineCodeKind: "fragment",
     configSha256:
-      "sha256:b149935884be5c3dbd96fa9cafcfd9087e197b53425e7115b32f754b8a8fe2b5",
+      "sha256:fa6981343c18bb3521fc602a9b9b69c58fb4a8cc2fed70c1f5e4855c24f5984d",
   },
   {
     id: 3,
@@ -77,9 +80,10 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-avro-parquet.yaml",
     yamlCode:
-      "output:\n  aws_s3:\n    bucket: sensor-data-lake\n    path: readings/${!timestamp_unix()}.parquet\n    codec: parquet\n    compression: snappy\n    # Columnar storage for fast analytics\n",
+      "output:\n  aws_s3:\n    bucket: sensor-data-lake\n    path: readings/\\${!timestamp_unix()}.parquet\n    batching:\n      count: 1000\n      period: 10s\n      processors:\n        - parquet_encode:\n            default_compression: snappy\n            schema:\n              - { name: sensor_id, type: UTF8 }\n              - { name: temperature_celsius, type: DOUBLE }\n              - { name: humidity_percent, type: DOUBLE }\n              - { name: timestamp, type: UTF8 }\n",
+    pipelineCodeKind: "fragment",
     configSha256:
-      "sha256:268ec86ef676344f3e9306d95e133fa3fa2591dc132b0c4cf73b6288179f903e",
+      "sha256:714992f4712f434f9efc72366b8d520f01cecdce0c257ad23251fa000c54cb36",
   },
   {
     id: 4,
@@ -101,9 +105,10 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "04-auto-detection.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - switch:\n        - check: this.type() == "object"\n          processors:\n            - mapping: \'root = this # JSON detected\'\n        - check: content().has_prefix("Obj\\x01")\n          processors:\n            - avro: {operator: from_json} # Avro detected\n        - processors:\n            - log:\n                message: "Unknown format: ${!content()}"\n',
+      'pipeline:\n  processors:\n    - mapping: |\n        meta source_format = if content().slice(0, 4).encode("hex") == "4f626a01" {\n          "avro"\n        } else {\n          "json"\n        }\n        root = content()\n    - switch:\n        - check: \'meta("source_format") == "json"\'\n          processors:\n            - mapping: root = content().parse_json()\n        - check: \'meta("source_format") == "avro"\'\n          processors:\n            - mapping: |\n                root = content()\n                meta decoder_required = "avro"\n        - processors:\n            - log:\n                message: \'Unknown format: ${!content()}\'\n',
+    pipelineCodeKind: "fragment",
     configSha256:
-      "sha256:a82fdfc35a5a7f2456c9765018e7a5e25664da235822f2ba7c710bc76be68bea",
+      "sha256:cccdbc42dd7f1b310a90ae6e3dc907296ae124aded1ac884db6051531e047aff",
   },
 ] satisfies readonly GeneratedExplorerStageConfig[];
 
@@ -126,6 +131,9 @@ export const GENERATED_EXPLORER_STAGE_FAMILY = {
     fullYamlFilename: "transform-formats.yaml",
     fullYaml:
       "config:\n  input:\n    http_server:\n      address: '0.0.0.0:8080'\n      path: /sensors/ingest\n\n  pipeline:\n    processors:\n      # Parse JSON\n      - mapping: root = content().parse_json()\n      # Validate and flatten\n      - mapping: |\n          root.sensor_id = this.sensor_id\n          root.location = this.location\n          root.temperature = this.temperature\n          root.humidity = this.humidity\n          root.timestamp = this.timestamp\n          root.device_type = this.metadata.device_type\n          root.firmware_version = this.metadata.firmware_version\n      - subprocess:\n          name: node\n          args:\n            - -e\n            - |-\n              const fields=[['sensor_id','string'],['location','string'],['temperature','double'],['humidity','double'],['timestamp','string'],['device_type','string'],['firmware_version','string']];\n              const encode=(value,type)=>{if(type==='double'){if(typeof value!=='number'||!Number.isFinite(value))throw Error('Invalid double');const b=Buffer.alloc(8);b.writeDoubleLE(value);return b;}if(typeof value!=='string')throw Error('Invalid string');const b=Buffer.from(value,'utf8');let n=BigInt(b.length)*2n;const size=[];do{let x=Number(n&127n);n>>=7n;if(n)x|=128;size.push(x);}while(n);return Buffer.concat([Buffer.from(size),b]);};\n              require('node:readline').createInterface({input:process.stdin}).on('line',line=>{try{const r=JSON.parse(line);const data=Buffer.concat(fields.map(([name,type])=>encode(r[name],type)));const prefix=Buffer.alloc(4);prefix.writeUInt32BE(data.length);process.stdout.write(Buffer.concat([prefix,data]));}catch(e){process.stderr.write(e.message+'\\n');process.exit(1);}});\n          codec_recv: length_prefixed_uint32_be\n\n  output:\n    kafka:\n      addresses: ['${KAFKA_BROKER}']\n      topic: sensor-readings-avro\n      compression: snappy\ndescription: Encode SensorReading records as binary Avro; requires Node.js on each edge node.\n",
+    completePipelineHref:
+      "/data-transformation/transform-formats/complete-pipeline/",
+    fullPipelineCodeKind: "complete",
   },
   stages: GENERATED_EXPLORER_STAGES,
 } satisfies GeneratedExplorerStageFamily;

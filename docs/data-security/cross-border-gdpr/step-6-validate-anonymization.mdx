@@ -97,16 +97,17 @@ Record is rejected—does not proceed to output.
 
 Route failed records for investigation instead of losing them:
 
-```yaml
+```yaml title="Partial snippet: validated output routing"
 output:
   switch:
-    - check: errored()
-      output:
-        gcp_pubsub:
-          project: '${GCP_PROJECT}'
-          topic: gdpr-validation-failures
-    - output:
-        # Normal output for valid records
+    cases:
+      - check: errored()
+        output:
+          gcp_pubsub:
+            project: '${GCP_PROJECT}'
+            topic: gdpr-validation-failures
+      - output:
+          drop: {}
 ```
 
 ### Pattern-Based PII Detection

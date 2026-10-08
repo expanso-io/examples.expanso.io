@@ -36,7 +36,7 @@ When a processor like `parse_json` or `grok` fails, it stops processing that mes
         meta parse_status = "success"
 
   # If the grok processor fails, this block is executed
-  catch:
+- catch:
     - mapping: |
         root = this
         meta parse_status = "failed"
@@ -61,20 +61,16 @@ pipeline:
 
     # 2. ENRICH: Add processors to enrich the parsed data
 
-    # Enrich with GeoIP data
-    - geoip:
-        field: root.client_ip
-        target_field: root.client_geo
-
-    # Enrich with User Agent data
-    - user_agent:
-        field: root.user_agent
-        target_field: root.client_ua
+    # Preserve lookup inputs for a separately configured enrichment service.
+    - mapping: |
+        root = this
+        root.client_geo_lookup_key = this.client_ip
+        root.client_user_agent = this.user_agent
 
     # Enrich with custom business logic
     - mapping: |
         root = this
-        root.request_type = if this.request.starts_with("/api/") { "api" } else { "web" }
+        root.request_type = if this.request.has_prefix("/api/") { "api" } else { "web" }
 ```
 
 This multi-stage process of parsing and then enriching is a very common and powerful pattern in data processing pipelines.

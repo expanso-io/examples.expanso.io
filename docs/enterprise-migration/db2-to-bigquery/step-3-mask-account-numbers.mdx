@@ -90,17 +90,18 @@ root.account_number_masked = "XXXX-XXXX-XXXX-" + $parts.index(3)
 
 Mask several fields at once:
 
-```yaml
+```bloblang title="Partial snippet: multiple-field masking mapping"
 root = root.without("ACCOUNT_NUMBER", "CARD_CVV", "CARD_EXPIRY")
 root.account_last4 = this.ACCOUNT_NUMBER.slice(-4)
-root.card_present = this.CARD_CVV != null # Boolean flag only
+# Boolean flag only
+root.card_present = this.CARD_CVV != null
 ```
 
 ### Consistent Hashing Across Pipelines
 
 Ensure all pipelines use the same hash configuration for joins to work:
 
-```yaml
+```text title="Reference notes (not pipeline YAML)"
 # Document your hash spec:
 # Algorithm: SHA-256
 # Salt: env("HASH_SALT")

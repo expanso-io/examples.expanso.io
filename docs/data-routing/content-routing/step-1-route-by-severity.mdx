@@ -48,16 +48,13 @@ To achieve this, you will replace the `broker` output with a `switch` output. Th
                 headers:
                   Content-Type: application/json
                   Authorization: Token ${PAGERDUTY_API_KEY}
-                body: |
-                  {
-                    "routing_key": "${PAGERDUTY_ROUTING_KEY}",
-                    "event_action": "trigger",
-                    "payload": {
-                      "summary": this.message.or("Critical alert"),
-                      "source": this.source.or("content-router"),
-                      "severity": "critical"
+              processors:
+                - mapping: |
+                    root = {
+                      "routing_key": env("PAGERDUTY_ROUTING_KEY"),
+                      "event_action": "trigger",
+                      "payload": {"summary": this.message.or("Critical alert"), "source": this.source.or("content-router"), "severity": "critical"}
                     }
-                  }
 
           # Case 2: Handle WARN events
           - check: this.severity == "WARN"
@@ -67,15 +64,14 @@ To achieve this, you will replace the `broker` output with a `switch` output. Th
                 verb: POST
                 headers:
                   Content-Type: application/json
-                body: |
-                  {
-                    "text": "⚠️ Warning: " + this.message.or("No message")
-                  }
+              processors:
+                - mapping: 'root = {"text": "Warning: " + this.message.or("No message")}'
 
           # Case 3 (Default): Handle all other events
           - output:
-              elasticsearch:
-                hosts:
+              opensearch:
+                action: index
+                urls:
                   - ${ELASTICSEARCH_HOST:http://localhost:9200}
                 index: application-logs-${!timestamp_date("2006-01-02")}
                 id: ${!this.event_id.or(uuid_v4())}

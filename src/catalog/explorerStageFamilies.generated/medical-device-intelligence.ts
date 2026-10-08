@@ -224,6 +224,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "01-collect-synthetic-fixtures.yaml",
     yamlCode:
       "input:\n  broker:\n    inputs:\n      # Source 1: Structured maintenance logs (CSV)\n      - csv:\n          paths:\n            [\n              '../../../examples/integrations/medical-device-intelligence/maintenance-logs.csv',\n            ]\n          parse_header_row: true\n          batch_count: 1 # one row per message\n        processors:\n          - mapping: |\n              root.source = \"maintenance_log\"\n              root.device_id = this.device_id\n              root.timestamp = this.timestamp\n              root.data = this\n\n      # Source 2: Device error events (JSON)\n      - file:\n          paths:\n            [\n              '../../../examples/integrations/medical-device-intelligence/error-events.json',\n            ]\n          codec: all-bytes\n        processors:\n          - mapping: |\n              root.source = \"error_events\"\n              root.data = this\n\n      # Source 3: Freeform technician notes (text)\n      - file:\n          paths:\n            [\n              '../../../examples/integrations/medical-device-intelligence/technician-notes.txt',\n            ]\n          codec: all-bytes\n        processors:\n          - mapping: |\n              root.source = \"technician_notes\"\n              root.data = content().string()\n",
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:dc867514440a26ddf9d77fa7e2913a174521b644e6454120ed8dfd9f44f306ba",
   },
@@ -357,6 +358,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "02-tag-each-input-message.yaml",
     yamlCode:
       'pipeline:\n  processors:\n    # --- Stage 1: Tag each input message ---\n    # This mapping does not create a multi-source batch. The custom analyzer\n    # below independently reloads all three checked-in fixture files.\n    - mapping: |\n        root = this\n        meta batch_id = "BATCH-" + now().format_timestamp("20060102-1504")\n        meta site = "Synthetic lab"\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:e047085f5064cf418811040b024c72e8faaa7435d83bc89d5726984dff1a2c46",
   },
@@ -546,6 +548,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "03-invoke-custom-analysis-code.yaml",
     yamlCode:
       "pipeline:\n  processors:\n    # --- Stage 2: Invoke custom analysis code ---\n    # analyze_reports.py owns fixture loading, optional Claude access, and\n    # the authored mock response used when credentials are absent.\n    - command:\n        name: python3\n        args_mapping: '[ \"./scripts/analyze_reports.py\" ]'\n",
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:3e8ef7f142f08aa1934ca92c2afd0c53c92c92e8b16dc0fc26cfd3245e72fc1e",
   },
@@ -760,6 +763,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "04-shape-the-output.yaml",
     yamlCode:
       'pipeline:\n  processors:\n    # --- Stage 3: Shape the output ---\n    # Ensure consistent structure for downstream consumers\n    - mapping: |\n        root = content().parse_json()\n        root.pipeline_version = "1.0.0"\n        root.processed_at = now()\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:fd2c89426d3824c8fbb379c56d9af954db37d881995b5c80a421881ebddce8e3",
   },
@@ -796,6 +800,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "05-fan-out-review-candidates.yaml",
     yamlCode:
       "output:\n  broker:\n    pattern: fan_out\n    outputs:\n      # Output 1: Write a local review copy\n      - file:\n          path: './output/review-candidates.json'\n          codec: lines\n\n      # Output 2: Forward the same candidate JSON to a fleet endpoint\n      - http_client:\n          url: 'http://localhost:8089/api/v1/review-candidates'\n          verb: POST\n          headers:\n            Content-Type: application/json\n          max_in_flight: 1\n          retries: 3\n          retry_period: 1s\n          max_retry_backoff: 10s\n",
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:2c1a70269949091086f356f0bf358d93a3ce7ce09f6c4dfe7147f9eeaf4bbd24",
   },
@@ -820,6 +825,7 @@ export const GENERATED_EXPLORER_STAGE_FAMILY = {
     fullYamlFilename: "pipeline.yaml",
     fullYaml:
       '# Medical Device Field Report Intelligence Pipeline\n#\n# Illustrates reading synthetic maintenance logs, error events, and\n# technician notes at a remote site. A custom Python command reloads the\n# fixture files and produces candidate review JSON. Expanso then writes\n# a local copy and forwards the same output to a fleet endpoint.\n\ninput:\n  broker:\n    inputs:\n      # Source 1: Structured maintenance logs (CSV)\n      - csv:\n          paths:\n            [\n              \'../../../examples/integrations/medical-device-intelligence/maintenance-logs.csv\',\n            ]\n          parse_header_row: true\n          batch_count: 1 # one row per message\n        processors:\n          - mapping: |\n              root.source = "maintenance_log"\n              root.device_id = this.device_id\n              root.timestamp = this.timestamp\n              root.data = this\n\n      # Source 2: Device error events (JSON)\n      - file:\n          paths:\n            [\n              \'../../../examples/integrations/medical-device-intelligence/error-events.json\',\n            ]\n          codec: all-bytes\n        processors:\n          - mapping: |\n              root.source = "error_events"\n              root.data = this\n\n      # Source 3: Freeform technician notes (text)\n      - file:\n          paths:\n            [\n              \'../../../examples/integrations/medical-device-intelligence/technician-notes.txt\',\n            ]\n          codec: all-bytes\n        processors:\n          - mapping: |\n              root.source = "technician_notes"\n              root.data = content().string()\n\npipeline:\n  processors:\n    # --- Stage 1: Tag each input message ---\n    # This mapping does not create a multi-source batch. The custom analyzer\n    # below independently reloads all three checked-in fixture files.\n    - mapping: |\n        root = this\n        meta batch_id = "BATCH-" + now().format_timestamp("20060102-1504")\n        meta site = "Synthetic lab"\n\n    # --- Stage 2: Invoke custom analysis code ---\n    # analyze_reports.py owns fixture loading, optional Claude access, and\n    # the authored mock response used when credentials are absent.\n    - command:\n        name: python3\n        args_mapping: \'[ "./scripts/analyze_reports.py" ]\'\n\n    # --- Stage 3: Shape the output ---\n    # Ensure consistent structure for downstream consumers\n    - mapping: |\n        root = content().parse_json()\n        root.pipeline_version = "1.0.0"\n        root.processed_at = now()\n\noutput:\n  broker:\n    pattern: fan_out\n    outputs:\n      # Output 1: Write a local review copy\n      - file:\n          path: \'./output/review-candidates.json\'\n          codec: lines\n\n      # Output 2: Forward the same candidate JSON to a fleet endpoint\n      - http_client:\n          url: \'http://localhost:8089/api/v1/review-candidates\'\n          verb: POST\n          headers:\n            Content-Type: application/json\n          max_in_flight: 1\n          retries: 3\n          retry_period: 1s\n          max_retry_backoff: 10s\n',
+    fullPipelineCodeKind: "complete",
   },
   stages: GENERATED_EXPLORER_STAGES,
 } satisfies GeneratedExplorerStageFamily;

@@ -69,6 +69,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "01-original-input.yaml",
     yamlCode:
       "pipeline:\n  processors: [] # Raw mixed-format input; no parsing yet\n",
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:e486bb8b301ec8a2c2f10fcc419b9aab7ded32d32ac6132daeeace1fedd02937",
   },
@@ -144,6 +145,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "02-format-detection.yaml",
     yamlCode:
       'pipeline:\n  processors:\n    # Detect log format based on content patterns\n    - mapping: |\n        root = this\n        root.detected_format = if this.string().has_prefix("{") {\n          "json"\n        } else if this.string().has_prefix("<") {\n          "syslog"\n        } else if this.string().contains(" - - [") {\n          "access_log"\n        } else if this.string().contains(",") {\n          "csv"\n        } else {\n          "unknown"\n        }\n        meta log_format = root.detected_format\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:b3e809b8dd0cdc53897a077058bad2be1e3b0186953a7a69a65adf7476dfff4b",
   },
@@ -249,6 +251,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "03-json-log-parsing.yaml",
     yamlCode:
       'pipeline:\n  processors:\n    # Parse JSON documents\n    - mapping: root = content().parse_json()\n    # Normalize timestamp and add metadata\n    - mapping: |\n        root = this\n        root.timestamp_unix = this.timestamp.parse_timestamp("2006-01-02T15:04:05.999Z07:00").ts_unix()\n        root.level = this.level.or("INFO").uppercase()\n        root.metadata = {\n          "parsed_by": "json-parser",\n          "parsed_at": now().ts_unix(),\n          "source_format": "json"\n        }\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:feb666c79eda18b53afe4698faaf11bb26edeca628caf5ba6b3646e4dd0195b5",
   },
@@ -346,9 +349,10 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "04-csv-data-parsing.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    # Parse CSV with named columns\n    - csv:\n        columns: [timestamp, metric_name, sensor_id, value, unit]\n        delimiter: ","\n\n    # Convert types and add sensor metadata\n    - mapping: |\n        root = this\n        root.timestamp_unix = this.timestamp.parse_timestamp("2006-01-02").ts_unix()\n        root.value_numeric = this.value.number()\n        root.sensor_metadata = if this.sensor_id.has_prefix("temp-") {\n          {"type": "temperature", "location": "warehouse"}\n        } else {\n          {"type": "unknown", "location": "unknown"}\n        }\n        root.alert = if this.metric_name == "temperature" && this.value_numeric > 30 {\n          {"level": "critical", "message": "Temperature exceeds threshold"}\n        }\n',
+      'pipeline:\n  processors:\n    # Parse CSV with named columns.\n    - mapping: |\n        let header = "timestamp,metric_name,sensor_id,value,unit\\n"\n        root = ($header + content().string()).parse_csv().index(0)\n\n    # Convert types and add sensor metadata\n    - mapping: |\n        root = this\n        root.timestamp_unix = this.timestamp.parse_timestamp("2006-01-02").ts_unix()\n        root.value_numeric = this.value.number()\n        root.sensor_metadata = if this.sensor_id.has_prefix("temp-") {\n          {"type": "temperature", "location": "warehouse"}\n        } else {\n          {"type": "unknown", "location": "unknown"}\n        }\n        root.alert = if this.metric_name == "temperature" && this.value_numeric > 30 {\n          {"level": "critical", "message": "Temperature exceeds threshold"}\n        }\n',
+    pipelineCodeKind: "fragment",
     configSha256:
-      "sha256:36b3cb4b520b2746d03d5177639bb351278f06cb65d71c24280bc46baaabf7e3",
+      "sha256:3b41c4af1ded18c4dd6b36da3f5a07fe33f771e6a59b1b686fb32e19d1f998a8",
   },
   {
     id: 5,
@@ -430,6 +434,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "05-access-log-parsing.yaml",
     yamlCode:
       'pipeline:\n  processors:\n    # Parse using grok pattern (Apache Combined Format)\n    - grok:\n        expressions:\n          - \'%{IPORHOST:client_ip} %{USER:ident} %{USER:auth} \\[%{HTTPDATE:timestamp}\\] "(?:%{WORD:method} %{NOTSPACE:request}(?: HTTP/%{NUMBER:http_version})?|%{DATA})" %{NUMBER:status_code} (?:%{NUMBER:bytes}|-)\'\n        named_captures_only: true\n\n    # Convert types and classify requests\n    - mapping: |\n        root = this\n        root.timestamp_unix = this.timestamp.parse_timestamp("02/Jan/2006:15:04:05 -0700").ts_unix()\n        root.status_code = this.status_code.number()\n        root.bytes = this.bytes.or("0").number()\n        root.request_category = if this.request.contains("/api/") {\n          "api"\n        } else if this.request.contains("/static/") {\n          "static"\n        } else { "page" }\n        root.is_error = this.status_code >= 400\n        # Hash IP for privacy\n        root.client_ip_hash = (this.client_ip + env("IP_SALT")).hash("sha256").slice(0, 16)\n        root = this.without("client_ip")\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:14c296cb297ea4348612958929f2397143ec057eb1fc38a93ebc48e7c41295fb",
   },
@@ -515,6 +520,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "06-syslog-message-parsing.yaml",
     yamlCode:
       'pipeline:\n  processors:\n    # Parse syslog format (RFC3164)\n    - grok:\n        expressions:\n          - \'<%{POSINT:priority}>%{SYSLOGTIMESTAMP:timestamp} %{SYSLOGHOST:hostname} %{DATA:tag}(?:\\[%{POSINT:pid}\\])?: %{GREEDYDATA:message}\'\n        named_captures_only: true\n\n    # Parse priority to facility and severity\n    - mapping: |\n        root = this\n        let pri = this.priority.number()\n        root.facility = (pri / 8).floor()\n        root.severity = pri % 8\n        root.severity_name = if this.severity == 0 {\n          "Emergency"\n        } else if this.severity <= 2 {\n          "Critical"\n        } else if this.severity <= 4 {\n          "Warning"\n        } else {\n          "Informational"\n        }\n        # Parse timestamp (add current year)\n        let year = now().ts_format("2006")\n        root.timestamp_unix = (year + " " + this.timestamp).parse_timestamp("2006 Jan 02 15:04:05").ts_unix()\n        root.application = this.tag\n        root.process_id = this.pid.or("").number()\n',
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:ddec41600e2a2f5a76d3f2d7f0370ae42bb5541052583ae2caddb68b02ad889d",
   },
@@ -537,6 +543,8 @@ export const GENERATED_EXPLORER_STAGE_FAMILY = {
     fullYamlFilename: "parse-logs.yaml",
     fullYaml:
       'name: json-log-parser\ndescription: Parse and normalize JSON application logs\ntype: pipeline\nnamespace: default\n\nconfig:\n  input:\n    file:\n      paths:\n        - /var/log/app/*.jsonl\n      codec: lines\n\n  pipeline:\n    processors:\n      # Parse JSON\n      - mapping: root = content().parse_json()\n      # Parse and normalize timestamp\n      - mapping: |\n          root = this\n          root.timestamp_unix = this.timestamp.parse_timestamp("2006-01-02T15:04:05.999Z07:00").ts_unix()\n          root.timestamp_iso = this.timestamp\n\n      # Normalize log level\n      - mapping: |\n          root = this\n          root.level = this.level.uppercase()\n\n      # Extract error details\n      - mapping: |\n          root = this\n          root.error_details = if this.exists("error") {\n            {\n              "message": this.error,\n              "stack_trace": this.stack_trace.or(""),\n              "error_code": this.error_code.or(""),\n              "timestamp": this.timestamp_unix\n            }\n          }\n\n      # Add metadata\n      - mapping: |\n          root = this\n          root.metadata = {\n            "parsed_by": "json-parser",\n            "parsed_at": now().ts_unix(),\n            "source_node": env("NODE_ID").or("unknown")\n          }\n\n      # Remove debug fields\n      - mapping: |\n          root = this.without("debug_info", "internal_state", "raw_request")\n\n      # Filter by log level (only WARN, ERROR, FATAL)\n      - mapping: |\n          root = if ["WARN", "ERROR", "FATAL"].contains(this.level.or("INFO")) {\n            this\n          } else {\n            deleted()\n          }\n\n  output:\n    http_client:\n      url: \'${LOG_ENDPOINT}/logs\'\n      verb: POST\n      batching:\n        count: 100\n        period: 10s\n      retries: 3\n',
+    completePipelineHref: "/data-transformation/parse-logs/complete-parser/",
+    fullPipelineCodeKind: "complete",
   },
   stages: GENERATED_EXPLORER_STAGES,
 } satisfies GeneratedExplorerStageFamily;

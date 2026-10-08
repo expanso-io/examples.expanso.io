@@ -99,6 +99,7 @@ export function bindCanonicalExplorerStages(
       slug: generatedStage.slug,
       yamlCode: generatedStage.yamlCode,
       yamlFilename: generatedStage.yamlFilename,
+      pipelineCodeKind: generatedStage.pipelineCodeKind,
     };
   });
 }

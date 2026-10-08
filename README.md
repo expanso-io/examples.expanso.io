@@ -77,11 +77,9 @@ Copyright © 2024 Expanso, Inc.
 For delivery and identity behavior, install the pinned browser with
 `npx playwright install chromium`, then run `npm run test-analytics-collector`.
 The collector suite bundles the actual analytics modules and installed PostHog
-SDK, runs them in Chromium, and intercepts all network requests. If a local
-pinned browser install is unavailable, the explicitly selected installed Chrome
-channel can run the same suite with
-`ANALYTICS_BROWSER_CHANNEL=chrome npm run test-analytics-collector`. It verifies
-outbound SDK payloads without sending events to production or starting a server.
+SDK, runs them in bundled headless Chromium, and intercepts all network requests.
+It verifies outbound SDK payloads without sending events to production or
+starting a server.
 It covers semantic event delivery, manual route pageview ownership, production
 hostname gating, campaign/QA labels, consent persistence and revocation.
 

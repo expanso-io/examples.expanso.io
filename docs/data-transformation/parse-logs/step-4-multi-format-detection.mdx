@@ -21,12 +21,12 @@ In a real-world system, you often receive logs in various formats through a sing
 
 ## The Goal
 
-You will build a single pipeline that can correctly parse JSON, CSV, and Access Log strings by combining the techniques from the previous three steps.
+You will build a single pipeline that parses JSON, five-field CSV, syslog, and Access Log strings.
 
 ## The "Detect -> Route" Pattern
 
 1.  **Detect:** A `mapping` processor inspects the raw log string and uses simple heuristics (like checking for `{` or `<`) to guess the format, setting a metadata field like `detected_format`.
-2.  **Route:** A `switch` processor then reads this metadata field and sends the message to the appropriate block of processors (`parse_json`, `csv`, or `grok`).
+2.  **Route:** A `switch` processor reads this metadata field and selects a Bloblang mapping using `.parse_json()`, `.parse_csv()`, or regular-expression captures.
 
 ## Implementation
 
@@ -44,46 +44,65 @@ You will build a single pipeline that can correctly parse JSON, CSV, and Access 
 
       pipeline:
         processors:
-          # 1. DETECT: Guess the format based on the content
+          # 1. Detect the format from the raw log field.
           - mapping: |
               root = this
               let content = this.raw_log.string()
-              meta detected_format = if content.starts_with("{ ") {
+              meta detected_format = if $content.has_prefix("{") {
                 "json"
-              } else if content.starts_with("<") {
+              } else if $content.has_prefix("<") {
                 "syslog"
-              } else if content.count(",") >= 2 {
+              } else if $content.split(",").length() >= 3 {
                 "csv"
-              } else if content.re_match("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}") {
+              } else if $content.re_match("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}") {
                 "access_log"
               } else {
                 "unknown"
               }
 
-          # 2. ROUTE: Use a switch to send to the correct parser
+          # 2. Route to the matching parser.
           - switch:
               - check: meta("detected_format") == "json"
                 processors:
-                  - mapping: `root = this.raw_log.parse_json()`
-                  - mapping: `root.parsed_by = "json_parser"`
-
+                  - mapping: root = this.raw_log.parse_json()
+                  - mapping: |
+                      root = this
+                      root.parsed_by = "json_parser"
               - check: meta("detected_format") == "csv"
                 processors:
-                  - csv:
-                      target_field: root.raw_log
-                      columns: [ "f1", "f2", "f3", "f4", "f5" ]
-                  - mapping: `root.parsed_by = "csv_parser"`
-
+                  - mapping: |
+                      let header = "timestamp,metric_name,sensor_id,value,unit\n"
+                      root = ($header + this.raw_log).parse_csv().index(0)
+                      root.parsed_by = "csv_parser"
+              - check: meta("detected_format") == "syslog"
+                processors:
+                  - mapping: |
+                      let parts = this.raw_log.re_find_all_submatch("^<([0-9]+)>([A-Z][a-z]{2} +[0-9]+ [0-9:]+) ([^ ]+) ([^ :\\[]+)(?:\\[([0-9]+)\\])?: (.*)$").index(0)
+                      root = {
+                        "priority": $parts.index(1),
+                        "timestamp": $parts.index(2),
+                        "hostname": $parts.index(3),
+                        "tag": $parts.index(4),
+                        "pid": $parts.index(5),
+                        "message": $parts.index(6),
+                        "parsed_by": "syslog_parser"
+                      }
               - check: meta("detected_format") == "access_log"
                 processors:
-                  - grok:
-                      target_field: root.raw_log
-                      expressions: [ '%{COMMONAPACHELOG}' ]
-                  - mapping: `root.parsed_by = "access_log_parser"`
-
-              # Fallback for unknown formats
+                  - mapping: |
+                      let parts = this.raw_log.re_find_all_submatch("^(\\S+) \\S+ \\S+ \\[([^]]+)\\] \"([^\"]+)\" ([0-9]+) ([0-9]+|-)$").index(0)
+                      root = {
+                        "ip": $parts.index(1),
+                        "timestamp": $parts.index(2),
+                        "request": $parts.index(3),
+                        "status": $parts.index(4).number(),
+                        "bytes": if $parts.index(5) == "-" { null } else { $parts.index(5).number() },
+                        "parsed_by": "access_log_parser"
+                      }
               - processors:
-                  - mapping: `root.parsed_by = "unknown"`
+                  - mapping: |
+                      root = this
+                      root.parsed_by = "unknown"
 
       output:
         stdout:
@@ -95,8 +114,11 @@ You will build a single pipeline that can correctly parse JSON, CSV, and Access 
     ```bash
     # --- Send logs in different formats ---
     curl -X POST http://localhost:8080/ingest -d '{"raw_log": "{\"level\":\"info\"}"}'
-    curl -X POST http://localhost:8080/ingest -d '{"raw_log": "data1,data2,data3"}'
+
+    curl -X POST http://localhost:8080/ingest \
+     -d '{"raw_log": "2025-10-20T14:23:45Z,temperature,temp-sensor-01,35.5,celsius"}'
     curl -X POST http://localhost:8080/ingest -d '{"raw_log": "127.0.0.1 - - [01/Jan/2025:12:00:00 +0000] \"GET / HTTP/1.1\" 200 123"}'
+
     ```
 
 3.  **Verify:**

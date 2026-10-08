@@ -45,10 +45,10 @@ docker logs content-splitting --tail 20 2>&1 | grep readings
 
 **Fix:** Verify the array field name matches your config:
 
-```yaml
+```yaml title="Partial snippet: select and split the readings array"
+- mapping: root = this.readings
 - unarchive:
     format: json_array
-    field: readings # Must match your data
 ```
 
 ---
@@ -62,10 +62,11 @@ docker logs content-splitting --tail 20 2>&1 | grep readings
 ```yaml
 - mapping: |
     meta device_id = this.device_id
+    root = this.readings
 - unarchive:
     format: json_array
-    field: readings
 - mapping: |
+    root = this
     root.device_id = meta("device_id")
 ```
 

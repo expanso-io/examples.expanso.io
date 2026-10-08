@@ -3,24 +3,32 @@ cache_resources:
   - label: dedup_cache
     memory:
       default_ttl: 1h
-      cap: 100000
 
 pipeline:
+  threads: 1
   processors:
     - mapping: |
         root = this
         # Generate SHA-256 hash of entire content
         root.dedup_hash = this.format_json().hash("sha256")
 
-    - cache:
-        resource: dedup_cache
-        operator: get
-        key: \${! this.dedup_hash }
+    - for_each:
+        - branch:
+            request_map: root = this.dedup_hash
+            processors:
+              - cache:
+                  resource: dedup_cache
+                  operator: exists
+                  key: '${! content() }'
+            result_map: root.is_duplicate = content().string().bool()
 
-    - mapping: |
-        root = if meta("cache") != null {
-          deleted()  # Drop exact duplicates
-        } else {
-          _ = cache_set("dedup_cache", this.dedup_hash, now(), "1h")
-          this
-        }
+        - switch:
+            - check: '!this.is_duplicate'
+              processors:
+                - cache:
+                    resource: dedup_cache
+                    operator: set
+                    key: '${! json("dedup_hash") }'
+                    value: '${! now() }'
+            - processors:
+                - mapping: root = deleted()

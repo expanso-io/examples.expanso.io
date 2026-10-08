@@ -13,6 +13,7 @@ import {
   type ExplorerNavigationMethod,
 } from '../../analytics/events';
 import { captureExampleEvent } from '../../lib/analytics';
+import PipelineBadge from '../PipelineBadge';
 import CopyActionButton, { CopyToast } from './CopyActionButton';
 import {
   copyResultFeedback,
@@ -148,6 +149,8 @@ export default function ExplorerV2({
   title,
   subtitle,
   fullYaml,
+  fullPipelineCodeKind,
+  completePipelineHref,
   fullYamlFilename = 'pipeline.yaml',
   presentation,
   comparisonMode = 'diff',
@@ -848,11 +851,14 @@ export default function ExplorerV2({
         >
           <div className={styles.yamlPanel}>
             <div className={styles.yamlHeader}>
-              <span>
-                {isFinalStage && fullYaml
-                  ? 'Complete pipeline'
-                  : 'Stage configuration'}
-              </span>
+              <PipelineBadge
+                kind={
+                  visibleYamlScope === 'full'
+                    ? (fullPipelineCodeKind ?? 'fragment')
+                    : (currentStage.pipelineCodeKind ?? 'fragment')
+                }
+                completeHref={completePipelineHref}
+              />
               <code>{visibleYamlFilename}</code>
               <CopyActionButton
                 feedbackKey="yaml"

@@ -1,12 +1,21 @@
 pipeline:
   processors:
+    - mapping: |
+        meta source_format = if content().slice(0, 4).encode("hex") == "4f626a01" {
+          "avro"
+        } else {
+          "json"
+        }
+        root = content()
     - switch:
-        - check: this.type() == "object"
+        - check: 'meta("source_format") == "json"'
           processors:
-            - mapping: 'root = this # JSON detected'
-        - check: content().has_prefix("Obj\x01")
+            - mapping: root = content().parse_json()
+        - check: 'meta("source_format") == "avro"'
           processors:
-            - avro: {operator: from_json} # Avro detected
+            - mapping: |
+                root = content()
+                meta decoder_required = "avro"
         - processors:
             - log:
-                message: "Unknown format: ${!content()}"
+                message: 'Unknown format: ${!content()}'

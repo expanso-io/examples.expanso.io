@@ -13,6 +13,8 @@ import ts from 'typescript';
 import { format } from 'prettier';
 import { parseDocument } from 'yaml';
 
+import { classifyPipelineCode } from '../src/lib/pipelineCode';
+import { completePipelineRouteForFamily } from '../src/catalog/completePipelineRoutes';
 import { EXAMPLE_RECORDS } from '../src/catalog/registry';
 import { buildRemovePiiExplorerStages } from '../src/catalog/removePiiFidelity';
 import { EXPLORER_EVIDENCE_SCHEMA_DIGEST } from '../src/catalog/schema';
@@ -253,6 +255,9 @@ async function renderGeneratedModules(
           : {}),
         yamlFilename: stage.yamlFilename,
         yamlCode: configBytes.get(stage.configPath),
+        pipelineCodeKind:
+          classifyPipelineCode(configBytes.get(stage.configPath) ?? '') ??
+          'fragment',
         configSha256: stage.configSha256,
       };
     });
@@ -285,6 +290,10 @@ async function renderGeneratedModules(
         pipelineSha256: explorer.pipelineSha256,
         fullYamlFilename: basename(explorer.canonicalPipelinePath),
         fullYaml,
+        completePipelineHref: completePipelineRouteForFamily(
+          explorer.exampleId
+        ),
+        fullPipelineCodeKind: classifyPipelineCode(fullYaml) ?? 'fragment',
         stages,
       },
     };
@@ -358,6 +367,7 @@ export type GeneratedExplorerStageConfig = Omit<
   readonly title: string;
   readonly yamlFilename: string;
   readonly yamlCode: string;
+  readonly pipelineCodeKind: 'fragment' | 'complete';
   readonly configSha256: \`sha256:\${string}\`;
 };
 
@@ -367,6 +377,8 @@ export interface GeneratedExplorerStageFamily {
   readonly pipelineSha256: \`sha256:\${string}\`;
   readonly fullYamlFilename: string;
   readonly fullYaml: string;
+  readonly fullPipelineCodeKind: 'fragment' | 'complete';
+  readonly completePipelineHref?: string;
   readonly stages: readonly GeneratedExplorerStageConfig[];
 }
 

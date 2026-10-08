@@ -35,17 +35,14 @@ We'll add processors to the pipeline to handle parsing and validation.
 
 ### 1. Safe JSON Parsing
 
-We parse the incoming raw byte message into a JSON object. We verify it is an object and not an array or primitive.
+We parse the incoming raw byte message as JSON. The required-field mapping below rejects values without the expected log fields.
 
 ```yaml
 pipeline:
   processors:
     # Parse JSON
     - mapping: |
-        root = this.parse_json()
-        if root.type() != "object" {
-           throw("input must be a JSON object")
-        }
+        root = content().parse_json().catch(err -> throw("input must be a JSON object: " + err))
 
     # Handle parsing failures (Optional: use a catch mechanism or let it fail to error output)
 ```
@@ -60,10 +57,9 @@ We verify that critical fields exist. If they are missing, we can either drop th
     root = this
 
     # Check required fields
-    if !this.exists("timestamp") || !this.exists("level") || \
-       !this.exists("service") || !this.exists("message") {
-        throw("missing required fields: timestamp, level, service, message")
-    }
+    root = if !this.exists("timestamp") || !this.exists("level") || !this.exists("service") || !this.exists("message") {
+      throw("missing required fields: timestamp, level, service, message")
+    } else { this }
 
     # Normalize Level
     root.level = this.level.uppercase()

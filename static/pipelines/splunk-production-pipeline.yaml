@@ -134,16 +134,24 @@ config:
             "TRACE" => 1
             _ => 2
           }
-          root.event_category = match {
-            root.sourcetype == "cef" => "security"
-            root.log_level == "ERROR" || root.log_level == "FATAL" => "error"
-            root.log_level == "DEBUG" || root.log_level == "TRACE" => "debug"
-            root.message.string().lowercase().contains("health") && root.message.string().lowercase().contains("check") => "health_check"
-            root.message.string().lowercase().contains("login") || root.message.string().lowercase().contains("auth") => "authentication"
-            root.message.string().lowercase().contains("payment") || root.message.string().lowercase().contains("transaction") => "financial"
-            root.endpoint.string().catch("").contains("/api/") => "api_call"
-            root.sourcetype == "syslog" => "system"
-            _ => "application"
+          root.event_category = if root.sourcetype == "cef" {
+            "security"
+          } else if root.log_level == "ERROR" || root.log_level == "FATAL" {
+            "error"
+          } else if root.log_level == "DEBUG" || root.log_level == "TRACE" {
+            "debug"
+          } else if root.message.string().lowercase().contains("health") && root.message.string().lowercase().contains("check") {
+            "health_check"
+          } else if root.message.string().lowercase().contains("login") || root.message.string().lowercase().contains("auth") {
+            "authentication"
+          } else if root.message.string().lowercase().contains("payment") || root.message.string().lowercase().contains("transaction") {
+            "financial"
+          } else if root.endpoint.string().catch("").contains("/api/") {
+            "api_call"
+          } else if root.sourcetype == "syslog" {
+            "system"
+          } else {
+            "application"
           }
           root.risk_score = match root.severity.string().catch("") {
             "Critical" => 10

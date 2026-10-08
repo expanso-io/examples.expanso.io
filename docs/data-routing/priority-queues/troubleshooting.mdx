@@ -46,7 +46,9 @@ docker logs priority-queues --tail 20 2>&1 | grep priority
 **Fix:** Verify severity values match expected format (`CRITICAL`, `ERROR`, not `critical`):
 
 ```yaml
-root.severity = this.severity.uppercase() # Normalize first
+- mapping: |
+    root = this
+    root.severity = this.severity.uppercase() # Normalize first
 ```
 
 ---
@@ -59,9 +61,9 @@ root.severity = this.severity.uppercase() # Normalize first
 
 ```yaml
 - check: this.priority_score >= 200
-  output: { kafka: { topic: critical-queue } }
+  output: { kafka: { addresses: ['localhost:9092'], topic: critical-queue } }
 - check: this.priority_score >= 100
-  output: { kafka: { topic: high-queue } }
+  output: { kafka: { addresses: ['localhost:9092'], topic: high-queue } }
 ```
 
 ---
@@ -74,9 +76,8 @@ root.severity = this.severity.uppercase() # Normalize first
 
 ```yaml
 - mapping: |
-    if this.age_seconds > 3600 {
-      root.priority_score = root.priority_score + 50
-    }
+    root = this
+    root.priority_score = if this.age_seconds > 3600 { this.priority_score + 50 } else { this.priority_score }
 ```
 
 ---
@@ -88,8 +89,10 @@ root.severity = this.severity.uppercase() # Normalize first
 **Fix:** Add defaults for missing fields:
 
 ```yaml
-root.severity = this.severity.or("INFO")
-root.user_tier = this.user_tier.or("free")
+- mapping: |
+    root = this
+    root.severity = this.severity.or("INFO")
+    root.user_tier = this.user_tier.or("free")
 ```
 
 ## Still stuck?

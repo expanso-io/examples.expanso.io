@@ -51,7 +51,7 @@ pipeline:
         }
 
         # Standardized ISO timestamp
-        root.timestamp_iso = timestamp_ns().ts_format("2006-01-02T15:04:05.000000000Z")
+        root.timestamp_iso = (root.timestamp_ns / 1000000000).ts_format("2006-01-02T15:04:05.000000000Z", "UTC")
 
         # Processing timestamp for pipeline tracking
         root.processed_at = now()
@@ -67,8 +67,8 @@ pipeline:
     - mapping: |
         root = this
 
-# Illustrative PTP offset bands for this configuration
-# Validate bands against the applicable equipment and network requirements
+        # Illustrative PTP offset bands for this configuration.
+        # Validate bands against the applicable equipment and network requirements.
         let abs_offset = if this.ptp4l_offset_ns < 0 {
           -this.ptp4l_offset_ns
         } else {
@@ -76,10 +76,10 @@ pipeline:
         }
 
         root.ptp_review = match {
-$abs_offset < 100      => "within_band"  # Within the narrowest example band
-$abs_offset < 1000     => "degraded"     # Example warning band
-$abs_offset < 10000    => "critical"     # Example critical band
-_                      => "outside_band" # Outside the authored bands
+          $abs_offset < 100      => "within_band"  # Narrowest example band
+          $abs_offset < 1000     => "degraded"     # Example warning band
+          $abs_offset < 10000    => "critical"     # Example critical band
+          _                      => "outside_band"  # Outside the authored bands
         }
 
         # Review score (0-100)
@@ -214,7 +214,7 @@ pipeline:
         root.site_type = env("SITE_TYPE") | "urban-macro"
 
         # Generate site identifiers
-        root.gnb_id = env("GNB_ID") | "gnb-" + this.region + "-" + this.cell_id.string().pad_left(3, "0")
+        root.gnb_id = env("GNB_ID") | "gnb-" + this.region + "-" + this.cell_id.string()
         root.enb_id = this.gnb_id  # Backwards compatibility
 
         # Cell sector information
@@ -366,25 +366,17 @@ pipeline:
         root = this
 
         # Check for required fields after transformation
-        let required_fields = [
-          this.timestamp_ns != null,
-          this.du_id != "",
-          this.ptp_review != null,
+        root.validation_passed = this.timestamp_ns != null &&
+          this.du_id != "" &&
+          this.ptp_review != null &&
           this.prb_efficiency != null
-        ]
-
-        root.validation_passed = required_fields.all()
 
         # Add validation metadata
         root.validation = {
-          "timestamp": timestamp_ns().ts_format("2006-01-02T15:04:05Z"),
+          "timestamp": (root.timestamp_ns / 1000000000).ts_format("2006-01-02T15:04:05.000000000Z", "UTC"),
           "pipeline_stage": "transform",
           "passed": root.validation_passed,
-          "errors": if !root.validation_passed {
-            required_fields.enumerate().filter(pair -> !pair.value).map(pair -> "missing_field_" + pair.index.string())
-          } else {
-            []
-          }
+          "errors": if root.validation_passed { [] } else { ["missing_required_field"] }
         }
 
     # Drop invalid records or route to error handling

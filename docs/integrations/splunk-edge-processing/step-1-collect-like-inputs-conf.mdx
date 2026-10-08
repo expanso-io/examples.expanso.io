@@ -52,24 +52,16 @@ The example represents these settings in one pipeline configuration:
 ```yaml
 # pipeline.yaml
 input:
-  file_watcher:
+  file:
     paths:
       - '/var/log/expanso-demo/*.log'
-
-    # File path and multiline options used in this example
-    include_file_name: true
-    multiline:
-      pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}'
-      negate: false
-      match: after
-
-    # Parse JSON at collection time
-    auto_parse_json: true
-
-    # Metadata tagging
-    metadata:
-      source_system: 'expanso-edge'
-      collection_time: '${timestamp()}'
+    scanner:
+      lines: {}
+  processors:
+    - mapping: |
+        root = content().parse_json()
+        root.source_system = "expanso-edge"
+        root.collection_time = now()
 ```
 
 **Configured behavior in this example:**
@@ -212,25 +204,27 @@ processors:
 
 ### 2. File Rotation Handling
 
-```yaml
+```yaml title="Partial snippet: file scan configuration"
 input:
-  file_watcher:
-    # Configure log-rotation windows
-    ignore_older: '24h'
-    close_inactive: '1h'
-    clean_inactive: '72h'
-    scan_frequency: '10s'
+  file:
+    paths: ['/var/log/expanso-demo/*.log']
+    scanner:
+      lines: {}
 ```
 
 ### 3. Error Resilience
 
-```yaml
+```yaml title="Partial snippet: file input with error logging"
 input:
-  file_watcher:
-    # Continue processing if one file has issues
-    ignore_errors: true
-    retry_interval: '30s'
-    max_retries: 3
+  file:
+    paths: ['/var/log/expanso-demo/*.log']
+    scanner:
+      lines: {}
+  processors:
+    - catch:
+        - log:
+            level: ERROR
+            message: '${! error() }'
 ```
 
 ## Monitoring and Troubleshooting

@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -23,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate showcased job with Expanso CLI v2.1.19
+      - name: Validate showcased job with latest Expanso CLI
         env:
           EXPANSO_DISABLEANALYTICS: 'true'
           EXPANSO_INSTALL_DIR: ${{ runner.temp }}/expanso-bin
@@ -35,10 +36,10 @@ jobs:
           curl --fail --location --silent --show-error \
             https://get.expanso.io/cli/install.sh \
             --output "${INSTALLER}"
-          bash "${INSTALLER}" --version v2.1.19
+          bash "${INSTALLER}"
 
           CLI="${EXPANSO_INSTALL_DIR}/expanso-cli"
-          "${CLI}" version | grep -F 'v2.1.19'
+          "${CLI}" version
           "${CLI}" job validate \
             examples/getting-started/quickstart-complete.yaml \
             --offline

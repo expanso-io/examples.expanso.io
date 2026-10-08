@@ -35,19 +35,16 @@ input:
 pipeline:
   processors:
     - mapping: |
-        let fields = content().string().split(";").fold({}, (acc, item) -> {
-          let parts = item.split("=")
-          acc | { parts[0]: parts[1] }
-        })
-        let reg = fields.REG.number()
-        let val = fields.VAL.number()
+        let fields = content().string().split(";").fold({}, item -> item.tally.merge({ item.value.split("=").index(0): item.value.split("=").index(1) }))
+        let reg = $fields.REG.number()
+        let val = $fields.VAL.number()
 
-        root.voltage_kv = if reg == 40001 { val / 100.0 } else { deleted() }
-        root.device_id = fields.DEVICE
-        root.register = reg
-        root.raw_value = val
-        root.status = fields.STATUS.number()
-        root."@timestamp" = fields.TS.number()
+        root.voltage_kv = if $reg == 40001 { $val / 100.0 } else { deleted() }
+        root.device_id = $fields.DEVICE
+        root.register = $reg
+        root.raw_value = $val
+        root.status = $fields.STATUS.number()
+        root."@timestamp" = $fields.TS.number()
 ```
 
 For register `40001`, a value of `14823` becomes `voltage_kv: 148.23`. The mapping also retains the device identifier, register, raw value, status, and timestamp.

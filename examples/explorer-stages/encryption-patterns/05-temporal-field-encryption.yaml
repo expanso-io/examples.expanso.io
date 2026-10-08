@@ -1,10 +1,12 @@
-# Stage 5: Temporal Field Encryption
+# Stage 5: Temporal Data Encryption (HIPAA Compliance)
 
 pipeline:
   processors:
     # Birth date encryption with age analytics preservation
     - mapping: |
         root = this
+        let key = env("TEMPORAL_ENCRYPTION_KEY").or(throw("TEMPORAL_ENCRYPTION_KEY is not set"))
+        let dob_iv = uuid_v4().hash("sha256").slice(0, 12)
 
         # Parse birth date for analytics extraction
         let birth_date = this.customer.date_of_birth.parse_timestamp("2006-01-02")
@@ -42,7 +44,8 @@ pipeline:
         }
 
         # Encrypt exact birth date (HIPAA requirement)
-        root.customer.date_of_birth_encrypted = this.customer.date_of_birth.encrypt_aes("gcm", env("TEMPORAL_ENCRYPTION_KEY"))
+        root.customer.date_of_birth_nonce = $dob_iv.encode("base64")
+        root.customer.date_of_birth_encrypted = this.customer.date_of_birth.string().encrypt_aes("gcm", $key, $dob_iv).encode("base64")
 
         # Remove plaintext birth date
         root.customer.date_of_birth = deleted()

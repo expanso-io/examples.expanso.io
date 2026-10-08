@@ -3,42 +3,8 @@ name: Validate Example Pipelines
 on:
   push:
     branches: [main]
-    paths:
-      - 'examples/**/*.yaml'
-      - 'examples/**/*.yml'
-      - 'static/files/**/*.yaml'
-      - 'static/files/**/*.yml'
-      - 'static/pipelines/**/*.yaml'
-      - 'static/pipelines/**/*.yml'
-      - 'docs/**/pipeline.yaml'
-      - 'docs/**/pipeline.yml'
-      - 'tests/fixtures/pipeline-inputs/**'
-      - 'scripts/validate-examples.ts'
-      - 'scripts/validation/**'
-      - 'tests/validation/**'
-      - 'validation-reports/**'
-      - '.github/workflows/validate-examples.yml'
-      - 'package.json'
-      - 'package-lock.json'
   pull_request:
     branches: [main]
-    paths:
-      - 'examples/**/*.yaml'
-      - 'examples/**/*.yml'
-      - 'static/files/**/*.yaml'
-      - 'static/files/**/*.yml'
-      - 'static/pipelines/**/*.yaml'
-      - 'static/pipelines/**/*.yml'
-      - 'docs/**/pipeline.yaml'
-      - 'docs/**/pipeline.yml'
-      - 'tests/fixtures/pipeline-inputs/**'
-      - 'scripts/validate-examples.ts'
-      - 'scripts/validation/**'
-      - 'tests/validation/**'
-      - 'validation-reports/**'
-      - '.github/workflows/validate-examples.yml'
-      - 'package.json'
-      - 'package-lock.json'
   workflow_dispatch:
 
 permissions:
@@ -53,7 +19,7 @@ env:
 
 jobs:
   validate:
-    name: Validate and run complete pipelines
+    name: Validate Example Pipelines
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -61,19 +27,105 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Detect validation-related changes
+        id: scope
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Manual run: validating every published pipeline."
+            exit 0
+          fi
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags origin "$BASE_REF"
+            base=$(git merge-base HEAD "origin/$BASE_REF")
+          elif [ -n "$BEFORE_SHA" ] &&
+            [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ] &&
+            git cat-file -e "$BEFORE_SHA^{commit}"; then
+            base=$BEFORE_SHA
+          else
+            base=$(git rev-parse HEAD^)
+          fi
+
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          changed=$(git diff --name-only "$base" HEAD)
+          run=false
+          while IFS= read -r path; do
+            case "$path" in
+              ''|LICENSE|LICENSE.txt|static/img/*.avif|static/img/*.gif|\
+              static/img/*.ico|static/img/*.jpg|static/img/*.jpeg|\
+              static/img/*.png|static/img/*.svg|static/img/*.webp) ;;
+              *) run=true ;;
+            esac
+          done <<< "$changed"
+
+          if [ "$run" = false ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Only explicit no-op files changed; validation is a fast no-op."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Validation-related changes:"
+            printf '%s\n' "$changed"
+          fi
+
       - name: Set up Node.js
+        if: steps.scope.outputs.run == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
       - name: Install dependencies
+        if: steps.scope.outputs.run == 'true'
         run: npm ci
 
+      - name: Install latest Expanso Edge and CLI
+        if: steps.scope.outputs.run == 'true'
+        env:
+          EXPANSO_DISABLEANALYTICS: 'true'
+          EXPANSO_INSTALL_DIR: ${{ runner.temp }}/expanso-bin
+          USE_SUDO: 'false'
+        run: |
+          set -euo pipefail
+          mkdir -p "$EXPANSO_INSTALL_DIR"
+          for component in edge cli; do
+            installer="${RUNNER_TEMP}/install-expanso-${component}.sh"
+            curl --fail --location --silent --show-error \
+              "https://get.expanso.io/${component}/install.sh" \
+              --output "$installer"
+            bash "$installer"
+          done
+          echo "$EXPANSO_INSTALL_DIR" >> "$GITHUB_PATH"
+
       - name: Preserve pre-sweep pipeline features
+        if: steps.scope.outputs.run == 'true'
         run: npm run test-feature-preservation
 
-      - name: Validate and run examples with pinned Expanso Edge
+      - name: Verify validation and native encoder regressions
+        if: steps.scope.outputs.run == 'true'
+        run: npm run test-validation-regressions
+
+      - name: Enforce Playwright browser isolation
+        if: steps.scope.outputs.run == 'true'
+        run: npm run quality:browser-isolation
+
+      - name: Verify published pipeline code-block classification
+        if: steps.scope.outputs.run == 'true'
+        run: npm run validate-pipeline-blocks
+
+      - name: Require linked conformance tables
+        if: steps.scope.outputs.run == 'true'
+        run: |
+          npm run reports:conformance:links
+          git diff --exit-code -- validation-reports/conformance
+
+      - name: Validate and run examples with latest Expanso Edge
+        if: steps.scope.outputs.run == 'true'
         env:
           EXPANSO_DISABLEANALYTICS: 'true'
         run: |
@@ -81,10 +133,12 @@ jobs:
             "require('./validation-reports/latest/report.json').summary.date")
           npm run validate-examples -- --date "$report_date"
 
-      - name: Print Expanso Edge version
-        run: ./.bin/expanso-edge version
+      - name: Print Expanso versions
+        if: steps.scope.outputs.run == 'true'
+        run: |
+          expanso-edge version
+          expanso-cli version
 
       - name: Require committed validation reports
-        run: |
-          git diff --exit-code -- \
-            validation-reports
+        if: steps.scope.outputs.run == 'true'
+        run: node scripts/validation/check-report-drift.mjs

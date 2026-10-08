@@ -17,6 +17,14 @@ export type PipelineKind =
 export interface PipelineFile {
   /** Repository-relative POSIX path. */
   path: string;
+  /** Physical source file when `path` includes a page line anchor. */
+  sourcePath?: string;
+  sourceLine?: number;
+  /** Published route where visitors see this pipeline or fragment. */
+  liveRoute?: string;
+  /** Complete pipeline that supplies the fragment's canonical context. */
+  canonicalPath?: string;
+  surface?: 'file' | 'page';
   kind: PipelineKind;
   /** Category directory, e.g. `data-routing`. */
   category: string;
@@ -24,6 +32,7 @@ export interface PipelineFile {
   family: string;
   /** Parsed document (undefined for invalid YAML). */
   document?: YamlValue;
+  source?: string;
   parseError?: string;
 }
 
@@ -75,7 +84,7 @@ export interface ReportSummary {
   failure?: string;
   date: string;
   edgeVersion: string;
-  pinnedEdgeVersion: string;
+  cliVersion: string;
   inventoryDigest: string;
   complete: {
     total: number;

@@ -37,14 +37,14 @@ output:
       - check: this.customer_tier == "enterprise"
         output:
           kafka:
-            addresses: [ ${ENTERPRISE_KAFKA_BROKERS} ]
+            addresses: ['${ENTERPRISE_KAFKA_BROKERS}']
             topic: enterprise-events
             # ... include strict reliability and security settings
 
       # All other customers go to the standard, shared Kafka cluster
       - output:
           kafka:
-            addresses: [ ${KAFKA_BROKERS} ]
+            addresses: ['${KAFKA_BROKERS}']
             topic: standard-events
 ```
 
@@ -56,24 +56,20 @@ Your scoring can be made adaptive. If the system is under heavy load, the criter
 - mapping: |
     root = this
 
-    # Fetch current system load from a monitoring endpoint (conceptual)
-    let system_load_percent = http_client(
-      "http://monitoring.internal/api/load",
-      {"timeout": "50ms"}
-    ).cpu.or(50)
+    # A preceding integration stage supplies the measured system load.
+    let system_load_percent = this.system_load_percent.or(50)
 
     # If load is high, apply a penalty to all scores
     let load_penalty = match {
-      system_load_percent > 90 => 20, # Heavy penalty
-      system_load_percent > 75 => 10, # Moderate penalty
+      $system_load_percent > 90 => 20, # Heavy penalty
+      $system_load_percent > 75 => 10, # Moderate penalty
       _ => 0
     }
 
-    # Calculate score as before...
-    let base_score = ...
+    let base_score = this.priority_score.or(0)
 
     # Apply the penalty
-    root.priority_score = base_score - load_penalty
+    root.priority_score = $base_score - $load_penalty
 ```
 
 ## Pattern 3: SLA Tracking and Violation Alerting
@@ -91,15 +87,15 @@ For paying customers, you can explicitly track and alert on SLA (Service Level A
       _ => 5000
     }
 
-    let processing_time_ms = (now().unix_nano() - this.timestamp.parse_timestamp().unix_nano()) / 1000000
+    let processing_time_ms = (now().ts_unix_nano() - this.timestamp.ts_parse("2006-01-02T15:04:05Z07:00").ts_unix_nano()) / 1000000
 
-    if processing_time_ms > sla_target_ms {
-      root.sla_violation = {
+    root.sla_violation = if $processing_time_ms > $sla_target_ms {
+      {
         "tier": this.customer_tier,
-        "target_ms": sla_target_ms,
-        "actual_ms": processing_time_ms
+        "target_ms": $sla_target_ms,
+        "actual_ms": $processing_time_ms
       }
-    }
+    } else { deleted() }
 
 # Downstream, a 'switch' can route SLA violations to an alerting system.
 ```
@@ -112,7 +108,7 @@ The following settings are adaptation sketches. Choose acknowledgements, batchin
 - check: this.priority == "critical"
   output:
     kafka:
-      addresses: ['${KAFKA_BROKERS}']
+      addresses: ['${KAFKA_BROKERS:localhost:9092}']
       topic: logs-critical
       batching:
         count: 1 # No batching for speed
@@ -122,9 +118,6 @@ The following settings are adaptation sketches. Choose acknowledgements, batchin
       ack_replicas: true
       idempotent_write: true
       max_retries: 10
-      backoff:
-        initial_interval: 100ms
-        max_interval: 2s
       compression: none # No compression for speed
 ```
 
@@ -132,15 +125,15 @@ The following settings are adaptation sketches. Choose acknowledgements, batchin
 - check: this.priority == "bulk"
   output:
     kafka:
-      addresses: ['${KAFKA_BROKERS}']
+      addresses: ['${KAFKA_BROKERS:localhost:9092}']
       topic: logs-bulk
       batching:
         count: 5000 # Massive batches for throughput
         period: 5m
-        byte_size: 10MB
+        byte_size: 10485760
       # Performance settings
       max_in_flight: 20
-compression: gzip # Compression choice; benchmark with representative payloads
+      compression: gzip # Compression choice; benchmark with representative payloads
       # Reliability is less important
       ack_replicas: false
       max_retries: 1

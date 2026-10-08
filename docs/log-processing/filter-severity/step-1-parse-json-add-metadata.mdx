@@ -50,29 +50,25 @@ The key to this pattern is the `.catch()` method. When `.parse_json()` fails on 
     config:
       input:
         generate:
+          count: 1
           interval: 1s
           mapping: |
-            # This generates a mix of JSON strings and plain-text strings
-            root.raw_log = if random_int() % 2 == 0 {
-              '{"level": "info", "message": "User logged in"}'
-            } else {
-              "web server started"
-            }
+            root = [
+              {"raw_log": "{\"level\":\"info\",\"message\":\"User logged in\"}"},
+              {"raw_log": "web server started"}
+            ]
 
       pipeline:
         processors:
+          - unarchive:
+              format: json_array
           - mapping: |
-              # Try to parse the raw_log field as JSON.
-              # If it fails, .catch() will return the original raw_log string.
-              let parsed = this.raw_log.parse_json().catch(this.raw_log)
-
-              # Now, check if the result is a structured object or still a string.
-              if parsed.type() == "object" {
-                root = parsed
-                root.was_json = true
+              let parsed = this.raw_log.parse_json().catch(null)
+              if $parsed.type() == "object" {
+                root = $parsed.merge({"was_json": true})
               } else {
                 root = {
-                  "message": parsed,
+                  "message": this.raw_log,
                   "was_json": false,
                   "level": "unknown"
                 }

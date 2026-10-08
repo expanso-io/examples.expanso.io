@@ -64,23 +64,23 @@ You will parse a raw syslog string and then decompose the `priority` number into
         generate:
           interval: 1s
           mapping: |
-            root.raw_log = '<134>Oct 20 14:23:45 edge-node-01 app[12345]: Database connection established'
+            root.raw_log = "<134>Oct 20 14:23:45 edge-node-01 app[12345]: Database connection established"
 
       pipeline:
         processors:
-          # 1. GROK: Extract the raw fields from the syslog string
-          - grok:
-              target_field: root.raw_log
-              expressions:
-                - '<%{POSINT:priority}>%{SYSLOGTIMESTAMP:timestamp} %{SYSLOGHOST:hostname} %{DATA:tag}(?:\[%{POSINT:pid}\])?: %{GREEDYDATA:message}'
-              named_captures_only: true
-
-          # 2. DECOMPOSE: Calculate facility and severity from the priority
           - mapping: |
-              root = this
-              let pri = this.priority.number()
-              root.facility = (pri / 8).floor()
-              root.severity = pri % 8
+              let parts = this.raw_log.re_find_all_submatch("^<([0-9]+)>([A-Z][a-z]{2} +[0-9]+ [0-9:]+) ([^ ]+) ([^ :\\[]+)(?:\\[([0-9]+)\\])?: (.*)$").index(0)
+              let pri = $parts.index(1).number()
+              root = {
+                "priority": $parts.index(1),
+                "timestamp": $parts.index(2),
+                "hostname": $parts.index(3),
+                "tag": $parts.index(4),
+                "pid": $parts.index(5),
+                "message": $parts.index(6),
+                "facility": ($pri / 8).floor(),
+                "severity": $pri % 8
+              }
 
       output:
         stdout:

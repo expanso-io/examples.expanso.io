@@ -45,18 +45,17 @@ You can use the extracted time components to add valuable business-specific flag
 ```yaml title="Add Business Logic Flags"
 - mapping: |
     root = this
-    let ts = this.timestamp_utc.parse_timestamp()
+    let ts = this.timestamp_utc.ts_parse("2006-01-02T15:04:05Z07:00")
 
-    let month = ts.ts_month()
-    let day = ts.ts_day()
-    let day_of_week = ts.ts_weekday() # Sunday = 0, Saturday = 6
+    let month = $ts.ts_format("01").number()
+    let day = $ts.ts_format("02").number()
+    let day_of_week = $ts.ts_format("Monday")
 
     # Weekend Detection
-    root.time_metadata.is_weekend = day_of_week == 0 || day_of_week == 6
+    root.time_metadata.is_weekend = $day_of_week == "Saturday" || $day_of_week == "Sunday"
 
     # Holiday Detection (simplified example)
-    root.time_metadata.is_holiday = (month == 1 && day == 1) ||      # New Year's
-                                    (month == 12 && day == 25)        # Christmas
+    root.time_metadata.is_holiday = ($month == 1 && $day == 1) || ($month == 12 && $day == 25)
 
     # Business Day Flag
     root.time_metadata.is_business_day = !root.time_metadata.is_weekend && !root.time_metadata.is_holiday
@@ -75,11 +74,11 @@ For financial data, you can add fiscal calendar information, such as the fiscal 
     let year = this.time_metadata.year
 
     # Fiscal Year (October 1st - September 30th)
-    root.time_metadata.fiscal_year = if month >= 10 { year + 1 } else { year }
+    root.time_metadata.fiscal_year = if $month >= 10 { $year + 1 } else { $year }
 
-    root.time_metadata.fiscal_quarter = if month >= 10 { "FQ1" }
-                                       else if month >= 7 { "FQ4" }
-                                       else if month >= 4 { "FQ3" }
+    root.time_metadata.fiscal_quarter = if $month >= 10 { "FQ1" }
+                                       else if $month >= 7 { "FQ4" }
+                                       else if $month >= 4 { "FQ3" }
                                        else { "FQ2" }
 ```
 

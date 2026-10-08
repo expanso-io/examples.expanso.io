@@ -5,6 +5,11 @@ pipeline:
     # Address encryption with demographic preservation
     - mapping: |
         root = this
+        let key = env("ADDRESS_ENCRYPTION_KEY").or(throw("ADDRESS_ENCRYPTION_KEY is not set"))
+        let billing_street_iv = uuid_v4().hash("sha256").slice(0, 12)
+        let billing_zip_iv = uuid_v4().hash("sha256").slice(0, 12)
+        let shipping_street_iv = uuid_v4().hash("sha256").slice(0, 12)
+        let shipping_zip_iv = uuid_v4().hash("sha256").slice(0, 12)
 
         # Extract ZIP prefixes for demographic clustering
         root.billing_address.zip_prefix = this.billing_address.zip.re_replace_all("[^0-9]", "").slice(0, 3)
@@ -18,10 +23,14 @@ pipeline:
         }
 
         # Encrypt precise location data
-        root.billing_address.street_encrypted = this.billing_address.street.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
-        root.billing_address.zip_encrypted = this.billing_address.zip.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
-        root.shipping_address.street_encrypted = this.shipping_address.street.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
-        root.shipping_address.zip_encrypted = this.shipping_address.zip.encrypt_aes("gcm", env("ADDRESS_ENCRYPTION_KEY"))
+        root.billing_address.street_nonce = $billing_street_iv.encode("base64")
+        root.billing_address.street_encrypted = this.billing_address.street.string().encrypt_aes("gcm", $key, $billing_street_iv).encode("base64")
+        root.billing_address.zip_nonce = $billing_zip_iv.encode("base64")
+        root.billing_address.zip_encrypted = this.billing_address.zip.string().encrypt_aes("gcm", $key, $billing_zip_iv).encode("base64")
+        root.shipping_address.street_nonce = $shipping_street_iv.encode("base64")
+        root.shipping_address.street_encrypted = this.shipping_address.street.string().encrypt_aes("gcm", $key, $shipping_street_iv).encode("base64")
+        root.shipping_address.zip_nonce = $shipping_zip_iv.encode("base64")
+        root.shipping_address.zip_encrypted = this.shipping_address.zip.string().encrypt_aes("gcm", $key, $shipping_zip_iv).encode("base64")
 
         # Address relationship analysis
         root.address_analysis = {
@@ -31,7 +40,7 @@ pipeline:
         }
 
         # Remove plaintext addresses
-        root.billing_address = this.billing_address.without("street", "zip")
-        root.shipping_address = this.shipping_address.without("street", "zip")
+        root.billing_address = root.billing_address.without("street", "zip")
+        root.shipping_address = root.shipping_address.without("street", "zip")
     - catch:
         - mapping: root = deleted()

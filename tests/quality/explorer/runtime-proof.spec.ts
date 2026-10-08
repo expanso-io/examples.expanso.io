@@ -2,11 +2,6 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
 const route = '/__explorer-runtime-proof';
-const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
-
-if (executablePath) {
-  test.use({ launchOptions: { executablePath } });
-}
 
 test.beforeEach(async ({ page }) => {
   await page.goto(route, { waitUntil: 'networkidle' });

@@ -48,27 +48,45 @@ input:
 
 ### 2. Add Request Controls
 
-Now we add API key authentication and CORS headers.
+Add these CORS settings under `input.http_server`.
 
 ```yaml
-# Authentication
-auth:
-  type: header
-  header: 'X-API-Key'
-  required_value: '${LOG_API_KEY}'
-
 # Browser access policy (permissive demo setting)
 cors:
   enabled: true
   allowed_origins: ['*']
-  allowed_methods: ['POST']
+```
+
+Use input processors to check the API key before a message reaches the pipeline. Replace the basic input with this configuration, including the CORS settings above. Rejected requests receive a synchronous 401 response and their messages are deleted.
+
+```yaml
+input:
+  http_server:
+    address: '0.0.0.0:8080'
+    path: /logs/ingest
+    timeout: 10s
+    allowed_verbs: ['POST']
+    cors:
+      enabled: true
+      allowed_origins: ['*']
+    sync_response:
+      status: '${! meta("http_status").or("200") }'
+  processors:
+    - switch:
+        - check: 'env("LOG_API_KEY").or("") == "" || meta("X-Api-Key").or("") != env("LOG_API_KEY").or("")'
+          processors:
+            - mapping: |
+                meta http_status = "401"
+                root = {"error": "Unauthorized"}
+            - sync_response: {}
+            - mapping: root = deleted()
 ```
 
 ### 3. Performance & Protection
 
 Finally, we add rate limiting and size constraints to protect the pipeline.
 
-See the [complete reference](/log-processing/production-pipeline/complete-production-pipeline) for the maintained input, named rate-limit resource, processors, and failure boundary.
+Apply the authenticated input above to the [complete reference](/log-processing/production-pipeline/complete-production-pipeline), retaining its named rate-limit resource, processors, and failure boundary.
 
 ## Complete Step 1 Configuration
 

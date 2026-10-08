@@ -47,6 +47,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "01-no-circuit-breakers.yaml",
     yamlCode:
       "output:\n  # No timeouts, no retries, no fallbacks\n  http_client:\n    url: https://api.external.com/process\n    # ❌ No timeout - waits forever\n    # ❌ No retry limit - infinite retries\n    # ❌ No fallback - total failure\n",
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:87bcd8413c2e947579b2413d6c8746a4ad3f039044fb81c90aebdc137f5987c3",
   },
@@ -94,6 +95,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "02-http-circuit-breakers.yaml",
     yamlCode:
       "output:\n  http_client:\n    url: https://api.external.com/process\n    timeout: 5s           # Fast timeout\n    retry_period: 1s      # Wait between retries\n    retries: 3            # Stop after 3 failures\n    max_retry_backoff: 300s\n",
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:618f5ef05ba2384528c84ffdbe4204f502dfc19f4969b0afbc7bf6a05ff1f2a6",
   },
@@ -140,9 +142,10 @@ export const GENERATED_EXPLORER_STAGES = [
     ],
     yamlFilename: "03-database-circuit-breakers.yaml",
     yamlCode:
-      'pipeline:\n  processors:\n    - cache:\n        operator: get\n        key: ${! this.sensor_id }\n        # Database circuit breaker settings\n        timeout: 2s          # Fast query timeout\n        max_connections: 10  # Connection pool limit\n\n    - catch:\n        - log:\n            message: "Cache lookup failed, using default"\n',
+      'cache_resources:\n  - label: lookup_cache\n    memory:\n      default_ttl: 5m\n\npipeline:\n  processors:\n    - cache:\n        resource: lookup_cache\n        operator: get\n        key: ${! this.sensor_id }\n\n    - catch:\n        - log:\n            message: "Cache lookup failed, using default"\n',
+    pipelineCodeKind: "fragment",
     configSha256:
-      "sha256:295619ad6b17bc8f128673d12466051a37a0e062e560750a07d0b1d7bda03ffc",
+      "sha256:2b89ae0b8e8253c2aa602f4d174fbc0df25104eb41f1e28d5b93d4bb6483bbba",
   },
   {
     id: 4,
@@ -191,6 +194,7 @@ export const GENERATED_EXPLORER_STAGES = [
     yamlFilename: "04-multi-level-fallback.yaml",
     yamlCode:
       "output:\n  fallback:\n    # Level 1: Primary API\n    - http_client:\n        url: https://primary-api.com/process\n        timeout: 5s\n        retries: 2\n\n    # Level 2: Secondary API\n    - http_client:\n        url: https://secondary-api.com/process\n        timeout: 5s\n        retries: 1\n\n    # Level 3: Local buffer\n    - file:\n        path: /var/buffer/failed-requests.jsonl\n\n    # Level 4: Dead letter queue\n    - kafka:\n        addresses: [localhost:9092]\n        topic: dlq-circuit-breaker-failures\n",
+    pipelineCodeKind: "fragment",
     configSha256:
       "sha256:d7bbd36bab5793c5d9c4a78488948b772b2ed7ac2d54faeea5f9c07c3c28163a",
   },
@@ -213,6 +217,9 @@ export const GENERATED_EXPLORER_STAGE_FAMILY = {
     fullYamlFilename: "circuit-breakers.yaml",
     fullYaml:
       "- http:\n    url: https://api.example.com/endpoint\n    timeout: 5s\n    retries: 3              # Failure threshold\n    retry_period: 1s        # Initial backoff\n    max_retry_backoff: 30s  # Maximum backoff\n",
+    completePipelineHref:
+      "/data-routing/circuit-breakers/complete-circuit-breakers/",
+    fullPipelineCodeKind: "fragment",
   },
   stages: GENERATED_EXPLORER_STAGES,
 } satisfies GeneratedExplorerStageFamily;

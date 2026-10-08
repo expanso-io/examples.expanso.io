@@ -5,17 +5,17 @@ pipeline:
         meta timestamp = this.timestamp
         meta location = this.location
         root = this
-        
+
+    - mapping: root = this.readings
     - unarchive:
         format: json_array
-        field: readings
-        
+
     - mapping: |
         root = this
         root.device_id = meta("device_id")
         root.timestamp = meta("timestamp")
         root.location = meta("location")
-        
+
         # Add alert classification
         root.alert_level = match {
           this.value >= 80 => "critical"
@@ -32,12 +32,12 @@ output:
           http_client:
             url: http://alerts.company.com/critical
             verb: POST
-      - check: this.alert_level == "warning" 
+      - check: this.alert_level == "warning"
         output:
           kafka:
             topic: temperature-warnings
-            addresses: ["kafka:9092"]
+            addresses: ['kafka:9092']
       - output:
-          s3:
+          aws_s3:
             bucket: temperature-storage
             path: normal/\${timestamp_date()}/

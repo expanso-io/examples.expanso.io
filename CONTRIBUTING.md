@@ -76,6 +76,13 @@ Pipeline changes also require the
 [example validation workflow](scripts/README.md#example-pipeline-validation)
 and its generated reports.
 
+The Husky pre-commit hook runs `lint-staged`, which validates staged pipeline
+YAML files and inline YAML and Bloblang in staged `docs/**/*.mdx` pages without executing
+pipelines or writing reports. Tool prerequisites and fragment handling are
+documented in the [example validation workflow](scripts/README.md#example-pipeline-validation).
+Do not bypass the hook; run `npm run validate-staged-pipelines -- <paths...>` to
+reproduce a staged-file failure directly.
+
 ```bash
 npm run typecheck -- --noEmit
 npm run test-catalog

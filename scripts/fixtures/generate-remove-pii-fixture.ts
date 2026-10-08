@@ -4,7 +4,7 @@ import { createHash, createHmac } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { PINNED_EDGE_VERSION } from '../validation/edge';
+import { resolveInstalledExpansoBinary } from '../validation/expanso-binary';
 
 const paths = {
   pipeline: 'examples/data-security/remove-pii-complete.yaml',
@@ -76,10 +76,12 @@ const outputBytes = `${JSON.stringify(output)}\n`;
 
 const pipelineBytes = readFileSync(resolve(paths.pipeline));
 
+const edge = resolveInstalledExpansoBinary('edge');
+
 const environment = {
   schemaVersion: '1.0.0',
   executor: 'expanso-edge-local',
-  version: PINNED_EDGE_VERSION,
+  version: edge.version,
   pipelineSha256: `sha256:${sha256(pipelineBytes)}`,
   inputSha256: `sha256:${sha256(inputBytes)}`,
   expectedOutputSha256: `sha256:${sha256(outputBytes)}`,
@@ -104,9 +106,16 @@ if (process.argv.slice(2).includes('--write')) {
     `Wrote ${generated.size} deterministic fixture files.\n`
   );
 } else {
-  const mismatches = [...generated].filter(
-    ([path, bytes]) => readFileSync(resolve(path), 'utf8') !== bytes
-  );
+  const mismatches = [...generated].filter(([path, bytes]) => {
+    const committed = readFileSync(resolve(path), 'utf8');
+    if (path !== paths.environment) return committed !== bytes;
+    const normalizeVersion = (content: string) =>
+      content.replace(
+        /^  "version": "[^"\n]*",$/m,
+        '  "version": "<execution-version>",'
+      );
+    return normalizeVersion(committed) !== normalizeVersion(bytes);
+  });
 
   if (mismatches.length > 0) {
     throw new Error(

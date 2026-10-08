@@ -31,16 +31,18 @@ output:
     pattern: try # Tries each output in order until one succeeds
     outputs:
       # 1. Primary Destination
-      - elasticsearch:
-          urls: [ ${ES_PRIMARY_ENDPOINT} ]
-          index: "primary-index"
-          retries: 2 # Try a couple of times before failing over
+      - opensearch:
+          action: index
+          urls: ['${ES_PRIMARY_ENDPOINT}']
+          index: 'primary-index'
+          id: '${!this.event_id.or(uuid_v4())}'
 
       # 2. Secondary/Fallback Destination
-      - elasticsearch:
-          urls: [ ${ES_SECONDARY_ENDPOINT} ]
-          index: "secondary-index"
-          retries: 2
+      - opensearch:
+          action: index
+          urls: ['${ES_SECONDARY_ENDPOINT}']
+          index: 'secondary-index'
+          id: '${!this.event_id.or(uuid_v4())}'
 
       # 3. Last Resort: Local File
       - file:
@@ -61,13 +63,13 @@ output:
     outputs:
       # Destination 1: Kafka (all messages go here)
       - kafka:
-          addresses: [ ${KAFKA_BROKERS} ]
-          topic: "all-logs"
+          addresses: ['${KAFKA_BROKERS}']
+          topic: 'all-logs'
 
       # Destination 2: S3 (all messages go here)
       - aws_s3:
-          bucket: "my-log-archive"
-          path: "logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz"
+          bucket: 'my-log-archive'
+          path: 'logs/${!timestamp_unix_date()}/${!uuid_v4()}.jsonl.gz'
 
       # Destination 3: Alerting Service (errors selected here)
       - switch:
@@ -75,8 +77,8 @@ output:
             - check: this.level == "ERROR"
               output:
                 http_client:
-                  url: "http://my-alerting-service/ingest"
-                  verb: "POST"
+                  url: 'http://my-alerting-service/ingest'
+                  verb: 'POST'
             # If the check fails, the 'switch' does nothing,
             # effectively dropping the message for this branch.
 ```

@@ -106,15 +106,15 @@ output:
 
 ### Incremental Filter Patterns
 
-```yaml
-# Last 24 hours by updated_at
-where: "updated_at >= CURRENT_DATE - INTERVAL '1 day'"
+```sql
+-- Last 24 hours by updated_at
+updated_at >= CURRENT_DATE - INTERVAL '1 day'
 
-# Last 24 hours by created_at
-where: "created_at >= CURRENT_DATE - INTERVAL '1 day'"
+-- Last 24 hours by created_at
+created_at >= CURRENT_DATE - INTERVAL '1 day'
 
-# Since last backup (requires state tracking)
-where: "updated_at > '${LAST_BACKUP_TIMESTAMP}'"
+-- Since last backup (requires state tracking)
+updated_at > '${LAST_BACKUP_TIMESTAMP}'
 ```
 
 ## Expected Output
@@ -141,6 +141,8 @@ For large extracts, configure connection limits:
 sql_select:
   driver: postgres
   dsn: '...?pool_max_conns=5'
+  table: orders
+  columns: ['id', 'updated_at']
 ```
 
 ### Handling Large Tables
@@ -149,10 +151,11 @@ For very large tables, add pagination:
 
 ```yaml
 sql_select:
+  driver: postgres
+  dsn: '${DATABASE_URL}'
   table: orders
+  columns: ['id', 'updated_at']
   where: "updated_at >= CURRENT_DATE - INTERVAL '1 day'"
-  # Process in batches of 10000
-  batch_size: 10000
 ```
 
 ### Multiple Databases
@@ -163,11 +166,15 @@ Extract from different databases in one pipeline:
 sequence:
   inputs:
     - sql_select:
+        driver: postgres
         dsn: 'postgres://...@db1/ecommerce'
         table: orders
+        columns: ['id', 'updated_at']
     - sql_select:
+        driver: postgres
         dsn: 'postgres://...@db2/inventory'
         table: stock_levels
+        columns: ['sku', 'quantity']
 ```
 
 ---
