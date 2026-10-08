@@ -2,14 +2,7 @@ import React, { useMemo } from 'react';
 import { bindCanonicalExplorerStages } from '../../catalog/explorerStageBinding';
 import ExplorerV2 from '../ExplorerV2';
 import ExplorerGuide from './ExplorerGuide';
-import type { ExplorerPresentation } from '../ExplorerV2';
 import type { DataPipelineExplorerProps } from './types';
-
-const provenanceLabels: Record<ExplorerPresentation['kind'], string> = {
-  'executed-pipeline': 'Executed pipeline',
-  'deterministic-simulation': 'Deterministic simulation',
-  'curated-explanation': 'Curated explanation',
-};
 
 const DataPipelineExplorer: React.FC<DataPipelineExplorerProps> = ({
   exampleId,
@@ -42,14 +35,6 @@ const DataPipelineExplorer: React.FC<DataPipelineExplorerProps> = ({
     [binding, fullYaml, fullYamlFilename, generatedFamily, rawStages]
   );
 
-  const presentation: ExplorerPresentation = {
-    kind: binding.provenance,
-    label: provenanceLabels[binding.provenance],
-    executionStatus: binding.executionStatus,
-    operationalEvidence: binding.operationalEvidence,
-    fixtureLabel: binding.fixtureLabel,
-  };
-
   return (
     <>
       <ExplorerGuide stages={stages} />
@@ -62,7 +47,7 @@ const DataPipelineExplorer: React.FC<DataPipelineExplorerProps> = ({
         fullPipelineCodeKind={generatedFamily.fullPipelineCodeKind}
         completePipelineHref={generatedFamily.completePipelineHref}
         fullYamlFilename={fullYamlFilename}
-        presentation={presentation}
+        presentation={{ kind: binding.provenance }}
         comparisonMode={binding.comparisonMode}
       />
     </>

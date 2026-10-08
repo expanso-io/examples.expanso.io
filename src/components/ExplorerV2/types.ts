@@ -78,6 +78,6 @@ export interface ExplorerV2Props {
   fullPipelineCodeKind?: 'fragment' | 'complete';
   completePipelineHref?: string;
   fullYamlFilename?: string;
-  presentation: ExplorerPresentation;
+  presentation: Pick<ExplorerPresentation, 'kind'>;
   comparisonMode?: 'diff' | 'highlights';
 }

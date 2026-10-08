@@ -515,7 +515,17 @@ test('collects exact-SHA performance evidence from the production artifact', asy
           await page.goto(new URL(route.path, baseURL).toString(), {
             waitUntil: 'networkidle',
           });
-          await page.waitForTimeout(100);
+          await page.waitForFunction(
+            () =>
+              // SAFETY: the init script above installs this observer state.
+              ((
+                window as typeof window & {
+                  __qualityVitals?: { lcp: number };
+                }
+              ).__qualityVitals?.lcp ?? 0) > 0,
+            undefined,
+            { timeout: 10_000 }
+          );
           const metrics = await page.evaluate(() => {
             const vitals = (
               window as typeof window & {
