@@ -13,11 +13,8 @@ import {
   isRunLocalPath,
   recordAnalyticsEvent,
 } from '../analytics/events';
-import {
-  CONSENT_COOKIE_NAME,
-  getAnalyticsConsent,
-  setAnalyticsConsent,
-} from '../lib/analytics';
+import { getCookieConsent } from '../components/cookies/cookieConsentUtils';
+import { setAnalyticsConsent } from '../lib/analytics';
 
 interface RootProps {
   children: ReactNode;
@@ -43,8 +40,7 @@ export default function Root({ children }: RootProps): React.JSX.Element {
   const [showConsent, setShowConsent] = useState(false);
 
   useEffect(() => {
-    const consent = getAnalyticsConsent(document.cookie, CONSENT_COOKIE_NAME);
-    setShowConsent(consent === 'unset');
+    setShowConsent(getCookieConsent() === 'undecided');
   }, []);
 
   useEffect(() => {
