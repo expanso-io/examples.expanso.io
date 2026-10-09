@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { consentInitOptions } from '../components/cookies/cookieConsentUtils';
 import {
   classifyTraffic,
   consentState,
+  posthogInitOptions,
   PRIVACY_SAFE_CAPTURE_OPTIONS,
   sanitizeAnalyticsEvent,
   sanitizeAnalyticsUrl,
@@ -25,6 +27,60 @@ test('maps the shared consent status to the analytics consent state', () => {
   assert.equal(consentState('yes'), 'granted');
   assert.equal(consentState('no'), 'denied');
   assert.equal(consentState('undecided'), 'unset');
+});
+
+test('PostHog starts with the consent lanes of the shared contract', () => {
+  const options = posthogInitOptions('examples.expanso.io');
+  const {
+    opt_out_capturing_by_default,
+    cookieless_mode,
+    persistence,
+    cross_subdomain_cookie,
+    disable_surveys,
+    defaults,
+  } = options;
+  assert.deepEqual(
+    {
+      opt_out_capturing_by_default,
+      cookieless_mode,
+      persistence,
+      cross_subdomain_cookie,
+      disable_surveys,
+      defaults,
+    },
+    consentInitOptions('examples.expanso.io')
+  );
+  assert.equal(cross_subdomain_cookie, true);
+  assert.equal(defaults, '2026-08-29');
+  assert.equal(persistence, 'localStorage+cookie');
+  assert.equal(options.api_host, 'https://web.t.expanso.io');
+  assert.equal(options.before_send, sanitizeAnalyticsEvent);
+  // DNT, person profiles and the IP switch follow the SDK, as on docs.
+  for (const key of ['person_profiles', 'respect_dnt', 'ip'])
+    assert.equal(key in options, false, key);
+  assert.equal(
+    posthogInitOptions('preview.example.test').cross_subdomain_cookie,
+    false
+  );
+});
+
+test('identity_mode reports the lane the SDK captured the event in', () => {
+  const event = (name: string, properties: Record<string, unknown>) =>
+    sanitizeAnalyticsEvent({
+      uuid: '00000000-0000-4000-8000-000000000000',
+      event: name,
+      properties,
+    });
+  assert.equal(
+    event('$pageview', { $cookieless_mode: true })?.properties.identity_mode,
+    'ephemeral'
+  );
+  assert.equal(event('$pageview', {})?.properties.identity_mode, 'persistent');
+  for (const name of ['$snapshot', '$$heatmap'])
+    assert.equal(
+      event(name, { $cookieless_mode: true })?.properties.identity_mode,
+      undefined
+    );
 });
 
 test('removes query strings and fragments from analytics URLs', () => {
