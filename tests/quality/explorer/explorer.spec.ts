@@ -16,7 +16,7 @@ interface ExplorerAnalyticsEvent {
 declare global {
   interface Window {
     __copiedExplorerValue?: string;
-    dataLayer?: ExplorerAnalyticsEvent[];
+    __analyticsEvents?: ExplorerAnalyticsEvent[];
   }
 }
 
@@ -547,7 +547,12 @@ test('Explorer analytics uses only the versioned privacy-safe schema', async ({
   page,
 }) => {
   await page.addInitScript(() => {
-    window.dataLayer = [];
+    window.__analyticsEvents = [];
+    window.addEventListener('examples_analytics_event', (event) => {
+      window.__analyticsEvents?.push(
+        (event as CustomEvent<ExplorerAnalyticsEvent>).detail
+      );
+    });
   });
   await page.reload({ waitUntil: 'networkidle' });
   const explorer = page.locator('[data-explorer-version="2"]');
@@ -578,7 +583,7 @@ test('Explorer analytics uses only the versioned privacy-safe schema', async ({
 
   await download.cancel();
 
-  const events = await page.evaluate(() => window.dataLayer ?? []);
+  const events = await page.evaluate(() => window.__analyticsEvents ?? []);
 
   const publicEvents = events.filter((event) =>
     [

@@ -121,7 +121,7 @@ function persistentKeys(page: Page) {
   );
 }
 
-test('validated semantic events reach the real SDK request boundary once with unchanged dataLayer schema', async () => {
+test('validated semantic events reach the real SDK request boundary once with unchanged event schema', async () => {
   const { context, page, receipts } = await journey({
     query:
       '?utm_source=qa&utm_campaign=launch&utm_term=edge-data&email=private%40example.test&analytics_test=1#secret',
@@ -130,7 +130,12 @@ test('validated semantic events reach the real SDK request boundary once with un
   });
   try {
     await page.evaluate(() => {
-      const a = (window as any).testAnalytics;
+      const w = window as any;
+      const a = w.testAnalytics;
+      w.__analyticsEvents = [];
+      window.addEventListener(a.ANALYTICS_EVENT_BROWSER_EVENT, (event) =>
+        w.__analyticsEvents.push((event as CustomEvent).detail)
+      );
       for (const event of [
         a.createExampleViewEvent(
           'remove-pii',
@@ -152,14 +157,13 @@ test('validated semantic events reach the real SDK request boundary once with un
         a.recordAnalyticsEvent(event);
     });
     await waitForCount(receipts, 8);
-    const layer = (await page.evaluate(() => window.dataLayer)) as Record<
-      string,
-      unknown
-    >[];
-    assert.equal(layer.length, 8);
+    const recorded = (await page.evaluate(
+      () => (window as any).__analyticsEvents
+    )) as Record<string, unknown>[];
+    assert.equal(recorded.length, 8);
     assert.equal(new Set(receipts.map((receipt) => receipt.event)).size, 8);
     for (const receipt of receipts) {
-      const original = layer.find((event) => event.event === receipt.event)!;
+      const original = recorded.find((event) => event.event === receipt.event)!;
       for (const [key, value] of Object.entries(original))
         if (key !== 'event') assert.deepEqual(receipt.properties[key], value);
       assert.equal(receipt.properties.site_id, 'examples');
