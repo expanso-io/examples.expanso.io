@@ -74,6 +74,9 @@ Copyright © 2024 Expanso, Inc.
 ### Analytics collector verification
 
 `npm run test-analytics` checks the public semantic schema and privacy rules.
+`npm run test-cookie-consent-utils` runs the shared consent contract test.
+`src/components/cookies/cookieConsentUtils.ts` and its test are byte-identical
+copies of the shared contract. Do not edit or reformat them.
 For delivery and identity behavior, install the pinned browser with
 `npx playwright install chromium`, then run `npm run test-analytics-collector`.
 The collector suite bundles the actual analytics modules and installed PostHog
