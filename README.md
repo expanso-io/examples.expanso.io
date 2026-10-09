@@ -83,9 +83,10 @@ starting a server.
 It covers semantic event delivery, manual route pageview ownership, production
 hostname gating, campaign/QA labels, consent persistence and revocation.
 
-The direct collector owns PostHog delivery. Semantic events are also pushed
-to `window.dataLayer`; no tag reads it since GTM was retired, and the browser
-tests use it to check the event schema. Only `examples.expanso.io` can initialize the production collector.
+The direct collector owns PostHog delivery. Nothing writes to
+`window.dataLayer`. Each validated semantic event is also dispatched as an
+`examples_analytics_event` browser event; only the browser tests listen to it,
+to check the event schema. Only `examples.expanso.io` can initialize the production collector.
 `analytics_test=1` (or `true`) marks a synthetic journey through sessionStorage;
 staff tagging requires explicit localStorage `expanso_analytics_internal=1`
 (or `true`). Neither flag grants consent. URLs omit queries/fragments; only

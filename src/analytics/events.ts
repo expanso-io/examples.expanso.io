@@ -497,7 +497,7 @@ export function createRelatedExampleClickEvent(
 
 /**
  * Fail-closed runtime privacy guard. It makes the TypeScript union enforceable
- * at the only public dataLayer write boundary, including for JavaScript callers.
+ * at the only public analytics event boundary, including for JavaScript callers.
  */
 export function assertPublicAnalyticsEvent(
   value: unknown
@@ -616,14 +616,18 @@ export function assertPublicAnalyticsEvent(
   }
 }
 
+/**
+ * Browser event that carries a copy of each validated public event. Only the
+ * tests listen to it; production delivery goes through captureSemanticEvent.
+ */
+export const ANALYTICS_EVENT_BROWSER_EVENT = 'examples_analytics_event';
+
 export function recordAnalyticsEvent(event: PublicExampleAnalyticsEvent): void {
   assertPublicAnalyticsEvent(event);
   if (typeof window === 'undefined') return;
-  const analyticsWindow = window as typeof window & {
-    dataLayer?: Array<Record<string, unknown>>;
-  };
-  analyticsWindow.dataLayer ??= [];
-  analyticsWindow.dataLayer.push({ ...event });
+  window.dispatchEvent(
+    new CustomEvent(ANALYTICS_EVENT_BROWSER_EVENT, { detail: { ...event } })
+  );
   captureSemanticEvent(event);
 }
 
