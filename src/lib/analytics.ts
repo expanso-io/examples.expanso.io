@@ -1,6 +1,11 @@
 import type { BeforeSendFn, PostHogInterface, Properties } from 'posthog-js';
 import type { PublicExampleAnalyticsEvent } from '../analytics/events';
 import {
+  getCookieConsent,
+  setCookieConsent,
+  type CookieConsentStatus,
+} from '../components/cookies/cookieConsentUtils';
+import {
   createGoogleAnalyticsAdapter,
   EXAMPLES_GA_MEASUREMENT_ID,
 } from './googleAnalytics';
@@ -17,7 +22,6 @@ const googleAnalytics = PRODUCTION_ANALYTICS
       ANALYTICS_SITE_HOST
     )
   : undefined;
-export const CONSENT_COOKIE_NAME = 'expanso-cookie-consent';
 export const PRIVACY_SAFE_CAPTURE_OPTIONS = {
   autocapture: false,
   capture_dead_clicks: false,
@@ -60,24 +64,10 @@ let entryCampaign: Properties | undefined;
 
 let posthogClientPromise: Promise<PostHogInterface | undefined> | undefined;
 
-export function readCookie(
-  cookieString: string,
-  cookieName: string
-): string | undefined {
-  return cookieString
-    .split(';')
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(`${cookieName}=`))
-    ?.slice(cookieName.length + 1);
-}
-
-export function getAnalyticsConsent(
-  cookieString: string,
-  cookieName = CONSENT_COOKIE_NAME
-): AnalyticsConsent {
-  const value = readCookie(cookieString, cookieName);
-  if (value === 'true') return 'granted';
-  if (value === 'false') return 'denied';
+/** Maps the shared contract's status to the consent_state label and GA. */
+export function consentState(status: CookieConsentStatus): AnalyticsConsent {
+  if (status === 'yes') return 'granted';
+  if (status === 'no') return 'denied';
   return 'unset';
 }
 
@@ -127,9 +117,10 @@ export const sanitizeAnalyticsEvent: BeforeSendFn = (event) => {
   return { ...event, properties };
 };
 
+// The contract reads only the shared .expanso.io cookie on production hosts
+// and deletes a host-only copy, as on docs and the main sites.
 function currentConsent(): AnalyticsConsent {
-  if (typeof document === 'undefined') return 'unset';
-  return getAnalyticsConsent(document.cookie);
+  return consentState(getCookieConsent());
 }
 
 function currentPath(): string {
@@ -344,21 +335,8 @@ export function captureExampleEvent(
   });
 }
 
-function writeConsentCookie(granted: boolean): void {
-  const maxAge = 365 * 24 * 60 * 60;
-  const domain = window.location.hostname.endsWith('.expanso.io')
-    ? '; Domain=.expanso.io'
-    : '';
-  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
-  // Remove an older host-only value before writing shared consent so it cannot
-  // shadow the new value when document.cookie contains both names.
-  if (domain)
-    document.cookie = `${CONSENT_COOKIE_NAME}=; Path=/; Max-Age=0${secure}`;
-  document.cookie = `${CONSENT_COOKIE_NAME}=${granted}; Path=/; Max-Age=${maxAge}; SameSite=Lax${domain}${secure}`;
-}
-
 export async function setAnalyticsConsent(granted: boolean): Promise<void> {
-  writeConsentCookie(granted);
+  setCookieConsent(granted ? 'yes' : 'no');
   googleAnalytics?.setConsent(currentConsent());
   if (!isProductionHost()) return;
   const posthog = await initializeAnalytics();

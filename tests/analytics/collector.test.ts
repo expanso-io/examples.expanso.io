@@ -42,6 +42,7 @@ type Receipt = { event: string; properties: Record<string, any> };
 async function journey(
   options: {
     consent?: boolean;
+    hostOnlyConsent?: boolean;
     host?: string;
     internal?: boolean;
     query?: string;
@@ -50,12 +51,14 @@ async function journey(
 ) {
   const context = await browser.newContext();
   const host = options.host ?? 'examples.expanso.io';
+  // Expanso sites share the choice on .expanso.io. The contract deletes a
+  // host-only copy on *.expanso.io, so only hostOnlyConsent seeds one.
   if (options.consent !== undefined)
     await context.addCookies([
       {
         name: 'expanso-cookie-consent',
         value: String(options.consent),
-        domain: host,
+        domain: options.hostOnlyConsent ? host : '.expanso.io',
         path: '/',
       },
     ]);
@@ -243,6 +246,12 @@ test('consent uses ephemeral identity until grant, persists on reload and clears
     await waitForCount(receipts, 3);
     assert.equal(receipts[2].properties.identity_mode, 'persistent');
     const grantedId = receipts[2].properties.distinct_id;
+    assert.deepEqual(
+      (await context.cookies())
+        .filter((cookie) => cookie.name === 'expanso-cookie-consent')
+        .map((cookie) => [cookie.domain, cookie.value]),
+      [['.expanso.io', 'true']]
+    );
     assert.ok((await persistentKeys(page)).length > 0);
     assert.ok(
       (await context.cookies()).some((cookie) => cookie.name.startsWith('ph_'))
@@ -322,7 +331,7 @@ test('shared consent revocation is reconciled before the next event', async () =
       {
         name: 'expanso-cookie-consent',
         value: 'false',
-        domain: 'examples.expanso.io',
+        domain: '.expanso.io',
         path: '/',
       },
     ]);
@@ -332,6 +341,70 @@ test('shared consent revocation is reconciled before the next event', async () =
     assert.equal(receipts[1].properties.identity_mode, 'ephemeral');
     assert.notEqual(receipts[1].properties.distinct_id, persistentId);
     assert.deepEqual(await persistentKeys(page), []);
+  } finally {
+    await context.close();
+  }
+});
+
+test('a host-only consent cookie on examples counts as unset and is deleted', async () => {
+  const { context, page, receipts } = await journey({
+    consent: true,
+    hostOnlyConsent: true,
+  });
+  try {
+    await view(page);
+    await waitForCount(receipts, 1);
+    assert.equal(receipts[0].properties.consent_state, 'unset');
+    assert.equal(receipts[0].properties.identity_mode, 'ephemeral');
+    assert.equal(
+      await page.evaluate(() => (window as any).expansoExamplesAnalyticsLayer),
+      undefined
+    );
+    assert.deepEqual(await persistentKeys(page), []);
+    assert.ok(
+      !(await context.cookies()).some(
+        (cookie) => cookie.name === 'expanso-cookie-consent'
+      )
+    );
+  } finally {
+    await context.close();
+  }
+});
+
+test('the shared consent cookie wins over a stale host-only copy, which is deleted', async () => {
+  const { context, page, receipts } = await journey();
+  try {
+    // A visitor with an old host-only decline on examples who later accepted
+    // on another Expanso site. Seed the host-only copy first: the browser then
+    // lists it first in document.cookie, as for a real older cookie.
+    await context.addCookies([
+      {
+        name: 'expanso-cookie-consent',
+        value: 'false',
+        domain: 'examples.expanso.io',
+        path: '/',
+      },
+    ]);
+    await context.addCookies([
+      {
+        name: 'expanso-cookie-consent',
+        value: 'true',
+        domain: '.expanso.io',
+        path: '/',
+      },
+    ]);
+    await page.reload();
+    await prepare(page);
+    await view(page);
+    await waitForCount(receipts, 1);
+    assert.equal(receipts[0].event, '$pageview');
+    assert.equal(receipts[0].properties.consent_state, 'granted');
+    assert.deepEqual(
+      (await context.cookies())
+        .filter((cookie) => cookie.name === 'expanso-cookie-consent')
+        .map((cookie) => [cookie.domain, cookie.value]),
+      [['.expanso.io', 'true']]
+    );
   } finally {
     await context.close();
   }
