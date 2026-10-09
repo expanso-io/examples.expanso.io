@@ -96,6 +96,21 @@ PostHog takes its consent lanes from the shared contract in
 `syncSdkConsentFlag`, `applyConsent`, `watchConsent`), as docs.expanso.io does.
 PostHog ignores Do Not Track; the consent lanes decide. GA still respects it.
 
+PostHog captures as docs.expanso.io does (`POSTHOG_CAPTURE_OPTIONS` in
+`src/lib/analytics.ts`): autocapture with element text, page leave, heatmaps,
+web vitals and session replay with password inputs masked. The PostHog project
+settings decide which of them run; the SDK loads their scripts from
+`web.t.expanso.io`. `before_send` cleans the URL and campaign properties of
+these events, and also the page URLs inside heatmap batches and web vitals
+metrics. It labels all but replay and heatmap batches with `identity_mode`
+and gives them the context fields of examples' own events (`site_id`,
+`traffic_class`, `consent_state` and the others), as docs does. A field that
+examples' capture call set keeps its value. Session replay keeps the full page
+URL, as on docs: the recording holds it in its meta events and can hold it in
+network timing, so `before_send` does not clean replay data. The collector
+suite keeps these events in a separate list, so they never change the counts
+of the events a test checks.
+
 The direct collector owns PostHog delivery. Semantic events are also pushed
 to `window.dataLayer`; no tag reads it since GTM was retired, and the browser
 tests use it to check the event schema. Only `examples.expanso.io` can initialize the production collector.
