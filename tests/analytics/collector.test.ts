@@ -75,7 +75,14 @@ async function journey(
             ? gunzipSync(body).toString()
             : body.toString();
         const parsed = JSON.parse(decoded);
-        receipts.push(...(Array.isArray(parsed) ? parsed : [parsed]));
+        // posthog-js 1.435 sends { api_key, batch: [...] }; older SDKs send an array.
+        receipts.push(
+          ...(Array.isArray(parsed)
+            ? parsed
+            : Array.isArray(parsed.batch)
+              ? parsed.batch
+              : [parsed])
+        );
       }
       await route.fulfill({ contentType: 'application/json', body: '{}' });
     } else await route.abort(); // No Google, external config or live ingestion.
