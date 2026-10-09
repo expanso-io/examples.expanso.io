@@ -31,15 +31,23 @@ const googleAnalytics = PRODUCTION_ANALYTICS
       ANALYTICS_SITE_HOST
     )
   : undefined;
-export const PRIVACY_SAFE_CAPTURE_OPTIONS = {
-  autocapture: false,
-  capture_dead_clicks: false,
-  capture_exceptions: false,
-  capture_heatmaps: false,
-  capture_pageleave: false,
+// docs.expanso.io's capture settings (src/analytics/client.mjs). The manual
+// $pageview stays: clientModules/posthog.ts sends one per route.
+export const POSTHOG_CAPTURE_OPTIONS = {
+  // The toolbar and heatmaps open from the PostHog app, not from the proxy.
+  ui_host: 'https://us.posthog.com',
   capture_pageview: false,
-  capture_performance: false,
-  disable_session_recording: true,
+  capture_pageleave: true,
+  autocapture: true,
+  // This starts the recorder only when the PostHog project enables replay.
+  session_recording: {
+    recordCrossOriginIframes: false,
+    maskAllInputs: false,
+    maskInputOptions: { password: true },
+  },
+  capture_heatmaps: true,
+  // Web vitals.
+  capture_performance: true,
 } as const;
 
 const POSTHOG_API_HOST = 'https://web.t.expanso.io';
@@ -92,6 +100,10 @@ export function sanitizeAnalyticsUrl(value: unknown): unknown {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 export const sanitizeAnalyticsEvent: BeforeSendFn = (event) => {
   if (!event?.properties) return event;
 
@@ -123,32 +135,63 @@ export const sanitizeAnalyticsEvent: BeforeSendFn = (event) => {
     }
     if (campaignKey === 'ph_keyword') delete properties[key];
   }
-  // High-volume replay and heatmap batches keep the shape the SDK built. The
-  // SDK marks every cookieless event with $cookieless_mode before before_send,
-  // so identity_mode reports the lane the event was captured in, as on docs.
-  if (event.event !== '$snapshot' && event.event !== '$$heatmap')
+  // Heatmap batches key their points by page URL; merge keys that clean to
+  // the same URL.
+  if (event.event === '$$heatmap' && isRecord(properties.$heatmap_data)) {
+    const heatmapData: Record<string, unknown[]> = {};
+    for (const [url, points] of Object.entries(properties.$heatmap_data))
+      (heatmapData[String(sanitizeAnalyticsUrl(url))] ??= []).push(
+        ...(Array.isArray(points) ? points : [])
+      );
+    properties.$heatmap_data = heatmapData;
+  }
+  // Web vitals copy the page URL into each metric and its attribution.
+  for (const key of Object.keys(properties)) {
+    const metric = properties[key];
+    if (!/^\$web_vitals_\w+_event$/.test(key) || !isRecord(metric)) continue;
+    const cleaned: Record<string, unknown> = { ...metric };
+    for (const field of ['$current_url', 'navigationURL'])
+      if (field in cleaned)
+        cleaned[field] = sanitizeAnalyticsUrl(cleaned[field]);
+    if (isRecord(metric.attribution) && 'url' in metric.attribution)
+      cleaned.attribution = {
+        ...metric.attribution,
+        url: sanitizeAnalyticsUrl(metric.attribution.url),
+      };
+    properties[key] = cleaned;
+  }
+  // High-volume replay and heatmap batches keep the shape the SDK built.
+  if (event.event !== '$snapshot' && event.event !== '$$heatmap') {
+    // The events the SDK sends by itself ($autocapture, $pageleave,
+    // $web_vitals and the others) get the context of examples' own events, as
+    // on docs. A field that examples' capture call set keeps its value.
+    if (typeof window !== 'undefined')
+      for (const [key, value] of Object.entries(contextProperties()))
+        if (!(key in properties)) properties[key] = value;
+    // The SDK marks every cookieless event with $cookieless_mode before
+    // before_send, so identity_mode reports the lane the event was captured
+    // in, as on docs.
     properties.identity_mode = properties.$cookieless_mode
       ? 'ephemeral'
       : 'persistent';
+  }
   return { ...event, properties };
 };
 
 /**
  * posthog.init options: the consent lanes from the shared contract (opt-out by
  * default, cookieless on reject, the .expanso.io identity cookie, the pinned
- * defaults date), then examples' own privacy and capture settings. Nothing
- * after the spread may override a consent key.
+ * defaults date), then docs' capture settings and examples' URL and campaign
+ * privacy settings. Nothing after the spread may override a consent key.
  */
 export function posthogInitOptions(hostname: string): Partial<PostHogConfig> {
   return {
     ...consentInitOptions(hostname),
     api_host: POSTHOG_API_HOST,
-    ...PRIVACY_SAFE_CAPTURE_OPTIONS,
+    ...POSTHOG_CAPTURE_OPTIONS,
     advanced_disable_feature_flags: true,
     advanced_disable_toolbar_metrics: true,
     disable_capture_url_hashes: true,
-    mask_all_element_attributes: true,
-    mask_all_text: true,
     mask_personal_data_properties: true,
     opt_out_useragent_filter: true,
     save_campaign_params: false,
@@ -247,16 +290,11 @@ export function classifyTraffic(
   return 'browser_unclassified';
 }
 
-function standardProperties(): Properties {
+// The context of every examples event that does not depend on the capture
+// call. before_send also adds it to the events the SDK sends by itself.
+function contextProperties(): Properties {
   return {
-    ...campaignProperties(),
     ...qaProperties(),
-    $referrer: document.referrer
-      ? sanitizeAnalyticsUrl(document.referrer)
-      : '$direct',
-    $referring_domain: document.referrer
-      ? new URL(document.referrer).hostname
-      : '$direct',
     site_id: 'examples',
     site_host: currentHost(),
     environment: 'production',
@@ -269,6 +307,19 @@ function standardProperties(): Properties {
       window.screen.width
     ),
     traffic_classifier_version: TRAFFIC_CLASSIFIER_VERSION,
+  };
+}
+
+function standardProperties(): Properties {
+  return {
+    ...campaignProperties(),
+    $referrer: document.referrer
+      ? sanitizeAnalyticsUrl(document.referrer)
+      : '$direct',
+    $referring_domain: document.referrer
+      ? new URL(document.referrer).hostname
+      : '$direct',
+    ...contextProperties(),
   };
 }
 
