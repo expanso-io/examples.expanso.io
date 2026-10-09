@@ -84,7 +84,17 @@ SDK, runs them in bundled headless Chromium, and intercepts all network requests
 It verifies outbound SDK payloads without sending events to production or
 starting a server.
 It covers semantic event delivery, manual route pageview ownership, production
-hostname gating, campaign/QA labels, consent persistence and revocation.
+hostname gating, campaign/QA labels and the consent lanes: an undecided visitor
+in the EU (no `expanso-geo=row` cookie) is counted cookieless with nothing
+stored; an undecided visitor outside the EU, or one who accepted here or on
+another Expanso site, gets the shared `.expanso.io` identity cookie; a decline
+moves PostHog back to cookieless and clears the stored identity. CI runs the
+suite in the `explorer-tests` job of `phase1-foundation.yml`.
+
+PostHog takes its consent lanes from the shared contract in
+`src/components/cookies/cookieConsentUtils.ts` (`consentInitOptions`,
+`syncSdkConsentFlag`, `applyConsent`, `watchConsent`), as docs.expanso.io does.
+PostHog ignores Do Not Track; the consent lanes decide. GA still respects it.
 
 The direct collector owns PostHog delivery. Semantic events are also pushed
 to `window.dataLayer`; no tag reads it since GTM was retired, and the browser
