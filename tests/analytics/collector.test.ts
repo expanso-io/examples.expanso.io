@@ -2,26 +2,38 @@ import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { build } from 'esbuild';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { chromium, type Browser, type Page } from '@playwright/test';
 
 let browser: Browser;
 let bundle: string;
-before(async () => {
-  bundle = (
+let throwingSdkBundle: string;
+// The test page script. posthogPath is the module that import('posthog-js')
+// loads in it.
+async function buildBundle(posthogPath: string): Promise<string> {
+  return (
     await build({
-      alias: {
-        'posthog-js': createRequire(import.meta.url).resolve('posthog-js'),
-      },
+      alias: { 'posthog-js': posthogPath },
       stdin: {
         contents: `import * as analytics from './src/lib/analytics';
       import * as events from './src/analytics/events';
       import * as routes from './src/clientModules/posthog';
       import * as google from './src/lib/googleAnalytics';
       import * as consent from './src/components/cookies/cookieConsentUtils';
-      window.testAnalytics = {...analytics, ...events, ...routes, ...google, ...consent};`,
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import CookieConsentCard from './src/components/cookies/CookieConsentCard';
+      window.testAnalytics = {...analytics, ...events, ...routes, ...google, ...consent};
+      // The real banner, so the tests click its buttons, not a copy of them.
+      window.mountCard = () => createRoot(document.body.appendChild(document.createElement('div'))).render(React.createElement(CookieConsentCard));`,
         resolveDir: process.cwd(),
       },
+      // The card's CSS module goes to a separate output that the tests do
+      // not load; esbuild needs an output path for it even with write: false.
+      loader: { '.css': 'local-css' },
+      outdir: 'collector-bundle',
+      jsx: 'automatic',
       bundle: true,
       write: false,
       platform: 'browser',
@@ -30,7 +42,17 @@ before(async () => {
       // request is still aborted below so nothing reaches an analytics host.
       define: { 'process.env.EXPANSO_PRODUCTION_ANALYTICS': '"1"' },
     })
-  ).outputFiles[0].text;
+  ).outputFiles.find((file) => file.path.endsWith('.js'))!.text;
+}
+before(async () => {
+  bundle = await buildBundle(
+    createRequire(import.meta.url).resolve('posthog-js')
+  );
+  // A stand-in SDK whose init throws, as posthog-js can when a blocker or
+  // locked-down storage breaks it.
+  throwingSdkBundle = await buildBundle(
+    fileURLToPath(new URL('./fixtures/throwing-posthog.ts', import.meta.url))
+  );
   browser = await chromium.launch({
     headless: true,
   });
@@ -66,6 +88,11 @@ async function journey(
     internal?: boolean;
     query?: string;
     referrer?: string;
+    // Another test page script, such as throwingSdkBundle.
+    bundle?: string;
+    // Like Safari's "Block all cookies": cookie writes vanish and
+    // localStorage throws.
+    blockStorage?: boolean;
   } = {}
 ) {
   const context = await browser.newContext();
@@ -93,7 +120,7 @@ async function journey(
     if (url.hostname === host) {
       await route.fulfill({
         contentType: 'text/html',
-        body: `<html><title>Analytics test</title><script>${bundle.replaceAll('</script', '<\\/script')}</script></html>`,
+        body: `<html><title>Analytics test</title><script>${(options.bundle ?? bundle).replaceAll('</script', '<\\/script')}</script></html>`,
       });
     } else if (url.hostname === 'web.t.expanso.io') {
       if (/^\/array\/phc_\w+\/config$/.test(url.pathname))
@@ -128,6 +155,28 @@ async function journey(
     } else await route.abort(); // No Google, external config or live ingestion.
   });
   const page = await context.newPage();
+  // A script error fails no request, so the tests that break the SDK or the
+  // storage check this list.
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  // Method syntax on purpose: tsx wraps arrow functions in object literals in
+  // a __name() helper, which does not exist in the page.
+  if (options.blockStorage)
+    await page.addInitScript(() => {
+      Object.defineProperty(Document.prototype, 'cookie', {
+        configurable: true,
+        get() {
+          return '';
+        },
+        set() {},
+      });
+      Object.defineProperty(window, 'localStorage', {
+        configurable: true,
+        get() {
+          throw new DOMException('blocked', 'SecurityError');
+        },
+      });
+    });
   if (options.internal)
     await page.addInitScript(() =>
       localStorage.setItem('expanso_analytics_internal', 'true')
@@ -136,7 +185,7 @@ async function journey(
     referer: options.referrer,
   });
   await prepare(page);
-  return { context, page, receipts, implicit };
+  return { context, page, receipts, implicit, errors };
 }
 async function prepare(page: Page) {
   await page.evaluate(async () => {
@@ -379,9 +428,12 @@ test('declining after accepting moves to the cookieless lane and clears the stor
     const [accepted] = await waitForEvents(receipts, '$pageview', 1);
     assert.equal(accepted.properties.identity_mode, 'persistent');
     assert.ok(await hasSharedIdentityCookie(page));
-    await page.evaluate(() =>
-      (window as any).testAnalytics.setAnalyticsConsent(false)
-    );
+    // What the banner's Decline button does.
+    await page.evaluate(() => {
+      const a = (window as any).testAnalytics;
+      a.setCookieConsent('no');
+      a.captureConsentChoice(a.consentEvidenceClient, 'no', 'banner');
+    });
     const views = await waitForEvents(receipts, '$pageview', 2);
     const [choice] = await waitForEvents(receipts, 'cookie_consent', 1);
     for (const receipt of [views[1], choice]) {
@@ -393,6 +445,9 @@ test('declining after accepting moves to the cookieless lane and clears the stor
       );
     }
     assert.equal(choice.properties.consent, 'no');
+    assert.equal(choice.properties.method, 'banner');
+    assert.equal(choice.properties.scope, 'analytics');
+    assert.equal(choice.properties.site_id, 'examples');
     await page.waitForTimeout(500); // Longer than the SDK's cookie write delay.
     const stored = await storedIdentity(page);
     assert.deepEqual(stored.cookies, []);
@@ -411,6 +466,174 @@ test('a visitor who accepted on another Expanso site is persistent from the firs
     assert.equal(receipts[0].properties.consent_state, 'granted');
     assert.equal(receipts[0].properties.identity_mode, 'persistent');
     assert.ok(await hasSharedIdentityCookie(page));
+  } finally {
+    await context.close();
+  }
+});
+
+test('closing the banner sends cookie_banner_dismissed through capture, and nothing else passes', async () => {
+  const { context, page, receipts } = await journey();
+  try {
+    await view(page);
+    await waitForEvents(receipts, '$pageview', 1);
+    // What the banner's close button does for an undecided visitor.
+    await page.evaluate(() => {
+      const a = (window as any).testAnalytics;
+      a.consentEvidenceClient.capture('$pageview', { page_path: '/other/' });
+      a.dismissConsentBanner(a.consentEvidenceClient, 'banner');
+    });
+    const [closed] = await waitForEvents(
+      receipts,
+      'cookie_banner_dismissed',
+      1
+    );
+    assert.equal(closed.properties.method, 'banner');
+    assert.equal(closed.properties.scope, 'analytics');
+    assert.equal(closed.properties.site_id, 'examples');
+    assert.equal(closed.properties.consent_state, 'unset');
+    assert.equal(closed.properties.identity_mode, 'ephemeral');
+    await page.waitForTimeout(300); // A leaked event would arrive by now.
+    // The evidence client passes only the contract's two consent events.
+    assert.deepEqual(
+      receipts.map((receipt) => receipt.event),
+      ['$pageview', 'cookie_banner_dismissed']
+    );
+  } finally {
+    await context.close();
+  }
+});
+
+test('the real banner buttons send the evidence events with the banner source', async () => {
+  const card = 'section[aria-label="Analytics privacy choices"]';
+  for (const [button, event, consent, state, mode] of [
+    ['Accept analytics', 'cookie_consent', 'yes', 'granted', 'persistent'],
+    ['Decline analytics', 'cookie_consent', 'no', 'denied', 'ephemeral'],
+    ['Close', 'cookie_banner_dismissed', undefined, 'unset', 'ephemeral'],
+  ] as const) {
+    const { context, page, receipts } = await journey({ geo: 'eu' });
+    try {
+      await view(page);
+      await waitForEvents(receipts, '$pageview', 1);
+      await page.evaluate(() => (window as any).mountCard());
+      await page.locator(card).getByRole('button', { name: button }).click();
+      await page.locator(card).waitFor({ state: 'detached' });
+      const [evidence] = await waitForEvents(receipts, event, 1);
+      assert.equal(evidence.properties.consent, consent);
+      assert.equal(evidence.properties.method, 'banner');
+      assert.equal(evidence.properties.scope, 'analytics');
+      assert.equal(evidence.properties.site_id, 'examples');
+      assert.equal(evidence.properties.consent_state, state);
+      assert.equal(evidence.properties.identity_mode, mode);
+      assert.equal(
+        await page.evaluate(() => (window as any)['ga-disable-G-6YXD85WVC6']),
+        button !== 'Accept analytics'
+      );
+      if (button === 'Accept analytics') {
+        // One click moves an EU visitor to the persistent lane, with a page
+        // view of its own and the shared identity cookie.
+        const views = await waitForEvents(receipts, '$pageview', 2);
+        assert.equal(views[1].properties.identity_mode, 'persistent');
+        assert.equal(views[1].properties.consent_state, 'granted');
+        assert.ok(await hasSharedIdentityCookie(page));
+      }
+    } finally {
+      await context.close();
+    }
+  }
+});
+
+test('with cookies and storage blocked, Accept leaves the card open and the SDK cookieless', async () => {
+  const card = 'section[aria-label="Analytics privacy choices"]';
+  const { context, page, receipts, errors } = await journey({
+    blockStorage: true,
+  });
+  try {
+    await view(page);
+    const [first] = await waitForEvents(receipts, '$pageview', 1);
+    assert.equal(first.properties.$cookieless_mode, true);
+    assert.equal(first.properties.identity_mode, 'ephemeral');
+    await page.evaluate(() => (window as any).mountCard());
+    const accept = page
+      .locator(card)
+      .getByRole('button', { name: 'Accept analytics' });
+    await accept.click();
+    await accept.click();
+    // The browser drops the consent cookie, so the choice never lands: the
+    // card stays open, and each click sends its evidence again, cookieless.
+    const choices = await waitForEvents(receipts, 'cookie_consent', 2);
+    assert.ok(await page.locator(card).isVisible());
+    for (const choice of choices) {
+      assert.equal(choice.properties.consent, 'yes');
+      assert.equal(choice.properties.consent_state, 'unset');
+      assert.equal(choice.properties.identity_mode, 'ephemeral');
+    }
+    assert.equal(
+      await page.evaluate(() => (window as any)['ga-disable-G-6YXD85WVC6']),
+      true
+    );
+    await page.waitForTimeout(300); // A lane page view would arrive by now.
+    assert.equal(
+      receipts.filter((receipt) => receipt.event === '$pageview').length,
+      1
+    );
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+  }
+});
+
+test('GA follows a consent change that does not move the PostHog lane', async () => {
+  const { context, page, receipts } = await journey({ geo: 'row' });
+  try {
+    await view(page);
+    await waitForEvents(receipts, '$pageview', 1);
+    const gaDisabled = () =>
+      page.evaluate(() => (window as any)['ga-disable-G-6YXD85WVC6']);
+    assert.equal(await gaDisabled(), true); // Undecided: GA stays off.
+    // Outside the EU an undecided visitor is already in the persistent lane,
+    // so accepting sends no lane page view. GA must still turn on.
+    await page.evaluate(() =>
+      (window as any).testAnalytics.setCookieConsent('yes')
+    );
+    assert.equal(await gaDisabled(), false);
+    await page.evaluate(() =>
+      (window as any).testAnalytics.setCookieConsent('no')
+    );
+    assert.equal(await gaDisabled(), true);
+  } finally {
+    await context.close();
+  }
+});
+
+test('GA follows consent when the PostHog SDK fails to initialize', async () => {
+  const { context, page, receipts, errors } = await journey({
+    bundle: throwingSdkBundle,
+  });
+  try {
+    await view(page);
+    await page.waitForTimeout(500); // A request would arrive by now.
+    assert.deepEqual(receipts, []);
+    const gaDisabled = () =>
+      page.evaluate(() => (window as any)['ga-disable-G-6YXD85WVC6']);
+    assert.equal(await gaDisabled(), true); // Undecided: GA stays off.
+    // The real card, with no SDK behind it.
+    await page.evaluate(() => (window as any).mountCard());
+    const card = page.locator(
+      'section[aria-label="Analytics privacy choices"]'
+    );
+    await card.getByRole('button', { name: 'Accept analytics' }).click();
+    await card.waitFor({ state: 'detached' });
+    assert.equal(await gaDisabled(), false);
+    // What the footer's Cookie settings button does, then Decline.
+    await page.evaluate(() =>
+      window.dispatchEvent(new CustomEvent('cookie_consent_open'))
+    );
+    await card.getByRole('button', { name: 'Decline analytics' }).click();
+    await card.waitFor({ state: 'detached' });
+    assert.equal(await gaDisabled(), true);
+    await page.waitForTimeout(300); // A request would arrive by now.
+    assert.deepEqual(receipts, []);
+    assert.deepEqual(errors, []);
   } finally {
     await context.close();
   }

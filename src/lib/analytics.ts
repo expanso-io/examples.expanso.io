@@ -9,9 +9,9 @@ import {
   applyConsent,
   consentInitOptions,
   getCookieConsent,
-  setCookieConsent,
   syncSdkConsentFlag,
   watchConsent,
+  type ConsentPostHog,
   type CookieConsentStatus,
 } from '../components/cookies/cookieConsentUtils';
 import {
@@ -80,6 +80,7 @@ const CAMPAIGN_FIELDS = [
 let entryCampaign: Properties | undefined;
 
 let posthogClientPromise: Promise<PostHogInterface | undefined> | undefined;
+let gaWatchingConsent = false;
 
 /** Maps the shared contract's status to the consent_state label and GA. */
 export function consentState(status: CookieConsentStatus): AnalyticsConsent {
@@ -376,6 +377,12 @@ export async function initializeAnalytics(): Promise<
   PostHogInterface | undefined
 > {
   if (!isProductionHost()) return undefined;
+  // GA has its own consent gate. It follows every consent change, also when
+  // the PostHog SDK fails to load or to initialize.
+  if (googleAnalytics && !gaWatchingConsent) {
+    gaWatchingConsent = true;
+    watchConsent((next) => googleAnalytics?.setConsent(consentState(next)));
+  }
   if (!posthogClientPromise) posthogClientPromise = loadPostHog();
   return posthogClientPromise;
 }
@@ -383,6 +390,7 @@ export async function initializeAnalytics(): Promise<
 async function capture(
   eventName:
     | '$pageview'
+    | 'cookie_banner_dismissed'
     | 'cookie_consent'
     | ExampleEventName
     | PublicExampleAnalyticsEvent['event'],
@@ -434,15 +442,18 @@ export function captureExampleEvent(
   });
 }
 
-export async function setAnalyticsConsent(granted: boolean): Promise<void> {
-  // The cookie write dispatches cookie_consent_change; the watcher started in
-  // loadPostHog moves the SDK to the matching lane synchronously.
-  setCookieConsent(granted ? 'yes' : 'no');
-  googleAnalytics?.setConsent(currentConsent());
-  if (!isProductionHost()) return;
-  await capture('cookie_consent', {
-    consent: granted ? 'yes' : 'no',
-    method: 'cookie_banner',
-    scope: 'analytics',
-  });
-}
+/**
+ * The client the consent banner hands to the contract's captureConsentChoice
+ * and dismissConsentBanner. Their two evidence events go through capture(),
+ * so they get the host gate, examples' context properties and GA, like every
+ * other event. The banner never touches the SDK itself: a normal build has
+ * none, and the production build loads it lazily.
+ */
+export const consentEvidenceClient: ConsentPostHog = {
+  capture(event, properties) {
+    if (event === 'cookie_consent' || event === 'cookie_banner_dismissed')
+      void capture(event, properties).catch(() => {
+        /* Analytics must not interrupt the UI. */
+      });
+  },
+};
