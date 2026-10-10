@@ -166,7 +166,7 @@ test('the open card and the footer control have no accessibility violations', as
 test.describe('on a 320 px wide phone', () => {
   test.use({ viewport: { width: 320, height: 568 } });
 
-  test('the open card keeps its buttons inside it and adds no side scroll', async ({
+  test('the open card keeps 44 px buttons inside it and adds no side scroll', async ({
     page,
   }) => {
     await open(page);
@@ -177,6 +177,9 @@ test.describe('on a 320 px wide phone', () => {
     expect(box.x + box.width).toBeLessThanOrEqual(320);
     for (const name of ['Decline analytics', 'Accept analytics', 'Close']) {
       const button = (await card.getByRole('button', { name }).boundingBox())!;
+      // The site's target-size contract (src/css/custom.css): at least 44 CSS px.
+      expect(button.width, name).toBeGreaterThanOrEqual(44);
+      expect(button.height, name).toBeGreaterThanOrEqual(44);
       expect(button.x, name).toBeGreaterThanOrEqual(box.x);
       expect(button.y, name).toBeGreaterThanOrEqual(box.y);
       expect(button.x + button.width, name).toBeLessThanOrEqual(
@@ -186,6 +189,18 @@ test.describe('on a 320 px wide phone', () => {
         box.y + box.height
       );
     }
+    // The larger Close target must not cover the notice text.
+    const close = (await card
+      .getByRole('button', { name: 'Close' })
+      .boundingBox())!;
+    const textRight = await card
+      .locator('p')
+      .first()
+      .evaluate((text) => {
+        const { right } = text.getBoundingClientRect();
+        return right - parseFloat(getComputedStyle(text).paddingRight);
+      });
+    expect(close.x).toBeGreaterThanOrEqual(textRight);
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth)
     ).toBeLessThanOrEqual(320);
