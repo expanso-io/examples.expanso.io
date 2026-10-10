@@ -1,5 +1,5 @@
 import SocialDiscovery from '../components/SocialDiscovery';
-import React, { useEffect, useState, type ReactNode } from 'react';
+import React, { useEffect, type ReactNode } from 'react';
 import { useLocation } from '@docusaurus/router';
 
 import {
@@ -13,8 +13,7 @@ import {
   isRunLocalPath,
   recordAnalyticsEvent,
 } from '../analytics/events';
-import { getCookieConsent } from '../components/cookies/cookieConsentUtils';
-import { setAnalyticsConsent } from '../lib/analytics';
+import CookieConsentCard from '../components/cookies/CookieConsentCard';
 
 interface RootProps {
   children: ReactNode;
@@ -37,11 +36,6 @@ function relatedExamplesBlock(anchor: HTMLAnchorElement): boolean {
  */
 export default function Root({ children }: RootProps): React.JSX.Element {
   const location = useLocation();
-  const [showConsent, setShowConsent] = useState(false);
-
-  useEffect(() => {
-    setShowConsent(getCookieConsent() === 'undecided');
-  }, []);
 
   useEffect(() => {
     const pathname = `/${location.pathname.split('/').filter(Boolean).join('/')}/`;
@@ -110,49 +104,11 @@ export default function Root({ children }: RootProps): React.JSX.Element {
     return () => document.removeEventListener('click', handleClick, true);
   }, []);
 
-  const chooseConsent = (granted: boolean) => {
-    setShowConsent(false);
-    void setAnalyticsConsent(granted);
-  };
-
   return (
     <>
       {children}
       <SocialDiscovery />
-      {showConsent && (
-        <aside
-          className="analytics-consent"
-          aria-label="Cookie consent"
-          role="dialog"
-        >
-          <div className="analytics-consent__text">
-            <p>
-              We use cookies to remember your analytics choice and understand
-              how people use these examples.{' '}
-              <a href="https://expanso.io/privacy">Learn more</a>
-            </p>
-            <p>
-              Every page also counts anonymous visits with a cookieless Scarf
-              pixel, whatever you choose. It sends your IP address, user agent
-              and page URL to Scarf, which says it &ldquo;does not store the IP
-              address itself.&rdquo;{' '}
-              <a href="https://docs.scarf.sh/web-traffic/">About Scarf</a>
-            </p>
-          </div>
-          <div className="analytics-consent__actions">
-            <button type="button" onClick={() => chooseConsent(false)}>
-              Decline
-            </button>
-            <button
-              type="button"
-              className="button button--primary"
-              onClick={() => chooseConsent(true)}
-            >
-              Accept
-            </button>
-          </div>
-        </aside>
-      )}
+      <CookieConsentCard />
     </>
   );
 }

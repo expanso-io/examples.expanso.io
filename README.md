@@ -96,6 +96,16 @@ PostHog takes its consent lanes from the shared contract in
 `syncSdkConsentFlag`, `applyConsent`, `watchConsent`), as docs.expanso.io does.
 PostHog ignores Do Not Track; the consent lanes decide. GA still respects it.
 
+The consent banner is docs.expanso.io's card (`src/components/cookies/`), with
+this site's wording. "Cookie settings" in the footer reopens it. Accept and
+Decline write the shared cookie through the contract; the consent watchers in
+`src/lib/analytics.ts` then update GA consent and move PostHog to the matching
+lane. The banner never loads the SDK: it sends the evidence events
+`cookie_consent` and `cookie_banner_dismissed` through
+`consentEvidenceClient`, so they get the same host gate and context properties
+as every other event. `tests/quality/cookie-consent.spec.ts` checks show,
+accept, decline, close, reopen and the card's accessibility.
+
 PostHog captures as docs.expanso.io does (`POSTHOG_CAPTURE_OPTIONS` in
 `src/lib/analytics.ts`): autocapture with element text, page leave, heatmaps,
 web vitals and session replay with password inputs masked. The PostHog project
