@@ -1,8 +1,9 @@
 /**
- * Shared scenario test for cookieConsentUtils.ts. Byte-identical in expanso-cloud (Jest),
- * docs.expanso.io and expanso.io (node --test with a describe/it globals shim). Uses
- * node:assert rather than expect so the same file runs under both runners, and declares
- * the runner globals it needs so it type-checks without @types/jest.
+ * Shared scenario test for cookieConsentUtils.ts. It is copied with the contract to every repo
+ * on the list in expanso-cloud's CLAUDE.md (expanso.io's copy differs only in its import
+ * line). It runs under Jest here and under node --test with a describe/it globals shim in
+ * the copies. Uses node:assert rather than expect so the same file runs under both runners,
+ * and declares the runner globals it needs so it type-checks without @types/jest.
  */
 import assert from 'node:assert/strict';
 
@@ -171,7 +172,7 @@ function fakeTarget() {
 
 describe('cookieConsentUtils version', () => {
   it('is the version every repo pins', () => {
-    assert.equal(COOKIE_CONSENT_UTILS_VERSION, '1.2.0');
+    assert.equal(COOKIE_CONSENT_UTILS_VERSION, '1.3.0');
   });
 });
 
@@ -261,7 +262,7 @@ describe('getCookieConsent', () => {
 });
 
 describe('setCookieConsent', () => {
-  it('writes one shared cookie on production hosts and clears both old variants first', () => {
+  it('writes one shared cookie on production hosts and clears the host-only copy', () => {
     for (const [hostname, domain] of [
       ['cloud.expanso.io', 'expanso.io'],
       ['docs.expanso.io', 'expanso.io'],
@@ -290,22 +291,43 @@ describe('setCookieConsent', () => {
     }
   });
 
-  it('clears both copies, then writes the shared cookie with its full attributes', () => {
+  it('clears the host-only copy, then overwrites the shared cookie in place', () => {
     const written: string[] = [];
     const { env } = fakeEnvironment('cloud.expanso.io');
-    const spy: ConsentEnvironment = { ...env, setCookie: (v) => written.push(v) };
-    setCookieConsent('yes', spy);
-    assert.equal(written.length, 3);
-    const final = written[written.length - 1];
-    assert.match(
-      final,
-      /^expanso-cookie-consent=true; Max-Age=31536000; Path=\/; SameSite=Lax; Secure; Domain=expanso\.io$/,
-    );
-    assert.equal(written[0], 'expanso-cookie-consent=; Max-Age=0; Path=/; SameSite=Lax; Secure');
-    assert.equal(
-      written[1],
-      'expanso-cookie-consent=; Max-Age=0; Path=/; SameSite=Lax; Secure; Domain=expanso.io',
-    );
+    setCookieConsent('yes', { ...env, setCookie: (v) => written.push(v) });
+    assert.deepEqual(written, [
+      'expanso-cookie-consent=; Max-Age=0; Path=/; SameSite=Lax; Secure',
+      'expanso-cookie-consent=true; Max-Age=31536000; Path=/; SameSite=Lax; Secure; Domain=expanso.io',
+    ]);
+  });
+
+  it('never leaves another tab a moment without the recorded choice', () => {
+    for (const [hostname, domain] of [
+      ['docs.expanso.io', 'expanso.io'],
+      ['expanso.io', 'expanso.io'],
+      ['localhost', undefined],
+    ] as const) {
+      for (const [before, choice] of [
+        ['true', 'yes'],
+        ['false', 'no'],
+        ['true', 'no'],
+        ['false', 'yes'],
+      ] as const) {
+        const { env, jar } = fakeEnvironment(hostname);
+        jar.seed(COOKIE_CONSENT_KEY, before, domain);
+        const seen: CookieConsentStatus[] = [];
+        setCookieConsent(choice, {
+          ...env,
+          setCookie: (v) => {
+            jar.write(v);
+            seen.push(getCookieConsent(env));
+          },
+        });
+        const trace = `${hostname} ${before} -> ${choice}: ${seen.join(',')}`;
+        assert.ok(!seen.includes('undecided'), trace);
+        assert.equal(seen[seen.length - 1], choice, trace);
+      }
+    }
   });
 
   it('omits Secure on http', () => {
@@ -471,6 +493,13 @@ describe('captureConsentChoice', () => {
   it('tolerates a missing SDK', () => {
     captureConsentChoice(undefined, 'yes', 'banner');
   });
+
+  it('takes only banner or settings as source, here and in dismissConsentBanner', () => {
+    // The type checker is the test: each line fails it if that source parameter widens to string.
+    const capture: string extends Parameters<typeof captureConsentChoice>[2] ? never : true = true;
+    const dismiss: string extends Parameters<typeof dismissConsentBanner>[1] ? never : true = true;
+    assert.ok(capture && dismiss);
+  });
 });
 
 describe('dismissConsentBanner', () => {
@@ -518,7 +547,7 @@ describe('dismissConsentBanner', () => {
   });
 
   it('captures cookie_banner_dismissed with the banner it came from as method', () => {
-    for (const source of ['banner', 'settings']) {
+    for (const source of ['banner', 'settings'] as const) {
       const { env } = fakeEnvironment('cloud.expanso.io');
       const { posthog, calls } = fakePostHog();
       dismissConsentBanner(posthog, source, env);

@@ -1,17 +1,19 @@
 /**
- * Shared cookie-consent contract for expanso.io, cloud.expanso.io and docs.expanso.io.
+ * Shared cookie-consent contract for the Expanso sites.
  *
  * CANONICAL COPY: expanso-io/expanso-cloud, src/components/cookies/cookieConsentUtils.ts.
- * docs.expanso.io and expanso.io carry byte-identical copies. Change this file here first,
- * bump COOKIE_CONSENT_UTILS_VERSION, run the tests, then copy this file and its test to the
- * other two repos. Never edit a copy in place.
+ * Other repos carry byte-identical copies of this file and its test (expanso.io's test differs
+ * only in its import line). The one list of those repos is in expanso-cloud's CLAUDE.md, in
+ * the cookie consent section. Change this file here first, bump COOKIE_CONSENT_UTILS_VERSION,
+ * run the tests, then copy this file and its test to every repo on that list. Never edit a
+ * copy in place.
  *
  * No imports on purpose: the marketing site inlines this file into every page through
  * esbuild and Node runs the test with type stripping only, so it must stay dependency-free
  * and use erasable TypeScript syntax (no enums, no parameter properties, no namespaces).
  */
 
-export const COOKIE_CONSENT_UTILS_VERSION = '1.2.0';
+export const COOKIE_CONSENT_UTILS_VERSION = '1.3.0';
 
 export type CookieConsentStatus = 'undecided' | 'yes' | 'no';
 export type CookieConsentChoice = Exclude<CookieConsentStatus, 'undecided'>;
@@ -156,7 +158,10 @@ function writeSharedConsentCookie(env: ConsentEnvironment, value: string): void 
  * Delete the host-only copy of the consent cookie on production hosts, so that only the
  * shared domain cookie is ever read. A delete with no Domain attribute removes only the
  * host-only copy, and JavaScript cannot tell the two apart by reading, which is why deletion
- * rather than filtering is the mechanism.
+ * rather than filtering is the mechanism. This holds on the apex hosts too (expanso.io,
+ * expanso.dev): browsers keep a host-only and a Domain cookie of the same name apart there as
+ * well, so this delete never removes the shared cookie (checked in Chromium 140, Firefox 141
+ * and WebKit 26).
  *
  * Does nothing on localhost or previews, where the host-only cookie is the real one.
  */
@@ -221,16 +226,19 @@ export function sdkConsentFor(status: CookieConsentStatus, geo: ConsentGeo): Sdk
   return geo === 'row' ? 'granted' : 'pending';
 }
 
-/** Record a choice: clear both cookie variants, write one, notify this tab. */
+/**
+ * Record a choice: clear the host-only copy, overwrite the cookie that holds the choice,
+ * notify this tab. That cookie is overwritten in place, never deleted first: a write with the
+ * same name, Domain and Path replaces it, and a delete would give other tabs' cookieStore
+ * listeners a moment in which no choice is recorded.
+ */
 export function setCookieConsent(
   status: CookieConsentChoice,
   env: ConsentEnvironment | undefined = browserEnvironment(),
 ): void {
   if (!env) return;
-  const domain = consentCookieDomain(env.hostname);
   const value = status === 'yes' ? 'true' : 'false';
-  env.setCookie(`${COOKIE_CONSENT_KEY}=; Max-Age=0${cookieAttributes(env)}`);
-  if (domain) env.setCookie(`${COOKIE_CONSENT_KEY}=; Max-Age=0${cookieAttributes(env, domain)}`);
+  purgeHostOnlyConsentCookie(env);
   writeSharedConsentCookie(env, value);
   env.dispatchEvent(COOKIE_CONSENT_CHANGE_EVENT, { status });
 }
@@ -269,7 +277,7 @@ export function isConsentBannerDismissed(
  */
 export function dismissConsentBanner(
   posthog: ConsentPostHog | undefined,
-  source: string,
+  source: CookieConsentSource,
   env: ConsentEnvironment | undefined = browserEnvironment(),
 ): void {
   if (!env || getCookieConsent(env) !== 'undecided' || isConsentBannerDismissed(env)) return;
@@ -393,7 +401,7 @@ export function applyConsent(
 export function captureConsentChoice(
   posthog: ConsentPostHog | undefined,
   status: CookieConsentChoice,
-  source: string,
+  source: CookieConsentSource,
 ): void {
   try {
     posthog?.capture?.(COOKIE_CONSENT_POSTHOG_EVENT, {
