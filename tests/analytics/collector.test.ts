@@ -40,6 +40,23 @@ after(async () => {
 });
 
 type Receipt = { event: string; properties: Record<string, any> };
+// Events the SDK sends by itself with docs' capture settings. Heatmap batches
+// flush on a timer and $pageleave goes out on unload, so they can land in any
+// test. They go to their own list, so the counts a test checks stay exact.
+// $exception is off in the project today, but the code no longer disables it.
+const IMPLICIT_EVENTS = new Set([
+  '$pageleave',
+  '$autocapture',
+  '$web_vitals',
+  '$$heatmap',
+  '$snapshot',
+  '$dead_click',
+  '$rageclick',
+  '$exception',
+]);
+// The part of the PostHog project's remote config these tests need. The SDK
+// starts autocapture only after the project says it allows it.
+const REMOTE_CONFIG = { autocapture_opt_out: false };
 async function journey(
   options: {
     consent?: boolean;
@@ -70,6 +87,7 @@ async function journey(
       { name: 'expanso-geo', value: options.geo, domain: host, path: '/' },
     ]);
   const receipts: Receipt[] = [];
+  const implicit: Receipt[] = [];
   await context.route('**/*', async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname === host) {
@@ -78,21 +96,33 @@ async function journey(
         body: `<html><title>Analytics test</title><script>${bundle.replaceAll('</script', '<\\/script')}</script></html>`,
       });
     } else if (url.hostname === 'web.t.expanso.io') {
+      if (/^\/array\/phc_\w+\/config$/.test(url.pathname))
+        return route.fulfill({ json: REMOTE_CONFIG });
       const body = route.request().postDataBuffer();
       if (body && url.pathname.includes('/e/')) {
         const decoded =
           body[0] === 0x1f && body[1] === 0x8b
             ? gunzipSync(body).toString()
             : body.toString();
-        const parsed = JSON.parse(decoded);
-        // posthog-js 1.435 sends { api_key, batch: [...] }; older SDKs send an array.
-        receipts.push(
-          ...(Array.isArray(parsed)
-            ? parsed
-            : Array.isArray(parsed.batch)
-              ? parsed.batch
-              : [parsed])
+        // $pageleave goes out on unload by sendBeacon, as data=<base64 JSON>.
+        const parsed = JSON.parse(
+          decoded.startsWith('data=')
+            ? Buffer.from(
+                new URLSearchParams(decoded).get('data') ?? '',
+                'base64'
+              ).toString()
+            : decoded
         );
+        // posthog-js 1.435 sends { api_key, batch: [...] }; older SDKs send an array.
+        const batch: Receipt[] = Array.isArray(parsed)
+          ? parsed
+          : Array.isArray(parsed.batch)
+            ? parsed.batch
+            : [parsed];
+        for (const receipt of batch)
+          (IMPLICIT_EVENTS.has(receipt.event) ? implicit : receipts).push(
+            receipt
+          );
       }
       await route.fulfill({ contentType: 'application/json', body: '{}' });
     } else await route.abort(); // No Google, external config or live ingestion.
@@ -106,7 +136,7 @@ async function journey(
     referer: options.referrer,
   });
   await prepare(page);
-  return { context, page, receipts };
+  return { context, page, receipts, implicit };
 }
 async function prepare(page: Page) {
   await page.evaluate(async () => {
@@ -381,6 +411,46 @@ test('a visitor who accepted on another Expanso site is persistent from the firs
     assert.equal(receipts[0].properties.consent_state, 'granted');
     assert.equal(receipts[0].properties.identity_mode, 'persistent');
     assert.ok(await hasSharedIdentityCookie(page));
+  } finally {
+    await context.close();
+  }
+});
+
+test('autocapture runs like docs, with element text and before_send cleaning', async () => {
+  const { context, page, receipts, implicit } = await journey({
+    query: '?email=private%40example.test&gclid=private-click-id#secret',
+  });
+  try {
+    await view(page);
+    await waitForCount(receipts, 1);
+    await page.evaluate(() => {
+      const button = document.createElement('button');
+      button.textContent = 'Copy pipeline';
+      document.body.append(button);
+    });
+    await page.click('button');
+    const [click] = await waitForEvents(implicit, '$autocapture', 1);
+    assert.equal(click.properties.$event_type, 'click');
+    assert.equal(click.properties.$el_text, 'Copy pipeline');
+    assert.equal(click.properties.$current_url, 'https://examples.expanso.io/');
+    assert.equal(click.properties.identity_mode, 'ephemeral');
+    assert.equal(click.properties.$cookieless_mode, true);
+    // before_send gives it the context of examples' own events.
+    for (const key of [
+      'site_id',
+      'site_host',
+      'environment',
+      'analytics_schema_version',
+      'consent_state',
+      'traffic_class',
+      'traffic_classifier_version',
+      'is_synthetic',
+      'is_internal',
+    ])
+      assert.equal(click.properties[key], receipts[0].properties[key], key);
+    assert.equal(click.properties.site_id, 'examples');
+    assert.doesNotMatch(JSON.stringify(click), /private|secret/);
+    assert.equal(receipts.length, 1); // Implicit events never change counts.
   } finally {
     await context.close();
   }
