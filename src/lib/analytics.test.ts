@@ -2,9 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   classifyTraffic,
-  getAnalyticsConsent,
+  consentState,
   PRIVACY_SAFE_CAPTURE_OPTIONS,
-  readCookie,
   sanitizeAnalyticsEvent,
   sanitizeAnalyticsUrl,
 } from './analytics';
@@ -22,16 +21,10 @@ test('explicitly disables every implicit capture surface', () => {
   });
 });
 
-test('reads only the exact consent cookie', () => {
-  const cookies = 'unrelated=true; expanso-cookie-consent=false; other=1';
-  assert.equal(readCookie(cookies, 'expanso-cookie-consent'), 'false');
-  assert.equal(readCookie(cookies, 'missing'), undefined);
-});
-
-test('maps shared consent values without guessing', () => {
-  assert.equal(getAnalyticsConsent('expanso-cookie-consent=true'), 'granted');
-  assert.equal(getAnalyticsConsent('expanso-cookie-consent=false'), 'denied');
-  assert.equal(getAnalyticsConsent('expanso-cookie-consent=maybe'), 'unset');
+test('maps the shared consent status to the analytics consent state', () => {
+  assert.equal(consentState('yes'), 'granted');
+  assert.equal(consentState('no'), 'denied');
+  assert.equal(consentState('undecided'), 'unset');
 });
 
 test('removes query strings and fragments from analytics URLs', () => {
