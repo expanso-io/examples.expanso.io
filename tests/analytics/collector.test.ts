@@ -18,7 +18,8 @@ before(async () => {
       import * as events from './src/analytics/events';
       import * as routes from './src/clientModules/posthog';
       import * as google from './src/lib/googleAnalytics';
-      window.testAnalytics = {...analytics, ...events, ...routes, ...google};`,
+      import * as consent from './src/components/cookies/cookieConsentUtils';
+      window.testAnalytics = {...analytics, ...events, ...routes, ...google, ...consent};`,
         resolveDir: process.cwd(),
       },
       bundle: true,
@@ -43,6 +44,7 @@ async function journey(
   options: {
     consent?: boolean;
     hostOnlyConsent?: boolean;
+    geo?: 'eu' | 'row';
     host?: string;
     internal?: boolean;
     query?: string;
@@ -61,6 +63,11 @@ async function journey(
         domain: options.hostOnlyConsent ? host : '.expanso.io',
         path: '/',
       },
+    ]);
+  // The docs-geo Worker sets this host-only cookie; without it, readGeo says eu.
+  if (options.geo)
+    await context.addCookies([
+      { name: 'expanso-geo', value: options.geo, domain: host, path: '/' },
     ]);
   const receipts: Receipt[] = [];
   await context.route('**/*', async (route) => {
@@ -125,10 +132,53 @@ async function view(page: Page, pathname = '/', previous?: string) {
     { pathname, previous }
   );
 }
+// Consent changes add a lane $pageview and cookie_consent, so tests that
+// change consent wait per event name, not for a total count.
+async function waitForEvents(
+  receipts: Receipt[],
+  event: string,
+  count: number
+) {
+  const matching = () => receipts.filter((receipt) => receipt.event === event);
+  for (let i = 0; i < 100 && matching().length < count; i++)
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(matching().length, count);
+  return matching();
+}
 function persistentKeys(page: Page) {
   return page.evaluate(() =>
     Object.keys(localStorage).filter((key) => key.startsWith('ph_'))
   );
+}
+// Everything the SDK could keep about a visitor in this browser.
+async function storedIdentity(page: Page) {
+  const storage = await page.evaluate(() => ({
+    localStorage: Object.keys(localStorage).filter(
+      (key) => key.startsWith('ph_') || key.startsWith('__ph_opt_in_out_')
+    ),
+    sessionStorage: Object.keys(sessionStorage).filter((key) =>
+      key.startsWith('ph_')
+    ),
+  }));
+  const cookies = (await page.context().cookies())
+    .filter((cookie) => cookie.name.startsWith('ph_'))
+    .map((cookie) => `${cookie.name}@${cookie.domain}`);
+  return { cookies, ...storage };
+}
+const NOTHING_STORED = { cookies: [], localStorage: [], sessionStorage: [] };
+// The SDK writes its cookie a moment after the first event, so poll for it.
+async function hasSharedIdentityCookie(page: Page) {
+  for (let i = 0; i < 100; i++) {
+    const { cookies } = await storedIdentity(page);
+    if (
+      cookies.some((cookie) =>
+        /^ph_phc_\w+_posthog@\.expanso\.io$/.test(cookie)
+      )
+    )
+      return true;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  return false;
 }
 
 test('validated semantic events reach the real SDK request boundary once with unchanged dataLayer schema', async () => {
@@ -227,50 +277,110 @@ test('manual route owner emits initial and SPA/back views once, ignoring query/h
   }
 });
 
-test('consent uses ephemeral identity until grant, persists on reload and clears identity on revoke', async () => {
-  const { context, page, receipts } = await journey({ consent: false });
+test('an EU visitor without a choice is counted cookieless, with nothing stored', async () => {
+  for (const geo of [undefined, 'eu'] as const) {
+    const { context, page, receipts } = await journey({ geo });
+    try {
+      await view(page);
+      await view(page, '/next/', '/');
+      await waitForCount(receipts, 2);
+      for (const receipt of receipts) {
+        assert.equal(receipt.properties.consent_state, 'unset');
+        assert.equal(receipt.properties.identity_mode, 'ephemeral');
+        assert.equal(receipt.properties.$cookieless_mode, true);
+      }
+      await page.waitForTimeout(500); // Longer than the SDK's cookie write delay.
+      assert.deepEqual(await storedIdentity(page), NOTHING_STORED);
+    } finally {
+      await context.close();
+    }
+  }
+});
+
+test('a visitor outside the EU without a choice gets the shared identity cookie', async () => {
+  const { context, page, receipts } = await journey({ geo: 'row' });
   try {
     await view(page);
-    await waitForCount(receipts, 1);
-    const deniedId = receipts[0].properties.distinct_id;
-    assert.equal(receipts[0].properties.consent_state, 'denied');
-    assert.deepEqual(await persistentKeys(page), []);
-    await page.reload();
-    await prepare(page);
-    await view(page);
+    await view(page, '/next/', '/');
     await waitForCount(receipts, 2);
-    assert.notEqual(receipts[1].properties.distinct_id, deniedId);
+    for (const receipt of receipts) {
+      assert.equal(receipt.properties.consent_state, 'unset');
+      assert.equal(receipt.properties.identity_mode, 'persistent');
+    }
+    assert.equal(
+      receipts[0].properties.distinct_id,
+      receipts[1].properties.distinct_id
+    );
+    assert.ok(await hasSharedIdentityCookie(page));
+  } finally {
+    await context.close();
+  }
+});
+
+test('accepting in the EU moves to the persistent lane with its own page view, kept on reload', async () => {
+  const { context, page, receipts } = await journey({ geo: 'eu' });
+  try {
+    await view(page);
+    await waitForEvents(receipts, '$pageview', 1);
     await page.evaluate(() =>
-      (window as any).testAnalytics.setAnalyticsConsent(true)
+      (window as any).testAnalytics.setCookieConsent('yes')
     );
-    await waitForCount(receipts, 3);
-    assert.equal(receipts[2].properties.identity_mode, 'persistent');
-    const grantedId = receipts[2].properties.distinct_id;
-    assert.deepEqual(
-      (await context.cookies())
-        .filter((cookie) => cookie.name === 'expanso-cookie-consent')
-        .map((cookie) => [cookie.domain, cookie.value]),
-      [['.expanso.io', 'true']]
-    );
-    assert.ok((await persistentKeys(page)).length > 0);
-    assert.ok(
-      (await context.cookies()).some((cookie) => cookie.name.startsWith('ph_'))
-    );
+    const views = await waitForEvents(receipts, '$pageview', 2);
+    assert.equal(views[1].properties.identity_mode, 'persistent');
+    assert.equal(views[1].properties.consent_state, 'granted');
+    assert.equal(views[1].properties.page_path, '/');
+    const grantedId = views[1].properties.distinct_id;
+    assert.ok(await hasSharedIdentityCookie(page));
     await page.reload();
     await prepare(page);
     await view(page);
-    await waitForCount(receipts, 4);
-    assert.equal(receipts[3].properties.distinct_id, grantedId);
+    const reloaded = await waitForEvents(receipts, '$pageview', 3);
+    assert.equal(reloaded[2].properties.identity_mode, 'persistent');
+    assert.equal(reloaded[2].properties.distinct_id, grantedId);
+  } finally {
+    await context.close();
+  }
+});
+
+test('declining after accepting moves to the cookieless lane and clears the stored identity', async () => {
+  const { context, page, receipts } = await journey({ consent: true });
+  try {
+    await view(page);
+    const [accepted] = await waitForEvents(receipts, '$pageview', 1);
+    assert.equal(accepted.properties.identity_mode, 'persistent');
+    assert.ok(await hasSharedIdentityCookie(page));
     await page.evaluate(() =>
       (window as any).testAnalytics.setAnalyticsConsent(false)
     );
-    await waitForCount(receipts, 5);
-    assert.equal(receipts[4].properties.identity_mode, 'ephemeral');
-    assert.notEqual(receipts[4].properties.distinct_id, grantedId);
+    const views = await waitForEvents(receipts, '$pageview', 2);
+    const [choice] = await waitForEvents(receipts, 'cookie_consent', 1);
+    for (const receipt of [views[1], choice]) {
+      assert.equal(receipt.properties.identity_mode, 'ephemeral');
+      assert.equal(receipt.properties.consent_state, 'denied');
+      assert.notEqual(
+        receipt.properties.distinct_id,
+        accepted.properties.distinct_id
+      );
+    }
+    assert.equal(choice.properties.consent, 'no');
+    await page.waitForTimeout(500); // Longer than the SDK's cookie write delay.
+    const stored = await storedIdentity(page);
+    assert.deepEqual(stored.cookies, []);
     assert.deepEqual(await persistentKeys(page), []);
-    assert.ok(
-      !(await context.cookies()).some((cookie) => cookie.name.startsWith('ph_'))
-    );
+    assert.deepEqual(stored.sessionStorage, []);
+  } finally {
+    await context.close();
+  }
+});
+
+test('a visitor who accepted on another Expanso site is persistent from the first page view', async () => {
+  const { context, page, receipts } = await journey({ consent: true });
+  try {
+    await view(page);
+    await waitForCount(receipts, 1);
+    assert.equal(receipts[0].properties.consent_state, 'granted');
+    assert.equal(receipts[0].properties.identity_mode, 'persistent');
+    assert.ok(await hasSharedIdentityCookie(page));
   } finally {
     await context.close();
   }
@@ -294,39 +404,40 @@ test('preview hosts never initialize or send to the production collector', async
   }
 });
 
-test('unset reloads stay ephemeral and session QA tagging survives without persistent identity', async () => {
+test('unset reloads stay cookieless and session QA tagging survives without persistent identity', async () => {
   const { context, page, receipts } = await journey({
     query: '?analytics_test=true&utm_source=qa&gclid=private-click-id',
   });
   try {
     await view(page);
     await waitForCount(receipts, 1);
-    const first = receipts[0].properties.distinct_id;
     await page.evaluate(() => history.replaceState({}, '', '/'));
     await page.reload();
     await prepare(page);
     await view(page);
     await waitForCount(receipts, 2);
-    assert.notEqual(receipts[1].properties.distinct_id, first);
+    // Cookieless events carry the SDK's placeholder id; PostHog derives the
+    // visitor server-side, so no id is kept in the browser.
+    for (const receipt of receipts)
+      assert.equal(receipt.properties.distinct_id, '$posthog_cookieless');
     assert.equal(receipts[1].properties.consent_state, 'unset');
+    assert.equal(receipts[1].properties.identity_mode, 'ephemeral');
     assert.equal(receipts[1].properties.is_synthetic, true);
     assert.equal(receipts[1].properties.is_internal, false);
-    assert.deepEqual(await persistentKeys(page), []);
-    assert.ok(
-      !(await context.cookies()).some((cookie) => cookie.name.startsWith('ph_'))
-    );
+    assert.deepEqual(await storedIdentity(page), NOTHING_STORED);
     assert.doesNotMatch(JSON.stringify(receipts), /private-click-id/);
   } finally {
     await context.close();
   }
 });
 
-test('shared consent revocation is reconciled before the next event', async () => {
+test('a decline on another Expanso site moves this tab to the cookieless lane', async () => {
   const { context, page, receipts } = await journey({ consent: true });
   try {
     await view(page);
-    await waitForCount(receipts, 1);
-    const persistentId = receipts[0].properties.distinct_id;
+    const [accepted] = await waitForEvents(receipts, '$pageview', 1);
+    assert.equal(accepted.properties.identity_mode, 'persistent');
+    assert.ok(await hasSharedIdentityCookie(page));
     await context.addCookies([
       {
         name: 'expanso-cookie-consent',
@@ -335,12 +446,109 @@ test('shared consent revocation is reconciled before the next event', async () =
         path: '/',
       },
     ]);
+    // The visitor comes back to this tab. Chromium may also report the
+    // change through cookieStore; the watcher reacts once either way.
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await waitForEvents(receipts, '$pageview', 2);
     await view(page, '/next/', '/');
-    await waitForCount(receipts, 2);
-    assert.equal(receipts[1].properties.consent_state, 'denied');
-    assert.equal(receipts[1].properties.identity_mode, 'ephemeral');
-    assert.notEqual(receipts[1].properties.distinct_id, persistentId);
+    const views = await waitForEvents(receipts, '$pageview', 3);
+    for (const receipt of views.slice(1)) {
+      assert.equal(receipt.properties.consent_state, 'denied');
+      assert.equal(receipt.properties.identity_mode, 'ephemeral');
+      assert.notEqual(
+        receipt.properties.distinct_id,
+        accepted.properties.distinct_id
+      );
+    }
+    assert.deepEqual(
+      views.map((receipt) => receipt.properties.page_path),
+      ['/', '/', '/next/']
+    );
+    const stored = await storedIdentity(page);
+    assert.deepEqual(stored.cookies, []);
     assert.deepEqual(await persistentKeys(page), []);
+  } finally {
+    await context.close();
+  }
+});
+
+test('a choice made in another tab moves this tab to the cookieless lane', async () => {
+  const { context, page, receipts } = await journey({ consent: true });
+  try {
+    await view(page);
+    const [accepted] = await waitForEvents(receipts, '$pageview', 1);
+    assert.equal(accepted.properties.identity_mode, 'persistent');
+    assert.ok(await hasSharedIdentityCookie(page));
+    // A second real tab on another path, so its own lane $pageview is told
+    // apart by page_path. Cookieless events carry no $window_id.
+    const other = await context.newPage();
+    await other.goto('https://examples.expanso.io/other/');
+    await prepare(other);
+    await other.evaluate(() =>
+      (window as any).testAnalytics.setCookieConsent('no')
+    );
+    // No synthetic event: this tab sees the change through cookieStore or
+    // visibility, as a real browser reports it.
+    await page.bringToFront();
+    const views = await waitForEvents(receipts, '$pageview', 3);
+    const here = views.slice(1).filter((v) => v.properties.page_path === '/');
+    const there = views.filter((v) => v.properties.page_path === '/other/');
+    assert.equal(here.length, 1);
+    assert.equal(there.length, 1);
+    for (const receipt of [...here, ...there]) {
+      assert.equal(receipt.properties.identity_mode, 'ephemeral');
+      assert.equal(receipt.properties.consent_state, 'denied');
+      assert.notEqual(
+        receipt.properties.distinct_id,
+        accepted.properties.distinct_id
+      );
+    }
+    assert.equal(
+      await page.evaluate(async () =>
+        (
+          await (window as any).testAnalytics.initializeAnalytics()
+        ).has_opted_in_capturing()
+      ),
+      false
+    );
+    await page.waitForTimeout(500); // Longer than the SDK's cookie write delay.
+    assert.deepEqual((await storedIdentity(page)).cookies, []);
+  } finally {
+    await context.close();
+  }
+});
+
+test('a stale SDK opt-in from an earlier accept does not outlive a decline', async () => {
+  const { context, page, receipts } = await journey({ consent: false });
+  try {
+    // Before the next load: the opt-in flag an earlier accept on examples
+    // left behind, and a log of every ph_* cookie write.
+    await page.addInitScript(() => {
+      if (!sessionStorage.getItem('stale-flag-seeded')) {
+        sessionStorage.setItem('stale-flag-seeded', '1');
+        localStorage.setItem(
+          '__ph_opt_in_out_phc_f467hBf7ZUEc5HDT3xFcbhZ4tL7wUYJH0COw9Y2bzSK',
+          '1'
+        );
+      }
+      const writes: string[] = [];
+      (window as any).__phWrites = writes;
+      (window as any).cookieStore?.addEventListener('change', (event: any) => {
+        for (const cookie of [...event.changed, ...event.deleted])
+          if (cookie.name.startsWith('ph_')) writes.push(cookie.name);
+      });
+    });
+    await page.reload();
+    await prepare(page);
+    await view(page);
+    const [first] = await waitForEvents(receipts, '$pageview', 1);
+    assert.equal(first.properties.identity_mode, 'ephemeral');
+    assert.equal(first.properties.consent_state, 'denied');
+    assert.equal(first.properties.$cookieless_mode, true);
+    assert.equal(first.properties.distinct_id, '$posthog_cookieless');
+    await page.waitForTimeout(500); // Longer than the SDK's cookie write delay.
+    assert.deepEqual(await page.evaluate(() => (window as any).__phWrites), []);
+    assert.deepEqual((await storedIdentity(page)).cookies, []);
   } finally {
     await context.close();
   }
