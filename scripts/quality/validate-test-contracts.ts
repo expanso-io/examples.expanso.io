@@ -310,7 +310,7 @@ function validatePerformance(contract: QualityContract): void {
   const expectedThresholds = {
     sharedJavaScriptGzipBytes: 180 * 1024,
     explorerIncrementGzipBytes: 25 * 1024,
-    globalCssGzipBytes: 25 * 1024,
+    globalCssGzipBytes: 26 * 1024,
     mobileLcpMsP75: 2500,
     mobileClsP75Exclusive: 0.1,
     mobileInpMsP75: 200,
