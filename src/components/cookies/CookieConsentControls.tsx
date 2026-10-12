@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { consentEvidenceClient } from '../../lib/analytics';
 import {
   type CookieConsentChoice,
+  type CookieConsentSource,
   captureConsentChoice,
   setCookieConsent,
 } from './cookieConsentUtils';
@@ -12,8 +13,8 @@ import styles from './cookies.module.css';
 interface CookieConsentControlsProps {
   className?: string;
 
-  // The source of the consent request, e.g. 'banner', 'settings', etc.
-  source: string;
+  // Which banner the choice came from: the first-visit banner or the reopened settings card.
+  source: CookieConsentSource;
 }
 
 export function CookieConsentControls({
