@@ -75,8 +75,9 @@ Copyright © 2024 Expanso, Inc.
 
 `npm run test-analytics` checks the public semantic schema and privacy rules.
 `npm run test-cookie-consent-utils` runs the shared consent contract test.
-`src/components/cookies/cookieConsentUtils.ts` and its test are byte-identical
-copies of the shared contract. Do not edit or reformat them.
+`src/components/cookies/cookieConsentUtils.ts`, its test and
+`scripts/node-test-globals.mjs` are byte-identical copies of docs' files (the
+contract is canonical in expanso-cloud). Do not edit or reformat them.
 For delivery and identity behavior, install the pinned browser with
 `npx playwright install chromium`, then run `npm run test-analytics-collector`.
 The collector suite bundles the actual analytics modules and installed PostHog
