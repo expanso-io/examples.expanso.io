@@ -147,9 +147,24 @@ describe('analytics event schema v1', () => {
     assert.deepEqual(writers, []);
   });
 
+  it('dispatches the browser event only from src/analytics/events.ts', () => {
+    const files = globSync('src/**/*.{ts,tsx}', {
+      ignore: '**/*.test.*',
+      nodir: true,
+    }).sort();
+    const dispatchers = files.filter((path) =>
+      /examples_analytics_event|ANALYTICS_EVENT_BROWSER_EVENT/.test(
+        readFileSync(path, 'utf8')
+      )
+    );
+    assert.deepEqual(dispatchers, ['src/analytics/events.ts']);
+  });
+
   it('dispatches a copy of each recorded event as its own browser event', () => {
+    // A non-production host: the host gate stops the collector, so only the
+    // dispatch runs and no SDK work starts in Node.
     const target = Object.assign(new EventTarget(), {
-      location: new URL('https://examples.expanso.io/'),
+      location: new URL('http://localhost/'),
     });
     const received: unknown[] = [];
     target.addEventListener(ANALYTICS_EVENT_BROWSER_EVENT, (event) =>

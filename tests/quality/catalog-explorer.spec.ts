@@ -1,18 +1,19 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { ANALYTICS_EVENT_BROWSER_EVENT } from '../../src/analytics/events';
 import { PUBLIC_CATALOG } from '../../src/catalog/registry';
 import { GOAL_FACETS } from '../../src/catalog/schema';
 
 type AnalyticsEventWindow = typeof window & { __analyticsEvents?: unknown[] };
 
 async function listenForAnalyticsEvents(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate((eventName) => {
     const analyticsWindow = window as AnalyticsEventWindow;
     analyticsWindow.__analyticsEvents = [];
-    window.addEventListener('examples_analytics_event', (event) => {
+    window.addEventListener(eventName, (event) => {
       analyticsWindow.__analyticsEvents?.push((event as CustomEvent).detail);
     });
-  });
+  }, ANALYTICS_EVENT_BROWSER_EVENT);
 }
 
 async function recordedAnalyticsEvents(page: Page): Promise<unknown[]> {
