@@ -160,6 +160,31 @@ describe('analytics event schema v1', () => {
     assert.deepEqual(dispatchers, ['src/analytics/events.ts']);
   });
 
+  it('gives listeners a deep copy, so they cannot change what the collector sends', () => {
+    const target = Object.assign(new EventTarget(), {
+      location: new URL('http://localhost/'),
+    });
+    target.addEventListener(ANALYTICS_EVENT_BROWSER_EVENT, (event) => {
+      const detail = (event as CustomEvent).detail as {
+        selected_filter_ids: string[];
+      };
+      detail.selected_filter_ids.push('injected-after-validation');
+    });
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: target,
+    });
+    try {
+      const event = createExampleFilterChangeEvent('goal', ['secure-data'], 1);
+      recordAnalyticsEvent(event);
+      assert.deepEqual(event.selected_filter_ids, ['secure-data']);
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis, 'window', descriptor);
+      else Reflect.deleteProperty(globalThis, 'window');
+    }
+  });
+
   it('dispatches a copy of each recorded event as its own browser event', () => {
     // A non-production host: the host gate stops the collector, so only the
     // dispatch runs and no SDK work starts in Node.

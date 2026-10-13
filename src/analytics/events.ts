@@ -617,8 +617,10 @@ export function assertPublicAnalyticsEvent(
 }
 
 /**
- * Browser event that carries a copy of each validated public event. Only the
- * tests listen to it; production delivery goes through captureSemanticEvent.
+ * Browser event that carries a deep copy of each validated public event. Only
+ * the tests listen to it; production delivery goes through captureSemanticEvent.
+ * Listeners run before that call, so they get a deep copy: a listener that
+ * changes it cannot change what the collector sends.
  */
 export const ANALYTICS_EVENT_BROWSER_EVENT = 'examples_analytics_event';
 
@@ -626,7 +628,10 @@ export function recordAnalyticsEvent(event: PublicExampleAnalyticsEvent): void {
   assertPublicAnalyticsEvent(event);
   if (typeof window === 'undefined') return;
   window.dispatchEvent(
-    new CustomEvent(ANALYTICS_EVENT_BROWSER_EVENT, { detail: { ...event } })
+    new CustomEvent(ANALYTICS_EVENT_BROWSER_EVENT, {
+      // The event is validated, JSON-safe public data.
+      detail: JSON.parse(JSON.stringify(event)) as PublicExampleAnalyticsEvent,
+    })
   );
   captureSemanticEvent(event);
 }
