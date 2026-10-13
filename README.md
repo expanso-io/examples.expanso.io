@@ -74,6 +74,11 @@ Copyright © 2024 Expanso, Inc.
 ### Analytics collector verification
 
 `npm run test-analytics` checks the public semantic schema and privacy rules.
+`npm run test-cookie-consent-utils` runs the shared consent contract test.
+`src/components/cookies/cookieConsentUtils.ts` and its test are byte-identical
+copies of the canonical files in expanso-cloud, whose CLAUDE.md lists every
+copy. `scripts/node-test-globals.mjs` is a byte-identical copy of docs' file.
+Do not edit or reformat them.
 For delivery and identity behavior, install the pinned browser with
 `npx playwright install chromium`, then run `npm run test-analytics-collector`.
 The collector suite bundles the actual analytics modules and installed PostHog
@@ -81,7 +86,42 @@ SDK, runs them in bundled headless Chromium, and intercepts all network requests
 It verifies outbound SDK payloads without sending events to production or
 starting a server.
 It covers semantic event delivery, manual route pageview ownership, production
-hostname gating, campaign/QA labels, consent persistence and revocation.
+hostname gating, campaign/QA labels and the consent lanes: an undecided visitor
+in the EU (no `expanso-geo=row` cookie) is counted cookieless with nothing
+stored; an undecided visitor outside the EU, or one who accepted here or on
+another Expanso site, gets the shared `.expanso.io` identity cookie; a decline
+moves PostHog back to cookieless and clears the stored identity. CI runs the
+suite in the `explorer-tests` job of `phase1-foundation.yml`.
+
+PostHog takes its consent lanes from the shared contract in
+`src/components/cookies/cookieConsentUtils.ts` (`consentInitOptions`,
+`syncSdkConsentFlag`, `applyConsent`, `watchConsent`), as docs.expanso.io does.
+PostHog ignores Do Not Track; the consent lanes decide. GA still respects it.
+
+The consent banner is docs.expanso.io's card (`src/components/cookies/`), with
+this site's wording. "Cookie settings" in the footer reopens it. Accept and
+Decline write the shared cookie through the contract; the consent watchers in
+`src/lib/analytics.ts` then update GA consent and move PostHog to the matching
+lane. The banner never loads the SDK: it sends the evidence events
+`cookie_consent` and `cookie_banner_dismissed` through
+`consentEvidenceClient`, so they get the same host gate and context properties
+as every other event. `tests/quality/cookie-consent.spec.ts` checks show,
+accept, decline, close, reopen and the card's accessibility.
+
+PostHog captures as docs.expanso.io does (`POSTHOG_CAPTURE_OPTIONS` in
+`src/lib/analytics.ts`): autocapture with element text, page leave, heatmaps,
+web vitals and session replay with password inputs masked. The PostHog project
+settings decide which of them run; the SDK loads their scripts from
+`web.t.expanso.io`. `before_send` cleans the URL and campaign properties of
+these events, and also the page URLs inside heatmap batches and web vitals
+metrics. It labels all but replay and heatmap batches with `identity_mode`
+and gives them the context fields of examples' own events (`site_id`,
+`traffic_class`, `consent_state` and the others), as docs does. A field that
+examples' capture call set keeps its value. Session replay keeps the full page
+URL, as on docs: the recording holds it in its meta events and can hold it in
+network timing, so `before_send` does not clean replay data. The collector
+suite keeps these events in a separate list, so they never change the counts
+of the events a test checks.
 
 The direct collector owns PostHog delivery. Nothing writes to
 `window.dataLayer`. Each validated semantic event is also dispatched as an

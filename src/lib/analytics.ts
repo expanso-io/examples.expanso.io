@@ -1,5 +1,19 @@
-import type { BeforeSendFn, PostHogInterface, Properties } from 'posthog-js';
+import type {
+  BeforeSendFn,
+  PostHogConfig,
+  PostHogInterface,
+  Properties,
+} from 'posthog-js';
 import type { PublicExampleAnalyticsEvent } from '../analytics/events';
+import {
+  applyConsent,
+  consentInitOptions,
+  getCookieConsent,
+  syncSdkConsentFlag,
+  watchConsent,
+  type ConsentPostHog,
+  type CookieConsentStatus,
+} from '../components/cookies/cookieConsentUtils';
 import {
   createGoogleAnalyticsAdapter,
   EXAMPLES_GA_MEASUREMENT_ID,
@@ -17,16 +31,23 @@ const googleAnalytics = PRODUCTION_ANALYTICS
       ANALYTICS_SITE_HOST
     )
   : undefined;
-export const CONSENT_COOKIE_NAME = 'expanso-cookie-consent';
-export const PRIVACY_SAFE_CAPTURE_OPTIONS = {
-  autocapture: false,
-  capture_dead_clicks: false,
-  capture_exceptions: false,
-  capture_heatmaps: false,
-  capture_pageleave: false,
+// docs.expanso.io's capture settings (src/analytics/client.mjs). The manual
+// $pageview stays: clientModules/posthog.ts sends one per route.
+export const POSTHOG_CAPTURE_OPTIONS = {
+  // The toolbar and heatmaps open from the PostHog app, not from the proxy.
+  ui_host: 'https://us.posthog.com',
   capture_pageview: false,
-  capture_performance: false,
-  disable_session_recording: true,
+  capture_pageleave: true,
+  autocapture: true,
+  // This starts the recorder only when the PostHog project enables replay.
+  session_recording: {
+    recordCrossOriginIframes: false,
+    maskAllInputs: false,
+    maskInputOptions: { password: true },
+  },
+  capture_heatmaps: true,
+  // Web vitals.
+  capture_performance: true,
 } as const;
 
 const POSTHOG_API_HOST = 'https://web.t.expanso.io';
@@ -59,25 +80,12 @@ const CAMPAIGN_FIELDS = [
 let entryCampaign: Properties | undefined;
 
 let posthogClientPromise: Promise<PostHogInterface | undefined> | undefined;
+let gaWatchingConsent = false;
 
-export function readCookie(
-  cookieString: string,
-  cookieName: string
-): string | undefined {
-  return cookieString
-    .split(';')
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(`${cookieName}=`))
-    ?.slice(cookieName.length + 1);
-}
-
-export function getAnalyticsConsent(
-  cookieString: string,
-  cookieName = CONSENT_COOKIE_NAME
-): AnalyticsConsent {
-  const value = readCookie(cookieString, cookieName);
-  if (value === 'true') return 'granted';
-  if (value === 'false') return 'denied';
+/** Maps the shared contract's status to the consent_state label and GA. */
+export function consentState(status: CookieConsentStatus): AnalyticsConsent {
+  if (status === 'yes') return 'granted';
+  if (status === 'no') return 'denied';
   return 'unset';
 }
 
@@ -91,6 +99,10 @@ export function sanitizeAnalyticsUrl(value: unknown): unknown {
   } catch {
     return value.split(/[?#]/, 1)[0];
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export const sanitizeAnalyticsEvent: BeforeSendFn = (event) => {
@@ -124,12 +136,76 @@ export const sanitizeAnalyticsEvent: BeforeSendFn = (event) => {
     }
     if (campaignKey === 'ph_keyword') delete properties[key];
   }
+  // Heatmap batches key their points by page URL; merge keys that clean to
+  // the same URL.
+  if (event.event === '$$heatmap' && isRecord(properties.$heatmap_data)) {
+    const heatmapData: Record<string, unknown[]> = {};
+    for (const [url, points] of Object.entries(properties.$heatmap_data))
+      (heatmapData[String(sanitizeAnalyticsUrl(url))] ??= []).push(
+        ...(Array.isArray(points) ? points : [])
+      );
+    properties.$heatmap_data = heatmapData;
+  }
+  // Web vitals copy the page URL into each metric and its attribution.
+  for (const key of Object.keys(properties)) {
+    const metric = properties[key];
+    if (!/^\$web_vitals_\w+_event$/.test(key) || !isRecord(metric)) continue;
+    const cleaned: Record<string, unknown> = { ...metric };
+    for (const field of ['$current_url', 'navigationURL'])
+      if (field in cleaned)
+        cleaned[field] = sanitizeAnalyticsUrl(cleaned[field]);
+    if (isRecord(metric.attribution) && 'url' in metric.attribution)
+      cleaned.attribution = {
+        ...metric.attribution,
+        url: sanitizeAnalyticsUrl(metric.attribution.url),
+      };
+    properties[key] = cleaned;
+  }
+  // High-volume replay and heatmap batches keep the shape the SDK built.
+  if (event.event !== '$snapshot' && event.event !== '$$heatmap') {
+    // The events the SDK sends by itself ($autocapture, $pageleave,
+    // $web_vitals and the others) get the context of examples' own events, as
+    // on docs. A field that examples' capture call set keeps its value.
+    if (typeof window !== 'undefined')
+      for (const [key, value] of Object.entries(contextProperties()))
+        if (!(key in properties)) properties[key] = value;
+    // The SDK marks every cookieless event with $cookieless_mode before
+    // before_send, so identity_mode reports the lane the event was captured
+    // in, as on docs.
+    properties.identity_mode = properties.$cookieless_mode
+      ? 'ephemeral'
+      : 'persistent';
+  }
   return { ...event, properties };
 };
 
+/**
+ * posthog.init options: the consent lanes from the shared contract (opt-out by
+ * default, cookieless on reject, the .expanso.io identity cookie, the pinned
+ * defaults date), then docs' capture settings and examples' URL and campaign
+ * privacy settings. Nothing after the spread may override a consent key.
+ */
+export function posthogInitOptions(hostname: string): Partial<PostHogConfig> {
+  return {
+    ...consentInitOptions(hostname),
+    api_host: POSTHOG_API_HOST,
+    ...POSTHOG_CAPTURE_OPTIONS,
+    advanced_disable_feature_flags: true,
+    advanced_disable_toolbar_metrics: true,
+    disable_capture_url_hashes: true,
+    mask_personal_data_properties: true,
+    opt_out_useragent_filter: true,
+    save_campaign_params: false,
+    save_referrer: false,
+    secure_cookie: true,
+    before_send: sanitizeAnalyticsEvent,
+  };
+}
+
+// The contract reads only the shared .expanso.io cookie on production hosts
+// and deletes a host-only copy, as on docs and the main sites.
 function currentConsent(): AnalyticsConsent {
-  if (typeof document === 'undefined') return 'unset';
-  return getAnalyticsConsent(document.cookie);
+  return consentState(getCookieConsent());
 }
 
 function currentPath(): string {
@@ -215,23 +291,16 @@ export function classifyTraffic(
   return 'browser_unclassified';
 }
 
-function standardProperties(): Properties {
-  const consent = currentConsent();
+// The context of every examples event that does not depend on the capture
+// call. before_send also adds it to the events the SDK sends by itself.
+function contextProperties(): Properties {
   return {
-    ...campaignProperties(),
     ...qaProperties(),
-    $referrer: document.referrer
-      ? sanitizeAnalyticsUrl(document.referrer)
-      : '$direct',
-    $referring_domain: document.referrer
-      ? new URL(document.referrer).hostname
-      : '$direct',
     site_id: 'examples',
     site_host: currentHost(),
     environment: 'production',
     analytics_schema_version: ANALYTICS_SCHEMA_VERSION,
-    consent_state: consent,
-    identity_mode: consent === 'granted' ? 'persistent' : 'ephemeral',
+    consent_state: currentConsent(),
     traffic_class: classifyTraffic(
       window.navigator.userAgent,
       window.innerWidth,
@@ -242,6 +311,29 @@ function standardProperties(): Properties {
   };
 }
 
+function standardProperties(): Properties {
+  return {
+    ...campaignProperties(),
+    $referrer: document.referrer
+      ? sanitizeAnalyticsUrl(document.referrer)
+      : '$direct',
+    $referring_domain: document.referrer
+      ? new URL(document.referrer).hostname
+      : '$direct',
+    ...contextProperties(),
+  };
+}
+
+// Whether the SDK runs in the persistent lane (opted in), not the cookieless
+// one. It must never throw, because the consent change still has to apply.
+function persistentLane(posthog: PostHogInterface): boolean {
+  try {
+    return posthog.has_opted_in_capturing();
+  } catch {
+    return false;
+  }
+}
+
 // The switch is spelled out here because webpack only skips the dynamic
 // import, and with it the SDK chunk, when the dead branch is visible to it.
 const loadPostHog =
@@ -249,28 +341,32 @@ const loadPostHog =
     ? () =>
         import('posthog-js').then(({ default: posthog }) => {
           if (!posthog.__loaded) {
-            posthog.init(POSTHOG_PROJECT_KEY, {
-              api_host: POSTHOG_API_HOST,
-              defaults: '2026-01-30',
-              persistence:
-                currentConsent() === 'granted'
-                  ? 'localStorage+cookie'
-                  : 'memory',
-              ...PRIVACY_SAFE_CAPTURE_OPTIONS,
-              advanced_disable_feature_flags: true,
-              advanced_disable_toolbar_metrics: true,
-              disable_capture_url_hashes: true,
-              ip: false,
-              mask_all_element_attributes: true,
-              mask_all_text: true,
-              mask_personal_data_properties: true,
-              person_profiles: 'never',
-              respect_dnt: true,
-              opt_out_useragent_filter: true,
-              save_campaign_params: false,
-              save_referrer: false,
-              secure_cookie: true,
-              before_send: sanitizeAnalyticsEvent,
+            const status = getCookieConsent();
+            // Before init: mirror the shared cookie into the SDK's per-origin
+            // flag, or a visitor who accepted on another Expanso site starts
+            // cookieless here and loses the shared identity.
+            syncSdkConsentFlag(POSTHOG_PROJECT_KEY, status);
+            try {
+              posthog.init(
+                POSTHOG_PROJECT_KEY,
+                posthogInitOptions(window.location.hostname)
+              );
+            } catch {
+              // posthog-js can throw in locked-down storage contexts.
+              return undefined;
+            }
+            applyConsent(posthog, status);
+            // Same tab, other tabs (focus, visibility) and other Expanso
+            // sites (the same shared cookie).
+            watchConsent((next) => {
+              // A lane change makes posthog-js start a new identity and
+              // session; give the new session a page view of its own.
+              const was = persistentLane(posthog);
+              applyConsent(posthog, next);
+              if (persistentLane(posthog) !== was)
+                void capturePageView(window.location.pathname).catch(() => {
+                  /* Analytics must not interrupt the UI. */
+                });
             });
           }
           return posthog;
@@ -281,6 +377,12 @@ export async function initializeAnalytics(): Promise<
   PostHogInterface | undefined
 > {
   if (!isProductionHost()) return undefined;
+  // GA has its own consent gate. It follows every consent change, also when
+  // the PostHog SDK fails to load or to initialize.
+  if (googleAnalytics && !gaWatchingConsent) {
+    gaWatchingConsent = true;
+    watchConsent((next) => googleAnalytics?.setConsent(consentState(next)));
+  }
   if (!posthogClientPromise) posthogClientPromise = loadPostHog();
   return posthogClientPromise;
 }
@@ -288,6 +390,7 @@ export async function initializeAnalytics(): Promise<
 async function capture(
   eventName:
     | '$pageview'
+    | 'cookie_banner_dismissed'
     | 'cookie_consent'
     | ExampleEventName
     | PublicExampleAnalyticsEvent['event'],
@@ -301,23 +404,18 @@ async function capture(
     ...properties,
     ...standardProperties(),
   };
-  // Google has its own consent and DNT gate, independent of SDK loading.
-  googleAnalytics?.capture(eventName, payload, currentConsent());
+  // Google has its own consent and DNT gate, independent of SDK loading. It
+  // sends only after a yes, with its own cookies.
+  googleAnalytics?.capture(
+    eventName,
+    { ...payload, identity_mode: 'persistent' },
+    currentConsent()
+  );
   const posthog = await initializeAnalytics();
   if (!posthog) return;
-  // Consent can change while the lazy SDK import is in flight (or in another
-  // tab). Match both identity storage and event labels at the capture boundary.
-  const consent = currentConsent();
-  const persistence = consent === 'granted' ? 'localStorage+cookie' : 'memory';
-  if (posthog.config.persistence !== persistence) {
-    posthog.set_config({ persistence });
-    if (persistence === 'memory') posthog.reset();
-  }
-  posthog.capture(eventName, {
-    ...payload,
-    consent_state: consent,
-    identity_mode: consent === 'granted' ? 'persistent' : 'ephemeral',
-  });
+  // Consent can change while the lazy SDK import is in flight. The label is
+  // read again here; the lane is the SDK's, and before_send reports it.
+  posthog.capture(eventName, { ...payload, consent_state: currentConsent() });
 }
 
 export async function capturePageView(pathname: string): Promise<void> {
@@ -344,35 +442,18 @@ export function captureExampleEvent(
   });
 }
 
-function writeConsentCookie(granted: boolean): void {
-  const maxAge = 365 * 24 * 60 * 60;
-  const domain = window.location.hostname.endsWith('.expanso.io')
-    ? '; Domain=.expanso.io'
-    : '';
-  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
-  // Remove an older host-only value before writing shared consent so it cannot
-  // shadow the new value when document.cookie contains both names.
-  if (domain)
-    document.cookie = `${CONSENT_COOKIE_NAME}=; Path=/; Max-Age=0${secure}`;
-  document.cookie = `${CONSENT_COOKIE_NAME}=${granted}; Path=/; Max-Age=${maxAge}; SameSite=Lax${domain}${secure}`;
-}
-
-export async function setAnalyticsConsent(granted: boolean): Promise<void> {
-  writeConsentCookie(granted);
-  googleAnalytics?.setConsent(currentConsent());
-  if (!isProductionHost()) return;
-  const posthog = await initializeAnalytics();
-
-  if (!posthog) return;
-  posthog.set_config({
-    persistence: granted ? 'localStorage+cookie' : 'memory',
-  });
-
-  if (!granted) posthog.reset();
-
-  await capture('cookie_consent', {
-    consent: granted ? 'yes' : 'no',
-    method: 'cookie_banner',
-    scope: 'analytics',
-  });
-}
+/**
+ * The client the consent banner hands to the contract's captureConsentChoice
+ * and dismissConsentBanner. Their two evidence events go through capture(),
+ * so they get the host gate, examples' context properties and GA, like every
+ * other event. The banner never touches the SDK itself: a normal build has
+ * none, and the production build loads it lazily.
+ */
+export const consentEvidenceClient: ConsentPostHog = {
+  capture(event, properties) {
+    if (event === 'cookie_consent' || event === 'cookie_banner_dismissed')
+      void capture(event, properties).catch(() => {
+        /* Analytics must not interrupt the UI. */
+      });
+  },
+};

@@ -128,6 +128,9 @@ jobs:
       - name: Enforce the versioned analytics privacy schema
         run: npm run test-analytics
 
+      - name: Test the shared consent contract
+        run: npm run test-cookie-consent-utils
+
       - name: Test the fail-closed portfolio admission contract
         run: npm run test-portfolio-admission
 
@@ -519,6 +522,9 @@ jobs:
           console.log(`Pinned Chromium ${actual}`);
           NODE
 
+      - name: Run analytics collector browser tests
+        run: npm run test-analytics-collector
+
       - name: Run Explorer component behavior tests
         run: |
           ./node_modules/.bin/playwright test \
@@ -531,6 +537,12 @@ jobs:
       - name: Run catalog interaction and URL-state tests
         run: |
           ./node_modules/.bin/playwright test tests/quality/catalog-explorer.spec.ts \
+            --project=chromium-desktop \
+            --project=chromium-mobile
+
+      - name: Run cookie consent banner tests
+        run: |
+          ./node_modules/.bin/playwright test tests/quality/cookie-consent.spec.ts \
             --project=chromium-desktop \
             --project=chromium-mobile
 
