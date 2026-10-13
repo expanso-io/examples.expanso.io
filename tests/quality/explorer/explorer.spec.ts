@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Locator } from '@playwright/test';
 
+import { ANALYTICS_EVENT_BROWSER_EVENT } from '../../../src/analytics/events';
+
 interface ExplorerAnalyticsEvent {
   event?: string;
   event_schema_version?: string;
@@ -16,7 +18,7 @@ interface ExplorerAnalyticsEvent {
 declare global {
   interface Window {
     __copiedExplorerValue?: string;
-    dataLayer?: ExplorerAnalyticsEvent[];
+    __analyticsEvents?: ExplorerAnalyticsEvent[];
   }
 }
 
@@ -546,9 +548,14 @@ test('a failed copy is reported at its control or menu trigger', async ({
 test('Explorer analytics uses only the versioned privacy-safe schema', async ({
   page,
 }) => {
-  await page.addInitScript(() => {
-    window.dataLayer = [];
-  });
+  await page.addInitScript((eventName) => {
+    window.__analyticsEvents = [];
+    window.addEventListener(eventName, (event) => {
+      window.__analyticsEvents?.push(
+        (event as CustomEvent<ExplorerAnalyticsEvent>).detail
+      );
+    });
+  }, ANALYTICS_EVENT_BROWSER_EVENT);
   await page.reload({ waitUntil: 'networkidle' });
   const explorer = page.locator('[data-explorer-version="2"]');
   await expect(explorer).toBeVisible();
@@ -578,7 +585,7 @@ test('Explorer analytics uses only the versioned privacy-safe schema', async ({
 
   await download.cancel();
 
-  const events = await page.evaluate(() => window.dataLayer ?? []);
+  const events = await page.evaluate(() => window.__analyticsEvents ?? []);
 
   const publicEvents = events.filter((event) =>
     [

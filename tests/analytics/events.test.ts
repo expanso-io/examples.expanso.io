@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import { globSync } from 'glob';
 
 import {
+  ANALYTICS_EVENT_BROWSER_EVENT,
   ANALYTICS_EVENT_SCHEMA_VERSION,
   PUBLIC_ANALYTICS_EVENT_NAMES,
   assertPublicAnalyticsEvent,
@@ -19,6 +20,7 @@ import {
   createRelatedExampleClickEvent,
   createOutboundClickEvent,
   createRunLocalClickEvent,
+  recordAnalyticsEvent,
   type PublicExampleAnalyticsEvent,
 } from '../../src/analytics/events';
 
@@ -134,12 +136,85 @@ describe('analytics event schema v1', () => {
     );
   });
 
-  it('keeps dataLayer writes centralized in analytics privacy boundaries', () => {
-    const files = globSync('src/**/*.{ts,tsx}', { nodir: true }).sort();
+  it('never writes semantic events to window.dataLayer', () => {
+    const files = globSync('src/**/*.{ts,tsx}', {
+      ignore: '**/*.test.*',
+      nodir: true,
+    }).sort();
     const writers = files.filter((path) =>
-      /dataLayer\??\.push\(/.test(readFileSync(path, 'utf8'))
+      /\bdataLayer\b/.test(readFileSync(path, 'utf8'))
     );
-    assert.deepEqual(writers, ['src/analytics/events.ts']);
+    assert.deepEqual(writers, []);
+  });
+
+  it('dispatches the browser event only from src/analytics/events.ts', () => {
+    const files = globSync('src/**/*.{ts,tsx}', {
+      ignore: '**/*.test.*',
+      nodir: true,
+    }).sort();
+    const dispatchers = files.filter((path) =>
+      /examples_analytics_event|ANALYTICS_EVENT_BROWSER_EVENT/.test(
+        readFileSync(path, 'utf8')
+      )
+    );
+    assert.deepEqual(dispatchers, ['src/analytics/events.ts']);
+  });
+
+  it('gives listeners a deep copy, so they cannot change what the collector sends', () => {
+    const target = Object.assign(new EventTarget(), {
+      location: new URL('http://localhost/'),
+    });
+    target.addEventListener(ANALYTICS_EVENT_BROWSER_EVENT, (event) => {
+      const detail = (event as CustomEvent).detail as {
+        selected_filter_ids: string[];
+      };
+      detail.selected_filter_ids.push('injected-after-validation');
+    });
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: target,
+    });
+    try {
+      const event = createExampleFilterChangeEvent('goal', ['secure-data'], 1);
+      recordAnalyticsEvent(event);
+      assert.deepEqual(event.selected_filter_ids, ['secure-data']);
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis, 'window', descriptor);
+      else Reflect.deleteProperty(globalThis, 'window');
+    }
+  });
+
+  it('dispatches a copy of each recorded event as its own browser event', () => {
+    // A non-production host: the host gate stops the collector, so only the
+    // dispatch runs and no SDK work starts in Node.
+    const target = Object.assign(new EventTarget(), {
+      location: new URL('http://localhost/'),
+    });
+    const received: unknown[] = [];
+    target.addEventListener(ANALYTICS_EVENT_BROWSER_EVENT, (event) =>
+      received.push((event as CustomEvent).detail)
+    );
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: target,
+    });
+    try {
+      const event = createExampleViewEvent(
+        'remove-pii',
+        'offline-runnable',
+        'not-assessed'
+      );
+      recordAnalyticsEvent(event);
+      assert.equal(ANALYTICS_EVENT_BROWSER_EVENT, 'examples_analytics_event');
+      assert.deepEqual(received, [event]);
+      assert.notEqual(received[0], event);
+      assert.equal('dataLayer' in target, false);
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis, 'window', descriptor);
+      else Reflect.deleteProperty(globalThis, 'window');
+    }
   });
 });
 

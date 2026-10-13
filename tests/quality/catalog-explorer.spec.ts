@@ -1,7 +1,26 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { ANALYTICS_EVENT_BROWSER_EVENT } from '../../src/analytics/events';
 import { PUBLIC_CATALOG } from '../../src/catalog/registry';
 import { GOAL_FACETS } from '../../src/catalog/schema';
+
+type AnalyticsEventWindow = typeof window & { __analyticsEvents?: unknown[] };
+
+async function listenForAnalyticsEvents(page: Page): Promise<void> {
+  await page.evaluate((eventName) => {
+    const analyticsWindow = window as AnalyticsEventWindow;
+    analyticsWindow.__analyticsEvents = [];
+    window.addEventListener(eventName, (event) => {
+      analyticsWindow.__analyticsEvents?.push((event as CustomEvent).detail);
+    });
+  }, ANALYTICS_EVENT_BROWSER_EVENT);
+}
+
+async function recordedAnalyticsEvents(page: Page): Promise<unknown[]> {
+  return page.evaluate(
+    () => (window as AnalyticsEventWindow).__analyticsEvents ?? []
+  );
+}
 
 function relativeLuminance(color: string): number {
   const channels = color.startsWith('#')
@@ -219,9 +238,7 @@ test.describe('catalog explorer', () => {
   }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
-    await page.evaluate(() => {
-      (window as typeof window & { dataLayer?: unknown[] }).dataLayer = [];
-    });
+    await listenForAnalyticsEvents(page);
 
     await page.getByRole('button', { name: 'Scenario architectures' }).click();
     await expect(page).toHaveURL(/type=scenario/);
@@ -242,10 +259,7 @@ test.describe('catalog explorer', () => {
       .fill('BigQuery private phrase');
     await page.waitForTimeout(450);
 
-    const events = await page.evaluate(
-      () =>
-        (window as typeof window & { dataLayer?: unknown[] }).dataLayer ?? []
-    );
+    const events = await recordedAnalyticsEvents(page);
     const serializedEvents = JSON.stringify(events);
     expect(serializedEvents).toContain('example_filter_change');
     expect(serializedEvents).toContain('example_search');
@@ -258,18 +272,13 @@ test.describe('catalog explorer', () => {
   }) => {
     await page.goto('/enterprise-migration/db2-to-bigquery/');
     await page.waitForLoadState('networkidle');
-    await page.evaluate(() => {
-      (window as typeof window & { dataLayer?: unknown[] }).dataLayer = [];
-    });
+    await listenForAnalyticsEvents(page);
     await page
       .locator('#related-examples + p, #related-examples + ul')
       .getByRole('link')
       .first()
       .click();
-    const events = await page.evaluate(
-      () =>
-        (window as typeof window & { dataLayer?: unknown[] }).dataLayer ?? []
-    );
+    const events = await recordedAnalyticsEvents(page);
     expect(JSON.stringify(events)).toContain('related_example_click');
   });
 });

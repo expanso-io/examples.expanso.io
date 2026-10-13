@@ -123,9 +123,11 @@ network timing, so `before_send` does not clean replay data. The collector
 suite keeps these events in a separate list, so they never change the counts
 of the events a test checks.
 
-The direct collector owns PostHog delivery. Semantic events are also pushed
-to `window.dataLayer`; no tag reads it since GTM was retired, and the browser
-tests use it to check the event schema. Only `examples.expanso.io` can initialize the production collector.
+The direct collector owns PostHog delivery. Nothing writes to
+`window.dataLayer`. Each validated semantic event is also dispatched as an
+`examples_analytics_event` browser event on `window`. Any script on the page
+could listen to it; it carries the same validated public payload that the
+collector sends. Only the browser tests use it, to check the event schema. Only `examples.expanso.io` can initialize the production collector.
 `analytics_test=1` (or `true`) marks a synthetic journey through sessionStorage;
 staff tagging requires explicit localStorage `expanso_analytics_internal=1`
 (or `true`). Neither flag grants consent. URLs omit queries/fragments; only
