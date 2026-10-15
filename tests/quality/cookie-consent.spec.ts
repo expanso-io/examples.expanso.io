@@ -59,7 +59,7 @@ test('an undecided visitor in the EU sees the cookieless notice and the privacy 
   await expect(card).toContainText('these examples');
   // The privacy policy describes the Scarf pixel; the card does not.
   await expect(card).not.toContainText('Scarf');
-  await expect(card.getByRole('link')).toHaveCount(1);
+  await expect(card.getByRole('link')).toHaveCount(2);
   await expect(
     card.getByRole('link', { name: 'Read our privacy policy' })
   ).toHaveAttribute('href', 'https://expanso.io/privacy');

@@ -45,6 +45,7 @@ const productionPage = [
 ].join('');
 
 const productionScript =
+  'script.src="https://a.usbrowserspeed.com/cs?pid=ddae2e0bce828a30a7b24f94f87290780f71120eaf9f11353f234c3bd86512d3";' +
   'posthog.init("phc_f467hBf7ZUEc5HDT3xFcbhZ4tL7wUYJH0COw9Y2bzSK",{api_host:"https://web.t.expanso.io"});' +
   'script.src="https://www.googletagmanager.com/gtag/js?id=G-6YXD85WVC6&l=expansoExamplesAnalyticsLayer";';
 
@@ -228,6 +229,7 @@ describe('analytics host matching shared with the browser tests', () => {
     assert.equal(isAnalyticsHost('px.ads.linkedin.com'), true);
     assert.equal(isAnalyticsHost('survey.survicate.com'), true);
     assert.equal(isAnalyticsHost('r2.leadsy.ai'), true);
+    assert.equal(isAnalyticsHost('a.usbrowserspeed.com'), true);
     assert.equal(isAnalyticsHost('examples.expanso.io'), false);
     assert.equal(isAnalyticsHost('docs.scarf.sh'), false);
     assert.equal(isAnalyticsHost('127.0.0.1'), false);

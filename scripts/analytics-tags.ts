@@ -8,6 +8,8 @@
 /** Hosts the site contacts, or that the retired GTM container contacted.
  * Matched as a full hostname or any subdomain of it. */
 export const ANALYTICS_HOSTS = [
+  // Visitor identity matching, only after separate marketing consent
+  'a.usbrowserspeed.com',
   // Scarf pixel
   'static.scarf.sh',
   // gtag.js for the dedicated GA adapter, and the retired GTM and Google Ads
@@ -40,6 +42,7 @@ export const ANALYTICS_HOSTS = [
 
 /** Identifiers that reveal a tag even when its host is not spelled out. */
 export const ANALYTICS_MARKERS = [
+  'ddae2e0bce828a30a7b24f94f87290780f71120eaf9f11353f234c3bd86512d3',
   'GTM-MPSKFDMF',
   'G-6YXD85WVC6',
   'G-X1RJ0QGN3Z',
@@ -67,6 +70,8 @@ export const PRODUCTION_PAGE_TAGS = [
  * googletagmanager.com is allowed only as the gtag.js path the dedicated GA
  * adapter loads after consent. */
 export const PRODUCTION_ALLOWED_TAGS = [
+  'a.usbrowserspeed.com',
+  'ddae2e0bce828a30a7b24f94f87290780f71120eaf9f11353f234c3bd86512d3',
   'static.scarf.sh',
   'web.t.expanso.io',
   'posthog.com',
@@ -81,7 +86,7 @@ const GTAG_PATH = 'googletagmanager.com/gtag/js';
 const GOOGLE_TAG_IDS = /\b(?:GTM-[A-Z0-9]{4,}|AW-\d{6,}|G-[A-Z0-9]{6,})\b/g;
 
 function isAllowed(needle: string): boolean {
-  return (PRODUCTION_ALLOWED_TAGS as readonly string[]).includes(needle);
+  return PRODUCTION_ALLOWED_TAGS.some((tag) => tag === needle);
 }
 
 function occurrences(text: string, needle: string): number {
@@ -91,25 +96,31 @@ function occurrences(text: string, needle: string): number {
 /** Every analytics host or identifier in `text` outside PRODUCTION_ALLOWED_TAGS. */
 export function unapprovedTags(text: string): string[] {
   const found: string[] = [];
+
   for (const needle of [...ANALYTICS_HOSTS, ...ANALYTICS_MARKERS]) {
     if (!text.includes(needle) || isAllowed(needle)) continue;
+
     if (
       needle === 'googletagmanager.com' &&
       occurrences(text, needle) === occurrences(text, GTAG_PATH)
     ) {
       continue;
     }
+
     found.push(needle);
   }
+
   for (const [id] of text.matchAll(GOOGLE_TAG_IDS)) {
     if (!isAllowed(id) && !found.includes(id)) found.push(id);
   }
+
   return found;
 }
 
 /** What the production JavaScript must carry: the direct PostHog collector and
  * the dedicated Google Analytics adapter. */
 export const PRODUCTION_SCRIPT_MARKERS = [
+  'a.usbrowserspeed.com/cs?pid=ddae2e0bce828a30a7b24f94f87290780f71120eaf9f11353f234c3bd86512d3',
   'web.t.expanso.io',
   'phc_f467hBf7ZUEc5HDT3xFcbhZ4tL7wUYJH0COw9Y2bzSK',
   'googletagmanager.com/gtag/js',
@@ -118,6 +129,7 @@ export const PRODUCTION_SCRIPT_MARKERS = [
 
 export function isAnalyticsHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
+
   return ANALYTICS_HOSTS.some(
     (candidate) => host === candidate || host.endsWith(`.${candidate}`)
   );
