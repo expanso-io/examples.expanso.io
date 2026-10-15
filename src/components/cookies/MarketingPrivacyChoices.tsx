@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, type ReactNode } from 'react';
 import {
   MARKETING_CHANGE_EVENT,
   marketingAllowed,
@@ -6,7 +6,13 @@ import {
   setMarketingConsent,
 } from '../../lib/visitorMarketing';
 
-export default function MarketingPrivacyChoices(): React.JSX.Element {
+interface MarketingPrivacyChoicesProps {
+  children: ReactNode;
+}
+
+export default function MarketingPrivacyChoices({
+  children,
+}: MarketingPrivacyChoicesProps): React.JSX.Element {
   const [accepted, setAccepted] = useState(false);
   const [privacySignal, setPrivacySignal] = useState(false);
   const [ready, setReady] = useState(false);
@@ -36,34 +42,7 @@ export default function MarketingPrivacyChoices(): React.JSX.Element {
 
   return (
     <section aria-label="Marketing consent">
-      <p>
-        With your permission, Expanso loads a US Browser Speed visitor identity
-        matching tag for marketing and advertising on this examples site.
-        Accepting analytics does not enable this tag. Marketing is off until you
-        choose “Allow marketing” here.
-      </p>
-      <p>
-        The tag contacts the vendor, which receives your IP address and browser
-        request headers and may set or read third-party cookies to match visits
-        to an identity for advertising. Your browser may block those cookies. We
-        send no page URL in the referrer for this request.
-      </p>
-      <p>
-        We remember this choice on this site for up to one year. Global Privacy
-        Control and Do Not Track block the tag even if you previously allowed
-        marketing. You can return here through “Marketing privacy choices” in
-        the footer at any time.
-      </p>
-      <p>
-        Choose “Decline marketing” to withdraw permission. If the tag has
-        loaded, the page reloads to stop its code and prevent future requests.
-        Other open tabs recheck within one second or when you return to them.
-        Withdrawal cannot recall a request already sent, erase data the vendor
-        received, or delete its third-party cookies. Use your browser’s cookie
-        controls to remove those cookies. See the{' '}
-        <a href="https://expanso.io/privacy">Expanso privacy policy</a> for
-        privacy rights and contact details.
-      </p>
+      {children}
       <p role="status">
         {ready
           ? privacySignal
