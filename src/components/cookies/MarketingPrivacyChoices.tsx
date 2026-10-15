@@ -49,6 +49,7 @@ export default function MarketingPrivacyChoices({
         <button
           type="button"
           className="button button--secondary margin-right--sm margin-bottom--sm"
+          style={{ minHeight: 44 }}
           disabled={!ready}
           onClick={() => choose(false)}
         >
@@ -57,6 +58,7 @@ export default function MarketingPrivacyChoices({
         <button
           type="button"
           className="button button--secondary margin-bottom--sm"
+          style={{ minHeight: 44 }}
           disabled={!ready || privacySignal}
           onClick={() => choose(true)}
         >
