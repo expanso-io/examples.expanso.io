@@ -95,6 +95,67 @@ test('GPC blocks a saved opt-in and disables acceptance', async ({
   expect(requests).toEqual([]);
 });
 
+test('consent changes in another tab update the display without focus', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const requests: string[] = [];
+  await context.route('**/*', async (route) => {
+    const host = new URL(route.request().url()).hostname;
+
+    if (host === 'a.usbrowserspeed.com') {
+      requests.push(route.request().url());
+      await route.fulfill({ status: 204 });
+    } else if (isAnalyticsHost(host)) await route.abort();
+    else await route.continue();
+  });
+  await context.addCookies([
+    { name: 'expanso-cookie-consent', value: 'false', url: baseURL! },
+  ]);
+  await page.goto('/marketing-privacy/');
+  await expect(page.getByRole('status')).toHaveText('Marketing off.');
+  const otherTab = await context.newPage();
+  await otherTab.goto('/marketing-privacy/');
+  await expect(otherTab.getByRole('status')).toHaveText('Marketing off.');
+  const refreshEvents: string[] = [];
+  await page.exposeFunction('recordMarketingRefresh', (type: string) => {
+    refreshEvents.push(type);
+  });
+  await page.evaluate(() => {
+    const record = (event: Event) => {
+      (
+        window as Window & {
+          recordMarketingRefresh: (type: string) => Promise<void>;
+        }
+      ).recordMarketingRefresh(event.type);
+    };
+
+    window.addEventListener('focus', record);
+    window.addEventListener('pageshow', record);
+    document.addEventListener('visibilitychange', record);
+  });
+  await otherTab
+    .getByRole('button', { name: 'Allow marketing', exact: true })
+    .click();
+  await expect(otherTab.getByRole('status')).toHaveText('Marketing allowed.');
+  await expect(page.getByRole('status')).toHaveText('Marketing allowed.');
+  expect(refreshEvents).toEqual([]);
+
+  if (production) {
+    await expect.poll(() => requests.length).toBe(2);
+    expect(requests).toEqual([suppliedUrl, suppliedUrl]);
+  } else {
+    expect(requests).toEqual([]);
+  }
+
+  await otherTab
+    .getByRole('button', { name: 'Decline marketing', exact: true })
+    .click();
+  await expect(otherTab.getByRole('status')).toHaveText('Marketing off.');
+  await expect(page.getByRole('status')).toHaveText('Marketing off.');
+});
+
 test('withdrawal in another tab tears down the loaded document', async ({
   page,
   context,

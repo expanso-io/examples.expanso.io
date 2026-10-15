@@ -59,6 +59,21 @@ export function setMarketingConsent(accepted: boolean): boolean {
   return marketingAllowed() === (value === 'yes');
 }
 
+export function watchMarketingConsent(sync: () => void): () => void {
+  sync();
+  const events = [MARKETING_CHANGE_EVENT, 'focus', 'pageshow'];
+
+  for (const event of events) window.addEventListener(event, sync);
+  document.addEventListener('visibilitychange', sync);
+  const interval = window.setInterval(sync, 1000);
+
+  return () => {
+    for (const event of events) window.removeEventListener(event, sync);
+    document.removeEventListener('visibilitychange', sync);
+    window.clearInterval(interval);
+  };
+}
+
 /** One request per document, with rechecks for cross-tab changes and bfcache restores. */
 export function watchVisitorMarketing(): () => void {
   if (!VISITOR_TAG_URL) return () => {};
@@ -86,17 +101,5 @@ export function watchVisitorMarketing(): () => void {
     document.head.appendChild(script);
   };
 
-  sync();
-  const events = [MARKETING_CHANGE_EVENT, 'focus', 'pageshow'];
-
-  for (const event of events) window.addEventListener(event, sync);
-  document.addEventListener('visibilitychange', sync);
-  // Also covers cookie changes in browsers without the Cookie Store API.
-  const interval = window.setInterval(sync, 1000);
-
-  return () => {
-    for (const event of events) window.removeEventListener(event, sync);
-    document.removeEventListener('visibilitychange', sync);
-    window.clearInterval(interval);
-  };
+  return watchMarketingConsent(sync);
 }

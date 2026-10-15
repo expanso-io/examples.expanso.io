@@ -1,9 +1,9 @@
 import React, { useEffect, useState, type ReactNode } from 'react';
 import {
-  MARKETING_CHANGE_EVENT,
   marketingAllowed,
   marketingPrivacySignal,
   setMarketingConsent,
+  watchMarketingConsent,
 } from '../../lib/visitorMarketing';
 
 interface MarketingPrivacyChoicesProps {
@@ -25,14 +25,7 @@ export default function MarketingPrivacyChoices({
       setReady(true);
     };
 
-    sync();
-    window.addEventListener(MARKETING_CHANGE_EVENT, sync);
-    window.addEventListener('focus', sync);
-
-    return () => {
-      window.removeEventListener(MARKETING_CHANGE_EVENT, sync);
-      window.removeEventListener('focus', sync);
-    };
+    return watchMarketingConsent(sync);
   }, []);
 
   const choose = (allow: boolean) => {

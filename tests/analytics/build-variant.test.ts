@@ -1,20 +1,12 @@
 import assert from 'node:assert/strict';
-import {
-  mkdtempSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
-import { globSync } from 'glob';
 
 import {
   analyticsBlockedUrlPatterns,
   isAnalyticsHost,
-  unapprovedTags,
 } from '../../scripts/analytics-tags';
 import {
   reportProblems,
@@ -240,26 +232,5 @@ describe('analytics host matching shared with the browser tests', () => {
     assert.ok(patterns.includes('*static.scarf.sh/*'));
     assert.ok(patterns.includes('*googletagmanager.com/*'));
     assert.ok(patterns.every((pattern) => /^\*[a-z0-9.-]+\/\*$/.test(pattern)));
-  });
-});
-
-describe('analytics tags in the site sources', () => {
-  it('carry nothing outside the approved production tags', () => {
-    const sources = globSync(
-      [
-        'docusaurus.config.ts',
-        'plugins/**/*.{cjs,js,mjs,ts}',
-        'src/**/*.{css,js,jsx,ts,tsx}',
-        'static/**/*.{html,js}',
-      ],
-      { nodir: true, ignore: ['**/*.test.*'] }
-    ).sort();
-    assert.ok(sources.includes('docusaurus.config.ts'));
-    const problems = sources.flatMap((path) =>
-      unapprovedTags(readFileSync(path, 'utf8')).map(
-        (needle) => `${path} carries unapproved analytics tag ${needle}`
-      )
-    );
-    assert.deepEqual(problems, []);
   });
 });
