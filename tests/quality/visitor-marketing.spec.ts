@@ -124,6 +124,8 @@ test('consent changes in another tab update the display without focus', async ({
   });
   await page.evaluate(() => {
     const record = (event: Event) => {
+      // SAFETY: the awaited page.exposeFunction above installs this binding on
+      // window before this callback runs, returning a promise for each call.
       (
         window as Window & {
           recordMarketingRefresh: (type: string) => Promise<void>;

@@ -6,6 +6,7 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 test.use({ storageState: { cookies: [], origins: [] } });
 
 const CARD = 'section[aria-label="Analytics privacy choices"]';
+
 const wcagTags = ['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'];
 
 async function seed(
@@ -119,9 +120,11 @@ test('Cookie settings reopens the card with the current choice, and Escape close
   await seed(context, baseURL, { 'expanso-cookie-consent': 'false' });
   await open(page);
   await expect(page.locator(CARD)).toHaveCount(0);
+
   const settings = page
     .locator('footer')
     .getByRole('button', { name: 'Cookie settings' });
+
   await settings.click();
   const card = page.locator(CARD);
   await expect(card).toBeVisible();
@@ -153,11 +156,13 @@ test('the open card and the footer control have no accessibility violations', as
 }) => {
   await open(page);
   await expect(page.locator(CARD)).toBeVisible();
+
   const result = await new AxeBuilder({ page })
     .include(CARD)
     .include('footer')
     .withTags(wcagTags)
     .analyze();
+
   expect(result.violations, JSON.stringify(result.violations, null, 2)).toEqual(
     []
   );
@@ -175,6 +180,7 @@ test.describe('on a 320 px wide phone', () => {
     const box = (await card.boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(320);
+
     for (const name of ['Decline analytics', 'Accept analytics', 'Close']) {
       const button = (await card.getByRole('button', { name }).boundingBox())!;
       // The site's target-size contract (src/css/custom.css): at least 44 CSS px.
@@ -189,17 +195,21 @@ test.describe('on a 320 px wide phone', () => {
         box.y + box.height
       );
     }
+
     // The larger Close target must not cover the notice text.
     const close = (await card
       .getByRole('button', { name: 'Close' })
       .boundingBox())!;
+
     const textRight = await card
       .locator('p')
       .first()
       .evaluate((text) => {
         const { right } = text.getBoundingClientRect();
+
         return right - parseFloat(getComputedStyle(text).paddingRight);
       });
+
     expect(close.x).toBeGreaterThanOrEqual(textRight);
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth)

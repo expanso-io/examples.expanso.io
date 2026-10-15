@@ -14,6 +14,7 @@ import {
 } from '../../scripts/verify-analytics-build';
 
 const roots: string[] = [];
+
 after(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true });
 });
@@ -21,10 +22,12 @@ after(() => {
 function fixture(files: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), 'analytics-build-'));
   roots.push(root);
+
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(join(root, path, '..'), { recursive: true });
     writeFileSync(join(root, path), content);
   }
+
   return root;
 }
 
@@ -59,6 +62,7 @@ const retiredGtmTags = [
 
 const plainPage =
   '<!doctype html><html><body><div id="__docusaurus"></div></body></html>';
+
 const redirectStub =
   '<!doctype html><html><head><meta http-equiv="refresh" content="0; url=/x/"></head></html>';
 
@@ -70,6 +74,7 @@ describe('analytics build variant verifier', () => {
       'assets/js/main.js': 'console.log("no delivery code")',
       'img/logo.png': 'binary',
     });
+
     const report = verifyAnalyticsBuild(root, 'none');
     assert.deepEqual(report.findings, []);
     assert.deepEqual(reportProblems(report), []);
@@ -88,6 +93,7 @@ describe('analytics build variant verifier', () => {
         '<script src="https://www.clarity.ms/tag/abc"></script></body>'
       ),
     });
+
     const problems = reportProblems(verifyAnalyticsBuild(root, 'none'));
     assert.ok(
       problems.includes('index.html contains analytics marker static.scarf.sh')
@@ -112,6 +118,7 @@ describe('analytics build variant verifier', () => {
       'examples/x/index.html': redirectStub,
       'assets/js/main.js': productionScript,
     });
+
     const report = verifyAnalyticsBuild(root, 'production');
     assert.equal(report.pages, 2);
     assert.deepEqual(reportProblems(report), []);
@@ -122,6 +129,7 @@ describe('analytics build variant verifier', () => {
       'index.html': unminifiedProductionPage,
       'assets/js/main.js': productionScript,
     });
+
     const report = verifyAnalyticsBuild(root, 'production');
     assert.equal(report.pages, 1);
     assert.deepEqual(reportProblems(report), []);
@@ -135,6 +143,7 @@ describe('analytics build variant verifier', () => {
       ),
       'assets/js/main.js': productionScript,
     });
+
     const problems = reportProblems(verifyAnalyticsBuild(root, 'production'));
     assert.deepEqual(problems, [
       'index.html carries unapproved analytics tag googletagmanager.com',
@@ -151,6 +160,7 @@ describe('analytics build variant verifier', () => {
       ),
       'assets/js/main.js': productionScript,
     });
+
     const problems = reportProblems(verifyAnalyticsBuild(root, 'production'));
     assert.deepEqual(problems, [
       'index.html carries unapproved analytics tag googletagmanager.com',
@@ -165,10 +175,12 @@ describe('analytics build variant verifier', () => {
       '<script src="https://survey.survicate.com/workspaces/a057fe/web_surveys.js"></script>',
       '<script src="https://r2.leadsy.ai/tag.js"></script>',
     ].join('');
+
     const root = fixture({
       'index.html': productionPage.replace('</head>', `${vendors}</head>`),
       'assets/js/main.js': productionScript,
     });
+
     const problems = reportProblems(verifyAnalyticsBuild(root, 'production'));
     assert.deepEqual(problems, [
       'index.html carries unapproved analytics tag hs-scripts.com',
@@ -190,6 +202,7 @@ describe('analytics build variant verifier', () => {
         'example.invalid'
       ),
     });
+
     const problems = reportProblems(verifyAnalyticsBuild(root, 'production'));
     assert.deepEqual(problems, [
       'about/index.html is missing production tag scarf-pixel',
