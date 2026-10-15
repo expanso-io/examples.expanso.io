@@ -135,11 +135,10 @@ allowlisted campaign labels are retained as separate properties.
 
 ### Production-only analytics tags
 
-Every third-party tag (the Scarf pixel, the PostHog client module and the
-dedicated GA adapter) is emitted
-only when `EXPANSO_PRODUCTION_ANALYTICS=1` is set at build time. The
+`scripts/analytics-tags.ts` owns the allowed tags and required build markers.
+Third-party tags are emitted only when `EXPANSO_PRODUCTION_ANALYTICS=1` is set at build time. The
 production-build job in `.github/workflows/phase1-foundation.yml` sets it on
-`main` only, so pull-request checks, previews and local builds carry none of
+`main` only, so pull-request checks, previews and unflagged local builds carry none of
 them and their browsers never reach an analytics host. The switch is read in
 `docusaurus.config.ts` and inlined into the bundle, which also drops the
 PostHog SDK chunk, ingestion host and project key from non-production builds.
@@ -147,13 +146,18 @@ PostHog SDK chunk, ingestion host and project key from non-production builds.
 any analytics host or identifier appears in a normal build and runs on every
 pull request; `--variant production` confirms the flagged `main` artifact
 carries every tag and nothing outside `PRODUCTION_ALLOWED_TAGS` in
-`scripts/analytics-tags.ts`, and runs only in that production-build job. A
-unit test applies the same allowlist to the site sources on every pull request. The shared Google Tag Manager container (`GTM-MPSKFDMF`)
-is retired: it fired GA4, Google Ads and six other vendors before any consent
-choice, and expanso.io and docs.expanso.io removed it too. Browser suites that
+`scripts/analytics-tags.ts`, and runs only in that production-build job. The
+shared Google Tag Manager container (`GTM-MPSKFDMF`) is retired. Browser suites that
 measure a production-variant build (`tests/quality/performance.spec.ts`,
 `tests/analytics/collector.test.ts`) abort requests to every host listed in
 `scripts/analytics-tags.ts`.
+
+For visitor matching permissions and withdrawal, see
+[Marketing privacy choices](docs/marketing-privacy.mdx). Run
+`npm run test-marketing-consent` to check the controls with vendor requests
+intercepted. Set `EXPANSO_PRODUCTION_ANALYTICS=1` for both the build or dev
+server and the test command to exercise tag delivery and withdrawal. For a
+production build, also set `QUALITY_STATIC_SERVER=1` on the test command.
 
 ### Analytics runtime and dedicated GA destination
 

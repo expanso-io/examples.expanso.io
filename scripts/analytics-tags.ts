@@ -117,8 +117,7 @@ export function unapprovedTags(text: string): string[] {
   return found;
 }
 
-/** What the production JavaScript must carry: the direct PostHog collector and
- * the dedicated Google Analytics adapter. */
+/** Delivery markers the production JavaScript must carry. */
 export const PRODUCTION_SCRIPT_MARKERS = [
   'a.usbrowserspeed.com/cs?pid=ddae2e0bce828a30a7b24f94f87290780f71120eaf9f11353f234c3bd86512d3',
   'web.t.expanso.io',

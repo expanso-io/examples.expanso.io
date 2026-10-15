@@ -35,11 +35,8 @@ const productionRouteGuardPlugin: PluginModule = () => ({
   },
 });
 
-// Third-party analytics belong only in the build that deploys the live site.
-// The production-build job sets this switch on main; PR checks, previews and
-// local builds never do, so their browsers reach no analytics host. Every tag
-// below (Scarf, the PostHog client module and the
-// Google adapter inside src/lib/analytics.ts) hangs off this one switch.
+// Third-party tags share the production-only build boundary documented in
+// README.md under "Production-only analytics tags".
 const productionAnalytics = process.env.EXPANSO_PRODUCTION_ANALYTICS === '1';
 
 // Inline the switch into the client and server bundles so the analytics
@@ -195,8 +192,10 @@ const config: Config = {
               '/data-security/remove-pii',
               ''
             );
+
             return [`/data-security/delete-payment-pii${suffix}`];
           }
+
           return undefined;
         },
         redirects: [
