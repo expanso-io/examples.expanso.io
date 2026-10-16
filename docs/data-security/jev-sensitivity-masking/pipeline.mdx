@@ -1,0 +1,58 @@
+---
+title: Sensitivity masking pipeline
+sidebar_label: Pipeline
+sidebar_position: 2
+description: The complete Jev sensitivity-masking pipeline — YAML, stage walkthrough, quick test, and deploy
+keywords: [jev, ai, data-security, pii, masking, pipeline, yaml]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/data-security/jev-sensitivity-masking.yaml';
+import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
+
+# Complete pipeline
+
+<CopyPipelineButton pipeline={pipelineYaml} />
+
+- **HTTP input** — records arrive at `POST /records`
+- **Jev branch** — sensitivity class, PII check, credential check in one call
+- **Policy cascade** — quarantine / tokenize / mask / pass
+- **Inline enforcement** — a `mapping` applies the chosen policy before forwarding
+
+## Full configuration
+
+<CodeBlock language="yaml" title="jev-sensitivity-masking.yaml">{pipelineYaml}</CodeBlock>
+
+## How it works, stage by stage
+
+1. **Parse** — `json_documents` parses the record.
+2. **Ask Jev** — the whole record (`this.string()`) is the state; three questions come back as `jev.answers`.
+3. **Pick the policy** — thresholds on credential probability and sensitivity class set `jev_decision`.
+4. **Apply the policy** — one `mapping` rewrites `email`, `ssn`, and `api_key` according to the decision: SHA-256 tokenization for confidential, `MASKED` for PII, `QUARANTINED` for secrets. The applied policy is stamped as `policy_applied`.
+5. **Route** — quarantined records go to a quarantine file (swap for a security-webhook `http_client` in production); everything else forwards with its policy stamp.
+
+## Try it
+
+```bash
+# 1. Mock Jev (no API key needed)
+python3 examples/jev-mock-server.py &
+
+# 2. Run the pipeline
+JEV_API_URL=http://localhost:8099/v1/systemone \
+  expanso-edge run --config examples/data-security/jev-sensitivity-masking.yaml
+
+# 3. Send the sample records
+while read -r line; do
+  curl -s -X POST http://localhost:8080/records \
+    -H "Content-Type: application/json" -d "$line" > /dev/null
+done < examples/data-security/jev-sensitivity-masking-input.jsonl
+```
+
+The deploy-token record should land in `quarantine-*.jsonl` with its key redacted; the HR record gets tokenized emails; the status-page record passes through untouched.
+
+## With a real Jev key
+
+```bash
+export TYPESAFE_API_KEY="your-key"
+expanso-edge run --config examples/data-security/jev-sensitivity-masking.yaml
+```

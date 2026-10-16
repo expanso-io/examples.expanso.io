@@ -1,0 +1,47 @@
+---
+title: Feedback miner with Jev
+sidebar_label: Introduction
+sidebar_position: 1
+description: Every review and NPS verbatim gets topic, sentiment and churn-risk judged inline. Bugs route to eng, churn risks ping the account team, everything feeds analytics.
+keywords: [jev, ai, integrations, feedback, nps, voice-of-customer, churn, decisions-at-the-edge]
+---
+
+# Feedback miner: every review actually read
+
+NPS surveys collect thousands of verbatims; teams read dozens. This pipeline reads *all of them* — topic, sentiment, churn risk, judged per response in ~0.4s — and routes each to the team that should act on it.
+
+## The problem
+
+- Voice-of-customer programs sample; the churn warning hides in the unread 95%
+- Manual tagging is inconsistent and weeks late
+- Nobody connects "this review sounds like churn" to the account team in time
+
+## How it works
+
+```
+POST /feedback ──▶ Jev (1 call, 3 questions) ──▶ cascade
+                                                      │
+              ┌───────────────┬───────────────────────┴───────────────┐
+              ▼               ▼                                       ▼
+      churn ≥ 0.75      bug + conf ≥ 0.7                        everything
+      → alert account   → eng queue                             → analytics
+        team
+```
+
+## The Jev questions
+
+| Question | Type | What it decides |
+|---|---|---|
+| `topic` | Choice (bug / feature_request / praise / pricing / support_experience / other) | What it's about |
+| `sentiment` | Score (0–4: very negative → very positive) | How they feel |
+| `churn_risk` | Noul | Might they leave? |
+
+## The confidence cascade
+
+- **alert** — churn risk ≥ 0.75: the account team hears about it today, not next quarter
+- **eng** — bug with topic confidence ≥ 0.7: straight into the engineering queue with sentiment attached
+- **analytics** — everything else feeds the warehouse, fully tagged for trend analysis
+
+## Cost math
+
+A 100-token review at TypeSafe's published $0.042/MTok costs roughly **$0.000004** to fully classify. Reading 100% of feedback stops being a budget question.

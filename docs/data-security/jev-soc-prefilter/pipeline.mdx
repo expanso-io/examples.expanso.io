@@ -1,0 +1,57 @@
+---
+title: SOC pre-filter pipeline
+sidebar_label: Pipeline
+sidebar_position: 2
+description: The complete Jev SOC pre-filter pipeline — YAML, stage walkthrough, quick test, and deploy
+keywords: [jev, ai, data-security, soc, siem, pipeline, yaml]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/data-security/jev-soc-prefilter.yaml';
+import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
+
+# Complete pipeline
+
+<CopyPipelineButton pipeline={pipelineYaml} />
+
+- **HTTP input** — auth events arrive at `POST /auth-events`
+- **Jev branch** — threat classification + escalation judgment in one call
+- **Confidence cascade** — siem / warm / cold
+- **Fan-out** — stdout plus one file per tier
+
+## Full configuration
+
+<CodeBlock language="yaml" title="jev-soc-prefilter.yaml">{pipelineYaml}</CodeBlock>
+
+## How it works, stage by stage
+
+1. **Parse** — `json_documents` parses the auth event.
+2. **Ask Jev** — the whole event is the state; threat class and escalation probability come back as `jev.answers`.
+3. **Cascade** — escalate ≥ 0.85 routes to the SIEM tier; any non-benign threat goes warm; benign goes cold. Every event keeps its Jev scores for later hunts.
+4. **Route** — stdout plus per-tier files. Swap the `siem` file for an `http_client` POST to your SIEM ingestion API in production.
+
+## Try it
+
+```bash
+# 1. Mock Jev (no API key needed)
+python3 examples/jev-mock-server.py &
+
+# 2. Run the pipeline
+JEV_API_URL=http://localhost:8099/v1/systemone \
+  expanso-edge run --config examples/data-security/jev-soc-prefilter.yaml
+
+# 3. Send the sample events
+while read -r line; do
+  curl -s -X POST http://localhost:8080/auth-events \
+    -H "Content-Type: application/json" -d "$line" > /dev/null
+done < examples/data-security/jev-soc-prefilter-input.jsonl
+```
+
+The 47-failures-in-10-minutes event should land in `siem-*.jsonl`; the impossible-travel and credential-stuffing events in `warm-*.jsonl`; the clean MFA logins in `cold-*.jsonl`.
+
+## With a real Jev key
+
+```bash
+export TYPESAFE_API_KEY="your-key"
+expanso-edge run --config examples/data-security/jev-soc-prefilter.yaml
+```

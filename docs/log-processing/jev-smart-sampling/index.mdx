@@ -1,0 +1,47 @@
+---
+title: Smart sampling with Jev
+sidebar_label: Introduction
+sidebar_position: 1
+description: Every event is scored for interestingness at the edge. Keep 100% of the interesting ones, 1% of the noise — your volume reduction depends on your signal-to-noise ratio.
+keywords: [jev, ai, log-processing, sampling, observability, cost, decisions-at-the-edge]
+---
+
+# Smart sampling: keep the interesting 1%
+
+Random sampling drops the one event you'd need in an incident. Judgment-based sampling keeps 100% of what matters and 1% of the noise — decided per event, at the edge, for fractions of a cent.
+
+## The problem
+
+- Observability bills scale with volume; most of that volume is health-check noise
+- Random 1% sampling keeps 1% of the noise *and* drops 99% of the signal
+- Deciding "interesting" used to require a human or an expensive model
+
+## How it works
+
+```
+POST /events ──▶ Jev scores interestingness (0–4)
+                          │
+              ┌───────────┴───────────┐
+              ▼                       ▼
+        score ≥ 3                 score < 3
+        → keep 100%              → keep deterministic 1%
+```
+
+One Score question per event. The pipeline keeps every event scoring 3+ and a deterministic 1% of the rest (via a counter, so the sample is stable and explainable — not random).
+
+## The Jev question
+
+| Question | Type | What it decides |
+|---|---|---|
+| `interesting` | Score (0–4: routine noise → critical signal) | How interesting is this event to an engineer investigating an incident? |
+
+## The cascade
+
+- **keep** — score ≥ 3: full fidelity, always retained
+- **sampled** — score < 3: every 100th event retained, the rest dropped
+
+The kept events carry their `jev_score`, so downstream you can see *why* each event survived — and tune the threshold from real data.
+
+## Cost math
+
+Scoring is the cheapest Jev question type (short criteria, one question). At ~100 input tokens per event, sampling judgment costs roughly **$0.000004/event** at TypeSafe's published price of $0.042 per million input tokens — against the $0.50–2.00/GB/month you're paying to store the noise it removes. Whether that trade pays for itself depends on your event size and your signal-to-noise ratio; run the fixtures against the included mock and do your own math before extrapolating.

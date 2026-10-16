@@ -1,0 +1,59 @@
+---
+title: Agent guardrail pipeline
+sidebar_label: Pipeline
+sidebar_position: 2
+description: The complete Jev agent-guardrail pipeline — YAML, stage walkthrough, quick test, and deploy
+keywords: [jev, ai, data-security, agents, guardrails, pipeline, yaml]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/data-security/jev-agent-guardrail.yaml';
+import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
+
+# Complete pipeline
+
+<CopyPipelineButton pipeline={pipelineYaml} />
+
+- **HTTP input** — agent tool calls arrive at `POST /tool-calls`
+- **Jev branch** — intent match + risk class in one call
+- **Fail-closed cascade** — block / hold / allow
+- **Fan-out** — stdout plus one file per decision
+
+## Full configuration
+
+<CodeBlock language="yaml" title="jev-agent-guardrail.yaml">{pipelineYaml}</CodeBlock>
+
+## How it works, stage by stage
+
+1. **Parse** — `json_documents` parses the tool call (`agent_id`, `user_intent`, `tool`, `args`).
+2. **Ask Jev** — the whole call is the state; intent-match probability and risk class come back as `jev.answers`. On Jev failure the answers come back empty — and the cascade treats that as `hold`, never `allow`.
+3. **Cascade** — the thresholds implement fail-closed: block on off-intent or confident risk, hold on uncertainty, allow only the clearly-safe.
+4. **Route** — stdout plus per-decision files. In production, `block` fans out to your agent control plane (deny) and alerting; `hold` feeds a human approval queue.
+
+## Try it
+
+```bash
+# 1. Mock Jev (no API key needed)
+python3 examples/jev-mock-server.py &
+
+# 2. Run the pipeline
+JEV_API_URL=http://localhost:8099/v1/systemone \
+  expanso-edge run --config examples/data-security/jev-agent-guardrail.yaml
+
+# 3. Send the sample tool calls
+while read -r line; do
+  curl -s -X POST http://localhost:8080/tool-calls \
+    -H "Content-Type: application/json" -d "$line" > /dev/null
+done < examples/data-security/jev-agent-guardrail-input.jsonl
+```
+
+The email-to-competitor call should land in `blocked-*.jsonl`; the grant-admin call in `held-*.jsonl` or `blocked-*.jsonl`; the read and flight-search calls in `allowed-*.jsonl`.
+
+## With a real Jev key
+
+```bash
+export TYPESAFE_API_KEY="your-key"
+expanso-edge run --config examples/data-security/jev-agent-guardrail.yaml
+```
+
+Point your agent framework's tool-call hook at `POST /tool-calls` and this pipeline becomes the gate for your whole fleet.
