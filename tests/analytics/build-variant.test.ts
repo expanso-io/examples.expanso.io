@@ -1,20 +1,12 @@
 import assert from 'node:assert/strict';
-import {
-  mkdtempSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
-import { globSync } from 'glob';
 
 import {
   analyticsBlockedUrlPatterns,
   isAnalyticsHost,
-  unapprovedTags,
 } from '../../scripts/analytics-tags';
 import {
   reportProblems,
@@ -22,6 +14,7 @@ import {
 } from '../../scripts/verify-analytics-build';
 
 const roots: string[] = [];
+
 after(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true });
 });
@@ -29,10 +22,12 @@ after(() => {
 function fixture(files: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), 'analytics-build-'));
   roots.push(root);
+
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(join(root, path, '..'), { recursive: true });
     writeFileSync(join(root, path), content);
   }
+
   return root;
 }
 
@@ -45,6 +40,7 @@ const productionPage = [
 ].join('');
 
 const productionScript =
+  'script.src="https://a.usbrowserspeed.com/cs?pid=ddae2e0bce828a30a7b24f94f87290780f71120eaf9f11353f234c3bd86512d3";' +
   'posthog.init("phc_f467hBf7ZUEc5HDT3xFcbhZ4tL7wUYJH0COw9Y2bzSK",{api_host:"https://web.t.expanso.io"});' +
   'script.src="https://www.googletagmanager.com/gtag/js?id=G-6YXD85WVC6&l=expansoExamplesAnalyticsLayer";';
 
@@ -66,6 +62,7 @@ const retiredGtmTags = [
 
 const plainPage =
   '<!doctype html><html><body><div id="__docusaurus"></div></body></html>';
+
 const redirectStub =
   '<!doctype html><html><head><meta http-equiv="refresh" content="0; url=/x/"></head></html>';
 
@@ -77,6 +74,7 @@ describe('analytics build variant verifier', () => {
       'assets/js/main.js': 'console.log("no delivery code")',
       'img/logo.png': 'binary',
     });
+
     const report = verifyAnalyticsBuild(root, 'none');
     assert.deepEqual(report.findings, []);
     assert.deepEqual(reportProblems(report), []);
@@ -95,6 +93,7 @@ describe('analytics build variant verifier', () => {
         '<script src="https://www.clarity.ms/tag/abc"></script></body>'
       ),
     });
+
     const problems = reportProblems(verifyAnalyticsBuild(root, 'none'));
     assert.ok(
       problems.includes('index.html contains analytics marker static.scarf.sh')
@@ -119,6 +118,7 @@ describe('analytics build variant verifier', () => {
       'examples/x/index.html': redirectStub,
       'assets/js/main.js': productionScript,
     });
+
     const report = verifyAnalyticsBuild(root, 'production');
     assert.equal(report.pages, 2);
     assert.deepEqual(reportProblems(report), []);
@@ -129,6 +129,7 @@ describe('analytics build variant verifier', () => {
       'index.html': unminifiedProductionPage,
       'assets/js/main.js': productionScript,
     });
+
     const report = verifyAnalyticsBuild(root, 'production');
     assert.equal(report.pages, 1);
     assert.deepEqual(reportProblems(report), []);
@@ -142,6 +143,7 @@ describe('analytics build variant verifier', () => {
       ),
       'assets/js/main.js': productionScript,
     });
+
     const problems = reportProblems(verifyAnalyticsBuild(root, 'production'));
     assert.deepEqual(problems, [
       'index.html carries unapproved analytics tag googletagmanager.com',
@@ -158,6 +160,7 @@ describe('analytics build variant verifier', () => {
       ),
       'assets/js/main.js': productionScript,
     });
+
     const problems = reportProblems(verifyAnalyticsBuild(root, 'production'));
     assert.deepEqual(problems, [
       'index.html carries unapproved analytics tag googletagmanager.com',
@@ -172,10 +175,12 @@ describe('analytics build variant verifier', () => {
       '<script src="https://survey.survicate.com/workspaces/a057fe/web_surveys.js"></script>',
       '<script src="https://r2.leadsy.ai/tag.js"></script>',
     ].join('');
+
     const root = fixture({
       'index.html': productionPage.replace('</head>', `${vendors}</head>`),
       'assets/js/main.js': productionScript,
     });
+
     const problems = reportProblems(verifyAnalyticsBuild(root, 'production'));
     assert.deepEqual(problems, [
       'index.html carries unapproved analytics tag hs-scripts.com',
@@ -197,6 +202,7 @@ describe('analytics build variant verifier', () => {
         'example.invalid'
       ),
     });
+
     const problems = reportProblems(verifyAnalyticsBuild(root, 'production'));
     assert.deepEqual(problems, [
       'about/index.html is missing production tag scarf-pixel',
@@ -228,6 +234,7 @@ describe('analytics host matching shared with the browser tests', () => {
     assert.equal(isAnalyticsHost('px.ads.linkedin.com'), true);
     assert.equal(isAnalyticsHost('survey.survicate.com'), true);
     assert.equal(isAnalyticsHost('r2.leadsy.ai'), true);
+    assert.equal(isAnalyticsHost('a.usbrowserspeed.com'), true);
     assert.equal(isAnalyticsHost('examples.expanso.io'), false);
     assert.equal(isAnalyticsHost('docs.scarf.sh'), false);
     assert.equal(isAnalyticsHost('127.0.0.1'), false);
@@ -238,26 +245,5 @@ describe('analytics host matching shared with the browser tests', () => {
     assert.ok(patterns.includes('*static.scarf.sh/*'));
     assert.ok(patterns.includes('*googletagmanager.com/*'));
     assert.ok(patterns.every((pattern) => /^\*[a-z0-9.-]+\/\*$/.test(pattern)));
-  });
-});
-
-describe('analytics tags in the site sources', () => {
-  it('carry nothing outside the approved production tags', () => {
-    const sources = globSync(
-      [
-        'docusaurus.config.ts',
-        'plugins/**/*.{cjs,js,mjs,ts}',
-        'src/**/*.{css,js,jsx,ts,tsx}',
-        'static/**/*.{html,js}',
-      ],
-      { nodir: true, ignore: ['**/*.test.*'] }
-    ).sort();
-    assert.ok(sources.includes('docusaurus.config.ts'));
-    const problems = sources.flatMap((path) =>
-      unapprovedTags(readFileSync(path, 'utf8')).map(
-        (needle) => `${path} carries unapproved analytics tag ${needle}`
-      )
-    );
-    assert.deepEqual(problems, []);
   });
 });

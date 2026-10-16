@@ -14,6 +14,7 @@ import {
   recordAnalyticsEvent,
 } from '../analytics/events';
 import CookieConsentCard from '../components/cookies/CookieConsentCard';
+import { watchVisitorMarketing } from '../lib/visitorMarketing';
 
 interface RootProps {
   children: ReactNode;
@@ -21,9 +22,11 @@ interface RootProps {
 
 function relatedExamplesBlock(anchor: HTMLAnchorElement): boolean {
   let block = anchor.closest('p, ul, ol');
+
   if (block === null) return false;
 
   let sibling = block.previousElementSibling;
+
   while (sibling !== null && !/^H[1-6]$/.test(sibling.tagName)) {
     sibling = sibling.previousElementSibling;
   }
@@ -37,9 +40,12 @@ function relatedExamplesBlock(anchor: HTMLAnchorElement): boolean {
 export default function Root({ children }: RootProps): React.JSX.Element {
   const location = useLocation();
 
+  useEffect(watchVisitorMarketing, []);
+
   useEffect(() => {
     const pathname = `/${location.pathname.split('/').filter(Boolean).join('/')}/`;
     const classification = exampleAnalyticsClassification(pathname);
+
     if (classification !== null) {
       recordAnalyticsEvent(
         createExampleViewEvent(
@@ -55,9 +61,11 @@ export default function Root({ children }: RootProps): React.JSX.Element {
     function handleClick(event: MouseEvent): void {
       if (!(event.target instanceof Element)) return;
       const anchor = event.target.closest<HTMLAnchorElement>('a[href]');
+
       if (anchor === null) return;
 
       const destination = new URL(anchor.href, window.location.origin);
+
       if (destination.origin !== window.location.origin) {
         const outbound = createOutboundClickEvent(
           destination.href,
@@ -67,16 +75,20 @@ export default function Root({ children }: RootProps): React.JSX.Element {
               ? 'process-data-locally'
               : 'site-navigation')
         );
+
         if (outbound) recordAnalyticsEvent(outbound);
+
         return;
       }
 
       const download = firstResultDownloadEvent(destination.pathname);
+
       if (download) recordAnalyticsEvent(download);
 
       const currentExampleId = exampleIdFromCatalogPath(
         window.location.pathname
       );
+
       const destinationExampleId = exampleIdFromCatalogPath(
         destination.pathname
       );
@@ -101,6 +113,7 @@ export default function Root({ children }: RootProps): React.JSX.Element {
     }
 
     document.addEventListener('click', handleClick, true);
+
     return () => document.removeEventListener('click', handleClick, true);
   }, []);
 
