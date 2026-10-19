@@ -15,6 +15,7 @@ import styles from './cookies.module.css';
 
 // The address tests/analytics/events.test.ts allows; expanso.io redirects it to the policy.
 export const PRIVACY_POLICY = 'https://expanso.io/privacy';
+
 /** Dispatched by ManageCookies to reopen the card for a visitor who already chose. */
 export const COOKIE_CONSENT_OPEN_EVENT = 'cookie_consent_open';
 
@@ -41,9 +42,11 @@ function returnFocus(
 ) {
   const opener = openerRef.current;
   openerRef.current = null;
+
   if (!card || !opener) return;
   const active = document.activeElement;
   const onBody = active === null || active === document.body;
+
   if (card.contains(active) || (byVisitor && onBody)) opener.focus();
 }
 
@@ -59,6 +62,7 @@ export default function CookieConsentCard(): React.JSX.Element | null {
     const syncToConsent = (byVisitor: boolean) => {
       const status = getCookieConsent();
       const closed = isConsentBannerDismissed();
+
       // The reopened card hides unless it falls back to the first-visit card, which keeps
       // focus where the visitor has it; the opener is forgotten either way.
       if (status !== 'undecided' || closed)
@@ -68,11 +72,14 @@ export default function CookieConsentCard(): React.JSX.Element | null {
       setDismissed(closed);
       setReopened(false);
     };
+
     const handleChoice = () => syncToConsent(true);
+
     const handleOpen = (event: Event) => {
       // ManageCookies names itself, because Safari does not focus the button on click.
       const named =
         event instanceof CustomEvent ? event.detail?.opener : undefined;
+
       const active = document.activeElement;
       openerRef.current =
         named instanceof HTMLElement
@@ -83,6 +90,7 @@ export default function CookieConsentCard(): React.JSX.Element | null {
       setConsentStatus(getCookieConsent());
       setReopened(true);
     };
+
     syncToConsent(false);
 
     // Same-tab choices, including re-confirming the current one from the reopened card (the
@@ -106,12 +114,15 @@ export default function CookieConsentCard(): React.JSX.Element | null {
     // focus, so an Escape meant for something else on the page must not dismiss it; it closes
     // through its own button.
     if (!reopened) return;
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       returnFocus(cardRef.current, openerRef, true);
       setReopened(false);
     };
+
     window.addEventListener('keydown', handleKeyDown);
+
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [reopened]);
 
@@ -148,7 +159,8 @@ export default function CookieConsentCard(): React.JSX.Element | null {
         <a href={PRIVACY_POLICY} target="_blank" rel="noreferrer">
           Read our privacy policy
         </a>
-        .
+        . <a href="/marketing-privacy/">Marketing privacy choices</a> are
+        separate and off until you allow them.
       </p>
       {reopened && (
         <p className={styles.choice}>
