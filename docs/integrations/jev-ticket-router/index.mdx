@@ -1,0 +1,50 @@
+---
+title: Support ticket router with Jev
+sidebar_label: Introduction
+sidebar_position: 1
+description: Every support ticket gets department, intent, frustration score and urgency judged inline at the edge. Confidently urgent tickets page on-call; uncertain ones queue for humans.
+keywords: [jev, ai, integrations, support, ticket-routing, webhooks, decisions-at-the-edge]
+---
+
+# Support ticket router
+
+Tickets arrive as webhooks. Before they touch your helpdesk, Jev reads each one — which department, what the customer actually wants, how frustrated they sound, whether it's urgent — and the pipeline routes on those answers.
+
+## The problem
+
+- First-response SLAs die in a single shared inbox
+- Keyword routing misfiles the tickets that matter most (like GDPR deletion requests)
+- Nobody scores frustration, so churn risks surface as cancellations, not tickets
+
+## How it works
+
+```
+POST /tickets ──▶ Jev (1 call, 4 questions) ──▶ cascade ──▶ queues
+                                                        │
+            ┌──────────────┬──────────────┬──────────────┴──────────────┐
+            ▼              ▼              ▼                             ▼
+        urgent → page   frustration   uncertain dept              routed to
+        on-call         → priority    → human triage              dept queue
+```
+
+## The Jev questions
+
+| Question | Type | What it decides |
+|---|---|---|
+| `department` | Choice (billing / technical / sales / other) | Where it goes |
+| `intent` | Choice (bug / how_to / billing_dispute / feature_request / account_deletion / other) | What the customer wants |
+| `frustration` | Score (0–4) | How heated it is |
+| `urgent` | Noul | Time-sensitive? |
+
+The `account_deletion` intent is the trap case keyword routing always misses — a narrow option list with an explicit `other` is what makes typed classification trustworthy.
+
+## The confidence cascade
+
+- **page** — urgent ≥ 0.9: page on-call immediately
+- **priority** — frustration ≥ 2.5: priority queue, answered first
+- **triage** — department confidence < 0.5: a human reads it, with Jev's probability spread attached as the triage UI
+- **route** — filed to the department queue with the assigned department stamped on the event
+
+## Cost math
+
+One Jev call per ticket. A 150-token ticket at TypeSafe's published $0.042/MTok input costs roughly **$0.000006** — against a human triage touch typically estimated at $5–15.

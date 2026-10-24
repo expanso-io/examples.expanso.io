@@ -1,0 +1,48 @@
+---
+title: AI decisions at the edge with Jev
+sidebar_label: Jev + Expanso
+sidebar_position: 4
+description: Call TypeSafe's Jev (System One) model inline in your Expanso pipelines — typed AI decisions on every event, gated by confidence, for fractions of a cent.
+keywords: [jev, typesafe, ai, llm, decisions, confidence, getting-started]
+---
+
+# AI decisions at the edge with Jev
+
+[Jev](https://docs.typesafe.ai/introduction/quickstart) is TypeSafe's System One model: send a state plus typed questions, get typed answers with calibrated confidence. Three question types: **Choice** (pick one of your declared options), **Score** (position on a scale you describe), **Noul** (yes/no as a probability).
+
+TypeSafe reports 70–500ms latency and $0.042 per million input tokens with output free — which is what makes it cheap enough to judge *every event* in a stream. Ten examples live under **AI decisions (Jev)** in the categories below.
+
+## Setup
+
+Jev is in early access (waitlisted) — get a key at [typesafe.ai](https://typesafe.ai), then `export TYPESAFE_API_KEY="your-key"`. No key? Every example runs against the included mock server:
+
+```bash
+python3 examples/jev-mock-server.py &
+JEV_API_URL=http://localhost:8099/v1/systemone \
+  expanso-edge run --config examples/log-processing/jev-log-triage.yaml
+```
+
+## The pattern
+
+**Jev decides → code acts above action-specific thresholds → uncertainty escalates.** One `branch` + `http` call per event, answers merged back under `jev.answers`, then a `mapping` routes on confidence — see any example's Pipeline page for the full YAML.
+
+Two rules: every Choice gets an explicit `other` (a forced pick between wrong options is how confident errors happen), and expensive actions demand high confidence — paging wants ≥ 0.85, archiving is fine at ≥ 0.5.
+
+## The examples
+
+| Example | Category | What Jev decides |
+|---|---|---|
+| Edge log triage | log-processing | actionable? severity? team? |
+| Smart sampling | log-processing | how interesting? |
+| Sensor anomaly triage | data-routing | anomaly score? dispatch? |
+| Sensitivity masking | data-security | sensitivity? PII? credentials? |
+| Agent guardrail | data-security | intent match? risk class? |
+| SOC pre-filter | data-security | threat pattern? escalate? |
+| Data quality firewall | data-transformation | quality? conformant? |
+| Ticket router | integrations | department? intent? frustration? urgent? |
+| Moderation pre-filter | integrations | category? needs human? |
+| Feedback miner | integrations | topic? sentiment? churn risk? |
+
+## Troubleshooting
+
+**401s** — `TYPESAFE_API_KEY` isn't set or valid. **Timeouts** — default 2s; check edge-node egress. **Everything lands in review** — confidence reads 0 on empty answers; check `jev.model` for `jev-unavailable`, meaning the Jev call failed and the pipeline degraded gracefully.

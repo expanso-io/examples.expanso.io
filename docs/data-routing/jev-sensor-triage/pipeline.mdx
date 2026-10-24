@@ -1,0 +1,57 @@
+---
+title: Sensor triage pipeline
+sidebar_label: Pipeline
+sidebar_position: 2
+description: The complete Jev sensor-triage pipeline — YAML, stage walkthrough, quick test, and deploy
+keywords: [jev, ai, data-routing, iot, sensors, anomaly, pipeline, yaml]
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import pipelineYaml from '!!raw-loader!../../../examples/data-routing/jev-sensor-triage.yaml';
+import CopyPipelineButton from '@site/src/components/CopyPipelineButton';
+
+# Complete pipeline
+
+<CopyPipelineButton pipeline={pipelineYaml} />
+
+- **HTTP input** — readings arrive at `POST /readings`
+- **Baseline enrichment** — normal operating ranges attached for context
+- **Jev branch** — anomaly score + dispatch judgment in one call
+- **Confidence cascade** — dispatch / flag / rollup
+
+## Full configuration
+
+<CodeBlock language="yaml" title="jev-sensor-triage.yaml">{pipelineYaml}</CodeBlock>
+
+## How it works, stage by stage
+
+1. **Parse and enrich** — `json_documents` parses the reading; a `mapping` attaches the asset's baseline so Jev judges deviation in context.
+2. **Ask Jev** — anomaly score (0–4) and dispatch probability come back as `jev.answers`.
+3. **Cascade** — dispatch ≥ 0.8 routes to a work order; anomaly ≥ 2 flags the reading; the rest rolls up.
+4. **Route** — stdout plus one file per decision. Swap the `dispatch` file for an `http_client` POST to your CMMS work-order API in production.
+
+## Try it
+
+```bash
+# 1. Mock Jev (no API key needed)
+python3 examples/jev-mock-server.py &
+
+# 2. Run the pipeline
+JEV_API_URL=http://localhost:8099/v1/systemone \
+  expanso-edge run --config examples/data-routing/jev-sensor-triage.yaml
+
+# 3. Send the sample readings
+while read -r line; do
+  curl -s -X POST http://localhost:8080/readings \
+    -H "Content-Type: application/json" -d "$line" > /dev/null
+done < examples/data-routing/jev-sensor-triage-input.jsonl
+```
+
+The smoking pump reading should land in `dispatch-*.jsonl`; the warm-but-elevated reading in `flagged-*.jsonl`; the normal readings in `rollup-*.jsonl`.
+
+## With a real Jev key
+
+```bash
+export TYPESAFE_API_KEY="your-key"
+expanso-edge run --config examples/data-routing/jev-sensor-triage.yaml
+```
